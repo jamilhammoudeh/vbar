@@ -21,6 +21,12 @@ CATALOGUE = (
     MetricInfo("M3", "terminal_vel_error", "m/s"),
     MetricInfo("M4", "time_to_complete", "s"),
     MetricInfo("M5", "progress", "fraction"),
+    MetricInfo("E1", "delta_v", "m/s"),
+    MetricInfo("E1b", "delta_v_axes", "m/s"),
+    MetricInfo("E2", "propellant_mass", "kg"),
+    MetricInfo("E4", "burn_count", "count"),
+    MetricInfo("E5", "duty_cycle", "fraction"),
+    MetricInfo("E6", "chatter", "1/s"),
 )
 
 METRICS = {info.name: info for info in CATALOGUE}

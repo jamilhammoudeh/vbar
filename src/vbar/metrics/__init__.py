@@ -1,5 +1,6 @@
 """Benchmark metrics: functions of a recorded episode (see docs/metrics.md)."""
 
+from .efficiency import efficiency_metrics
 from .episode import Episode, record_episode
 from .evaluate import evaluate
 from .mission import captured, mission_metrics, success
@@ -14,6 +15,7 @@ __all__ = [
     "Trace",
     "captured",
     "complement",
+    "efficiency_metrics",
     "evaluate",
     "merge",
     "minimum",

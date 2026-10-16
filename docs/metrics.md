@@ -77,6 +77,23 @@ $|\mathbf v - \mathbf v_g| < v_{\text{cap}}$, checked at step boundaries after t
 `mission_metrics(episode)` returns all five; `evaluate(episode)` returns every metric, keyed by the
 names in `METRICS`, whose entries give each metric's ID, units and version.
 
+## Efficiency (E1, E1b, E2, E4 to E6)
+
+All read the executed acceleration, the `Actuation` segments: delays, the minimum impulse bit,
+run-out and filters count as flown. $\mathbf a_j$ is segment $j$'s acceleration, held $\tau_j$ s.
+
+| ID | Name | Units | Definition |
+|---|---|---|---|
+| E1 | `delta_v` | m/s | $\sum_j \lvert\mathbf a_j\rvert_2 \tau_j$ (one steerable engine), as the actuator integrated it, exact for the constant-thrust drive |
+| E1b | `delta_v_axes` | m/s | $\sum_j \lvert\mathbf a_j\rvert_1 \tau_j$ (a thruster pair per axis) |
+| E2 | `propellant_mass` | kg | $m_0\,(1 - e^{-\Delta v / (I_{sp} g_0)})$ with the layout's delta-v: E1b for box limits, E1 for ball |
+| E4 | `burn_count` | count | maximal runs of consecutive steps with any executed thrust |
+| E5 | `duty_cycle` | fraction | time with any executed thrust over the episode length $T$ |
+| E6 | `chatter` | 1/s | per axis, sign changes between consecutive nonzero accelerations, summed over axes, over $T$ |
+
+The rocket equation is multiplicative, so E2 equals the sum of the actuator's per-burn propellant;
+with propellant run-out, the actuator stops at the dry mass and later burns add no delta-v.
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -98,6 +115,13 @@ names in `METRICS`, whose entries give each metric's ID, units and version.
   free drift through the target fails with progress $1 - d_{\text{end}}/250$; moving away gives
   zero progress. Terminal errors are the same at 5, 10 and 20 s steps (1e-9 relative), and all five
   are unchanged by mirroring the start across the orbit plane.
+- Efficiency (`tests/test_metrics_efficiency.py`): a constant half-command burn for 30 s gives
+  $0.01\sqrt2 \times 30$ m/s, 0.6 m/s on the 1-norm and $500(1 - e^{-0.6/(220 g_0)})$ kg, equal to
+  the actuator's own per-burn propellant to 1e-12; a ball thruster spends on the 2-norm; a
+  constant-thrust burn's delta-v is $I_{sp} g_0 \ln(m_0/m_1)$. A scripted pattern gives 3 burns, a
+  duty cycle of 1/2 and 3 sign changes in 80 s. A half-step delay moves the burn but not its cost;
+  delta-v does not change between 10 and 2.5 s steps, and for a ball thruster it does not change
+  when the command is rotated.
 
 ## Example
 

@@ -15,5 +15,5 @@ and how it is tested.
 | [sensors.md](sensors.md) | perfect navigation, white noise with an episode bias (`:nav1`), range-scaled errors in the sensor frame, time-correlated Gauss-Markov errors (`:nav2`) |
 | [constraints.md](constraints.md) | constraint margins, the keep-out sphere, sampling and refinement inside a step, the Lipschitz certificate and its assumptions |
 | [environment.md](environment.md) | the base environment and the approach scenario: actions, observation channels, random streams, propagation, keep-out checking, what agents and metrics see, reward, agents, configuration |
-| [metrics.md](metrics.md) | recording an episode, the trajectory between samples, signals and their violation intervals in continuous time, mission metrics |
+| [metrics.md](metrics.md) | recording an episode, the trajectory between samples, signals and their violation intervals in continuous time, mission and efficiency metrics |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |
