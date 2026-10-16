@@ -290,16 +290,14 @@ def test_libration_model_error_against_cr3bp_grows_as_range_squared():
     u = np.array([0.3, -0.8, 0.5]) / np.linalg.norm([0.3, -0.8, 0.5])
     errors = []
     for rho in (10.0, 100.0, 1000.0):
+        # The thrust scales with the start so the whole path does; it moves the chaser about
+        # a quarter of rho.
+        accel = 1e-9 * rho * u[[2, 0, 1]]
         for m in (model, truth):
             m.reset(np.r_[rho * u, 1e-5 * rho * u[[1, 2, 0]]])
-        errors.append(
-            np.max(
-                np.abs(
-                    model.advance(np.zeros(3), 6 * 3600.0)[0][:3]
-                    - truth.advance(np.zeros(3), 6 * 3600.0)[0][:3]
-                )
-            )
-        )
+        linear, _ = model.advance(accel, 6 * 3600.0)
+        nonlinear, _ = truth.advance(accel, 6 * 3600.0)
+        errors.append(np.max(np.abs(linear[:3] - nonlinear[:3])))
     assert errors[0] < 1e-7
     assert errors[1] / errors[0] == pytest.approx(100.0, rel=1e-3)
     assert errors[2] / errors[1] == pytest.approx(100.0, rel=1e-3)
@@ -373,18 +371,22 @@ def test_periodic_linear_model_reuses_the_monodromy_matrix(nrho_linear):
 
 
 def test_periodic_linear_model_error_against_cr3bp_grows_as_range_squared(nrho_linear):
-    # A passive chaser offset from perilune, one day.
+    # A chaser offset from perilune for one day, coasting and under a thrust that scales with
+    # the offset.
     model = nrho_linear
     truth = cr3bp.CR3BPDynamics(SYSTEM, NRHO)
     errors = []
-    for rho in (10.0, 100.0, 1000.0):
-        for m in (model, truth):
-            m.reset([rho, 0.0, 0.0, 0.0, 0.0, 0.0])
-        linear, _ = model.advance(np.zeros(3), 86400.0)
-        nonlinear, _ = truth.advance(np.zeros(3), 86400.0)
-        errors.append(np.linalg.norm(linear[:3] - nonlinear[:3]))
-    assert errors[1] / errors[0] == pytest.approx(100.0, rel=2e-3)
-    assert errors[2] / errors[1] == pytest.approx(100.0, rel=2e-3)
+    for direction in (np.zeros(3), np.array([0.3, -0.5, 0.2])):
+        for rho in (10.0, 100.0, 1000.0):
+            for m in (model, truth):
+                m.reset([rho, 0.0, 0.0, 0.0, 0.0, 0.0])
+            accel = 1e-10 * rho * direction
+            linear, _ = model.advance(accel, 86400.0)
+            nonlinear, _ = truth.advance(accel, 86400.0)
+            errors.append(np.linalg.norm(linear[:3] - nonlinear[:3]))
+    for e in (errors[:3], errors[3:]):
+        assert e[1] / e[0] == pytest.approx(100.0, rel=2e-3)
+        assert e[2] / e[1] == pytest.approx(100.0, rel=2e-3)
 
 
 def test_cr3bp_transition_matrices_keep_the_rotating_symplectic_form():
