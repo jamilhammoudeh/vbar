@@ -28,6 +28,8 @@ Reference: H. Curtis, "Orbital Mechanics for Engineering Students", ch. 7.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -96,24 +98,36 @@ def cw_system(n: float) -> tuple[np.ndarray, np.ndarray]:
     return A, B
 
 
+# Taylor coefficients of (x - sin x) / x^3 in powers of x^2, through x^15. Below |x| = 0.5 the
+# truncation error is under 1e-18 relative, where the direct difference cancels.
+_X_MINUS_SIN = [(-1) ** k / math.factorial(2 * k + 3) for k in range(7)]
+
+
+def _x_minus_sin(x: np.ndarray) -> np.ndarray:
+    x2 = x * x
+    series = x * x2 * np.polyval(_X_MINUS_SIN[::-1], x2)
+    return np.where(np.abs(x) < 0.5, series, x - np.sin(x))
+
+
 def cw_discrete(n: float, dt: float | np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Exact zero-order-hold discretization, state(t + dt) = phi state(t) + gamma accel.
 
     Closed forms of phi = expm(A dt) and gamma = int_0^dt expm(A s) ds B, exact for an
-    acceleration held constant in the Hill frame over `dt`. 1 - cos(n dt) is evaluated as
-    2 sin^2(n dt / 2) so short steps keep full precision. An array of durations gives
-    stacked matrices of shape (..., 6, 6) and (..., 6, 3).
+    acceleration held constant in the Hill frame over `dt`. Written in terms of
+    k = 1 - cos(n dt) and d = n dt - sin(n dt), both evaluated without cancellation, so short
+    steps keep full precision. An array of durations gives stacked matrices of shape
+    (..., 6, 6) and (..., 6, 3).
     """
     t = np.asarray(dt, dtype=float)
     nt = n * t
     s, c = np.sin(nt), np.cos(nt)
     k = 2.0 * np.sin(0.5 * nt) ** 2
-    d = nt - s
+    d = _x_minus_sin(nt)
     o, i = np.zeros_like(t), np.ones_like(t)
     phi = np.array(
         [
             [1 + 3 * k, o, o, s / n, 2 * k / n, o],
-            [-6 * d, i, o, -2 * k / n, (4 * s - 3 * nt) / n, o],
+            [-6 * d, i, o, -2 * k / n, (nt - 4 * d) / n, o],
             [o, o, c, o, o, s / n],
             [3 * n * s, o, o, c, 2 * s, o],
             [-6 * n * k, o, o, -2 * s, 1 - 4 * k, o],
@@ -126,7 +140,7 @@ def cw_discrete(n: float, dt: float | np.ndarray) -> tuple[np.ndarray, np.ndarra
             [-2 * d / n**2, 4 * k / n**2 - 1.5 * t**2, o],
             [o, o, k / n**2],
             [s / n, 2 * k / n, o],
-            [-2 * k / n, (4 * s - 3 * nt) / n, o],
+            [-2 * k / n, (nt - 4 * d) / n, o],
             [o, o, s / n],
         ]
     )
