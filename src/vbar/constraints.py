@@ -1,7 +1,7 @@
 """Constraints on the relative state and their minimum margin over continuous time.
 
 A constraint's margin is >= 0 where it holds and < 0 where it is violated, in the units of the
-constraint; it is the robustness of "always margin >= 0". Within a segment of constant thrust
+constraint, as in signal temporal logic. Within a segment of constant thrust
 the state is a smooth function of time that the dynamics model can evaluate anywhere, so the
 minimum margin over the segment is found from evenly spaced samples and refined by a bounded
 scalar minimization.
