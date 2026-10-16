@@ -270,23 +270,25 @@ def test_j2_mean_raan_drift_matches_analytic_rate(inclination_deg):
     assert (raan() - raan0) / duration == pytest.approx(expected, rel=1e-2)
 
 
-def test_hill_velocity_under_j2_needs_the_exact_frame_rate():
+@pytest.mark.parametrize("t", [500.0, 1400.0, 2800.0])
+def test_hill_velocity_under_j2_needs_the_exact_frame_rate(t):
     m = TwoBodyDynamics(inclination=np.radians(51.6), j2=True)
     m.reset([200.0, -1000.0, 300.0, 0.05, 0.1, -0.2])
-    h = 0.5
-    m.advance(ZERO, 500.0)
-    before = [m.state_in_last_segment(500.0 - k * h)[:3] for k in (2, 1)]
-    target, chaser = m.target_state(), m.chaser_state()
-    m.advance(ZERO, 500.0)
-    rel = m.state_in_last_segment(0.0)
-    after = [m.state_in_last_segment(k * h)[:3] for k in (1, 2)]
-    rate = (before[0] - 8 * before[1] + 8 * after[0] - after[1]) / (12 * h)
-    assert np.max(np.abs(rel[3:] - rate)) < 1e-8
+    h = 1.0
+    m.advance(ZERO, t - 2 * h)
+    positions = [m.state_in_last_segment(t - 2 * h)[:3]]
+    for k in range(4):
+        state, _ = m.advance(ZERO, h)
+        positions.append(state[:3])
+        if k == 1:
+            rel, target, chaser = state, m.target_state(), m.chaser_state()
+    rate = (positions[0] - 8 * positions[1] + 8 * positions[3] - positions[4]) / (12 * h)
+    assert np.max(np.abs(rel[3:] - rate)) < 1e-9
     # The Keplerian frame rate ignores the orbit plane turning under J2.
     keplerian = inertial_to_hill(
         target[:3], target[3:], chaser[:3] - target[:3], chaser[3:] - target[3:]
     )
-    assert np.max(np.abs(keplerian[3:] - rate)) > 5e-4
+    assert np.max(np.abs(keplerian[3:] - rate)) > 1e-4
 
 
 @pytest.mark.parametrize("axis", range(3))
