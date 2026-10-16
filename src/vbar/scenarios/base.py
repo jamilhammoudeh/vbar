@@ -28,6 +28,7 @@ from gymnasium import spaces
 from ..agents.base import AgentView
 from ..constraints import Constraint, SegmentMinimum, segment_minimum, violation_intervals
 from ..dynamics import make_dynamics
+from ..rewards import Reward, Transition
 from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
 ACTION_MODES = ("normalized", "accel", "thrust")
@@ -50,6 +51,9 @@ class EnvConfig:
     that will still act after this step, the one in effect first and then those not yet in effect,
     each as (seconds until it takes effect, command in the action mode's units); it has
     ceil(delay_s / dt) slots, zero-filled at the front before the first commands.
+
+    `reward` replaces the scenario's legacy reward with a `vbar.rewards.Reward`; `info` then
+    holds each step's `discount`.
     """
 
     dt: float = 10.0
@@ -71,6 +75,7 @@ class EnvConfig:
     sensor: Sensor = field(default_factory=PerfectNav)
     violation_samples: int = 20
     observation_channels: tuple[str, ...] = ()
+    reward: Reward | None = None
 
 
 @dataclass(frozen=True)
@@ -80,7 +85,8 @@ class SegmentTrace:
     `segments` are (start time s, duration s, Hill acceleration m/s^2); `times` (s) and
     `states` are the samples of all segments in order; `minima` is each constraint's lowest
     margin over the step; `violations` holds, for each constraint, the (start, end) times (s)
-    of the step's intervals with a negative margin, merged across segment boundaries.
+    of the step's intervals with a negative margin, merged across segment boundaries; `starts`
+    is the true state at the start of each segment.
     """
 
     segments: tuple[tuple[float, float, np.ndarray], ...]
@@ -88,6 +94,7 @@ class SegmentTrace:
     states: np.ndarray
     minima: Mapping[str, SegmentMinimum]
     violations: Mapping[str, tuple[tuple[float, float], ...]] = field(default_factory=dict)
+    starts: np.ndarray = field(default_factory=lambda: np.zeros((0, 6)))
 
 
 @dataclass(frozen=True)
@@ -175,8 +182,16 @@ class BaseEnv(gym.Env):
         return {}
 
     def _evaluate(self, record: StepRecord) -> tuple[float, bool, dict[str, Any]]:
-        """Reward, whether the episode ends, and scenario entries for `info`."""
+        """Legacy reward, whether the episode ends, and scenario entries for `info`."""
         return 0.0, False, {}
+
+    def _goal_distance(self, state: np.ndarray) -> float:
+        """Distance (m) from the state to the goal, for progress shaping."""
+        return 0.0
+
+    def _success(self) -> bool:
+        """Whether the success predicate holds now with no hard constraint violated (M1)."""
+        return False
 
     @property
     def scenario_id(self) -> str:
@@ -216,6 +231,7 @@ class BaseEnv(gym.Env):
         self.dv_l2 = self.dv_l1 = self.propellant_used = 0.0
         self.min_margins = {c.name: float(c.margin(self.state, 0.0)) for c in self.constraints}
         self.min_margin_bounds = dict(self.min_margins)
+        self.inside = {c.name: False for c in self.constraints}
         self.obs = self._observe()
         self.record = None
         return self.obs.copy(), self._info()
@@ -242,7 +258,40 @@ class BaseEnv(gym.Env):
         self.record = record
         info = self._info()
         info.update(extra)
+        if self.cfg.reward is not None:
+            transition = self.transition(record, terminated)
+            reward = float(self.cfg.reward(transition))
+            info["discount"] = float(self.cfg.reward.discount(transition.duration))
         return self.obs.copy(), float(reward), terminated, truncated, info
+
+    def transition(self, record: StepRecord, terminated: bool) -> Transition:
+        """The step as rewards see it; call once per step, since it tracks violation entries."""
+        trace = record.segment
+        start = trace.segments[0][0]
+        duration = sum(d for _, d, _ in trace.segments)
+        rows = np.array([[t - start, d, *a] for t, d, a in trace.segments]).reshape(-1, 5)
+        accels = rows[:, 2:5]
+        norm_order = 1 if self.cfg.thrust_limit == "box" else 2
+        violations, entries = {}, {}
+        for name, spans in trace.violations.items():
+            offsets = np.array(spans, dtype=float).reshape(-1, 2) - start
+            # An interval open at the step's start continues one from the previous step.
+            new = [a for a, _ in offsets if not (a == 0.0 and self.inside[name])]
+            violations[name] = offsets
+            entries[name] = np.array(new, dtype=float)
+            self.inside[name] = bool(len(offsets)) and offsets[-1, 1] >= duration - 1e-9
+        return Transition(
+            duration=duration,
+            segments=rows,
+            starts=trace.starts,
+            fuel_rates=np.linalg.norm(accels, ord=norm_order, axis=1),
+            violations=violations,
+            entries=entries,
+            goal_distance=self._goal_distance(trace.starts[0]),
+            next_goal_distance=self._goal_distance(record.true_state),
+            success=self._success(),
+            terminal=terminated,
+        )
 
     def _fly(self, actuation: Actuation) -> SegmentTrace:
         """Propagate each constant-acceleration segment and check constraints within it.
@@ -255,9 +304,11 @@ class BaseEnv(gym.Env):
         segments, times, states = [], [], []
         minima: dict[str, SegmentMinimum] = {}
         violations: dict[str, list[tuple[float, float]]] = {c.name: [] for c in self.constraints}
+        starts = []
         for duration, accel in actuation.segments:
             if duration <= 0.0:
                 continue
+            starts.append(self.state.copy())
             count = max(2, round(self.cfg.violation_samples * duration / self.cfg.dt))
             self.state, sampled = self.dynamics.advance(accel, duration, n_samples=count)
             samples = cast(np.ndarray, sampled)
@@ -288,6 +339,7 @@ class BaseEnv(gym.Env):
             np.concatenate(states),
             minima,
             {name: tuple(spans) for name, spans in violations.items()},
+            np.array(starts),
         )
 
     def _observation_names(self) -> tuple[str, ...]:

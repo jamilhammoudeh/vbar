@@ -74,6 +74,28 @@ times per constraint, the goal distance at the step's start and end, and the `su
 `terminal` flags. Every field may carry leading batch axes; violation intervals are padded with
 empty intervals and entry times with `inf`.
 
+## In the environment
+
+`EnvConfig(reward=Reward(...))` makes `step` return this reward instead of the scenario's legacy
+one, and adds the step's `discount` to `info`. `env.transition(record, terminated)` builds the
+step's `Transition` from `env.record`: segments, segment start states (`record.segment.starts`),
+fuel rates in the configured thruster layout's norm, the violation intervals of
+`record.segment.violations` as offsets, the entries (an interval open at the step's start is a
+continuation when the previous step ended inside), the goal distance from the scenario, and
+the success flag. The approach scenario's success is capture with the keep-out zone never
+entered, and its goal distance is the distance to the hold point.
+
+The time limit is a truncation, not a terminal: `terminated` is false, the last potential is
+kept, and a learner should bootstrap from the final state. `terminated` wins when both happen
+on the same step. With `terminate_on_violation`, a violation is a terminal with
+$\Phi = 0$; a learner paying a time cost may then prefer to end the episode early, so keep the
+entry weight above the time cost of the rest of the episode.
+
+The legacy reward of the approach scenario, used when `reward` is not set, is the first
+release's signal: progress in units of 100 m without a discount, delta-v, 1 per step that enters
+the keep-out zone and 10 on capture even after a violation. It is kept for comparison with
+earlier results and is not aligned with the metrics.
+
 ## How it is tested
 
 `tests/test_rewards.py`:
@@ -92,7 +114,45 @@ empty intervals and entry times with `inf`.
 - A batch of transitions gives each row its own reward; invalid time constants and weights are
   rejected.
 
-## Example
+`tests/test_reward_env.py`, on episodes of the approach scenario:
+
+- KAT-2: an open-loop burn through the keep-out sphere earns the same return, under every term
+  including the quadratic cost, at 10, 5 and 2.5 s steps, to 1e-10 relative (2e-14 observed).
+- KAT-1: progress shaping changes the return of PD captures by exactly $w_p d_0$, from a clear
+  path and after cutting through the keep-out zone; a truncated episode keeps
+  $\Gamma_T \Phi(s_T)$.
+- KAT-3: for the Riccati gain of the exactly discretized discounted quadratic cost, the 5-step
+  return plus the bootstrap $\Gamma_N V(x_N)$ equals $V(x_0) = -x_0^T P x_0$ to 1e-9 relative,
+  and without the bootstrap the gap is the discounted value of the last state.
+- The success bonus is withheld from a capture after a keep-out violation; under an aligned
+  reward a PD flight around the keep-out sphere earns more than one cutting through it, while
+  the legacy reward still pays the capture bonus after the violation.
+- Gymnasium's environment checker passes with a reward configured.
+
+## Examples
+
+Training reward for the approach scenario:
+
+```python
+from vbar import ApproachConfig, ApproachEnv
+from vbar.rewards import Reward
+
+reward = Reward(
+    tau=3600.0,
+    success_bonus=10.0,
+    fuel_weight=1.0,
+    time_weight=1e-3,
+    violation_weights={"keep_out": 0.1},
+    entry_weights={"keep_out": 5.0},
+    progress_weight=0.01,
+)
+env = ApproachEnv(ApproachConfig(reward=reward))
+obs, info = env.reset(seed=0)
+obs, r, terminated, truncated, info = env.step([0.0, -0.2, 0.0])
+print(round(r, 4), round(info["discount"], 6))  # the learner discounts this step by 0.997226
+```
+
+A single transition:
 
 ```python
 import numpy as np

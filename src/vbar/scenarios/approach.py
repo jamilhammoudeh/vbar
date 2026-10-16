@@ -4,9 +4,12 @@ Fly to a hold point near the target (by default 100 m behind it on the V-bar) an
 without entering a keep-out sphere around the target, checked in continuous time within every
 step. Benchmark quantities are in `info`.
 
-The reward is a shaped training signal, not the benchmark score: progress toward the hold point
-in units of 100 m, minus `reward_dv_weight` times the step's delta-v, minus 1 for a step that
-enters the keep-out zone, plus 10 on capture, which it pays even after a violation.
+Success (M1) is capture with the keep-out zone never entered; the keep-out constraint is hard.
+Without a `reward` in the configuration the reward is the legacy signal of the first release,
+not aligned with the metrics: progress toward the hold point in units of 100 m, minus
+`reward_dv_weight` times the step's delta-v, minus 1 for a step that enters the keep-out zone,
+plus 10 on capture, which it pays even after a violation, and its progress term is not
+potential-based under discounting. Use a `vbar.rewards.Reward` for training.
 """
 
 from __future__ import annotations
@@ -73,6 +76,12 @@ class ApproachEnv(BaseEnv):
         self.violation_steps = int(self.violated)
         self.dist_to_hold = float(np.linalg.norm(self.state[:3] - self.hold_point))
         return obs, self._info()
+
+    def _goal_distance(self, state: np.ndarray) -> float:
+        return float(np.linalg.norm(state[:3] - self.hold_point))
+
+    def _success(self) -> bool:
+        return self.captured and not self.violated
 
     def _evaluate(self, record: StepRecord) -> tuple[float, bool, dict[str, Any]]:
         prev_dist = self.dist_to_hold

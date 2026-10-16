@@ -103,7 +103,8 @@ The Gymnasium `info` dict is for metrics and logging and holds the truth:
 | `captured` | whether the capture condition holds |
 
 `env.record` is the last step's `StepRecord`: time, true state, observation, command, filtered
-command, the spacecraft's `Actuation` and the step's segments, samples and constraint minima.
+command, the spacecraft's `Actuation` and the step's segments, segment start states, samples,
+constraint minima and violation intervals.
 
 `run_episode(env, agent, seed, agent_seed)` resets the environment, calls
 `agent.reset(view, rng)` with a generator seeded by `agent_seed` alone, and returns the final
@@ -114,8 +115,12 @@ repeated. `run_many(env, agent, seeds, agent_seeds)` runs one episode per seed.
 
 ## Reward
 
-A shaped training signal for reinforcement learning, not the benchmark score. For step $k$, with
-$d_k$ the distance to the hold point and $\Delta v_k$ the step's delta-v (2-norm):
+A training signal for reinforcement learning, not the benchmark score. With
+`reward=Reward(...)` in the configuration the reward comes from the reward library and `info`
+holds the step's `discount` ([rewards.md](rewards.md)); success is capture with the keep-out zone
+never entered. Without it the scenario returns its legacy reward, the first release's shaped
+signal, which is not aligned with the metrics. For step $k$, with $d_k$ the distance to the hold
+point and $\Delta v_k$ the step's delta-v (2-norm):
 
 $$
 r_k = \frac{d_{k-1} - d_k}{100} - w\,\Delta v_k - \mathbb 1[\text{keep-out entered in step } k] + 10\,\mathbb 1[\text{captured}]
@@ -173,6 +178,7 @@ action in the view's action mode. Provided:
 | `sensor` | `PerfectNav()` | navigation sensor |
 | `violation_samples` | 20 | constraint samples per full step |
 | `observation_channels` | none | optional observation channels |
+| `reward` | none | a `vbar.rewards.Reward`; none gives the scenario's legacy reward |
 
 `ApproachConfig` adds `keep_out_radius` (50 m), `hold_point` ((0, -100, 0) m), `capture_radius`
 (5 m), `capture_speed` (0.05 m/s), `start_state`, `start_pos_range`, `start_vel_range`,

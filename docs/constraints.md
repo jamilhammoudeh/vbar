@@ -137,7 +137,8 @@ opposite signs, found with Brent's method (`scipy.optimize.brentq`) to 1e-9 s; a
 between two non-negative samples is bracketed on both sides by the refined minimum's time. An
 interval open at the segment's start or end runs to that end. The environment merges intervals
 that meet at a segment boundary, so a pass through the keep-out zone during an actuation delay's
-switch is one interval.
+switch is one interval. The reward library builds its constraint costs from these intervals
+([rewards.md](rewards.md)).
 
 ## In the environment
 
