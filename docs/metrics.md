@@ -59,6 +59,24 @@ built for a metric (distance to the goal, the hold predicate, the contact plane)
   one dip per sample interval.
 - `merge`, `complement(intervals, start, end)` and `total` combine interval lists.
 
+## Mission (M1 to M5)
+
+The goal is the scenario's public goal: `hold_point` $\mathbf r_g$, `capture_radius` $R_{\text{cap}}$,
+`capture_speed` $v_{\text{cap}}$ and optionally `goal_velocity` $\mathbf v_g$ (zero by default).
+The capture predicate is $|\mathbf r - \mathbf r_g| < R_{\text{cap}}$ and
+$|\mathbf v - \mathbf v_g| < v_{\text{cap}}$, checked at step boundaries after t = 0.
+
+| ID | Name | Units | Definition |
+|---|---|---|---|
+| M1 | `success` | bool | the capture predicate holds at some step boundary and no hard constraint's margin fell below zero, at the start or anywhere inside a step (the environment's certified in-step minima) |
+| M2 | `terminal_pos_error` | m | $\lvert\mathbf r - \mathbf r_g\rvert$ at the end |
+| M3 | `terminal_vel_error` | m/s | $\lvert\mathbf v - \mathbf v_g\rvert$ at the end |
+| M4 | `time_to_complete` | s | first step boundary at which the capture predicate holds; the episode length $T$ if never |
+| M5 | `progress` | fraction | $\operatorname{clip}(1 - d_{\text{end}}/d_0, 0, 1)$, $d$ the distance to the goal |
+
+`mission_metrics(episode)` returns all five; `evaluate(episode)` returns every metric, keyed by the
+names in `METRICS`, whose entries give each metric's ID, units and version.
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -74,6 +92,12 @@ built for a metric (distance to the goal, the hold predicate, the contact plane)
   the same trajectory is stepped at 3.7, 10 or 25 s.
 - A 12 m/s pass that dips 5 m into the sphere between two samples 10 s apart is found, and a signal
   negative at both samples but positive in between gives two intervals.
+- Mission (`tests/test_metrics_mission.py`): the PD agent from 400 m behind succeeds inside the
+  capture ball; resting on the V-bar hold point, an exact equilibrium, succeeds at the first step
+  with zero terminal errors; capturing after flying through the keep-out zone is not a success;
+  free drift through the target fails with progress $1 - d_{\text{end}}/250$; moving away gives
+  zero progress. Terminal errors are the same at 5, 10 and 20 s steps (1e-9 relative), and all five
+  are unchanged by mirroring the start across the orbit plane.
 
 ## Example
 
