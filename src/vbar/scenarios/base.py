@@ -208,6 +208,7 @@ class BaseEnv(gym.Env):
         self.steps = 0
         self.dv_l2 = self.dv_l1 = self.propellant_used = 0.0
         self.min_margins = {c.name: float(c.margin(self.state, 0.0)) for c in self.constraints}
+        self.min_margin_bounds = dict(self.min_margins)
         self.obs = self._observe()
         self.record = None
         return self.obs.copy(), self._info()
@@ -224,6 +225,7 @@ class BaseEnv(gym.Env):
         self.propellant_used += actuation.propellant_kg
         for name, found in trace.minima.items():
             self.min_margins[name] = min(self.min_margins[name], found.margin)
+            self.min_margin_bounds[name] = min(self.min_margin_bounds[name], found.lower_bound)
         self.obs = self._observe()
         record = StepRecord(
             self.t, self.state.copy(), self.obs.copy(), command, command, actuation, trace
@@ -252,10 +254,17 @@ class BaseEnv(gym.Env):
             self.state, samples = self.dynamics.advance(accel, duration, n_samples=count)
             assert samples is not None
             tau = np.linspace(0.0, duration, count)
+            thrust = float(np.linalg.norm(accel))
             for c in self.constraints:
-                found = segment_minimum(c, self.dynamics.state_in_last_segment, tau, samples, t0)
-                if c.name not in minima or found.margin < minima[c.name].margin:
-                    minima[c.name] = found
+                found = segment_minimum(
+                    c, self.dynamics.state_in_last_segment, tau, samples, thrust, self.n, t0
+                )
+                known = minima.get(c.name)
+                if known is not None:
+                    lowest = found if found.margin < known.margin else known
+                    bound = min(found.lower_bound, known.lower_bound)
+                    found = SegmentMinimum(lowest.t, lowest.margin, bound)
+                minima[c.name] = found
             segments.append((t0, duration, accel))
             times.append(t0 + tau)
             states.append(samples)
@@ -309,4 +318,5 @@ class BaseEnv(gym.Env):
             "propellant_used_kg": self.propellant_used,
             "mass_kg": self.spacecraft.mass,
             "min_margins": dict(self.min_margins),
+            "min_margin_bounds": dict(self.min_margin_bounds),
         }
