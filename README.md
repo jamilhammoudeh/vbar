@@ -85,20 +85,22 @@ keep-out sphere around the target. The target is on a circular 500 km orbit. Def
 | Item | Default |
 |---|---|
 | Start | position uniform in x in [-200, 200] m, y in [200, 600] m, z in [-50, 50] m; each velocity component in [-0.1, 0.1] m/s; or a fixed `start_state` |
-| Action | 3 numbers in [-1, 1], scaled by `max_accel` = 0.02 m/s^2 per axis, held for one step |
-| Observation | the chaser's relative state `[x, y, z, vx, vy, vz]` (no sensor noise yet) |
+| Action | 3 numbers in [-1, 1], scaled by `max_accel` = 0.02 m/s^2 per axis, held for one step; `action_mode="accel"` or `"thrust"` takes m/s^2 or newtons instead |
+| Observation | the chaser's relative state `[x, y, z, vx, vy, vz]` from the navigation sensor, exact by default (`PerfectNav`); `GaussianNav`, `RangeScaledNav` and `GaussMarkovNav` add errors, and `observation_channels` appends time left, propellant left and pending commands |
+| Spacecraft | 500 kg, Isp 220 s, propellant following the rocket equation; per-axis (`"box"`) or total (`"ball"`) thrust limit, minimum impulse bit, actuation delay, constant-acceleration or constant-thrust drive and thrust execution error are options |
 | Step and length | `dt` = 10 s, at most 360 steps (one hour) |
 | Success | within 5 m of the hold point and slower than 0.05 m/s; the episode ends on success |
-| Keep-out | checked at 20 points inside every step, so passes through the zone between steps are caught; entering it does not end the episode unless `terminate_on_violation` is set |
+| Keep-out | checked in continuous time: 20 samples per step, refined between them, with a certified lower bound; entering it does not end the episode unless `terminate_on_violation` is set |
 
 Each run reports whether it captured, whether and in how many steps it entered the keep-out zone,
-the minimum range to the target, the final distance to the hold point, delta-v used (the sum of
-|a| dt over steps, the usual proxy for propellant), flight time and wall-clock time, plus the
-intervention count when a safety filter wraps the agent. `run_episode` also returns the full state
-and action history.
+the minimum range to the target, the final distance to the hold point, delta-v used (each step's
+delta-v summed, the usual proxy for propellant), flight time and wall-clock time, plus the
+intervention count when a safety filter wraps the agent. `run_episode` also returns the full true
+state and action history and the seed of the agent's random stream. Propellant used, mass and the
+certified bound on the keep-out margin are in `info`.
 
-The environment currently propagates with Clohessy-Wiltshire dynamics. The nonlinear models below
-are available on their own through `vbar.dynamics`.
+The environment propagates with Clohessy-Wiltshire dynamics by default;
+`ApproachConfig(dynamics="twobody")` or `"twobody_j2"` selects one of the nonlinear models below.
 
 ## Writing a controller
 
@@ -122,7 +124,9 @@ class BrakeAgent:
 `reset` receives a read-only `AgentView` with the scenario's public description (time step, mean
 motion, actuator limits, goal and constraints) and a random stream for the agent's own use. `obs`
 comes from the navigation sensor and `info` holds only the time, so a controller never sees the
-true state.
+true state. The agent's stream is seeded by `run_episode(env, agent, seed, agent_seed)`
+independently of the episode seed; without an `agent_seed` one is drawn and returned in the
+result, so the run can be repeated.
 
 ### LLM agents
 
@@ -134,7 +138,7 @@ from vbar.agents import LLMAgent
 
 def complete(prompt: str) -> str:
     """Call any hosted or local model and return its text reply."""
-    ...
+    return '{"ax": 0.0, "ay": 0.0, "az": 0.0}'  # replace with the model call
 
 
 agent = LLMAgent(complete, name="my-model")
@@ -149,11 +153,13 @@ The simulation clock is paused while the model answers.
 
 ### Reinforcement learning
 
-`ApproachEnv` follows the Gymnasium API (`reset(seed=...)`, `step(action)`), with a `Box(-1, 1,
-(3,))` action space and a 6-element observation, so it works with standard RL libraries. Its
-reward is a shaped training signal (progress toward the hold point, minus delta-v, minus a penalty
-for each step in the keep-out zone, plus a bonus on capture) and is not the benchmark score; score
-agents on the metrics in `info`.
+`ApproachEnv` follows the Gymnasium API (`reset(seed=...)`, `step(action)`), by default with a
+`Box(-1, 1, (3,))` action space and a 6-element observation, so it works with standard RL
+libraries. Its reward is a shaped training signal (progress toward the hold point, minus delta-v,
+minus a penalty for each step in the keep-out zone, plus a bonus on capture) and is not the
+benchmark score; score agents on the metrics in `info`. The reward and `info` come from the true
+state, so evaluate trained policies through `run_episode`, which passes them only the observation
+and the time.
 
 ## Dynamics
 
@@ -185,8 +191,12 @@ How each part is built, with its equations, methods, assumptions and limits, is 
 [docs/](https://github.com/jamilhammoudeh/vbar/tree/main/docs):
 [frames](https://github.com/jamilhammoudeh/vbar/blob/main/docs/frames.md),
 [dynamics](https://github.com/jamilhammoudeh/vbar/blob/main/docs/dynamics.md),
+[spacecraft](https://github.com/jamilhammoudeh/vbar/blob/main/docs/spacecraft.md),
+[sensors](https://github.com/jamilhammoudeh/vbar/blob/main/docs/sensors.md),
+[constraints](https://github.com/jamilhammoudeh/vbar/blob/main/docs/constraints.md),
 [environment](https://github.com/jamilhammoudeh/vbar/blob/main/docs/environment.md) and
-[validation](https://github.com/jamilhammoudeh/vbar/blob/main/docs/validation.md).
+[validation](https://github.com/jamilhammoudeh/vbar/blob/main/docs/validation.md); the
+[index](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md) lists every page.
 
 ## Tests
 
