@@ -81,6 +81,22 @@ def test_invalid_spacecraft_is_rejected():
         Spacecraft(mass=500.0, propellant=600.0)
 
 
+@pytest.mark.parametrize(
+    ("bad", "match"),
+    [
+        (dict(max_accel=0.0), "max_accel"),
+        (dict(isp=-1.0), "isp"),
+        (dict(mass=0.0), "mass"),
+        (dict(min_impulse=-0.1), "min_impulse"),
+        (dict(delay=-1.0), "delay"),
+        (dict(max_accel=float("nan")), "max_accel"),
+    ],
+)
+def test_nonphysical_spacecraft_parameters_are_rejected(bad, match):
+    with pytest.raises(ValueError, match=match):
+        Spacecraft(**bad)
+
+
 def test_box_limits_each_axis_and_ball_keeps_direction():
     box = Spacecraft(layout="box")
     u, saturated, _ = box.limit([2.0, -0.5, -3.0], 10.0)

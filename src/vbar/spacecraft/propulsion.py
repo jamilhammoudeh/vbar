@@ -113,6 +113,12 @@ class Spacecraft:
             raise ValueError(f"unknown thruster layout {layout!r}, expected box or ball")
         if drive not in DRIVES:
             raise ValueError(f"unknown drive {drive!r}, expected accel or thrust")
+        for label, value in (("max_accel", max_accel), ("isp", isp), ("mass", mass)):
+            if not value > 0.0:
+                raise ValueError(f"{label} must be positive")
+        for label, value in (("min_impulse", min_impulse), ("delay", delay)):
+            if not value >= 0.0:
+                raise ValueError(f"{label} must not be negative")
         self.max_accel = max_accel
         self.layout = layout
         self.min_impulse = min_impulse

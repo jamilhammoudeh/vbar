@@ -267,3 +267,9 @@ def test_configs_take_keyword_arguments_only():
         EnvConfig(400e3)
     with pytest.raises(TypeError):
         ApproachConfig(400e3)
+
+
+@pytest.mark.parametrize("dt", [0.0, -10.0])
+def test_non_positive_step_is_rejected(dt):
+    with pytest.raises(ValueError, match="dt"):
+        Coast(EnvConfig(dt=dt))

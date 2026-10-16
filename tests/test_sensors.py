@@ -170,3 +170,14 @@ def test_nav2_error_does_not_depend_on_the_true_state():
     err = np.array([sensor.observe(s, 600.0 * k) - s for k, s in enumerate(truth)])
     corr = np.corrcoef(np.c_[err, truth], rowvar=False)[:6, 6:]
     assert np.all(np.abs(corr) < Z / np.sqrt(len(truth)))
+
+
+def test_nonphysical_sensor_parameters_are_rejected():
+    with pytest.raises(ValueError, match="negative"):
+        GaussianNav(sigma_pos=-1.0)
+    with pytest.raises(ValueError, match="negative"):
+        RangeScaledNav(k_range=-0.01)
+    with pytest.raises(ValueError, match="positive"):
+        GaussMarkovNav(sigma_pos=0.0)
+    with pytest.raises(ValueError, match="damping"):
+        GaussMarkovNav(damping=0.0)

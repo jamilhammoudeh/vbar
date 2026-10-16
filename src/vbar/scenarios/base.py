@@ -120,6 +120,8 @@ class BaseEnv(gym.Env):
 
     def __init__(self, config: EnvConfig):
         super().__init__()
+        if not config.dt > 0.0:
+            raise ValueError("dt must be positive")
         if config.action_mode not in ACTION_MODES:
             raise ValueError(f"unknown action mode {config.action_mode!r}, expected {ACTION_MODES}")
         self.cfg = config

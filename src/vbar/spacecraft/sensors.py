@@ -52,6 +52,8 @@ class GaussianNav:
         bias_pos: float = 0.0,
         bias_vel: float = 0.0,
     ):
+        if min(sigma_pos, sigma_vel, bias_pos, bias_vel) < 0.0:
+            raise ValueError("noise levels must not be negative")
         self.sigma = np.repeat([sigma_pos, sigma_vel], 3)
         self.bias_sigma = np.repeat([bias_pos, bias_vel], 3)
         self.bias = np.zeros(6)
@@ -88,6 +90,8 @@ class RangeScaledNav:
         k_vel: float = 1e-4,
         floor_vel: float = 1e-4,
     ):
+        if min(k_range, k_lateral, floor, c_range, k_vel, floor_vel) < 0.0:
+            raise ValueError("noise coefficients must not be negative")
         self.k_range, self.k_lateral, self.floor, self.c_range = k_range, k_lateral, floor, c_range
         self.k_vel, self.floor_vel = k_vel, floor_vel
         self.rng = np.random.default_rng()
@@ -129,6 +133,11 @@ class GaussMarkovNav:
     name = "gauss_markov"
 
     def __init__(self, sigma_pos: float = 0.04, sigma_vel: float = 4e-4, damping: float = 1.0):
+        if not (sigma_pos > 0.0 and sigma_vel > 0.0):
+            raise ValueError("sigma_pos and sigma_vel must be positive")
+        # Without damping the process is not stationary and its covariance never settles.
+        if not damping > 0.0:
+            raise ValueError("damping must be positive")
         w = sigma_vel / sigma_pos
         self.system = np.array([[0.0, 1.0], [-(w**2), -2.0 * damping * w]])
         self.cov = np.diag([sigma_pos**2, sigma_vel**2])
