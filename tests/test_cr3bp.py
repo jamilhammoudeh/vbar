@@ -39,9 +39,10 @@ def test_book_constant_sets_are_consistent():
     assert EARTH_MOON_KLMR.velocity == pytest.approx(1.025e3, rel=1e-3)
     assert SUN_JUPITER_KLMR.velocity == pytest.approx(13.102e3, rel=1e-3)
     assert SUN_EARTH_RICHARDSON.velocity == pytest.approx(29.784e3, rel=1e-3)
-    # The current Earth-Moon set: sidereal month 27.32 days, from Kepler's third law with the
-    # 384,400 km mean distance (the Moon's orbit is not circular).
-    assert EARTH_MOON.period / 86400 == pytest.approx(27.3, abs=0.1)
+    # The current Earth-Moon set: Kepler's third law for 384,400 km with G (M_E + M_M) =
+    # 4.035032e14 m^3/s^2 gives 27.2846 days, against the 27.32-day sidereal month of the
+    # Moon's non-circular orbit.
+    assert EARTH_MOON.period / 86400 == pytest.approx(27.2846, abs=1e-4)
     assert EARTH_MOON.acceleration == pytest.approx(
         EARTH_MOON.length * (2 * np.pi / EARTH_MOON.period) ** 2
     )
