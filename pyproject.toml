@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vbar"
-version = "0.0.1"
+dynamic = ["version"]
 description = "A fast, headless, cross-platform benchmark for testing AI and classical spacecraft controllers, with safety filters."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [{ name = "Jamil Hammoudeh", email = "j.hammoudeh@outlook.com" }]
 keywords = [
     "spacecraft", "rendezvous", "proximity operations", "guidance navigation and control",
@@ -19,12 +19,17 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "numpy>=1.24",
-    "scipy>=1.10",
+    "numpy>=1.26",
+    "scipy>=1.11",
     "gymnasium>=0.29",
 ]
 
@@ -34,11 +39,38 @@ Repository = "https://github.com/jamilhammoudeh/vbar"
 Issues = "https://github.com/jamilhammoudeh/vbar/issues"
 
 [project.optional-dependencies]
-plot = ["matplotlib>=3.7"]
-dev = ["pytest>=7", "matplotlib>=3.7"]
+plot = ["matplotlib>=3.8"]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6.100",
+    "ruff==0.17.1",
+    "mypy==2.4.0",
+    "build>=1.2",
+    "matplotlib>=3.8",
+]
+
+[tool.hatch.version]
+path = "src/vbar/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vbar"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true
