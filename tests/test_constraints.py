@@ -3,7 +3,13 @@ import pytest
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
-from vbar.constraints import KeepOut, interval_bounds, range_lower_bounds, segment_minimum
+from vbar.constraints import (
+    KeepOut,
+    interval_bounds,
+    range_lower_bounds,
+    segment_minimum,
+    violation_intervals,
+)
 from vbar.dynamics import EARTH, CWDynamics, TwoBodyDynamics, cw_rhs, cw_stm, mean_motion
 
 N = mean_motion(EARTH.radius + 500e3)
@@ -201,3 +207,49 @@ def test_bounds_on_stacked_trajectories_equal_the_bounds_on_each():
         one_speed, one_accel = interval_bounds(samples, 10.0 / 19, float(thrust[k, 0]), N)
         assert np.array_equal(speed[k], one_speed) and np.array_equal(accel[k], one_accel)
         assert np.array_equal(lower[k], range_lower_bounds(samples, 10.0 / 19, one_speed))
+
+
+def exact_crossings(state, duration):
+    """Times a coasting CW trajectory crosses the 50 m sphere, from the closed-form STM."""
+    ts = np.linspace(0.0, duration, 4001)
+    margins = [np.linalg.norm((cw_stm(N, t) @ state)[:3]) - 50.0 for t in ts]
+    return [
+        brentq(lambda t: np.linalg.norm((cw_stm(N, t) @ state)[:3]) - 50.0, ts[i], ts[i + 1])
+        for i in range(len(ts) - 1)
+        if (margins[i] < 0.0) != (margins[i + 1] < 0.0)
+    ]
+
+
+def detected_violations(state, duration, samples=20):
+    m = CWDynamics(N)
+    m.reset(state)
+    _, sampled = m.advance(np.zeros(3), duration, n_samples=samples)
+    times = np.linspace(0.0, duration, samples)
+    found = segment_minimum(KEEP_OUT, m.state_in_last_segment, times, sampled, 0.0, N, 100.0)
+    return violation_intervals(KEEP_OUT, m.state_in_last_segment, times, sampled, found, 100.0)
+
+
+def test_violation_interval_is_bounded_by_the_exact_entry_and_exit():
+    state = np.array([3.0, 100.0, -2.0, 0.0, -10.0, 0.0])
+    ((start, end),) = detected_violations(state, 20.0)
+    entry, exit_ = exact_crossings(state, 20.0)
+    assert start - 100.0 == pytest.approx(entry, abs=1e-8)
+    assert end - 100.0 == pytest.approx(exit_, abs=1e-8)
+
+
+def test_violation_between_two_samples_is_found_from_the_refined_minimum():
+    state = np.array([0.0, 60.0, 5.0, 0.0, -12.0, 0.0])
+    ((start, end),) = detected_violations(state, 10.0, samples=2)
+    entry, exit_ = exact_crossings(state, 10.0)
+    assert (start - 100.0, end - 100.0) == pytest.approx((entry, exit_), abs=1e-8)
+
+
+def test_violation_open_at_either_end_of_the_segment_runs_to_that_end():
+    leaving = np.array([0.0, 10.0, 0.0, 0.0, 10.0, 0.0])
+    ((start, end),) = detected_violations(leaving, 10.0)
+    assert start == 100.0
+    assert end - 100.0 == pytest.approx(exact_crossings(leaving, 10.0)[0], abs=1e-8)
+    staying = np.array([0.0, 20.0, 0.0, 0.0, 0.1, 0.0])
+    assert detected_violations(staying, 10.0) == ((100.0, 110.0),)
+    clear = np.array([0.0, 300.0, 0.0, 0.0, -1.0, 0.0])
+    assert detected_violations(clear, 10.0) == ()

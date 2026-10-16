@@ -1,7 +1,7 @@
 # Constraints and the in-step minimum
 
 Code: `vbar.constraints` (`Constraint`, the constraint types below, `segment_minimum`,
-`interval_bounds`, `range_lower_bounds`). A
+`interval_bounds`, `range_lower_bounds`, `violation_intervals`). A
 constraint's margin is $\ge 0$ where it holds and $< 0$ where it is violated, in the constraint's
 units, as in the quantitative semantics of signal temporal logic (Donzé and Maler, 2010). The
 environment finds each constraint's lowest margin over every constant-acceleration segment of a
@@ -127,11 +127,23 @@ whenever each refined interval holds a single dip. Refinement does not tighten t
 can stay up to $\tfrac12 L h$ below the reported minimum; over 200 coasting flybys at 0.5 to
 20 m/s sampled 20 times per 10 s the gap has a median of 1.7 m and a maximum of 5.1 m.
 
+## Violation intervals
+
+`violation_intervals(constraint, state_at, times, states, minimum, t0)` returns the times inside a
+segment where the margin is negative, as (start, end) pairs in seconds from the episode start. It
+takes the samples and the result of `segment_minimum`, and returns nothing when the refined minimum
+is not negative. Each boundary is the root of the margin on a sample interval whose ends have
+opposite signs, found with Brent's method (`scipy.optimize.brentq`) to 1e-9 s; a dip below zero
+between two non-negative samples is bracketed on both sides by the refined minimum's time. An
+interval open at the segment's start or end runs to that end. The environment merges intervals
+that meet at a segment boundary, so a pass through the keep-out zone during an actuation delay's
+switch is one interval.
+
 ## In the environment
 
 Each step's per-constraint minima (time, margin, lower bound) are in
-`env.record.segment.minima`, and the episode's lowest values in `info["min_margins"]` and
-`info["min_margin_bounds"]`. The approach scenario counts a step as entering the keep-out zone when
+`env.record.segment.minima`, its violation intervals in `env.record.segment.violations`, and the
+episode's lowest values in `info["min_margins"]` and `info["min_margin_bounds"]`. The approach scenario counts a step as entering the keep-out zone when
 its minimum margin is negative.
 
 ## Assumptions and limits
@@ -179,6 +191,10 @@ its minimum margin is negative.
 - The zone margin is zero on the ISS ellipsoid, infinite after GO, below the distance to 8 random
   ellipsoids (200000 surface samples) and equal to it for a sphere.
 - A constant margin on the V-bar is not refined.
+- Violation intervals of coasting passes match the entry and exit times of the closed-form
+  transition matrix to 1e-8 s, including a pass seen only by the refinement between two samples
+  and intervals open at a segment's start or end; a pass across an actuation-delay switch is one
+  interval within a step.
 
 ## Example
 

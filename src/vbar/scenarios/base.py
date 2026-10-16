@@ -26,7 +26,7 @@ import numpy as np
 from gymnasium import spaces
 
 from ..agents.base import AgentView
-from ..constraints import Constraint, SegmentMinimum, segment_minimum
+from ..constraints import Constraint, SegmentMinimum, segment_minimum, violation_intervals
 from ..dynamics import make_dynamics
 from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
@@ -79,13 +79,15 @@ class SegmentTrace:
 
     `segments` are (start time s, duration s, Hill acceleration m/s^2); `times` (s) and
     `states` are the samples of all segments in order; `minima` is each constraint's lowest
-    margin over the step.
+    margin over the step; `violations` holds, for each constraint, the (start, end) times (s)
+    of the step's intervals with a negative margin, merged across segment boundaries.
     """
 
     segments: tuple[tuple[float, float, np.ndarray], ...]
     times: np.ndarray
     states: np.ndarray
     minima: Mapping[str, SegmentMinimum]
+    violations: Mapping[str, tuple[tuple[float, float], ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -252,6 +254,7 @@ class BaseEnv(gym.Env):
         t0 = self.t
         segments, times, states = [], [], []
         minima: dict[str, SegmentMinimum] = {}
+        violations: dict[str, list[tuple[float, float]]] = {c.name: [] for c in self.constraints}
         for duration, accel in actuation.segments:
             if duration <= 0.0:
                 continue
@@ -261,9 +264,14 @@ class BaseEnv(gym.Env):
             tau = np.linspace(0.0, duration, count)
             thrust = float(np.linalg.norm(accel))
             for c in self.constraints:
-                found = segment_minimum(
-                    c, self.dynamics.state_in_last_segment, tau, samples, thrust, self.n, t0
-                )
+                state_at = self.dynamics.state_in_last_segment
+                found = segment_minimum(c, state_at, tau, samples, thrust, self.n, t0)
+                for start, end in violation_intervals(c, state_at, tau, samples, found, t0):
+                    merged = violations[c.name]
+                    # An interval that runs across a segment boundary is one interval.
+                    if merged and start - merged[-1][1] < 1e-9:
+                        start = merged.pop()[0]
+                    merged.append((start, end))
                 known = minima.get(c.name)
                 if known is not None:
                     lowest = found if found.margin < known.margin else known
@@ -274,7 +282,13 @@ class BaseEnv(gym.Env):
             times.append(t0 + tau)
             states.append(samples)
             t0 += duration
-        return SegmentTrace(tuple(segments), np.concatenate(times), np.concatenate(states), minima)
+        return SegmentTrace(
+            tuple(segments),
+            np.concatenate(times),
+            np.concatenate(states),
+            minima,
+            {name: tuple(spans) for name, spans in violations.items()},
+        )
 
     def _observation_names(self) -> tuple[str, ...]:
         names = ["x", "y", "z", "vx", "vy", "vz"]

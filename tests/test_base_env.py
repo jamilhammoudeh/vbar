@@ -6,7 +6,7 @@ from gymnasium.utils.env_checker import check_env
 
 from vbar.constraints import KeepOut
 from vbar.dynamics import cw_discrete
-from vbar.scenarios import ApproachConfig, BaseEnv, EnvConfig
+from vbar.scenarios import ApproachConfig, ApproachEnv, BaseEnv, EnvConfig
 from vbar.spacecraft import ExecutionError, GaussianNav, GaussMarkovNav, RangeScaledNav
 
 # Two-sided 1e-6 normal quantile: each statistical check fails a correct model with that
@@ -273,3 +273,22 @@ def test_configs_take_keyword_arguments_only():
 def test_non_positive_step_is_rejected(dt):
     with pytest.raises(ValueError, match="dt"):
         Coast(EnvConfig(dt=dt))
+
+
+def test_violation_across_a_segment_boundary_is_one_interval_per_step():
+    # A 10 m/s pass through the 50 m sphere, with a 7 s delay splitting the first step at 7 s.
+    start = (3.0, 100.0, -2.0, 0.0, -10.0, 0.0)
+    env = ApproachEnv(ApproachConfig(start_state=start, delay_s=7.0))
+    env.reset(seed=0)
+    env.step(np.zeros(3))
+    assert len(env.record.segment.segments) == 2
+    ((entry, first_end),) = env.record.segment.violations["keep_out"]
+    env.step(np.zeros(3))
+    ((second_start, exit_),) = env.record.segment.violations["keep_out"]
+    assert first_end == 10.0 and second_start == 10.0
+    ts = np.linspace(0.0, 20.0, 2001)
+    phi, _ = cw_discrete(env.n, ts)
+    inside = np.flatnonzero(np.linalg.norm((phi @ np.array(start))[:, :3], axis=1) < 50.0)
+    # Each crossing lies within the 0.01 s grid cell where the dense samples change sign.
+    assert ts[inside[0] - 1] <= entry <= ts[inside[0]]
+    assert ts[inside[-1]] <= exit_ <= ts[inside[-1] + 1]

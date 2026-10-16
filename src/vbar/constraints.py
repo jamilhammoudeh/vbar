@@ -22,13 +22,15 @@ from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
 import numpy as np
-from scipy.optimize import minimize_scalar
+from scipy.optimize import brentq, minimize_scalar
 
 # Refinement stops when the bracket on the time of the minimum is this narrow (s); a margin
 # that falls at 10 m/s is then off by at most 0.1 mm.
 _BRACKET_TOL = 1e-5
 # Allowance past a GO time, relative above 1 s; summed step times drift from it by a few ulp.
 _GO_TOL = 1e-9
+# Violation boundaries are located to this many seconds.
+_ROOT_TOL = 1e-9
 # Safety factor on the CW gravity-gradient and Coriolis terms in the acceleration bound; it
 # covers the two-body nonlinearity and J2 at separations below 1% of the orbit radius.
 _NATURAL_MARGIN = 2.0
@@ -439,3 +441,44 @@ def segment_minimum(
         if found.fun < best:
             best_t, best = float(found.x), float(found.fun)
     return SegmentMinimum(t0 + best_t, best, min(float(bounds.min()), best))
+
+
+def violation_intervals(
+    constraint: Constraint,
+    state_at: Callable[[float], np.ndarray],
+    times: np.ndarray,
+    states: np.ndarray,
+    minimum: SegmentMinimum,
+    t0: float = 0.0,
+) -> tuple[tuple[float, float], ...]:
+    """Intervals (s from the episode start) inside a segment where the margin is negative.
+
+    Takes the samples `segment_minimum` was given and its result. Boundaries are the roots of
+    the margin between samples of opposite sign, found with Brent's method to 1e-9 s; a dip
+    below zero between two non-negative samples is bracketed by the refined minimum. Like the
+    refinement, it assumes at most one crossing or one dip per sample interval.
+    """
+    if not minimum.margin < 0.0:
+        return ()
+
+    def margin_at(tau: float) -> float:
+        return float(constraint.margin(state_at(tau), t0 + tau))
+
+    margins = constraint.margin(states, t0 + times)
+    inside = margins < 0.0
+    crossings = [
+        brentq(margin_at, times[i], times[i + 1], xtol=_ROOT_TOL)
+        for i in np.flatnonzero(inside[:-1] != inside[1:])
+    ]
+    tau_min = minimum.t - t0
+    j = int(np.clip(np.searchsorted(times, tau_min) - 1, 0, len(times) - 2))
+    if not (inside[j] or inside[j + 1]) and times[j] < tau_min < times[j + 1]:
+        crossings += [
+            brentq(margin_at, times[j], tau_min, xtol=_ROOT_TOL),
+            brentq(margin_at, tau_min, times[j + 1], xtol=_ROOT_TOL),
+        ]
+    edges = [float(times[0])] if inside[0] else []
+    edges += sorted(float(c) for c in crossings)
+    if len(edges) % 2:
+        edges.append(float(times[-1]))
+    return tuple((t0 + edges[k], t0 + edges[k + 1]) for k in range(0, len(edges), 2))
