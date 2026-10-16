@@ -312,6 +312,12 @@ def test_libration_saddle_e_folds_in_a_day_and_a_half_at_earth_moon_l1():
         assert EARTH_MOON_KLMR.time / lam / 86400 == pytest.approx(days, abs=0.1)
 
 
+@pytest.fixture(scope="module")
+def nrho_linear():
+    # Integrating the period once is most of the cost; every test resets the state it uses.
+    return cr3bp.PeriodicLinearDynamics(SYSTEM, NRHO, NRHO_PERIOD)
+
+
 def nrho_linear_reference(t0, t1, offset, accel):
     """Integrate the linear equations along the NRHO from nondimensional t0 to t1, restarting
     the target on the periodic orbit at each period boundary as the periodic model does."""
@@ -334,9 +340,11 @@ def nrho_linear_reference(t0, t1, offset, accel):
 @pytest.mark.parametrize(
     "start_days, days, tol", [(0.0, 0.007, 1e-12), (3.0, 1.0, 1e-12), (5.0, 2.0, 1e-7)]
 )
-def test_periodic_linear_model_matches_integrating_the_linear_equations(start_days, days, tol):
+def test_periodic_linear_model_matches_integrating_the_linear_equations(
+    nrho_linear, start_days, days, tol
+):
     # The last case runs through perilune and into the next period.
-    m = cr3bp.PeriodicLinearDynamics(SYSTEM, NRHO, NRHO_PERIOD)
+    m = nrho_linear
     accel = np.array([2e-5, -1e-5, 5e-6])
     phi, gamma = m.matrices(start_days * 86400.0, days * 86400.0)
     got = phi @ OFFSET + gamma @ accel
@@ -347,8 +355,8 @@ def test_periodic_linear_model_matches_integrating_the_linear_equations(start_da
     assert np.max(np.abs(got - expected)) < tol * np.max(np.abs(expected))
 
 
-def test_periodic_linear_model_reuses_the_monodromy_matrix():
-    m = cr3bp.PeriodicLinearDynamics(SYSTEM, NRHO, NRHO_PERIOD)
+def test_periodic_linear_model_reuses_the_monodromy_matrix(nrho_linear):
+    m = nrho_linear
     period = NRHO_PERIOD * SYSTEM.time
     scale = np.repeat([SYSTEM.length, SYSTEM.velocity], 3)
     one, _ = m.matrices(0.0, period)
@@ -363,9 +371,9 @@ def test_periodic_linear_model_reuses_the_monodromy_matrix():
     assert np.max(np.abs(back - before)) < 1e-10 * np.max(np.abs(forward))
 
 
-def test_periodic_linear_model_error_against_cr3bp_grows_as_range_squared():
+def test_periodic_linear_model_error_against_cr3bp_grows_as_range_squared(nrho_linear):
     # A passive chaser offset from perilune, one day.
-    model = cr3bp.PeriodicLinearDynamics(SYSTEM, NRHO, NRHO_PERIOD)
+    model = nrho_linear
     truth = cr3bp.CR3BPDynamics(SYSTEM, NRHO)
     errors = []
     for rho in (10.0, 100.0, 1000.0):

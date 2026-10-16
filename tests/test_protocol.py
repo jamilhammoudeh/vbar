@@ -63,12 +63,12 @@ def test_model_satisfies_the_dynamics_interface(name):
 
 @pytest.mark.parametrize("name", MODELS)
 def test_model_takes_the_interface_arguments_by_name(name):
+    positional = MODELS[name]()
     for method in ("reset", "advance", "state_in_last_segment"):
-        expected = list(inspect.signature(getattr(Dynamics, method)).parameters)
-        assert list(inspect.signature(getattr(MODELS[name](), method)).parameters) == expected[1:]
+        expected = list(inspect.signature(getattr(Dynamics, method)).parameters)[1:]
+        assert list(inspect.signature(getattr(positional, method)).parameters) == expected
     start = np.array([150.0, -400.0, 30.0, 0.05, 0.1, -0.02])
     accel = np.array([2e-4, -1e-4, 5e-5])
-    positional = MODELS[name]()
     final, samples = drive(positional, start, accel, 120.0)
     model = MODELS[name]()
     model.reset(rel_state=start)
