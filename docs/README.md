@@ -16,4 +16,5 @@ and how it is tested.
 | [constraints.md](constraints.md) | constraint margins, the keep-out sphere, sampling and refinement inside a step, the Lipschitz certificate and its assumptions |
 | [environment.md](environment.md) | the base environment and the approach scenario: actions, observation channels, random streams, propagation, keep-out checking, what agents and metrics see, reward, agents, configuration |
 | [metrics.md](metrics.md) | recording an episode, the trajectory between samples, signals and their violation intervals in continuous time, mission metrics with contact and hold, efficiency and safety metrics, passive safety and aborts, thruster plume, the optimality gap, safety-filter and agent metrics, the composite score, failure labels |
+| [rewards.md](rewards.md) | training rewards: per-second discounting, terms aligned with the metrics, potential-based progress shaping, the integrated quadratic cost |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |

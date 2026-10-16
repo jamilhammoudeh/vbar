@@ -1,0 +1,190 @@
+import numpy as np
+import pytest
+from scipy.integrate import quad
+
+from vbar.dynamics import EARTH, cw_discrete, mean_motion
+from vbar.rewards import QuadraticCost, Reward, Transition
+
+N = mean_motion(EARTH.radius + 500e3)
+# Burns and keep-out passes of one physical trajectory: (start s, end s, delta-v rate m/s^2).
+EVENTS = [(120.0, 470.0, 0.01), (613.0, 641.5, 0.02)]
+
+
+def split_steps(steps, events=EVENTS):
+    """Transitions for consecutive steps of the given durations over the same events.
+
+    Each step is split into segments at the event times inside it; a segment's fuel rate is the
+    rate of the event covering it, and the events are also the "keep_out" violation intervals,
+    each entered once at its start.
+    """
+    transitions, t = [], 0.0
+    for duration in steps:
+        inner = {c - t for e in events for c in e[:2] if t < c < t + duration}
+        cuts = sorted({0.0, duration, *inner})
+        rows, rates = [], []
+        for a, b in zip(cuts[:-1], cuts[1:], strict=True):
+            rows.append([a, b - a, 0.0, 0.0, 0.0])
+            rates.append(sum(e[2] for e in events if e[0] <= t + a and t + b <= e[1]))
+        spans = [
+            (max(e[0], t) - t, min(e[1], t + duration) - t)
+            for e in events
+            if e[0] < t + duration and e[1] > t
+        ]
+        entries = [e[0] - t for e in events if t <= e[0] < t + duration]
+        transitions.append(
+            Transition(
+                duration=duration,
+                segments=np.array(rows),
+                starts=np.zeros((len(rows), 6)),
+                fuel_rates=np.array(rates),
+                violations={"keep_out": np.array(spans).reshape(-1, 2)},
+                entries={"keep_out": np.array(entries)},
+            )
+        )
+        t += duration
+    return transitions
+
+
+def discounted_return(reward, transitions):
+    total, weight = 0.0, 1.0
+    for tr in transitions:
+        total += weight * float(reward(tr))
+        weight *= float(reward.discount(tr.duration))
+    return total, weight
+
+
+def exp_integral(tau, a, b):
+    return b - a if tau is None else tau * (np.exp(-a / tau) - np.exp(-b / tau))
+
+
+def test_discount_is_declared_per_second():
+    # Sutton and Barto review C3: tau = 3600 s gives 0.99723 at 10 s steps and 0.99861 at 5 s.
+    reward = Reward(tau=3600.0)
+    assert float(reward.discount(10.0)) == pytest.approx(0.99723, abs=5e-6)
+    assert float(reward.discount(5.0)) == pytest.approx(0.99861, abs=5e-6)
+    assert float(reward.discount(10.0)) == pytest.approx(float(reward.discount(5.0)) ** 2)
+    assert float(Reward().discount(10.0)) == 1.0
+
+
+PARTITIONS = {
+    "10 s": [10.0] * 100,
+    "5 s": [5.0] * 200,
+    "uneven": list(np.diff(np.r_[0.0, np.sort(np.random.default_rng(0).uniform(0, 1e3, 37)), 1e3])),
+}
+
+
+@pytest.mark.parametrize("tau", [None, 600.0, 3600.0])
+def test_return_is_the_same_for_every_partition_of_one_trajectory(tau):
+    # Sutton and Barto 14.4 (KAT-2): with rewards integrated over the step and discounts
+    # exp(-dt / tau) the return is the integral of exp(-t / tau) r(t) for any partition.
+    reward = Reward(
+        tau=tau,
+        time_weight=2.0,
+        fuel_weight=30.0,
+        violation_weights={"keep_out": 0.5},
+        entry_weights={"keep_out": 7.0},
+    )
+    exact = -2.0 * exp_integral(tau, 0.0, 1e3)
+    for start, end, rate in EVENTS:
+        exact -= (30.0 * rate + 0.5) * exp_integral(tau, start, end)
+        exact -= 7.0 * (1.0 if tau is None else np.exp(-start / tau))
+    for steps in PARTITIONS.values():
+        total, _ = discounted_return(reward, split_steps(steps))
+        assert total == pytest.approx(exact, rel=1e-12)
+
+
+@pytest.mark.parametrize("tau", [None, 3600.0])
+@pytest.mark.parametrize("terminal", [False, True])
+def test_progress_shaping_telescopes_to_minus_the_first_potential(tau, terminal):
+    # Sutton and Barto (3.3) with an absorbing terminal (KAT-1): the shaped terms sum to
+    # gamma^T Phi(s_T) - Phi(s_0), and to -Phi(s_0) when the episode ends at a true terminal.
+    rng = np.random.default_rng(1)
+    steps = rng.uniform(2.0, 20.0, 50)
+    distances = rng.uniform(1.0, 500.0, 51)
+    reward = Reward(tau=tau, progress_weight=0.01)
+    transitions = [
+        Transition(
+            duration=d,
+            segments=np.array([[0.0, d, 0.0, 0.0, 0.0]]),
+            starts=np.zeros((1, 6)),
+            fuel_rates=np.zeros(1),
+            goal_distance=distances[k],
+            next_goal_distance=distances[k + 1],
+            terminal=terminal and k == len(steps) - 1,
+        )
+        for k, d in enumerate(steps)
+    ]
+    total, discount = discounted_return(reward, transitions)
+    end = 0.0 if terminal else discount * distances[-1]
+    assert total == pytest.approx(0.01 * (distances[0] - end), rel=1e-12)
+
+
+def test_success_bonus_needs_a_terminal_step_and_success():
+    reward = Reward(tau=3600.0, success_bonus=10.0)
+    base = dict(
+        duration=10.0,
+        segments=np.array([[0.0, 10.0, 0.0, 0.0, 0.0]]),
+        starts=np.zeros((1, 6)),
+        fuel_rates=np.zeros(1),
+    )
+    assert float(reward(Transition(**base, success=True, terminal=True))) == pytest.approx(
+        10.0 * np.exp(-10.0 / 3600.0), rel=1e-15
+    )
+    assert float(reward(Transition(**base, success=True, terminal=False))) == 0.0
+    assert float(reward(Transition(**base, success=False, terminal=True))) == 0.0
+
+
+@pytest.mark.parametrize("tau", [None, 900.0])
+def test_quadratic_cost_matches_quadrature_along_the_cw_trajectory(tau):
+    rng = np.random.default_rng(2)
+    q = np.diag([1e-4, 2e-4, 3e-4, 1.0, 2.0, 3.0])
+    r = 100.0 * np.eye(3)
+    reference = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])
+    cost = QuadraticCost(N, q, r, reference)
+    x0 = reference + np.r_[rng.uniform(-50, 50, 3), rng.uniform(-0.1, 0.1, 3)]
+    a = rng.uniform(-0.02, 0.02, 3)
+
+    def rate(s):
+        phi, gamma = cw_discrete(N, s)
+        e = phi @ x0 + gamma @ a - reference
+        weight = 1.0 if tau is None else np.exp(-s / tau)
+        return weight * (e @ q @ e + a @ r @ a)
+
+    expected, _ = quad(rate, 0.0, 37.0, epsabs=0.0, epsrel=1e-13, limit=200)
+    found = cost(x0[None], a[None], np.array([37.0]), tau)
+    assert float(found[0]) == pytest.approx(expected, rel=1e-10)
+
+
+def test_batched_transitions_give_each_row_its_own_reward():
+    reward = Reward(tau=600.0, time_weight=1.0, fuel_weight=5.0, progress_weight=0.1)
+    rows = [
+        Transition(
+            duration=d,
+            segments=np.array([[0.0, d, 0.0, 0.0, 0.0]]),
+            starts=np.zeros((1, 6)),
+            fuel_rates=np.array([rate]),
+            goal_distance=g,
+            next_goal_distance=g - 3.0,
+            terminal=end,
+        )
+        for d, rate, g, end in [(10.0, 0.01, 50.0, False), (4.0, 0.0, 9.0, True)]
+    ]
+    batch = Transition(
+        duration=np.array([10.0, 4.0]),
+        segments=np.stack([tr.segments for tr in rows]),
+        starts=np.zeros((2, 1, 6)),
+        fuel_rates=np.stack([tr.fuel_rates for tr in rows]),
+        goal_distance=np.array([50.0, 9.0]),
+        next_goal_distance=np.array([47.0, 6.0]),
+        terminal=np.array([False, True]),
+    )
+    # Same formulas row by row; vectorized exp may round differently from the scalar one.
+    assert reward(batch) == pytest.approx([float(reward(tr)) for tr in rows], rel=1e-14)
+
+
+@pytest.mark.parametrize(
+    "fields", [{"tau": 0.0}, {"tau": -5.0}, {"fuel_weight": -1.0}, {"entry_weights": {"x": np.nan}}]
+)
+def test_invalid_reward_parameters_are_rejected(fields):
+    with pytest.raises(ValueError):
+        Reward(**fields)

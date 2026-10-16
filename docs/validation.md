@@ -281,6 +281,18 @@ Units converted from ft and ft/s; mean motion at 185 n.mi. where the book flies 
   exact Clopper-Pearson interval recomputed for it, (6.187e-5, 8.765e-4), and for two cases of ours
   at the 100-episode default, 90 and 95 of 100, (0.8238, 0.9510) and (0.887, 0.984), and the
   resolution table on the cards.
+## Published results behind the agent layer
+
+The reward library ([rewards.md](rewards.md)) is checked against the known-answer cases of the
+Sutton and Barto review.
+
+**Sutton and Barto, *Reinforcement Learning: An Introduction*** (2nd ed. draft, 2015; the draft
+has no section on reward shaping or time limits, so those results are cited from their papers)
+
+- Sec. 14.4, the semi-Markov return (KAT-2): a trajectory's discounted return is the same for
+  10 s steps, 5 s steps and an uneven partition, to 1e-12.
+- Eq. 3.3 with an absorbing terminal state (KAT-1): potential-based shaping telescopes to
+  $-\Phi(s_0)$ at a terminal and to $\Gamma_T\Phi(s_T) - \Phi(s_0)$ at a time limit.
 
 ## Methods
 
@@ -329,3 +341,9 @@ Units converted from ft and ft/s; mean motion at 185 n.mi. where the book flies 
 - Ames, Coogan, Egerstedt, Notomista, Sreenath and Tabuada, "Control Barrier Functions: Theory and
   Applications" (ECC 2019): safety filters, the activity of their rows, and the conservatism of
   safe sets under bounded inputs.
+  Automatic Control* 23, 1978): the added covariance of the `:nav2` error between observations
+  and the integrated quadratic reward.
+- Ng, Harada and Russell, "Policy invariance under reward transformations" (ICML 1999):
+  potential-based shaping.
+- Bradtke and Duff, "Reinforcement learning methods for continuous-time Markov decision
+  problems" (NIPS 1995), as presented by Sutton and Barto (sec. 14.4): discounting per second.
