@@ -18,7 +18,7 @@ def plot_trajectories(results: list[dict], env, ax=None, title: str | None = Non
     for i, r in enumerate(results):
         s = r["states"]
         status = "violated keep-out" if r["keep_out_violated"] else "safe"
-        label = f'{r["agent"]} ({status}, dv={r["dv_used_mps"]:.2f} m/s)'
+        label = f"{r['agent']} ({status}, dv={r['dv_used_mps']:.2f} m/s)"
         ax.plot(s[:, 1], s[:, 0], styles[i % len(styles)], lw=1.8, label=label)
         ax.plot(s[0, 1], s[0, 0], "o", color=ax.lines[-1].get_color(), ms=5)
 

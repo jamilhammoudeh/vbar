@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 
@@ -69,7 +69,12 @@ class LLMAgent:
             cap_speed=cfg.capture_speed,
             keep_out=cfg.keep_out_radius,
             n=self.env.n,
-            x=x, y=y, z=z, vx=vx, vy=vy, vz=vz,
+            x=x,
+            y=y,
+            z=z,
+            vx=vx,
+            vy=vy,
+            vz=vz,
             dist=info["dist_to_hold_m"],
             rng=info["range_to_target_m"],
             dt=cfg.dt,

@@ -42,8 +42,11 @@ python examples/v0_demo.py
 ```python
 from vbar.agents import LLMAgent
 
+
 def complete(prompt: str) -> str:
-    ...  # call any model and return its text reply
+    """Call any hosted or local model and return its text reply."""
+    ...
+
 
 agent = LLMAgent(complete, name="my-model")
 result = run_episode(env, agent)
