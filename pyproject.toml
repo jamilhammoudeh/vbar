@@ -9,12 +9,29 @@ description = "A fast, headless, cross-platform benchmark for testing AI and cla
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [{ name = "Jamil Hammoudeh" }]
+authors = [{ name = "Jamil Hammoudeh", email = "j.hammoudeh@outlook.com" }]
+keywords = [
+    "spacecraft", "rendezvous", "proximity operations", "guidance navigation and control",
+    "benchmark", "reinforcement learning", "safety filter", "clohessy-wiltshire", "orbital mechanics",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "gymnasium>=0.29",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jamilhammoudeh/vbar"
+Repository = "https://github.com/jamilhammoudeh/vbar"
+Issues = "https://github.com/jamilhammoudeh/vbar/issues"
 
 [project.optional-dependencies]
 plot = ["matplotlib>=3.7"]
