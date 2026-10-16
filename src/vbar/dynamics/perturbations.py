@@ -17,6 +17,7 @@ not for the chaser relative to the target.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -298,6 +299,10 @@ class Plate:
     normal: tuple[float, float, float]
     specular: float = 0.0
     diffuse: float = 0.0
+
+    def __post_init__(self) -> None:
+        if abs(math.hypot(*self.normal) - 1.0) > 1e-9:
+            raise ValueError("plate normal must be a unit vector")
 
 
 class FlatPlatePressure:

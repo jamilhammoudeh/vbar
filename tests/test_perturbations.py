@@ -310,6 +310,12 @@ def test_oblique_mirror_is_pushed_along_its_normal_by_cos_squared():
     assert np.allclose(accel, expected, rtol=1e-12, atol=1e-22)
 
 
+def test_plate_normal_must_be_a_unit_vector():
+    with pytest.raises(ValueError, match="unit vector"):
+        Plate(0.01, (1.0, 1.0, 0.0))
+    Plate(0.01, (0.6, 0.0, 0.8))
+
+
 def test_flat_plates_act_through_the_two_body_model():
     plates = FlatPlatePressure(
         [0.3, -0.4, 0.866],
