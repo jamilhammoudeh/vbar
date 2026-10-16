@@ -7,6 +7,7 @@ from typing import Any
 from .efficiency import FuelBounds, efficiency_metrics, optimality_gap
 from .episode import Episode
 from .mission import mission_metrics
+from .safety import safety_metrics
 
 
 def evaluate(ep: Episode, bounds: FuelBounds | None = None) -> dict[str, Any]:
@@ -14,4 +15,9 @@ def evaluate(ep: Episode, bounds: FuelBounds | None = None) -> dict[str, Any]:
 
     `bounds` are the oracle's fuel bounds for the episode's start state (E3).
     """
-    return {**mission_metrics(ep), **efficiency_metrics(ep), **optimality_gap(ep, bounds)}
+    return {
+        **mission_metrics(ep),
+        **efficiency_metrics(ep),
+        **optimality_gap(ep, bounds),
+        **safety_metrics(ep),
+    }

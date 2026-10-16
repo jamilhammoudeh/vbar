@@ -35,6 +35,8 @@ $$
 \mathbf x(t) = \Phi(\tau)\,\mathbf x(t_s) + \Gamma(\tau)\,\mathbf a.
 $$
 
+`cw_step` evaluates this closed form for one duration (the same formulas as
+`vbar.dynamics.cw_discrete`, to 4e-16 relative), since the searches call it thousands of times per episode.
 This is exact on the Clohessy-Wiltshire model. On the two-body models it drops the difference
 between their natural acceleration and Clohessy-Wiltshire's over at most one sample spacing:
 measured below 1e-8 m at 150 m without J2 (below 2e-7 m at 2 km), and about 1e-6 m with J2, whose
@@ -57,6 +59,8 @@ built for a metric (distance to the goal, the hold predicate, the contact plane)
   $\tfrac12(m_i + m_{i+1} + Lh) > 0$; a dip or rise found gives two roots. Intervals that touch
   across samples, segments and steps are merged. Like the in-step minimum, this assumes at most
   one dip per sample interval.
+- `peak(value, trace)`: the highest value of a function of the state, refined by Brent on the
+  two sample intervals around the highest sample; no certificate.
 - `merge`, `complement(intervals, start, end)` and `total` combine interval lists.
 
 ## Mission (M1 to M5)
@@ -113,6 +117,22 @@ Both ratios are NaN for failed runs and when no bounds are given (`evaluate(epis
 Bounds in the wrong norm are rejected, since a 2-norm bound under-counts a box actuator's cost by
 up to $\sqrt3$.
 
+## Safety margins (S1 to S3, S5, S6)
+
+Every constraint's margin $m_c$ ([constraints.md](constraints.md)) is the robustness of "always
+$m_c \ge 0$" in signal temporal logic, so the safety metrics are statements about it over
+continuous time. `safety_metrics(episode, constraints)` scores the episode's own constraints, or
+any others passed in (for example a soft passive-speed envelope the scenario does not enforce).
+
+| ID | Name | Units | Definition |
+|---|---|---|---|
+| S1 | `min_margin[c]` | constraint's | lowest $m_c$ over the episode, start state included: the environment's in-step minima for its own constraints, the same certified search on the rebuilt trajectory for others |
+| S1b | `min_margin_bound[c]` | constraint's | the certified lower bound on S1 |
+| S2 | `violation_depth[c]` | constraint's | $\max(0, -\text{S1})$ |
+| S3 | `violation_duration[c]` | s | total time with $m_c < 0$, from `negative_intervals` |
+| S5 | `closing_speed_ratio` | ratio | highest $\max(0,-\dot\rho)/(v_0 + v_1\rho)$ with the scenario's closing-speed limit; refined around the highest sample without a certificate (S1 of the closing-speed limit is the certified quantity); NaN without that limit |
+| S6 | `min_time_to_keep_out` | s | least $(\rho - R)/\max(0,-\dot\rho)$ over the step boundaries while closing (faster than 1e-9 m/s), zero inside the sphere, $\infty$ if never closing; NaN without a keep-out sphere |
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -144,6 +164,13 @@ up to $\sqrt3$.
 - Optimality gap: a success with bounds at 0.5 and 0.8 of its delta-v gives 2 and 1.25; a success
   1% below its lower bound is flagged, one at the bound within rounding is not; failures and
   missing bounds give NaN; bounds in the wrong norm are rejected.
+- Safety (`tests/test_metrics_safety.py`): on the free-drift flyby the keep-out S1, S2 and S3
+  match the closed-form closest approach (Brent on the root of $\mathbf r\cdot\mathbf v$) to 1 mm
+  and the entry-to-exit time to 1e-6 s, with S1b below S1. Speed and closing-speed margins searched
+  on the rebuilt trajectory equal the environment's own search to 1e-9 m/s. S5 matches the maximum
+  over 120001 closed-form samples to 1e-7. S6 is 500 s for 250 m at 0.5 m/s straight in, and
+  infinite at rest on the V-bar. S1, S3 and S5 for four constraint types are the same at 4, 10 and
+  25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane.
 
 ## Example
 

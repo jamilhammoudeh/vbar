@@ -13,6 +13,7 @@ the range constraints.
 
 from __future__ import annotations
 
+import math
 from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,16 +28,60 @@ from ..constraints import (
     range_lower_bounds,
     segment_minimum,
 )
-from ..dynamics import cw_discrete
 from .episode import Episode
 
 # Bracket tolerance (s) for the time of a minimum or a sign change.
 _TIME_TOL = 1e-9
 # Intervals closer than this (s) are one interval.
 _JOIN_TOL = 1e-9
+# Taylor coefficients of (x - sin x) / x^3 in powers of x^2, highest power first.
+_X_MINUS_SIN = tuple((-1) ** k / math.factorial(2 * k + 3) for k in reversed(range(7)))
 
 
-@dataclass(frozen=True)
+def cw_step(n: float, tau: float, x: np.ndarray, a: np.ndarray) -> np.ndarray:
+    """State `tau` s after `x` under the Hill acceleration `a` held constant (CW, exact).
+
+    The closed form of `vbar.dynamics.cw_discrete` for one scalar duration, written out because
+    the refinement searches call it thousands of times per episode.
+    """
+    nt = n * tau
+    s, c = math.sin(nt), math.cos(nt)
+    k = 2.0 * math.sin(0.5 * nt) ** 2
+    # nt - sin(nt) without cancellation for short steps; the series through nt^15 is within
+    # 1e-18 relative below 0.5, as in `cw_discrete`.
+    if abs(nt) < 0.5:
+        x2 = nt * nt
+        d = 0.0
+        for coefficient in _X_MINUS_SIN:
+            d = d * x2 + coefficient
+        d *= nt * x2
+    else:
+        d = nt - s
+    x0, y0, z0, vx, vy, vz = x
+    ax, ay, az = a
+    n2 = n * n
+    return np.array(
+        [
+            (1 + 3 * k) * x0 + s / n * vx + 2 * k / n * vy + k / n2 * ax + 2 * d / n2 * ay,
+            -6 * d * x0
+            + y0
+            - 2 * k / n * vx
+            + (nt - 4 * d) / n * vy
+            - 2 * d / n2 * ax
+            + (4 * k / n2 - 1.5 * tau * tau) * ay,
+            c * z0 + s / n * vz + k / n2 * az,
+            3 * n * s * x0 + c * vx + 2 * s * vy + s / n * ax + 2 * k / n * ay,
+            -6 * n * k * x0
+            - 2 * s * vx
+            + (1 - 4 * k) * vy
+            - 2 * k / n * ax
+            + (nt - 4 * d) / n * ay,
+            -n * s * z0 + c * vz + s / n * az,
+        ]
+    )
+
+
+@dataclass
 class Signal:
     """A margin-like function of the state with a rate bound, usable wherever a constraint is."""
 
@@ -95,12 +140,11 @@ class Trace:
 
     def state_in(self, segment: Segment, t: float) -> np.ndarray:
         """State at time `t` (s from the episode start) inside `segment`."""
-        k = int(np.clip(np.searchsorted(segment.times, t, side="right") - 1, 0, None))
+        k = max(bisect_right(segment.times, t) - 1, 0)
         tau = t - segment.times[k]
         if tau == 0.0:
             return segment.states[k].copy()
-        phi, gamma = cw_discrete(self.n, tau)
-        return phi @ segment.states[k] + gamma @ segment.accel
+        return cw_step(self.n, tau, segment.states[k], segment.accel)
 
     def state_at(self, t: float) -> np.ndarray:
         return self.state_in(self.segment_at(t), t)
@@ -151,6 +195,30 @@ def minimum(signal: Constraint, trace: Trace) -> SegmentMinimum:
             best = SegmentMinimum(lowest.t, lowest.margin, min(best.lower_bound, found.lower_bound))
     if best is None:
         raise ValueError("the trace is empty")
+    return best
+
+
+def peak(value: Callable[..., np.ndarray], trace: Trace) -> float:
+    """Highest value of a function of the state over the trace, without a certificate.
+
+    The highest sample is refined by a bounded Brent search on the sample intervals on either
+    side of it.
+    """
+    best, where = -math.inf, None
+    for seg in trace.segments:
+        values = np.array(value(seg.states, seg.times), dtype=float)
+        k = int(np.argmax(values))
+        if values[k] > best:
+            best, where = float(values[k]), (seg, k)
+    if where is None:
+        return best
+    seg, k = where
+    for i, j in ((k - 1, k), (k, k + 1)):
+        if 0 <= i and j < len(seg.times):
+            _, low = _extremum(
+                lambda t: -float(value(trace.state_in(seg, t), t)), seg.times[i], seg.times[j]
+            )
+            best = max(best, -low)
     return best
 
 

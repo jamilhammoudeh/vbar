@@ -5,6 +5,7 @@ from .episode import Episode, record_episode
 from .evaluate import evaluate
 from .mission import captured, mission_metrics, success
 from .registry import METRICS, MetricInfo
+from .safety import safety_metrics
 from .stl import Signal, Trace, complement, merge, minimum, negative_intervals, total
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "negative_intervals",
     "optimality_gap",
     "record_episode",
+    "safety_metrics",
     "success",
     "total",
 ]

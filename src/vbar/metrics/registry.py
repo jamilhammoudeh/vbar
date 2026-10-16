@@ -30,6 +30,12 @@ CATALOGUE = (
     MetricInfo("E4", "burn_count", "count"),
     MetricInfo("E5", "duty_cycle", "fraction"),
     MetricInfo("E6", "chatter", "1/s"),
+    MetricInfo("S1", "min_margin", "per constraint"),
+    MetricInfo("S1b", "min_margin_bound", "per constraint"),
+    MetricInfo("S2", "violation_depth", "per constraint"),
+    MetricInfo("S3", "violation_duration", "s"),
+    MetricInfo("S5", "closing_speed_ratio", "ratio"),
+    MetricInfo("S6", "min_time_to_keep_out", "s"),
 )
 
 METRICS = {info.name: info for info in CATALOGUE}
