@@ -56,6 +56,20 @@ def test_same_seed_gives_the_same_episode_including_sensor_noise():
     assert not np.array_equal(first[0], other[0])
 
 
+@pytest.mark.parametrize("sensor", [GaussianNav, GaussMarkovNav])
+def test_environments_from_one_config_keep_their_own_sensor_state(sensor):
+    actions = np.random.default_rng(3).uniform(-1.0, 1.0, (8, 3))
+    config = EnvConfig(max_steps=20, sensor=sensor())
+    alone, _ = fly(Coast(config), 1, actions)
+    first, second = Coast(config), Coast(config)
+    observed = [first.reset(seed=1)[0]]
+    second.reset(seed=2)
+    for a in actions:
+        observed.append(first.step(a)[0])
+        second.step(a)
+    assert np.array_equal(np.array(observed), alone)
+
+
 def test_sensor_noise_does_not_change_the_true_trajectory():
     actions = np.random.default_rng(1).uniform(-1.0, 1.0, (10, 3))
     _, quiet = fly(Coast(EnvConfig(sensor=GaussianNav(1e-3, 1e-6))), 3, actions)

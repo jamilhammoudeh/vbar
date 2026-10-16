@@ -16,6 +16,7 @@ nothing an agent holds is derived from the episode seed.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any
@@ -137,7 +138,9 @@ class BaseEnv(gym.Env):
             drive=config.drive,
             execution=config.execution,
         )
-        self.sensor = config.sensor
+        # Sensors hold episode state (stream, bias, correlated error), so environments built
+        # from one config must not share one.
+        self.sensor = copy.deepcopy(config.sensor)
         self.constraints = tuple(self._constraints())
         unknown = set(config.observation_channels) - set(CHANNELS)
         if unknown:
