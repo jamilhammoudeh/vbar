@@ -107,6 +107,37 @@ def test_conversions_broadcast_over_stacked_samples():
     assert np.array_equal(stacked, np.array(single))
 
 
+@pytest.mark.parametrize(
+    "r_km, v_km_s, rho_km, rho_dot_km_s",
+    [
+        # Alfriend et al., Spacecraft Formation Flying, example 7.3: deputy on a 500 m projected
+        # circular orbit at phase 0.
+        (
+            [5023.437579954, 5023.679067423, 0.469973680],
+            [-1.810792589537, 1.810419297938, 7.041300610075],
+            [-0.000288947081, 0.500033326318, 0.000175666681],
+            [0.000263388377, 0.000000272412, 0.000527371445],
+        ),
+        # Example 7.4: the same chief and orbit at phase 90 deg.
+        (
+            [5024.067715322, 5023.402914470, 0.171195964],
+            [-1.810892863426, 1.810892391776, 7.040872374521],
+            [0.250014418391, 0.000198338483, 0.500288022195],
+            [-0.000000124335, -0.000527557529, -0.000000019840],
+        ),
+    ],
+)
+def test_inertial_to_hill_reproduces_published_examples(r_km, v_km_s, rho_km, rho_dot_km_s):
+    r_chief = np.array([5023.558528005, 5023.558528005, 0.0]) * 1e3
+    v_chief = np.array([-1.810956397226, 1.810956397226, 7.041120373157]) * 1e3
+    dr = np.array(r_km) * 1e3 - r_chief
+    dv = np.array(v_km_s) * 1e3 - v_chief
+    rel = inertial_to_hill(r_chief, v_chief, dr, dv)
+    # The inputs are printed to 1e-6 m and 1e-9 m/s, so their differences carry that rounding.
+    assert np.max(np.abs(rel[:3] - np.array(rho_km) * 1e3)) < 1e-6
+    assert np.max(np.abs(rel[3:] - np.array(rho_dot_km_s) * 1e3)) < 3e-9
+
+
 def test_iss_lvlh_axes_map_as_specified():
     x_hill, y_hill, z_hill = np.eye(3)
     assert np.array_equal(hill_to_iss(y_hill), [1.0, 0.0, 0.0])
