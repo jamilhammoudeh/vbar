@@ -22,7 +22,8 @@ _TIME_TOL = 1e-5
 
 
 class Constraint(Protocol):
-    name: str
+    @property
+    def name(self) -> str: ...
 
     def margin(self, state: np.ndarray, t: float | np.ndarray) -> np.ndarray: ...
 

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .base import AgentView
+
 
 class PDAgent:
     def __init__(self, wn: float = 0.01, zeta: float = 1.0, name: str = "pd"):
@@ -25,10 +27,11 @@ class PDAgent:
         self.zeta = zeta
         self.name = name
 
-    def reset(self, env) -> None:
-        self.n = env.n
-        self.hold = env.hold_point
-        self.max_accel = env.cfg.max_accel
+    def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        self.n = view.n
+        self.hold = np.array(view.goal["hold_point"], dtype=float)
+        self.max_accel = view.max_accel
+        self.normalized = view.action_mode == "normalized"
 
     def act(self, obs, info):
         x, y, z, vx, vy, vz = obs
@@ -36,4 +39,5 @@ class PDAgent:
         cw = np.array([3 * n**2 * x + 2 * n * vy, -2 * n * vx, -(n**2) * z])
         kp, kd = self.wn**2, 2 * self.zeta * self.wn
         a = -cw - kp * (obs[:3] - self.hold) - kd * obs[3:]
-        return np.clip(a / self.max_accel, -1.0, 1.0)
+        u = np.clip(a / self.max_accel, -1.0, 1.0)
+        return u if self.normalized else u * self.max_accel

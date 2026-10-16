@@ -4,7 +4,8 @@ The model call is passed in as `complete(prompt: str) -> str`, so any hosted
 API or local model works. Each call's prompt, raw reply, parsed action, parse
 failure flag and wall-clock latency are stored in `self.log`.
 
-The simulation clock is paused during the model call.
+The simulation clock is paused during the model call. Every number in the prompt comes from the
+observation or the scenario's public description, never from the true state.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import time
 from collections.abc import Callable
 
 import numpy as np
+
+from .base import AgentView
 
 PROMPT_TEMPLATE = """You are the guidance system of a chaser spacecraft near a target spacecraft.
 
@@ -57,28 +60,30 @@ class LLMAgent:
         self.name = name
         self.log: list[dict] = []
 
-    def reset(self, env) -> None:
-        self.env = env
+    def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        self.view = view
         self.log = []
 
     def act(self, obs, info):
-        cfg = self.env.cfg
-        x, y, z, vx, vy, vz = obs
+        view = self.view
+        hold = np.array(view.goal["hold_point"], dtype=float)
+        keep_out = next(c["radius"] for c in view.constraints if c["type"] == "keep_out")
+        x, y, z, vx, vy, vz = obs[:6]
         prompt = PROMPT_TEMPLATE.format(
-            hold=list(cfg.hold_point),
-            cap_speed=cfg.capture_speed,
-            keep_out=cfg.keep_out_radius,
-            n=self.env.n,
+            hold=hold.tolist(),
+            cap_speed=view.goal["capture_speed"],
+            keep_out=keep_out,
+            n=view.n,
             x=x,
             y=y,
             z=z,
             vx=vx,
             vy=vy,
             vz=vz,
-            dist=info["dist_to_hold_m"],
-            rng=info["range_to_target_m"],
-            dt=cfg.dt,
-            max_accel=cfg.max_accel,
+            dist=float(np.linalg.norm(obs[:3] - hold)),
+            rng=float(np.linalg.norm(obs[:3])),
+            dt=view.dt,
+            max_accel=view.max_accel,
         )
         t0 = time.perf_counter()
         reply = self.complete(prompt)

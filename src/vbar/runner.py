@@ -8,16 +8,20 @@ import numpy as np
 
 
 def run_episode(env, agent, seed: int | None = None) -> dict:
-    """Run one episode. Returns final metrics plus the full trajectory."""
+    """Run one episode. Returns final metrics plus the true trajectory and the actions.
+
+    The agent gets the scenario's `AgentView`, its own random stream, the observations and the
+    agent-safe info; the true states come from `info`.
+    """
     obs, info = env.reset(seed=seed)
-    agent.reset(env)
-    states, actions = [obs.copy()], []
+    agent.reset(env.agent_view(), env.rngs["agent"])
+    states, actions = [info["true_state"]], []
     t0 = time.perf_counter()
     terminated = truncated = False
     while not (terminated or truncated):
-        action = np.asarray(agent.act(obs, info), dtype=float)
+        action = np.asarray(agent.act(obs, env.agent_info()), dtype=float)
         obs, _, terminated, truncated, info = env.step(action)
-        states.append(obs.copy())
+        states.append(info["true_state"])
         actions.append(action)
     result = {
         "agent": agent.name,

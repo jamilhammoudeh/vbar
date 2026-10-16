@@ -8,13 +8,18 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..agents.base import AgentView
+
 
 class PassThroughFilter:
     """Does not change the action. The 'safety filter off' condition."""
 
     name = "none"
 
-    def filter(self, obs: np.ndarray, action: np.ndarray, env) -> np.ndarray:
+    def reset(self, view: AgentView) -> None:
+        pass
+
+    def filter(self, obs: np.ndarray, action: np.ndarray) -> np.ndarray:
         return action
 
 
@@ -27,15 +32,15 @@ class FilteredAgent:
         self.tol = tol
         self.name = f"{agent.name}+{safety_filter.name}"
 
-    def reset(self, env) -> None:
-        self.env = env
-        self.agent.reset(env)
+    def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        self.agent.reset(view, rng)
+        self.filter.reset(view)
         self.interventions = 0
         self.decisions = 0
 
     def act(self, obs, info):
         raw = np.asarray(self.agent.act(obs, info), dtype=float)
-        safe = np.asarray(self.filter.filter(obs, raw, self.env), dtype=float)
+        safe = np.asarray(self.filter.filter(obs, raw), dtype=float)
         self.decisions += 1
         if np.max(np.abs(safe - raw)) > self.tol:
             self.interventions += 1

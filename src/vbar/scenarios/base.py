@@ -103,6 +103,7 @@ class BaseEnv(gym.Env):
 
     metadata = {"render_modes": []}
     scenario_name = "base"
+    record: StepRecord | None = None
 
     def __init__(self, config: EnvConfig):
         super().__init__()
@@ -183,7 +184,7 @@ class BaseEnv(gym.Env):
         self.dv_l2 = self.dv_l1 = self.propellant_used = 0.0
         self.min_margins = {c.name: float(c.margin(self.state, 0.0)) for c in self.constraints}
         self.obs = self.sensor.observe(self.state, self.t)
-        self.record: StepRecord | None = None
+        self.record = None
         return self.obs.copy(), self._info()
 
     def step(self, action):

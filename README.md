@@ -102,8 +102,8 @@ are available on their own through `vbar.dynamics`.
 
 ## Writing a controller
 
-Any object with a `name`, a `reset(env)` method and an `act(obs, info)` method that returns three
-numbers in [-1, 1] is an agent:
+Any object with a `name`, a `reset(view, rng)` method and an `act(obs, info)` method that returns
+three numbers in [-1, 1] is an agent:
 
 ```python
 import numpy as np
@@ -112,15 +112,17 @@ import numpy as np
 class BrakeAgent:
     name = "brake"
 
-    def reset(self, env):
-        self.max_accel = env.cfg.max_accel
+    def reset(self, view, rng=None):
+        self.max_accel = view.max_accel
 
     def act(self, obs, info):
-        return np.clip(-obs[3:] / (10.0 * self.max_accel), -1.0, 1.0)
+        return np.clip(-obs[3:6] / (10.0 * self.max_accel), -1.0, 1.0)
 ```
 
-`reset` receives the environment, so a controller can read its configuration (`env.cfg`), mean
-motion (`env.n`) and hold point (`env.hold_point`).
+`reset` receives a read-only `AgentView` with the scenario's public description (time step, mean
+motion, actuator limits, goal and constraints) and a random stream for the agent's own use. `obs`
+comes from the navigation sensor and `info` holds only the time, so a controller never sees the
+true state.
 
 ### LLM agents
 

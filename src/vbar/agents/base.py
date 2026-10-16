@@ -40,11 +40,15 @@ class AgentView:
 class Agent(Protocol):
     name: str
 
-    def reset(self, env) -> None:
-        """Called at the start of each episode. `env` gives access to its config."""
+    def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        """Called at the start of each episode with the scenario's public description and an
+        optional random stream for the agent's own use."""
 
     def act(self, obs: np.ndarray, info: dict) -> np.ndarray:
-        """Return an action: 3 numbers in [-1, 1] (fraction of max thrust per axis)."""
+        """Return an action in the view's action mode (by default fractions of `max_accel`).
+
+        `info` holds only agent-safe entries (the time, `time_s`).
+        """
 
 
 class DriftAgent:
@@ -52,7 +56,7 @@ class DriftAgent:
 
     name = "drift"
 
-    def reset(self, env) -> None:
+    def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
         pass
 
     def act(self, obs, info):
