@@ -110,6 +110,15 @@ def test_minimum_margin_is_tracked_in_continuous_time():
     assert 0.0 < found.t < 10.0
 
 
+def test_step_record_keeps_its_own_copy_of_the_command():
+    env = Coast()
+    env.reset(seed=0)
+    action = np.array([0.5, 0.0, 0.0])
+    env.step(action)
+    action[0] = -1.0  # an agent reusing its output buffer
+    assert env.record.command[0] == 0.5 and env.record.filtered[0] == 0.5
+
+
 def test_agent_view_is_read_only_and_describes_the_task():
     view = Coast().agent_view()
     assert view.scenario_id == "vbar:coast-test:cw:box:dv:v0"

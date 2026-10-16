@@ -218,7 +218,7 @@ class BaseEnv(gym.Env):
         return self.obs.copy(), self._info()
 
     def step(self, action):
-        command = np.asarray(action, dtype=float)
+        command = np.array(action, dtype=float)
         fraction = command / self._action_scale()
         actuation = self.spacecraft.apply(fraction, self.cfg.dt)
         trace = self._fly(actuation)
