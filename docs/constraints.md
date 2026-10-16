@@ -44,6 +44,21 @@ $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
   fixed in inertial space and the Hill frame turns at `rate` (the mean motion of a circular target
   orbit) about z, so $\hat{\mathbf s}(t) = R_z(-n t)\,\hat{\mathbf s}_0$. The line of sight turns
   at most $V/\rho$, so the rate bound is $V / \rho_{\min} + n$; resolution 1e-5 rad.
+- `PassiveSpeed(axis, extent, n)`: the closing speed below which a thrust failure on a
+  straight-line approach still misses structure `extent` $d$ m out, from Fehse's free-drift
+  solutions (eqs. 3.22 and 3.28). On the V-bar a chaser whose thrust stops at closing speed $v$
+  coasts forward at most $\kappa v / n$ before falling back, at $nt = \arccos(3/4)$, with
+  $\kappa = \sqrt7 - 3\arccos(3/4) = 0.47755$; it stays clear while $v \le n(\rho - d)/\kappa
+  = 2.094\,n(\rho - d)$. On the R-bar, from range $h$ at closing speed $v$ the closest radial
+  approach is $4h - \sqrt{9h^2 + v^2/n^2}$, clear while
+  $$
+  v \le n\sqrt{(4h - d)^2 - 9h^2}, \qquad h > d,
+  $$
+  and zero for $h \le d$. With $d$ = 15 m at 400 km this gives 0.1225, 0.0612 and 0.0283 m/s at
+  50, 30 and 20 m; Fehse's section 5.7.2 approach flies 0.1, 0.05 and 0.02 m/s there, inside the
+  envelope. The margin is the envelope at $\rho$ minus the closing speed (m/s). The R-bar
+  envelope's slope $n f'/(2\sqrt f)$, $f = 7h^2 - 8hd + d^2$, falls with $h$, so its rate bound is
+  taken at $\rho_{\min}$ (infinite for $\rho_{\min} \le d$).
 
 ## Sampling and refinement
 
@@ -139,6 +154,10 @@ its minimum margin is negative.
   the apex; it is continuous across the active range.
 - The sun-exclusion margin is checked looking into the Sun and from above, and the Sun direction
   turns from +y to +x in a quarter orbit.
+- The R-bar envelope gives 0.1225, 0.0612 and 0.0283 m/s at 50, 30 and 20 m (Fehse review K26);
+  free drift from the envelope at 20, 50 and 300 m comes within 15 m of the target to 1e-8
+  relative over 200001 samples of one orbit. The V-bar coast at 0.1 m/s and 400 km is 42.21 m
+  (K5), and free drift from the V-bar envelope with gaps of 5, 50 and 500 m reaches the structure.
 - A constant margin on the V-bar is not refined.
 
 ## Example

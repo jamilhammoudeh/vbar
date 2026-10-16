@@ -5,6 +5,7 @@ from scipy.optimize import minimize
 from vbar.constraints import (
     ApproachCone,
     ClosingSpeedLimit,
+    PassiveSpeed,
     SpeedLimit,
     SunExclusion,
     closing_speed,
@@ -138,6 +139,8 @@ def test_cone_rejects_a_half_angle_outside_its_range():
 
 
 SUN = SunExclusion(np.radians(20.0), sun_direction=(0.3, 1.0, 0.2), rate=N)
+PASSIVE_VBAR = PassiveSpeed("vbar", 15.0, N)
+PASSIVE_RBAR = PassiveSpeed("rbar", 15.0, N)
 
 
 def test_sun_exclusion_margin_is_the_angle_between_line_of_sight_and_sun_minus_the_half_angle():
@@ -156,9 +159,52 @@ def test_sun_turns_backward_in_the_hill_frame_by_a_quarter_turn_per_quarter_orbi
     assert sun.margin(below, 0.5 * np.pi / N) == pytest.approx(-np.radians(20.0))
 
 
+N400 = mean_motion(EARTH.radius + 400e3)
+
+
+@pytest.mark.parametrize(("height", "envelope"), [(50.0, 0.1225), (30.0, 0.0612), (20.0, 0.0283)])
+def test_rbar_passive_speed_envelope_matches_fehse_derived_values(height, envelope):
+    # Fehse review K26: 15 m of structure, 400 km; the book flies 0.1, 0.05, 0.02 m/s inside it.
+    rbar = PassiveSpeed("rbar", 15.0, N400)
+    assert rbar.speed_envelope(height) == pytest.approx(envelope, abs=5e-5)
+
+
+@pytest.mark.parametrize("height", [20.0, 50.0, 300.0])
+def test_free_drift_from_the_rbar_envelope_just_touches_the_structure(height):
+    rbar = PassiveSpeed("rbar", 15.0, N400)
+    v = float(rbar.speed_envelope(height))
+    start = np.array([-height, 0.0, 0.0, v, 0.0, 0.0])
+    phi, _ = cw_discrete(N400, np.linspace(0.0, 2 * np.pi / N400, 200001))
+    assert np.abs(phi @ start)[:, 0].min() == pytest.approx(15.0, rel=1e-8)
+    assert rbar.margin(start) == pytest.approx(0.0, abs=1e-15)
+
+
+def test_vbar_coast_after_thrust_stops_is_0_47755_v_over_n():
+    # Fehse eq. 3.28, fig. 3.13 (review K5): 0.1 m/s at 400 km coasts forward 42.21 m.
+    phi, _ = cw_discrete(N400, np.linspace(0.0, 2 * np.pi / N400, 200001))
+    coast = (phi @ np.array([0.0, 0.0, 0.0, 0.0, 0.1, 0.0]))[:, 1].max()
+    assert coast == pytest.approx(42.21, abs=5e-3)
+    assert coast == pytest.approx(0.47755 * 0.1 / N400, rel=1e-5)
+
+
+@pytest.mark.parametrize("gap", [5.0, 50.0, 500.0])
+def test_free_drift_from_the_vbar_envelope_just_reaches_the_structure(gap):
+    vbar = PassiveSpeed("vbar", 15.0, N400)
+    v = float(vbar.speed_envelope(15.0 + gap))
+    start = np.array([0.0, -15.0 - gap, 0.0, 0.0, v, 0.0])
+    phi, _ = cw_discrete(N400, np.linspace(0.0, 2 * np.pi / N400, 200001))
+    assert (phi @ start)[:, 1].max() == pytest.approx(-15.0, abs=1e-6 * gap)
+    assert vbar.margin(start) == pytest.approx(0.0, abs=1e-15)
+
+
+def test_passive_speed_rejects_an_unknown_axis():
+    with pytest.raises(ValueError, match="axis"):
+        PassiveSpeed("hbar", 15.0, N)
+
+
 @pytest.mark.parametrize(
     "constraint",
-    [SPEED, CLOSING, CONE, SUN],
+    [SPEED, CLOSING, CONE, SUN, PASSIVE_VBAR, PASSIVE_RBAR],
     ids=lambda c: f"{c.name}_{getattr(c, 'axis', '')}",
 )
 @pytest.mark.parametrize("seed", range(12))

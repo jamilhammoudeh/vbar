@@ -206,6 +206,60 @@ class SunExclusion:
         return speed / rho_min + abs(self.rate)
 
 
+# Forward coast after thrust stops on a V-bar approach at speed v is kappa v / n, at
+# n t = arccos(3/4) (Fehse, eq. 3.28 and fig. 3.13).
+_VBAR_COAST = np.sqrt(7.0) - 3.0 * np.arccos(0.75)
+
+
+@dataclass(frozen=True)
+class PassiveSpeed:
+    """Closing speed below which a thrust failure still misses structure `extent` m out; m/s.
+
+    Envelopes derived from Fehse (Automated Rendezvous and Docking of Spacecraft, 2003) for
+    straight-line approaches at mean motion `n` (rad/s). On the V-bar ("vbar") a chaser whose
+    thrust stops at closing speed v coasts forward kappa v / n with
+    kappa = sqrt(7) - 3 arccos(3/4) = 0.47755 (eq. 3.28, fig. 3.13), so it stays clear while
+    v <= n (rho - extent) / kappa. On the R-bar ("rbar") its closest radial approach from range
+    h is 4 h - sqrt(9 h^2 + v^2 / n^2) (eq. 3.22), clear while v <= n sqrt((4h - extent)^2 - 9h^2)
+    for h > extent (section 5.7.2 flies inside this envelope). The margin is that speed minus the
+    closing speed max(0, -rho_dot); the range rho stands for the distance along the approach line.
+    """
+
+    axis: str
+    extent: float
+    n: float
+    name: str = "passive_speed"
+    resolution: ClassVar[float] = 1e-5
+
+    def __post_init__(self):
+        if self.axis not in ("vbar", "rbar"):
+            raise ValueError(f"unknown approach axis {self.axis!r}, expected vbar or rbar")
+
+    def speed_envelope(self, rho: np.ndarray) -> np.ndarray:
+        """Highest passively safe closing speed (m/s) at range `rho` (m)."""
+        rho = np.asarray(rho, dtype=float)
+        if self.axis == "vbar":
+            return self.n * (rho - self.extent) / _VBAR_COAST
+        reach = (4.0 * rho - self.extent) ** 2 - 9.0 * rho**2
+        return np.where(rho > self.extent, self.n * np.sqrt(np.maximum(reach, 0.0)), 0.0)
+
+    def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
+        state = np.asarray(state)
+        rho = np.linalg.norm(state[..., :3], axis=-1)
+        return self.speed_envelope(rho) - closing_speed(state)
+
+    def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
+        closing = _closing_rate_bound(speed, accel, rho_min)
+        if self.axis == "vbar":
+            return self.n / _VBAR_COAST * speed + closing
+        if rho_min <= self.extent:
+            return np.inf
+        # d envelope / d rho = n f' / (2 sqrt f), f = 7 h^2 - 8 h d + d^2, falls with h above d.
+        h, d = rho_min, self.extent
+        slope = self.n * (14.0 * h - 8.0 * d) / (2.0 * np.sqrt(7.0 * h * h - 8.0 * h * d + d * d))
+        return slope * speed + closing
+
+
 @dataclass(frozen=True)
 class SegmentMinimum:
     """Lowest margin of one constraint over a segment and a certified lower bound on it.
