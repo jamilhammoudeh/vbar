@@ -412,9 +412,10 @@ class LinearizedTwoBodyDynamics(TwoBodyDynamics):
 
     def _rhs(self, t: float, y: np.ndarray, accel_hill: np.ndarray) -> np.ndarray:
         r_t, v_t, dr, dv = y[0:3], y[3:6], y[6:9], y[9:12]
-        C, _ = hill_frame(r_t, v_t)
         dg = gravity_gradient(r_t, self.body, self.j2) @ dr
-        return np.concatenate([v_t, self._gravity(r_t), dv, dg + C @ accel_hill])
+        if accel_hill.any():
+            dg = dg + hill_frame(r_t, v_t)[0] @ accel_hill
+        return np.concatenate([v_t, self._gravity(r_t), dv, dg])
 
     def _relative_jacobian(self, y: np.ndarray) -> np.ndarray:
         jac = np.zeros((3, 6))

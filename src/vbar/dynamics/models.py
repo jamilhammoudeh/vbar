@@ -305,9 +305,11 @@ class TwoBodyDynamics:
 
     def _rhs(self, t: float, y: np.ndarray, accel_hill: np.ndarray) -> np.ndarray:
         r_t, v_t, dr, dv = y[0:3], y[3:6], y[6:9], y[9:12]
-        C, _ = hill_frame(r_t, v_t)
         a_t = self._gravity(r_t)
-        da = differential_gravity(r_t, dr, self.body, self.j2) + C @ accel_hill
+        da = differential_gravity(r_t, dr, self.body, self.j2)
+        # The Hill axes cost as much as the gravity; coasting segments do not need them.
+        if accel_hill.any():
+            da = da + hill_frame(r_t, v_t)[0] @ accel_hill
         for p in self.perturbations:
             target, relative = p.accelerations(r_t, v_t, dr, dv)
             a_t = a_t + target
