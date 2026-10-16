@@ -7,6 +7,8 @@ on:
 
 jobs:
   mutation:
+    # Mirrors used for pre-merge CI would otherwise run this weekly on their own minutes.
+    if: github.repository == 'jamilhammoudeh/vbar'
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
