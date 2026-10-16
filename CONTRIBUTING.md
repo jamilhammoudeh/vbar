@@ -58,6 +58,15 @@ request.
 - Do not copy code from other projects unless its license allows it, and say where it came from.
 - Contributions are released under the MIT license of this repository.
 
+## Versions and deprecations
+
+Versions follow Semantic Versioning. Before 1.0, a minor release (0.x) may change the public API;
+every change goes in CHANGELOG.md under Changed or Removed, with what to do instead. From 1.0, a
+public function, class or argument that is going away first raises a `DeprecationWarning` for at
+least one minor release. The public API is every name a package lists in `__all__` or the
+documentation uses, the registered Gymnasium IDs and the documented configuration fields; names
+with a leading underscore are private.
+
 ## Issues
 
 Use the templates for bug reports, feature requests and scenario proposals.
