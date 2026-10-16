@@ -25,13 +25,13 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from ..agents.base import AgentView
+from ..agents.base import DISC27, AgentView
 from ..constraints import Constraint, SegmentMinimum, segment_minimum, violation_intervals
 from ..dynamics import make_dynamics
 from ..rewards import Reward, Transition
 from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
-ACTION_MODES = ("normalized", "accel", "thrust")
+ACTION_MODES = ("normalized", "accel", "thrust", "disc27")
 SCALAR_CHANNELS = ("t_remaining", "propellant_fraction")
 CHANNELS = (*SCALAR_CHANNELS, "pending_commands")
 STREAMS = ("sensor", "actuator", "target")
@@ -42,7 +42,8 @@ class EnvConfig:
     """Parameters every scenario shares (SI units, angles in rad).
 
     `action_mode` "normalized" takes fractions of `max_accel` per Hill axis, "accel" takes
-    m/s^2 and "thrust" newtons. `thrust_limit` is the thruster layout ("box" or "ball") and
+    m/s^2, "thrust" newtons and "disc27" an index into the 27 bang-off-bang commands
+    `vbar.agents.DISC27`. `thrust_limit` is the thruster layout ("box" or "ball") and
     `drive` holds either the acceleration ("accel") or the thrust ("thrust") over a burn.
     `violation_samples` is the number of constraint samples per step before refinement.
 
@@ -161,12 +162,14 @@ class BaseEnv(gym.Env):
             raise ValueError(f"unknown observation channels {sorted(unknown)}, expected {CHANNELS}")
         self.pending_slots = int(np.ceil(config.delay_s / config.dt - 1e-9))
         self.observation_names = self._observation_names()
-        high = {
-            "normalized": 1.0,
-            "accel": config.max_accel,
-            "thrust": config.max_accel * config.mass_kg,
-        }[config.action_mode]
-        self.action_space = spaces.Box(-high, high, shape=(3,), dtype=np.float32)
+        self.action_space: spaces.Space
+        if config.action_mode == "disc27":
+            self.action_space = spaces.Discrete(len(DISC27))
+        else:
+            high = {"normalized": 1.0, "accel": config.max_accel}.get(
+                config.action_mode, config.max_accel * config.mass_kg
+            )
+            self.action_space = spaces.Box(-high, high, shape=(3,), dtype=np.float32)
         shape = (len(self.observation_names),)
         self.observation_space = spaces.Box(-1e7, 1e7, shape=shape, dtype=np.float64)
         self.state = np.zeros(6)
@@ -195,7 +198,8 @@ class BaseEnv(gym.Env):
 
     @property
     def scenario_id(self) -> str:
-        return f"vbar:{self.scenario_name}:{self.cfg.dynamics}:{self.cfg.thrust_limit}:dv:v0"
+        base = f"vbar:{self.scenario_name}:{self.cfg.dynamics}:{self.cfg.thrust_limit}:dv:v0"
+        return base + (":disc27" if self.cfg.action_mode == "disc27" else "")
 
     def agent_view(self) -> AgentView:
         return AgentView(
@@ -237,7 +241,10 @@ class BaseEnv(gym.Env):
         return self.obs.copy(), self._info()
 
     def step(self, action):
-        command = np.array(action, dtype=float)
+        if self.cfg.action_mode == "disc27":
+            command = DISC27[self._index(action)].copy()
+        else:
+            command = np.array(action, dtype=float)
         fraction = command / self._action_scale()
         actuation = self.spacecraft.apply(fraction, self.cfg.dt)
         trace = self._fly(actuation)
@@ -369,6 +376,12 @@ class BaseEnv(gym.Env):
                 slots[-1 - k] = [wait, *(u * self._action_scale())]
             parts.append(slots.ravel())
         return np.concatenate(parts)
+
+    def _index(self, action) -> int:
+        index = int(np.asarray(action).item())
+        if not 0 <= index < len(DISC27):
+            raise ValueError(f"disc27 actions are 0 to 26, got {index}")
+        return index
 
     def _action_scale(self) -> float:
         """Action-mode units per fraction of a full command."""

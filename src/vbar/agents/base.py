@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Protocol
 
 import numpy as np
+
+# The "disc27" action mode: bang-off-bang fractions {-1, 0, 1}^3 per Hill axis; 13 is no thrust.
+DISC27 = np.array(list(itertools.product((-1.0, 0.0, 1.0), repeat=3)))
+CONTINUOUS_MODES = ("normalized", "accel", "thrust")
 
 
 @dataclass(frozen=True)
@@ -39,7 +44,11 @@ class AgentView:
 
 
 def action_scale(view: AgentView) -> float:
-    """Action units per fraction of a full command: 1, m/s^2, or N at the initial mass."""
+    """Action units per fraction of a full command: 1, m/s^2, or N at the initial mass.
+
+    Only the continuous modes have one; agents that produce continuous commands use this to
+    reject the discrete "disc27" mode.
+    """
     if view.action_mode == "normalized":
         return 1.0
     if view.action_mode == "accel":
@@ -48,7 +57,23 @@ def action_scale(view: AgentView) -> float:
         if view.mass_kg is None:
             raise ValueError("thrust actions need the view's mass_kg")
         return view.max_accel * view.mass_kg
+    if view.action_mode == "disc27":
+        raise ValueError(f"action mode {view.action_mode!r} takes no continuous command")
     raise ValueError(f"unknown action mode {view.action_mode!r}")
+
+
+def command_fraction(view: AgentView, action) -> np.ndarray:
+    """The thrust an action asks for, in fractions of a full command at the initial mass."""
+    if view.action_mode == "disc27":
+        return DISC27[int(action)].copy()
+    return np.asarray(action, dtype=float) / action_scale(view)
+
+
+def zero_action(view: AgentView):
+    """The action that asks for no thrust, in the view's action mode."""
+    if view.action_mode == "disc27":
+        return 13
+    return np.zeros(3)
 
 
 class Agent(Protocol):
@@ -68,9 +93,10 @@ class DriftAgent:
     """Does nothing. Useful as a sanity check: the chaser just drifts."""
 
     name = "drift"
+    view: AgentView | None = None
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
-        pass
+        self.view = view
 
     def act(self, obs, info):
-        return np.zeros(3)
+        return np.zeros(3) if self.view is None else zero_action(self.view)
