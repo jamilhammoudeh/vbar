@@ -24,6 +24,12 @@ ruff format --check
 mypy
 ```
 
+The suite includes `tests/test_docs.py`, which runs every python example in README.md and
+`docs/`, so a change that breaks an example fails the tests. CI also reports coverage (it fails
+below 95%) and prints the throughput from `python benchmarks/steps.py`; compare that number before
+and after a change on the same machine. A weekly mutation-testing run (`mutmut run`, configured in
+`pyproject.toml`) plants small changes in the core modules and lists the ones no test catches.
+
 ## Conventions
 
 - Frame: the Hill frame, centred on the target. x is radial outward (R-bar), y along-track

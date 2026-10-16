@@ -4,6 +4,21 @@ The test suite (`python -m pytest -q`) checks the models against closed-form sol
 independent high-order integrator, universal-variable Kepler propagation, conserved quantities and
 the published examples below. Each test names its source in a comment next to the check.
 
+## How good the tests are
+
+- Coverage: the suite executes 97% of the package's statements; CI fails below 95%. The only
+  module without tests is the plotting helper `vbar.viz`.
+- Every python example in README.md and these pages runs as part of the suite
+  (`tests/test_docs.py`).
+- Mutation testing (`mutmut`) plants small changes in the code (a flipped sign, a changed
+  constant, a dropped argument) and checks that some test fails. In `vbar.dynamics.cw` the
+  tests catch 359 of 389 mutants; the 30 that survive change nothing observable (slices past the
+  end of an array, the cache key's rounding, the switch point between a series and its closed
+  form, settings of the reference integrator). In `vbar.constraints` they catch 131 of 194: most
+  survivors are in the arithmetic of the certified in-step bound, because the tests check that
+  the bound never exceeds the true minimum but not how tight it is. A weekly CI run repeats this
+  for the core modules.
+
 ## Published examples reproduced
 
 Each test below recomputes a printed result through the package and compares it at the precision
