@@ -98,3 +98,58 @@ def test_impulses_below_the_minimum_bit_are_dropped():
     ball = Spacecraft(max_accel=0.02, layout="ball", mass=500.0, min_impulse=0.35)
     act = ball.apply([0.002, 0.002, 0.0], 10.0)
     assert act.below_mib and act.dv_l2 == 0.0 and act.propellant_kg == 0.0
+
+
+def applied_profile(actuations):
+    """(start time, duration, acceleration) of every segment, in order."""
+    t, profile = 0.0, []
+    for act in actuations:
+        for duration, accel in act.segments:
+            profile.append((t, duration, accel))
+            t += duration
+    return profile
+
+
+def test_delay_inside_a_step_splits_it_at_the_switch_time():
+    craft = Spacecraft(max_accel=0.02, delay=2.5)
+    first = craft.apply([1.0, 0.0, 0.0], 10.0)
+    second = craft.apply([0.0, -1.0, 0.0], 10.0)
+    assert [d for d, _ in first.segments] == [2.5, 7.5]
+    assert np.array_equal(first.segments[0][1], np.zeros(3))
+    assert np.array_equal(first.segments[1][1], [0.02, 0.0, 0.0])
+    assert [d for d, _ in second.segments] == [2.5, 7.5]
+    assert np.array_equal(second.segments[0][1], [0.02, 0.0, 0.0])
+    assert np.array_equal(second.segments[1][1], [0.0, -0.02, 0.0])
+
+
+@pytest.mark.parametrize("delay", [0.0, 10.0, 25.0, 33.3])
+def test_delay_shifts_the_applied_commands_in_time(delay):
+    rng = np.random.default_rng(1)
+    commands = rng.uniform(-1.0, 1.0, (12, 3))
+    craft = Spacecraft(max_accel=0.02, delay=delay)
+    profile = applied_profile([craft.apply(u, 10.0) for u in commands])
+    for t, duration, accel in profile:
+        midpoint = t + 0.5 * duration - delay
+        expected = np.zeros(3) if midpoint < 0.0 else commands[int(midpoint // 10.0)] * 0.02
+        assert np.array_equal(accel, expected)
+    assert sum(duration for _, duration, _ in profile) == pytest.approx(120.0, rel=1e-15)
+
+
+def test_pending_lists_commands_not_yet_in_effect():
+    craft = Spacecraft(delay=25.0)
+    craft.apply([1.0, 0.0, 0.0], 10.0)
+    craft.apply([0.0, 1.0, 0.0], 10.0)
+    pending = craft.pending()
+    assert [t for t, _ in pending] == pytest.approx([5.0, 15.0])
+    assert np.array_equal(pending[0][1], [1.0, 0.0, 0.0])
+    craft.apply([0.0, 0.0, 1.0], 10.0)
+    assert [t for t, _ in craft.pending()] == pytest.approx([5.0, 15.0])
+
+
+def test_delayed_burns_spend_propellant_by_the_rocket_equation():
+    craft = Spacecraft(max_accel=0.02, layout="box", delay=7.0)
+    rng = np.random.default_rng(2)
+    acts = [craft.apply(rng.uniform(-1.0, 1.0, 3), 10.0) for _ in range(50)]
+    dv = sum(a.dv_l1 for a in acts)
+    propellant = sum(a.propellant_kg for a in acts)
+    assert propellant == pytest.approx(500.0 * -math.expm1(-dv / (220.0 * G0)), rel=1e-9)
