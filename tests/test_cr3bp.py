@@ -338,7 +338,7 @@ def nrho_linear_reference(t0, t1, offset, accel):
 
 
 @pytest.mark.parametrize(
-    "start_days, days, tol", [(0.0, 0.007, 1e-12), (3.0, 1.0, 1e-12), (5.0, 2.0, 1e-7)]
+    "start_days, days, tol", [(0.0, 0.007, 1e-12), (3.0, 1.0, 1e-12), (5.0, 2.0, 2e-8)]
 )
 def test_periodic_linear_model_matches_integrating_the_linear_equations(
     nrho_linear, start_days, days, tol

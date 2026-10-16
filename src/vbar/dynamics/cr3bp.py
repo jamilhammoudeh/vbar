@@ -382,7 +382,7 @@ class PeriodicLinearDynamics:
     Short stretches keep the matrices in these products small; one matrix from the start of the
     period grows past 1e3 near the perilune of a near-rectilinear halo orbit, and its products
     lose as many digits. On that orbit segments match a direct integration of the linear
-    equations to 1e-13 of the state, and to 1e-8 through perilune, where the matrices depend
+    equations to 1e-13 of the state, and to about 1e-8 through perilune, where the matrices depend
     on the target's position as sharply as the orbit does (integrated at rtol 1e-13 it closes
     to 1e-10 per period). `target_state` must start a periodic orbit of nondimensional
     `period` to that precision. Same frame and units as `CR3BPDynamics`; left out against it:
