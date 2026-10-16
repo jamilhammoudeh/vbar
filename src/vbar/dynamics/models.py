@@ -161,8 +161,10 @@ class TwoBodyDynamics:
     The target follows its own orbit and the chaser is carried as an inertial offset
     (dr, dv) driven by the differential gravity g(r_t + dr) - g(r_t), so the small relative
     motion is integrated with its own tolerances instead of being lost in 7000 km positions.
-    The target starts at the ascending node (on +x) of a circular orbit. With J2 the orbit is
-    circular in first-order mean elements, so the target's osculating state carries J2's
+    The target starts at the ascending node (on +x) of a circular orbit, or from classical
+    `elements` [a, e, i, raan, argp, M] (m, rad) when they are given, which then replace
+    `altitude` and `inclination`. With J2 the orbit is circular in first-order mean elements,
+    or `elements` are mean elements, so the target's osculating state carries J2's
     short-period terms rather than a spurious eccentricity. `n` is the Keplerian mean motion
     of the mean semi-major axis either way; under J2 the target's mean argument of latitude
     advances faster, by (3/2) J2 (R/a)^2 (4 cos^2 i - 1) n. The Hill frame of the output
@@ -181,8 +183,13 @@ class TwoBodyDynamics:
         j2: bool = False,
         rtol: float = 1e-11,
         perturbations: Sequence[Perturbation] = (),
+        elements: ArrayLike | None = None,
     ):
         self.body = get_body(body)
+        self.elements = None if elements is None else np.array(elements, dtype=float)
+        if self.elements is not None:
+            altitude = float(self.elements[0]) - self.body.radius
+            inclination = float(self.elements[2])
         self.altitude = altitude
         self.inclination = inclination
         self.j2 = j2
@@ -196,12 +203,18 @@ class TwoBodyDynamics:
         self._sol = None
         self._step: float | None = None
 
-    def reset(self, rel_state: ArrayLike) -> None:
+    def _target_start(self) -> tuple[np.ndarray, np.ndarray]:
+        if self.elements is None and not self.j2:
+            return circular_orbit(self.body, self.altitude, self.inclination)
+        elements = self.elements
+        if elements is None:
+            elements = np.array([self.body.radius + self.altitude, 0, self.inclination, 0, 0, 0])
         if self.j2:
-            mean = [self.body.radius + self.altitude, 0.0, self.inclination, 0.0, 0.0, 0.0]
-            r_t, v_t = state_from_elements(mean_to_osculating(mean, self.body), self.body.mu)
-        else:
-            r_t, v_t = circular_orbit(self.body, self.altitude, self.inclination)
+            elements = mean_to_osculating(elements, self.body)
+        return state_from_elements(elements, self.body.mu)
+
+    def reset(self, rel_state: ArrayLike) -> None:
+        r_t, v_t = self._target_start()
         accel = self._target_acceleration(np.concatenate([r_t, v_t, np.zeros(6)]))
         dr, dv = hill_to_inertial(r_t, v_t, rel_state, accel)
         self._y = np.concatenate([r_t, v_t, dr, dv])
