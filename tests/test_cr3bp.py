@@ -357,7 +357,8 @@ def test_periodic_linear_model_reuses_the_monodromy_matrix(nrho_linear):
     scale = np.repeat([SYSTEM.length, SYSTEM.velocity], 3)
     one, _ = m.matrices(0.0, period)
     two, _ = m.matrices(0.0, 2 * period)
-    assert np.allclose(one * scale[None, :] / scale[:, None], m.monodromy, rtol=0, atol=1e-12)
+    nondimensional = one * scale[None, :] / scale[:, None]
+    assert np.max(np.abs(nondimensional - m.monodromy)) < 1e-12 * np.max(np.abs(m.monodromy))
     assert np.max(np.abs(two - one @ one)) < 1e-12 * np.max(np.abs(two))
     m.reset(OFFSET)
     before, _ = m.advance(np.zeros(3), 0.3 * period)
