@@ -25,7 +25,7 @@ from numpy.typing import ArrayLike
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
-from .bodies import ThreeBodySystem
+from .bodies import BicircularSun, ThreeBodySystem
 from .cw import CWDiscretizer
 from .models import CWDynamics, integrate_segment, point_mass_difference
 
@@ -485,3 +485,46 @@ class PeriodicLinearDynamics:
         t0, x0, a = self._segment
         phi, gamma = self.matrices(t0, tau)
         return phi @ x0 + gamma @ a
+
+
+class BicircularDynamics(CR3BPDynamics):
+    """Relative motion in the bicircular four-body model: the CR3BP plus the Sun.
+
+    The Sun moves on a circle about the Earth-Moon barycentre in the primaries' plane, turning
+    clockwise in the synodic frame at `sun.rate`, from `sun_angle` (rad) at reset; the
+    barycentre's own acceleration toward the Sun enters as a uniform term (Koon et al. eq
+    5.3.1, here with z). The model is periodic in time, so it has no Jacobi integral: with the
+    Sun's potential Omega_S added, 2 (Omega + Omega_S) - v^2 changes along a path by twice the
+    integral of Omega_S's time derivative at fixed position. Nor does it solve Newton's
+    equations for the four bodies: the primaries keep their circles. Frame and units as
+    `CR3BPDynamics`; the chaser feels the difference of the Sun's pull between it and the
+    target, its tidal acceleration.
+    """
+
+    name = "bicircular"
+
+    def __init__(
+        self,
+        sun: BicircularSun,
+        target_state: ArrayLike,
+        sun_angle: float = 0.0,
+        rtol: float = 1e-12,
+    ):
+        super().__init__(sun.system, target_state, rtol)
+        self.sun = sun
+        self.sun_angle = sun_angle
+
+    def sun_position(self, t: float) -> np.ndarray:
+        """The Sun's nondimensional synodic position `t` nondimensional time units after reset."""
+        angle = self.sun_angle - self.sun.rate * t
+        return self.sun.distance * np.array([math.cos(angle), math.sin(angle), 0.0])
+
+    def _rhs(self, t: float, y: np.ndarray, accel: np.ndarray) -> np.ndarray:
+        out = super()._rhs(t, y, accel)
+        r_s = self.sun_position(self._elapsed + t)
+        m = self.sun.mass
+        d = y[0:3] - r_s
+        indirect = m * r_s / self.sun.distance**3
+        out[3:6] += -m * d / np.linalg.norm(d) ** 3 - indirect
+        out[9:12] += point_mass_difference(d, y[6:9], m)
+        return out

@@ -93,6 +93,28 @@ SUN_EARTH_RICHARDSON = ThreeBodySystem(
 )
 
 
+@dataclass(frozen=True)
+class BicircularSun:
+    """The Sun as a perturber of a planet-moon three-body system, in that system's units.
+
+    `mass` in units of the planet and moon's total mass, `distance` from their barycentre in
+    units of their distance, and `rate` the Sun's angular rate in their synodic frame, where it
+    turns clockwise: 1 minus the rate of their barycentre about the Sun.
+    """
+
+    name: str
+    system: ThreeBodySystem
+    mass: float
+    distance: float
+    rate: float
+
+
+# Koon, Lo, Marsden and Ross, eqs 5.3.4 to 5.3.7.
+SUN_FOR_EARTH_MOON_KLMR = BicircularSun(
+    "sun-earth-moon-klmr", EARTH_MOON_KLMR, 328900.54, 388.81114, 0.925195985520347
+)
+
+
 def get_body(body: str | Body) -> Body:
     """Look up a body by name; a `Body` is returned unchanged."""
     if isinstance(body, Body):
