@@ -7,10 +7,12 @@ episode it moves by about 1 deg per day, so models hold it fixed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 from numpy.typing import ArrayLike
 
-from .bodies import AU, EARTH, SUN_RADIUS, Body
+from .bodies import AU, EARTH, SOLAR_PRESSURE, SUN_RADIUS, Body
 
 # Harris-Priester densities for mean solar activity: height (km), minimum and maximum (g/km^3,
 # which is 1e-12 kg/m^3). Montenbruck and Gill, Satellite Orbits, table 3.8.
@@ -185,3 +187,87 @@ class HarrisPriester:
         bulge = np.maximum(0.5 + 0.5 * cos_psi, 0.0) ** (0.5 * self.exponent)
         rho = rho_min + (rho_max - rho_min) * bulge
         return np.where(h > _HP_HEIGHT[-1], 0.0, rho)
+
+
+class Drag:
+    """Cannonball drag on target and chaser in an atmosphere turning with the body.
+
+    a = -rho |v_r| v_r / (2 B), with v_r the velocity relative to the air and B = m / (C_D A)
+    each spacecraft's ballistic coefficient in kg/m^2 (Montenbruck and Gill, Satellite Orbits,
+    eq 3.97). `density` maps inertial positions (..., 3) to kg/m^3, for example
+    `HarrisPriester`. Drag is the largest non-gravitational relative force in low orbit;
+    ballistic coefficients of similar spacecraft differ by 10 to 50%, those of a compact chaser
+    and a space station by a factor of 4 to 8 (Fehse, Automated Rendezvous and Docking of
+    Spacecraft, sec. 4.2.1).
+    """
+
+    name = "drag"
+
+    def __init__(
+        self,
+        density: Callable[[np.ndarray], np.ndarray],
+        ballistic_target: float,
+        ballistic_chaser: float,
+        body: Body = EARTH,
+    ):
+        self.density = density
+        self.ballistic_target = ballistic_target
+        self.ballistic_chaser = ballistic_chaser
+        self.body = body
+
+    def acceleration(self, r: ArrayLike, v: ArrayLike, ballistic: float) -> np.ndarray:
+        """Drag acceleration (m/s^2) at inertial position `r` and velocity `v`."""
+        r = np.asarray(r, dtype=float)
+        v_air = np.asarray(v, dtype=float) - np.cross([0.0, 0.0, self.body.spin_rate], r)
+        speed = np.sqrt(_dot(v_air, v_air))
+        return -(0.5 * self.density(r) * speed / ballistic)[..., None] * v_air
+
+    def accelerations(
+        self, r: np.ndarray, v: np.ndarray, dr: np.ndarray, dv: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Target's drag and the chaser's minus the target's, m/s^2."""
+        target = self.acceleration(r, v, self.ballistic_target)
+        return target, self.acceleration(r + dr, v + dv, self.ballistic_chaser) - target
+
+
+class SolarPressure:
+    """Cannonball solar radiation pressure on target and chaser, dimmed by the conical shadow.
+
+    a = -nu P C_R (A / m) (AU / d)^2 d_vec / d, with d_vec the vector to the Sun, P the pressure
+    on an absorbing surface at 1 AU and nu the visible fraction of the Sun (Montenbruck and Gill,
+    Satellite Orbits, eq 3.75). `target` and `chaser` are C_R A / m in m^2/kg; C_R is 1 for an
+    absorbing surface and 1.2 to 1.9 for real ones. Relative motion feels the difference
+    (Scheeres, Orbital Motion in Strongly Perturbed Environments, sec. 2.6), which vanishes
+    for equal coefficients except across the penumbra. `distance` is the Sun's in m.
+    """
+
+    name = "srp"
+
+    def __init__(
+        self,
+        sun: ArrayLike,
+        target: float,
+        chaser: float,
+        body: Body = EARTH,
+        distance: float = AU,
+    ):
+        self.sun = _unit(sun)
+        self.target = target
+        self.chaser = chaser
+        self.body = body
+        self.distance = distance
+
+    def acceleration(self, r: ArrayLike, coefficient: float) -> np.ndarray:
+        """Acceleration (m/s^2) at inertial `r` of a body with C_R A / m = `coefficient`."""
+        r = np.asarray(r, dtype=float)
+        to_sun = self.distance * self.sun - r
+        d = np.sqrt(_dot(to_sun, to_sun))
+        lit = conical_shadow(r, self.sun, self.body, self.distance)
+        return -(lit * SOLAR_PRESSURE * coefficient * AU**2 / d**3)[..., None] * to_sun
+
+    def accelerations(
+        self, r: np.ndarray, v: np.ndarray, dr: np.ndarray, dv: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Target's acceleration and the chaser's minus the target's, m/s^2."""
+        target = self.acceleration(r, self.target)
+        return target, self.acceleration(r + dr, self.chaser) - target

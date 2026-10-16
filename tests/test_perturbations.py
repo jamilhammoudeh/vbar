@@ -2,15 +2,27 @@ import numpy as np
 import pytest
 from scipy.integrate import quad
 
-from vbar.dynamics.bodies import AU, EARTH, SUN_RADIUS
+from vbar.conventions import inertial_to_hill
+from vbar.dynamics.bodies import AU, EARTH, SOLAR_PRESSURE, SUN_RADIUS, Body
+from vbar.dynamics.models import TwoBodyDynamics
 from vbar.dynamics.perturbations import (
+    Drag,
     HarrisPriester,
+    SolarPressure,
     conical_shadow,
     cylindrical_shadow,
     geodetic_height,
 )
 
 SUN = np.array([1.0, 0.0, 0.0])
+ZERO = np.zeros(3)
+# The Earth without rotation or oblateness, so the air is at rest and speeds are orbital.
+STILL_EARTH = Body("earth", EARTH.mu, EARTH.radius)
+V_400 = np.sqrt(EARTH.mu / (EARTH.radius + 400e3))
+
+
+def constant_density(rho):
+    return lambda r: np.full(np.shape(r)[:-1], rho)
 
 
 def circle(radius, samples):
@@ -149,3 +161,113 @@ def test_harris_priester_density_ends_at_1000_km_and_refuses_below_100_km():
     assert density(on_equator(1001e3, 0.0)) == 0.0
     with pytest.raises(ValueError, match="100 km"):
         density(on_equator(99e3, 0.0))
+
+
+def test_drag_acceleration_matches_published_value():
+    # Fehse, Automated Rendezvous and Docking of Spacecraft, eq 4.3: 1e-11 kg/m^3, circular
+    # speed at 400 km, ballistic coefficient 215 kg/m^2; the book rounds to 1.38e-6 m/s^2.
+    drag = Drag(constant_density(1e-11), 215.0, 215.0, STILL_EARTH)
+    v = np.array([0.0, V_400, 0.0])
+    accel = drag.acceleration([EARTH.radius + 400e3, 0.0, 0.0], v, 215.0)
+    assert np.linalg.norm(accel) == pytest.approx(1.3676e-6, rel=5e-5)
+    assert np.allclose(np.cross(accel, v), 0.0, atol=1e-20) and accel @ v < 0
+
+
+def test_drag_acts_against_the_velocity_relative_to_the_rotating_air():
+    # Prograde on the equator the air moves with the spacecraft at w r.
+    r = EARTH.radius + 400e3
+    drag = Drag(constant_density(1e-11), 100.0, 100.0)
+    still = Drag(constant_density(1e-11), 100.0, 100.0, STILL_EARTH)
+    v = [0.0, V_400, 0.0]
+    ratio = drag.acceleration([r, 0, 0], v, 100.0)[1] / still.acceleration([r, 0, 0], v, 100.0)[1]
+    assert ratio == pytest.approx((1 - EARTH.spin_rate * r / V_400) ** 2, rel=1e-14)
+
+
+def test_differential_drag_drift_matches_published_values():
+    # Fehse eq 4.3 and fig 4.3: a chaser with ballistic coefficient 470 kg/m^2 and 1.5 times
+    # the target's, from the target's position, at 1e-11 kg/m^3 for three orbits at 400 km.
+    # The values solve CW with that constant differential acceleration (the book's text, about
+    # 70 m behind and 5 m above, does not follow from its numbers); flown here through the
+    # nonlinear model, where the target also decays 9 m per orbit.
+    drag = Drag(constant_density(1e-11), 470.0 / 1.5, 470.0, STILL_EARTH)
+    m = TwoBodyDynamics(STILL_EARTH, 400e3, perturbations=[drag])
+    m.reset(np.zeros(6))
+    final, _ = m.advance(ZERO, 3 * 2 * np.pi / m.n)
+    assert final[0] == pytest.approx(9.213, rel=1e-3)
+    assert final[1] == pytest.approx(-130.24, rel=1e-3)
+
+
+def test_differential_drag_brings_a_retrograde_start_back_after_9_08_orbits():
+    # Fehse fig 4.15: -0.06 m/s along-track, 9.4e-12 kg/m^3, chaser ballistic coefficient
+    # 470 kg/m^2 and 5 times the target's; back after "about ten" orbits, 9.08 in CW with the
+    # constant differential acceleration.
+    drag = Drag(constant_density(9.4e-12), 470.0 / 5, 470.0, STILL_EARTH)
+    m = TwoBodyDynamics(STILL_EARTH, 400e3, perturbations=[drag])
+    m.reset([0.0, 0.0, 0.0, 0.0, -0.06, 0.0])
+    period = 2 * np.pi / m.n
+    _, samples = m.advance(ZERO, 10 * period, n_samples=1001)
+    y = samples[:, 1]
+    k = np.flatnonzero((y[:-1] > 0) & (y[1:] <= 0))
+    assert k.size == 1
+    assert 10 * k[0] / 1000 == pytest.approx(9.08, abs=0.01)
+
+
+def test_solar_pressure_pushes_away_from_the_sun_at_the_published_pressure():
+    # Montenbruck and Gill eq 3.69: 4.56e-6 N/m^2 at 1 AU.
+    srp = SolarPressure(SUN, 0.013, 0.013)
+    r = np.array([0.0, EARTH.radius + 500e3, 0.0])
+    lit = srp.acceleration(r, 0.013)
+    to_sun = AU * SUN - r
+    expected = -SOLAR_PRESSURE * 0.013 * (AU / np.linalg.norm(to_sun)) ** 2
+    assert np.allclose(lit, expected * to_sun / np.linalg.norm(to_sun), rtol=1e-14, atol=0.0)
+    assert np.linalg.norm(lit) == pytest.approx(SOLAR_PRESSURE * 0.013, rel=1e-8)
+    assert np.all(srp.acceleration([-EARTH.radius - 500e3, 0.0, 0.0], 0.013) == 0.0)
+
+
+def test_equal_spacecraft_feel_no_differential_force():
+    hp = HarrisPriester(SUN, exponent=2)
+    forces = [Drag(hp, 50.0, 50.0), SolarPressure(SUN, 0.02, 0.02)]
+    r = np.array([EARTH.radius + 500e3, 1e5, 2e5])
+    v = np.array([-100.0, 7.6e3, 50.0])
+    for force in forces:
+        target, relative = force.accelerations(r, v, ZERO, ZERO)
+        assert np.linalg.norm(target) > 1e-8
+        assert np.all(relative == 0.0)
+    # Identical spacecraft starting together stay together.
+    m = TwoBodyDynamics(inclination=0.9, j2=True, perturbations=forces)
+    m.reset(np.zeros(6))
+    assert np.all(m.advance(ZERO, 3000.0)[0] == 0.0)
+
+
+def test_perturbations_of_zero_strength_change_nothing():
+    plain = TwoBodyDynamics(inclination=0.9, j2=True)
+    forces = [Drag(HarrisPriester(SUN, 2), np.inf, np.inf), SolarPressure(SUN, 0.0, 0.0)]
+    perturbed = TwoBodyDynamics(inclination=0.9, j2=True, perturbations=forces)
+    assert perturbed.name == "twobody_j2_drag_srp"
+    s0 = [150.0, -400.0, 30.0, 0.05, 0.1, -0.02]
+    plain.reset(s0)
+    perturbed.reset(s0)
+    accel = [1e-3, 0.0, -1e-3]
+    assert np.array_equal(plain.advance(accel, 600.0)[0], perturbed.advance(accel, 600.0)[0])
+
+
+def test_hill_velocity_with_solar_pressure_needs_the_full_frame_rate():
+    # A large out-of-plane solar force on the target turns its orbit plane; the Hill velocity
+    # must follow the frame's exact rate, as under J2.
+    sun = [0.3, -0.4, 0.866]
+    m = TwoBodyDynamics(inclination=0.9, perturbations=[SolarPressure(sun, 2.0, 0.5)])
+    m.reset([200.0, -1000.0, 300.0, 0.05, 0.1, -0.2])
+    h = 1.0
+    m.advance(ZERO, 500.0 - 2 * h)
+    positions = [m.state_in_last_segment(500.0 - 2 * h)[:3]]
+    for k in range(4):
+        state, _ = m.advance(ZERO, h)
+        positions.append(state[:3])
+        if k == 1:
+            rel, target, chaser = state, m.target_state(), m.chaser_state()
+    rate = (positions[0] - 8 * positions[1] + 8 * positions[3] - positions[4]) / (12 * h)
+    assert np.max(np.abs(rel[3:] - rate)) < 1e-9
+    keplerian = inertial_to_hill(
+        target[:3], target[3:], chaser[:3] - target[:3], chaser[3:] - target[3:]
+    )
+    assert np.max(np.abs(keplerian[3:] - rate)) > 1e-8

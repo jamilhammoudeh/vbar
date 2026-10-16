@@ -33,6 +33,9 @@ BODIES = {body.name: body for body in (EARTH, KERBIN)}
 
 AU = 1.495978707e11  # m, IAU 2012 resolution B2
 SUN_RADIUS = 6.957e8  # m, IAU 2015 nominal solar radius
+# Radiation pressure on an absorbing surface at 1 AU: 1367 W/m^2 over the speed of light
+# (Montenbruck and Gill, Satellite Orbits, eq 3.69).
+SOLAR_PRESSURE = 4.56e-6  # N/m^2
 
 
 def get_body(body: str | Body) -> Body:

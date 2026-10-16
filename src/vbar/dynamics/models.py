@@ -7,6 +7,7 @@ constant in the Hill frame over a segment.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 import numpy as np
@@ -31,6 +32,22 @@ class Dynamics(Protocol):
     ) -> tuple[np.ndarray, np.ndarray | None]: ...
 
     def state_in_last_segment(self, tau: float) -> np.ndarray: ...
+
+
+class Perturbation(Protocol):
+    """A force beyond gravity acting on both spacecraft, such as drag or solar pressure."""
+
+    name: str
+
+    def accelerations(
+        self, r: np.ndarray, v: np.ndarray, dr: np.ndarray, dv: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Inertial accelerations (m/s^2) of the target and of the chaser minus the target's.
+
+        The target is at (r, v) and the chaser at (r + dr, v + dv); inputs may be stacked as
+        (..., 3).
+        """
+        ...
 
 
 class CWDynamics:
@@ -151,7 +168,9 @@ class TwoBodyDynamics:
     advances faster, by (3/2) J2 (R/a)^2 (4 cos^2 i - 1) n. The Hill frame of the output
     uses the frame's exact rotation, including the out-of-plane rate J2 causes.
     `rtol` is the integrator's relative tolerance; at the default the relative state is
-    within about 1e-9 of its own size after one orbit.
+    within about 1e-9 of its own size after one orbit. `perturbations` add forces such as drag
+    and solar pressure (`vbar.dynamics.perturbations`); the target follows its own and the
+    chaser's offset feels the difference.
     """
 
     def __init__(
@@ -161,13 +180,17 @@ class TwoBodyDynamics:
         inclination: float = 0.0,
         j2: bool = False,
         rtol: float = 1e-11,
+        perturbations: Sequence[Perturbation] = (),
     ):
         self.body = get_body(body)
         self.altitude = altitude
         self.inclination = inclination
         self.j2 = j2
         self.rtol = rtol
-        self.name = "twobody_j2" if j2 else "twobody"
+        self.perturbations = tuple(perturbations)
+        self.name = ("twobody_j2" if j2 else "twobody") + "".join(
+            "_" + p.name for p in self.perturbations
+        )
         self.n = mean_motion(self.body.radius + altitude, self.body.mu)
         self._y = np.zeros(12)
         self._sol = None
@@ -179,7 +202,8 @@ class TwoBodyDynamics:
             r_t, v_t = state_from_elements(mean_to_osculating(mean, self.body), self.body.mu)
         else:
             r_t, v_t = circular_orbit(self.body, self.altitude, self.inclination)
-        dr, dv = hill_to_inertial(r_t, v_t, rel_state, self._gravity(r_t))
+        accel = self._target_acceleration(np.concatenate([r_t, v_t, np.zeros(6)]))
+        dr, dv = hill_to_inertial(r_t, v_t, rel_state, accel)
         self._y = np.concatenate([r_t, v_t, dr, dv])
         self._sol = None
         self._step = None
@@ -187,15 +211,28 @@ class TwoBodyDynamics:
     def _gravity(self, r: np.ndarray) -> np.ndarray:
         return gravity(r, self.body, self.j2)
 
+    def _target_acceleration(self, y: np.ndarray) -> np.ndarray:
+        r_t, v_t = y[..., 0:3], y[..., 3:6]
+        accel = self._gravity(r_t)
+        for p in self.perturbations:
+            accel = accel + p.accelerations(r_t, v_t, y[..., 6:9], y[..., 9:12])[0]
+        return accel
+
     def _rhs(self, t: float, y: np.ndarray, accel_hill: np.ndarray) -> np.ndarray:
         r_t, v_t, dr, dv = y[0:3], y[3:6], y[6:9], y[9:12]
         C, _ = hill_frame(r_t, v_t)
-        dg = differential_gravity(r_t, dr, self.body, self.j2)
-        return np.concatenate([v_t, self._gravity(r_t), dv, dg + C @ accel_hill])
+        a_t = self._gravity(r_t)
+        da = differential_gravity(r_t, dr, self.body, self.j2) + C @ accel_hill
+        for p in self.perturbations:
+            target, relative = p.accelerations(r_t, v_t, dr, dv)
+            a_t = a_t + target
+            da = da + relative
+        return np.concatenate([v_t, a_t, dv, da])
 
     def _to_hill(self, y: np.ndarray) -> np.ndarray:
-        r_t = y[..., 0:3]
-        return inertial_to_hill(r_t, y[..., 3:6], y[..., 6:9], y[..., 9:12], self._gravity(r_t))
+        return inertial_to_hill(
+            y[..., 0:3], y[..., 3:6], y[..., 6:9], y[..., 9:12], self._target_acceleration(y)
+        )
 
     def advance(
         self, accel_hill: ArrayLike, duration: float, n_samples: int = 0
