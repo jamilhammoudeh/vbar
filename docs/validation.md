@@ -240,3 +240,5 @@ examples; the pages above give the numbers.
   scalar minimization that refines the in-step constraint minimum.
 - Donzé and Maler (FORMATS 2010): constraint margins as the signed distance to violation of
   signal temporal logic.
+- Van Loan, "Computing integrals involving the matrix exponential" (*IEEE Transactions on
+  Automatic Control* 23, 1978): the added covariance of the `:nav2` error between observations.

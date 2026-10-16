@@ -141,6 +141,7 @@ class GaussMarkovNav:
         w = sigma_vel / sigma_pos
         self.system = np.array([[0.0, 1.0], [-(w**2), -2.0 * damping * w]])
         self.cov = np.diag([sigma_pos**2, sigma_vel**2])
+        self.intensity = np.diag([0.0, 4.0 * damping * w * sigma_vel**2])
         self.rng = np.random.default_rng()
         self.error = np.zeros((2, 3))
         self.t = 0.0
@@ -152,10 +153,27 @@ class GaussMarkovNav:
 
     def observe(self, true_state: ArrayLike, t: float) -> np.ndarray:
         if t > self.t:
-            transition = expm(self.system * (t - self.t))
-            # Stationary process: the noise added over the interval restores the covariance.
-            added = self.cov - transition @ self.cov @ transition.T
-            draw = np.linalg.cholesky(added + 1e-30 * np.eye(2)) @ self.rng.standard_normal((2, 3))
-            self.error = transition @ self.error + draw
+            transition, added = self._discretize(t - self.t)
+            # eigh rather than Cholesky: on short steps the added covariance is nearly singular.
+            values, vectors = np.linalg.eigh(added)
+            factor = vectors * np.sqrt(np.clip(values, 0.0, None))
+            self.error = transition @ self.error + factor @ self.rng.standard_normal((2, 3))
             self.t = t
         return np.asarray(true_state, dtype=float) + self.error.ravel()
+
+    def _discretize(self, dt: float) -> tuple[np.ndarray, np.ndarray]:
+        """Transition matrix and added covariance over `dt` s, by Van Loan's method.
+
+        P - F P F^T gives the same covariance in exact arithmetic but cancels on short steps,
+        where the added position variance is about q^2 dt^3 / 3 against a stationary sigma_pos^2
+        (Van Loan, IEEE Transactions on Automatic Control 23, 1978).
+        """
+        A = self.system
+        block = np.zeros((4, 4))
+        block[:2, :2] = -A
+        block[:2, 2:] = self.intensity
+        block[2:, 2:] = A.T
+        exponential = expm(block * dt)
+        transition = exponential[2:, 2:].T
+        added = transition @ exponential[:2, 2:]
+        return transition, 0.5 * (added + added.T)

@@ -162,6 +162,21 @@ def test_nav2_velocity_error_is_the_rate_of_its_position_error():
     assert np.max(np.abs((second[:3] - first[:3]) / h - first[3:])) > 1.0
 
 
+def test_nav2_added_covariance_is_accurate_on_short_and_long_steps():
+    sensor = GaussMarkovNav()
+    q2 = sensor.intensity[1, 1]
+    for h in (1e-6, 1e-3):
+        _, added = sensor._discretize(h)
+        # Leading order of the integral; damping corrections are of relative order w h <= 1e-5.
+        leading = q2 * np.array([[h**3 / 3, h**2 / 2], [h**2 / 2, h]])
+        assert np.allclose(added, leading, rtol=1e-4, atol=0.0)
+    F, added = sensor._discretize(50.0)
+    assert np.allclose(added, sensor.cov - F @ sensor.cov @ F.T, rtol=1e-10, atol=0.0)
+    sensor.reset(np.random.default_rng(14))
+    for k in range(1, 200):
+        assert np.all(np.isfinite(sensor.observe(np.zeros(6), 1e-6 * k)))
+
+
 def test_nav2_error_does_not_depend_on_the_true_state():
     sensor = GaussMarkovNav()
     rng = np.random.default_rng(13)

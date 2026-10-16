@@ -80,10 +80,14 @@ process. Between observations $\Delta t$ apart the process is propagated exactly
 
 $$
 \mathbf e_{k+1} = F\,\mathbf e_k + L\,\mathbf n_k, \qquad F = e^{A\Delta t}, \qquad
-L L^\top = Q = P - F P F^\top
+L L^\top = Q = \int_0^{\Delta t} e^{As}\operatorname{diag}(0, q^2)\,e^{A^\top s}\,ds
 $$
 
-with $\mathbf n_k$ standard normal. Each episode starts from a draw of $P$, so the error is
+with $\mathbf n_k$ standard normal. $Q$ equals $P - F P F^\top$ in exact arithmetic, but that
+difference cancels on short steps, where the added position variance is about $q^2\Delta t^3/3$
+against $\sigma_r^2$. $Q$ is computed instead by Van Loan's method, from one exponential of the
+block matrix $[[-A, \operatorname{diag}(0, q^2)], [0, A^\top]]\,\Delta t$, and $L$ from its
+eigendecomposition with rounding below zero clipped, so steps down to microseconds stay exact. Each episode starts from a draw of $P$, so the error is
 stationary from the first observation, and the lag covariance is
 $E[\mathbf e_{k+1}\mathbf e_k^\top] = F P$. Integrating the observed velocity reproduces the
 observed position, and averaging over steps does not remove the error: at the defaults the
@@ -122,7 +126,9 @@ with probability 1e-6 and uses a fixed seed:
 - Range-scaled errors along and across the line of sight at 0.5, 30, 100 and 1000 m, and defaults
   of 1% of range.
 - `:nav2` stationary covariance at the first observation and 10 s later, the lag covariance $F P$
-  over 4000 episodes, and the velocity error matching a finite difference of the position error.
+  over 4000 episodes, the velocity error matching a finite difference of the position error,
+  and the added covariance matching its short-step series at 1 microsecond and 1 ms and
+  $P - F P F^\top$ at 50 s.
 - In the environment, the observation minus the truth has the sensor's mean and covariance and is
   uncorrelated with the true state and the past actions over 4000 steps; two environments built
   from one configuration draw their own noise.
