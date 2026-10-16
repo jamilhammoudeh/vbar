@@ -16,6 +16,8 @@ from scipy.integrate import solve_ivp
 from ..conventions import hill_frame, hill_to_inertial, inertial_to_hill
 from .bodies import Body, get_body
 from .cw import CWDiscretizer, mean_motion
+from .kepler import state_from_elements
+from .mean_elements import mean_to_osculating
 
 
 class Dynamics(Protocol):
@@ -142,8 +144,12 @@ class TwoBodyDynamics:
     The target follows its own orbit and the chaser is carried as an inertial offset
     (dr, dv) driven by the differential gravity g(r_t + dr) - g(r_t), so the small relative
     motion is integrated with its own tolerances instead of being lost in 7000 km positions.
-    The target starts on a circular orbit at its ascending node. The Hill frame of the
-    output uses the frame's exact rotation, including the out-of-plane rate J2 causes.
+    The target starts at the ascending node (on +x) of a circular orbit. With J2 the orbit is
+    circular in first-order mean elements, so the target's osculating state carries J2's
+    short-period terms rather than a spurious eccentricity. `n` is the Keplerian mean motion
+    of the mean semi-major axis either way; under J2 the target's mean argument of latitude
+    advances faster, by (3/2) J2 (R/a)^2 (4 cos^2 i - 1) n. The Hill frame of the output
+    uses the frame's exact rotation, including the out-of-plane rate J2 causes.
     `rtol` is the integrator's relative tolerance; at the default the relative state is
     within about 1e-9 of its own size after one orbit.
     """
@@ -168,7 +174,11 @@ class TwoBodyDynamics:
         self._step: float | None = None
 
     def reset(self, rel_state: ArrayLike) -> None:
-        r_t, v_t = circular_orbit(self.body, self.altitude, self.inclination)
+        if self.j2:
+            mean = [self.body.radius + self.altitude, 0.0, self.inclination, 0.0, 0.0, 0.0]
+            r_t, v_t = state_from_elements(mean_to_osculating(mean, self.body), self.body.mu)
+        else:
+            r_t, v_t = circular_orbit(self.body, self.altitude, self.inclination)
         dr, dv = hill_to_inertial(r_t, v_t, rel_state, self._gravity(r_t))
         self._y = np.concatenate([r_t, v_t, dr, dv])
         self._sol = None

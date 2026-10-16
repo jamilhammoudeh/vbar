@@ -6,7 +6,8 @@ import pytest
 from vbar.conventions import inertial_to_hill
 from vbar.dynamics import cw_stm
 from vbar.dynamics.bodies import EARTH, KERBIN
-from vbar.dynamics.kepler import propagate_kepler
+from vbar.dynamics.kepler import elements_from_state, propagate_kepler
+from vbar.dynamics.mean_elements import j2_secular_rates, osculating_to_mean
 from vbar.dynamics.models import (
     CWDynamics,
     TwoBodyDynamics,
@@ -250,24 +251,44 @@ def test_twobody_conserves_energy_over_ten_orbits():
     assert specific_energy(m.chaser_state(), EARTH.mu) == pytest.approx(e_chaser, rel=1e-10)
 
 
+def mean_elements(state):
+    return osculating_to_mean(elements_from_state(state[:3], state[3:], EARTH.mu), EARTH)
+
+
+def wrapped(angle):
+    return (angle + np.pi) % (2 * np.pi) - np.pi
+
+
+@pytest.mark.parametrize("inclination_deg", [0.0, 51.6, 97.4])
+def test_j2_target_is_circular_in_mean_elements(inclination_deg):
+    m = TwoBodyDynamics(inclination=np.radians(inclination_deg), j2=True)
+    m.reset(np.zeros(6))
+    period = 2 * np.pi / m.n
+    a = EARTH.radius + m.altitude
+    for _ in range(5 * 8):
+        mean = mean_elements(m.target_state())
+        # An osculating circular start has a mean eccentricity of 8e-4 at 51.6 deg.
+        assert mean[1] < 1e-5
+        assert abs(mean[0] - a) < 50.0
+        m.advance(ZERO, period / 8)
+
+
 @pytest.mark.parametrize("inclination_deg", [28.5, 51.6, 97.4])
-def test_j2_mean_raan_drift_matches_analytic_rate(inclination_deg):
+def test_j2_target_mean_raan_and_latitude_rates_match_secular_theory(inclination_deg):
     inclination = np.radians(inclination_deg)
     m = TwoBodyDynamics(inclination=inclination, j2=True)
     m.reset(np.zeros(6))
-
-    def raan():
-        s = m.target_state()
-        h = np.cross(s[:3], s[3:])
-        return np.arctan2(h[0], -h[1])
-
-    # Whole orbits end to end, so the short-period J2 terms largely cancel.
     duration = 10 * 2 * np.pi / m.n
-    raan0 = raan()
+    start = mean_elements(m.target_state())
     m.advance(ZERO, duration)
+    end = mean_elements(m.target_state())
     a = EARTH.radius + m.altitude
-    expected = -1.5 * m.n * EARTH.j2 * (EARTH.radius / a) ** 2 * np.cos(inclination)
-    assert (raan() - raan0) / duration == pytest.approx(expected, rel=1e-2)
+    raan_dot, _, _ = j2_secular_rates(a, 0.0, inclination, EARTH)
+    assert wrapped(end[3] - start[3]) / duration == pytest.approx(raan_dot, rel=1e-2)
+    # The mean argument of latitude outruns the Keplerian n agents are given.
+    excess = 1.5 * EARTH.j2 * (EARTH.radius / a) ** 2 * (4 * np.cos(inclination) ** 2 - 1)
+    latitude = wrapped(end[4] + end[5] - start[4] - start[5]) + 10 * 2 * np.pi
+    assert latitude / (m.n * duration) - 1 == pytest.approx(excess, rel=1e-2)
 
 
 @pytest.mark.parametrize("t", [500.0, 1400.0, 2800.0])
