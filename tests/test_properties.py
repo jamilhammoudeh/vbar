@@ -164,6 +164,38 @@ def test_twobody_j2_conserves_energy_and_polar_angular_momentum(r0, v0, inclinat
         assert abs(h_z[1] - h_z[0]) < 1e-10 * np.linalg.norm(np.cross(s0[:3], s0[3:]))
 
 
+def rotating_frame_jacobi(state, a, n):
+    """Rotating-frame Jacobi integral minus its value at the target, from a Hill state.
+
+    The frame rotates with a circular orbit of radius `a`; the large terms cancel analytically.
+    """
+    x, y, z = state[:3]
+    q = 2 * a * x + x * x + y * y + z * z
+    radius = np.sqrt((a + x) ** 2 + y * y + z * z)
+    return (
+        0.5 * state[3:] @ state[3:]
+        - 0.5 * n * n * (2 * a * x + x * x + y * y)
+        + EARTH.mu * q / (a * radius * (a + radius))
+    )
+
+
+@settings(max_examples=15, deadline=None)
+@given(positions, velocities, accels, st.floats(0.0, np.pi), st.floats(100.0, PERIOD))
+def test_twobody_jacobi_integral_changes_by_work_of_hill_thrust(r0, v0, accel, inclination, t):
+    # A circular target's Hill frame rotates uniformly, so thrust held in it does work a . dr
+    # on the rotating-frame Jacobi integral; a thrust frame or sign error breaks this.
+    m = TwoBodyDynamics(inclination=inclination)
+    s0 = np.r_[r0, v0]
+    a = np.array(accel)
+    m.reset(s0)
+    s1, _ = m.advance(a, t)
+    radius = EARTH.radius + m.altitude
+    change = rotating_frame_jacobi(s1, radius, m.n) - rotating_frame_jacobi(s0, radius, m.n)
+    work = a @ (s1[:3] - s0[:3])
+    scale = max(s1[3:] @ s1[3:], m.n**2 * s1[:3] @ s1[:3], s0[3:] @ s0[3:], abs(work), 1e-6)
+    assert abs(change - work) < 1e-10 * scale
+
+
 @given(positions, velocities, quaternions, st.floats(0.0, np.pi), st.floats(0.0, 2 * np.pi))
 def test_hill_state_is_invariant_under_inertial_rotation(r0, v0, q, inclination, u):
     a = EARTH.radius + 500e3

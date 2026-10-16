@@ -251,6 +251,24 @@ def test_twobody_conserves_energy_over_ten_orbits():
     assert specific_energy(m.chaser_state(), EARTH.mu) == pytest.approx(e_chaser, rel=1e-10)
 
 
+def j2_energy(s):
+    """Specific energy including the J2 potential, m^2/s^2."""
+    r = np.linalg.norm(s[:3])
+    u_j2 = EARTH.mu * EARTH.j2 * EARTH.radius**2 / (2 * r**3) * (3 * (s[2] / r) ** 2 - 1)
+    return specific_energy(s, EARTH.mu) + u_j2
+
+
+def test_twobody_j2_conserves_energy_and_polar_angular_momentum_over_ten_orbits():
+    m = TwoBodyDynamics(inclination=np.radians(51.6), j2=True)
+    m.reset([300.0, -800.0, 150.0, 0.1, -0.2, 0.05])
+    start = [m.target_state(), m.chaser_state()]
+    m.advance(ZERO, 10 * 2 * np.pi / m.n)
+    for s0, s1 in zip(start, [m.target_state(), m.chaser_state()], strict=True):
+        assert j2_energy(s1) == pytest.approx(j2_energy(s0), rel=1e-10)
+        h0, h1 = np.cross(s0[:3], s0[3:]), np.cross(s1[:3], s1[3:])
+        assert abs(h1[2] - h0[2]) < 1e-10 * np.linalg.norm(h0)
+
+
 def mean_elements(state):
     return osculating_to_mean(elements_from_state(state[:3], state[3:], EARTH.mu), EARTH)
 
