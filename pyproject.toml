@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vbar"
+version = "0.0.1"
+description = "A fast, headless, cross-platform benchmark for testing AI and classical spacecraft controllers, with safety filters."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Jamil Hammoudeh" }]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "gymnasium>=0.29",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.7"]
+dev = ["pytest>=7", "matplotlib>=3.7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vbar"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

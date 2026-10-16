@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "V-BAR: Verified Benchmark for Autonomous Rendezvous"
+authors:
+  - family-names: Hammoudeh
+    given-names: Jamil
+version: 0.0.1
+license: MIT

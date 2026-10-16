@@ -1,0 +1,43 @@
+"""Run episodes and collect benchmark metrics."""
+
+from __future__ import annotations
+
+import time
+
+import numpy as np
+
+
+def run_episode(env, agent, seed: int | None = None) -> dict:
+    """Run one episode. Returns final metrics plus the full trajectory."""
+    obs, info = env.reset(seed=seed)
+    agent.reset(env)
+    states, actions = [obs.copy()], []
+    t0 = time.perf_counter()
+    terminated = truncated = False
+    while not (terminated or truncated):
+        action = np.asarray(agent.act(obs, info), dtype=float)
+        obs, _, terminated, truncated, info = env.step(action)
+        states.append(obs.copy())
+        actions.append(action)
+    result = {
+        "agent": agent.name,
+        "seed": seed,
+        "captured": info["captured"],
+        "keep_out_violated": info["keep_out_violated"],
+        "violation_steps": info["violation_steps"],
+        "min_range_to_target_m": info["min_range_to_target_m"],
+        "final_dist_to_hold_m": info["dist_to_hold_m"],
+        "dv_used_mps": info["dv_used_mps"],
+        "time_s": info["time_s"],
+        "wall_time_s": time.perf_counter() - t0,
+        "states": np.array(states),
+        "actions": np.array(actions),
+    }
+    if hasattr(agent, "interventions"):
+        result["filter_interventions"] = agent.interventions
+    return result
+
+
+def run_many(env, agent, seeds) -> list[dict]:
+    """Run one episode per seed. (Parallel runner planned.)"""
+    return [run_episode(env, agent, seed=s) for s in seeds]
