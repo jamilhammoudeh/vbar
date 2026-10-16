@@ -3,6 +3,7 @@ import math
 
 import numpy as np
 import pytest
+from reference_states import NRHO
 from scipy.integrate import solve_ivp
 
 from vbar.dynamics import cr3bp
@@ -10,7 +11,6 @@ from vbar.dynamics.bodies import SUN_FOR_EARTH_MOON_KLMR as SUN
 
 SYSTEM = SUN.system
 MU = SYSTEM.mu
-NRHO = np.array([0.9873849199042153, 0.0, 0.008369210996156513, 0.0, 1.6744665364075588, 0.0])
 OFFSET = np.array([800.0, -1500.0, 400.0, 0.05, 0.02, -0.03])
 
 

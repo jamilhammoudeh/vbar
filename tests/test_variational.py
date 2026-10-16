@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import pytest
+from reference_states import pco_state
 from scipy.integrate import solve_ivp
 
 from vbar.conventions import hill_frame
@@ -170,11 +171,6 @@ def test_linearized_two_body_is_yamanaka_ankersen_on_an_elliptic_orbit():
     linear, _ = m.advance(ACCEL, period)
     closed_form, _ = ya.advance(ACCEL, period)
     assert np.max(np.abs(linear - closed_form)) < 1e-11 * np.max(np.abs(closed_form))
-
-
-def pco_state(rho, alpha, n):
-    s, c = np.sin(alpha), np.cos(alpha)
-    return [0.5 * rho * s, rho * c, rho * s, 0.5 * rho * n * c, -rho * n * s, rho * n * c]
 
 
 @pytest.mark.parametrize("alpha_deg, published", [(0.0, -11.0), (90.0, -3.5)])

@@ -4,6 +4,7 @@ import inspect
 
 import numpy as np
 import pytest
+from reference_states import NRHO, NRHO_PERIOD
 
 from vbar.dynamics import cr3bp
 from vbar.dynamics.bodies import EARTH_MOON_KLMR, SUN_FOR_EARTH_MOON_KLMR
@@ -15,7 +16,6 @@ from vbar.dynamics.relative import (
     YamanakaAnkersenDynamics,
 )
 
-NRHO = np.array([0.9873849199042153, 0.0, 0.008369210996156513, 0.0, 1.6744665364075588, 0.0])
 SUN = [0.3, 0.5, 0.8]
 
 MODELS = {
@@ -30,7 +30,7 @@ MODELS = {
     "linear_j2": lambda: LinearizedTwoBodyDynamics(inclination=0.9),
     "cr3bp": lambda: cr3bp.CR3BPDynamics(EARTH_MOON_KLMR, NRHO),
     "libration": lambda: cr3bp.LibrationPointDynamics.at_point(EARTH_MOON_KLMR, 2),
-    "cr3bp_linear": lambda: cr3bp.PeriodicLinearDynamics(EARTH_MOON_KLMR, NRHO, 1.5088887454509277),
+    "cr3bp_linear": lambda: cr3bp.PeriodicLinearDynamics(EARTH_MOON_KLMR, NRHO, NRHO_PERIOD),
     "bicircular": lambda: cr3bp.BicircularDynamics(SUN_FOR_EARTH_MOON_KLMR, NRHO, 0.5),
 }
 

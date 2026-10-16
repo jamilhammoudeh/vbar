@@ -6,6 +6,7 @@ import math
 
 import numpy as np
 import pytest
+from reference_states import NRHO, NRHO_PERIOD
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
@@ -23,10 +24,6 @@ from vbar.dynamics.models import TwoBodyDynamics
 
 MU = EARTH_MOON_KLMR.mu
 EPS = np.finfo(float).eps
-# Computed: 9:2 synodic-resonant L2 near-rectilinear halo orbit with its apolune below the
-# plane, at its perilune-side crossing of the x-z plane, and its period.
-NRHO = np.array([0.9873849199042153, 0.0, 0.008369210996156513, 0.0, 1.6744665364075588, 0.0])
-NRHO_PERIOD = 1.5088887454509277
 
 
 def propagate(state, t, mu=MU, rtol=1e-13):

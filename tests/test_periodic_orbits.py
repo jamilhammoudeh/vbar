@@ -4,14 +4,13 @@ Problem and Space Mission Design); the others are printed in the book."""
 
 import numpy as np
 import pytest
+from reference_states import NRHO, NRHO_PERIOD
 
 from vbar.dynamics import cr3bp
 from vbar.dynamics import periodic_orbits as po
 from vbar.dynamics.bodies import EARTH_MOON_KLMR, SUN_EARTH_RICHARDSON
 
 MU = EARTH_MOON_KLMR.mu
-NRHO = np.array([0.9873849199042153, 0.0, 0.008369210996156513, 0.0, 1.6744665364075588, 0.0])
-NRHO_PERIOD = 1.5088887454509277
 
 
 @pytest.fixture(scope="module")

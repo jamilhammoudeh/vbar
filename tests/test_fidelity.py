@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from reference_states import pco_state
 
 from vbar.dynamics.cw import cw_stm
 from vbar.dynamics.fidelity import modeling_error_index, stm_adequacy, validity_horizon
@@ -40,11 +41,6 @@ def test_cw_stops_being_adequate_under_j2_within_one_orbit():
     assert 0.4 * period <= validity_horizon(times, values) <= 0.5 * period
     assert validity_horizon(times, values, limit=1.0) == np.inf
     assert adequacy(2 * period) / adequacy(period) == pytest.approx(2.0, rel=1e-2)
-
-
-def pco_state(rho, alpha, n):
-    s, c = np.sin(alpha), np.cos(alpha)
-    return [0.5 * rho * s, rho * c, rho * s, 0.5 * rho * n * c, -rho * n * s, rho * n * c]
 
 
 def index_after_one_orbit(truth, model, rho):
