@@ -1,8 +1,23 @@
 # Changelog
 
-## 0.2.0
+Notable changes to V-BAR. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html); before 1.0, a minor
+release may change the public API, and every such change is listed under Changed or Removed.
 
-Breaking changes:
+## [Unreleased]
+
+### Added
+
+- `vbar/Approach-v0` registered with Gymnasium on import, so `gymnasium.make` builds the approach
+  scenario; it passes Gymnasium's environment checker.
+- `py.typed` marker, so type checkers use the package's annotations.
+- A test that runs every python example in README.md and `docs/`, coverage reporting in CI, a
+  throughput benchmark (`benchmarks/steps.py`) and weekly mutation testing of the core modules.
+- SECURITY.md.
+
+## [0.2.0] - 2026-10-16
+
+### Changed
 
 - `vbar.envs` is now `vbar.scenarios`. `from vbar import ApproachConfig, ApproachEnv` still works.
 - Agents implement `reset(view, rng)` instead of `reset(env)`. `view` is a read-only `AgentView`
@@ -13,7 +28,7 @@ Breaking changes:
 - Config dataclasses take keyword arguments only, and `ApproachConfig.extra` was removed.
 - `run_episode` takes `agent_seed` and returns it; `run_many` takes `agent_seeds`.
 
-Added:
+### Added
 
 - Spacecraft model: mass, propellant and the rocket equation, run-out, box or ball thrust limits,
   minimum impulse bit, actuation delay with piecewise segments, constant-acceleration or
@@ -30,7 +45,13 @@ Added:
   models and halo-orbit tools.
 - Documentation pages in `docs/` for every part.
 
-## 0.1.0
+## [0.1.0] - 2026-10-16
+
+### Added
 
 First release with the validated dynamics layer: exact Clohessy-Wiltshire, nonlinear two-body
 relative motion with J2, Kepler propagation and J2 mean elements.
+
+[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/jamilhammoudeh/vbar/releases/tag/v0.1.0
