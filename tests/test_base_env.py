@@ -7,7 +7,7 @@ from gymnasium.utils.env_checker import check_env
 from vbar.constraints import KeepOut
 from vbar.dynamics import cw_discrete
 from vbar.scenarios import BaseEnv, EnvConfig
-from vbar.spacecraft import ExecutionError, GaussianNav
+from vbar.spacecraft import ExecutionError, GaussianNav, GaussMarkovNav, RangeScaledNav
 
 # Two-sided 1e-6 normal quantile: each statistical check fails a correct model with that
 # probability; seeds are fixed, so the tests are deterministic.
@@ -43,8 +43,9 @@ def fly(env, seed, actions):
     return np.array(observed), np.array(truth)
 
 
-def test_base_environment_follows_the_gymnasium_api():
-    check_env(Coast(EnvConfig(sensor=GaussianNav())), skip_render_check=True)
+@pytest.mark.parametrize("sensor", [GaussianNav, RangeScaledNav, GaussMarkovNav])
+def test_base_environment_follows_the_gymnasium_api(sensor):
+    check_env(Coast(EnvConfig(sensor=sensor())), skip_render_check=True)
 
 
 def test_same_seed_gives_the_same_episode_including_sensor_noise():
