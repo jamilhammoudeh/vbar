@@ -1,3 +1,5 @@
+from decimal import Decimal, localcontext
+
 import numpy as np
 import pytest
 
@@ -5,9 +7,37 @@ from vbar.conventions import inertial_to_hill
 from vbar.dynamics import cw_stm
 from vbar.dynamics.bodies import EARTH, KERBIN
 from vbar.dynamics.kepler import propagate_kepler
-from vbar.dynamics.models import CWDynamics, TwoBodyDynamics, make_dynamics
+from vbar.dynamics.models import (
+    CWDynamics,
+    TwoBodyDynamics,
+    differential_gravity,
+    gravity,
+    make_dynamics,
+)
 
 ZERO = np.zeros(3)
+EPS = np.finfo(float).eps
+
+
+def exact_gravity_difference(r, dr, j2):
+    """g(r + dr) - g(r) in 50-digit decimal arithmetic, rounded to float at the end."""
+    with localcontext() as ctx:
+        ctx.prec = 50
+        mu, radius, j2_coef = (Decimal(x) for x in (EARTH.mu, EARTH.radius, EARTH.j2))
+
+        def g(p):
+            r2 = sum(c * c for c in p)
+            r_norm = r2.sqrt()
+            out = [-mu * c / (r2 * r_norm) for c in p]
+            if j2:
+                k = Decimal(3) / 2 * j2_coef * mu * radius**2 / (r2 * r2 * r_norm)
+                z2 = 5 * p[2] ** 2 / r2
+                out = [o + k * c * (z2 - w) for o, c, w in zip(out, p, (1, 1, 3), strict=True)]
+            return out
+
+        p = [Decimal(float(x)) for x in r]
+        q = [a + Decimal(float(b)) for a, b in zip(p, dr, strict=True)]
+        return np.array([float(a - b) for a, b in zip(g(q), g(p), strict=True)])
 
 
 def state_at_range(rng, rho, n):
@@ -20,6 +50,28 @@ def state_at_range(rng, rho, n):
 
 def specific_energy(s, mu):
     return 0.5 * s[3:] @ s[3:] - mu / np.linalg.norm(s[:3])
+
+
+@pytest.mark.parametrize("rho", [1e-3, 1e-2, 1.0, 1e3, 1e6])
+def test_differential_gravity_is_exact_to_rounding_at_any_separation(rho):
+    r = np.array([EARTH.radius + 500e3, 1234.5678, -987.654321])
+    dr = rho * np.array([0.3, -0.8, 0.52]) / np.linalg.norm([0.3, -0.8, 0.52])
+    exact = exact_gravity_difference(r, dr, j2=False)
+    error = np.linalg.norm(differential_gravity(r, dr, EARTH) - exact)
+    assert error < 4 * EPS * np.linalg.norm(exact)
+    # The J2 part is differenced directly; its rounding is bounded by that of the J2 term.
+    exact_j2 = exact_gravity_difference(r, dr, j2=True)
+    j2_size = np.linalg.norm(gravity(r, EARTH, j2=True) - gravity(r, EARTH))
+    error_j2 = np.linalg.norm(differential_gravity(r, dr, EARTH, j2=True) - exact_j2)
+    assert error_j2 < 4 * EPS * (np.linalg.norm(exact_j2) + j2_size)
+
+
+def test_direct_gravity_difference_loses_digits_at_short_range():
+    r = np.array([EARTH.radius + 500e3, 1234.5678, -987.654321])
+    dr = np.array([0.0, 1.0, 0.0])
+    exact = exact_gravity_difference(r, dr, j2=False)
+    naive = gravity(r + dr, EARTH) - gravity(r, EARTH)
+    assert np.linalg.norm(naive - exact) > 1e5 * EPS * np.linalg.norm(exact)
 
 
 def test_cw_dynamics_samples_match_closed_form():

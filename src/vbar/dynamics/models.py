@@ -74,19 +74,48 @@ class CWDynamics:
         return phi @ x0 + gamma @ accel
 
 
+def _dot(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return np.sum(a * b, axis=-1, keepdims=True)
+
+
+def _j2_acceleration(r: np.ndarray, body: Body) -> np.ndarray:
+    r2 = _dot(r, r)
+    k = 1.5 * body.j2 * body.mu * body.radius**2 / (r2 * r2 * np.sqrt(r2))
+    return k * r * (5.0 * r[..., 2:3] ** 2 / r2 - np.array([1.0, 1.0, 3.0]))
+
+
 def gravity(r: ArrayLike, body: Body, j2: bool = False) -> np.ndarray:
     """Inertial gravitational acceleration (m/s^2) at `r`: point mass, optionally plus J2.
 
     `r` is body-centred inertial with z along the spin axis; it may be stacked as (..., 3).
     """
     r = np.asarray(r, dtype=float)
-    r2 = np.sum(r * r, axis=-1, keepdims=True)
-    r_norm = np.sqrt(r2)
-    g = -body.mu * r / (r2 * r_norm)
+    r2 = _dot(r, r)
+    g = -body.mu * r / (r2 * np.sqrt(r2))
     if j2 and body.j2:
-        k = 1.5 * body.j2 * body.mu * body.radius**2 / (r2 * r2 * r_norm)
-        g = g + k * r * (5.0 * r[..., 2:3] ** 2 / r2 - np.array([1.0, 1.0, 3.0]))
+        g = g + _j2_acceleration(r, body)
     return g
+
+
+def differential_gravity(r: ArrayLike, dr: ArrayLike, body: Body, j2: bool = False) -> np.ndarray:
+    """Gravity at `r + dr` minus gravity at `r` (m/s^2), accurate to rounding for any `dr`.
+
+    Subtracting two 8 m/s^2 accelerations directly leaves 1e-15 m/s^2 of rounding, a 1e-9
+    relative error at 1 m of separation. The point-mass part uses Battin's f(q) from Encke's
+    method instead (Battin, An Introduction to the Mathematics and Methods of Astrodynamics);
+    the J2 part is a direct difference, whose rounding is J2 times smaller.
+    """
+    r = np.asarray(r, dtype=float)
+    dr = np.asarray(dr, dtype=float)
+    r_c = r + dr
+    q = (_dot(dr, dr) + 2.0 * _dot(dr, r)) / _dot(r, r)
+    # f(q) = (|r + dr| / |r|)^3 - 1, written without subtracting nearly equal numbers.
+    f = q * (3.0 + 3.0 * q + q * q) / (1.0 + (1.0 + q) ** 1.5)
+    r_c2 = _dot(r_c, r_c)
+    dg = -body.mu / (r_c2 * np.sqrt(r_c2)) * (dr - f * r)
+    if j2 and body.j2:
+        dg = dg + _j2_acceleration(r_c, body) - _j2_acceleration(r, body)
+    return dg
 
 
 def circular_orbit(body: Body, altitude: float, inclination: float = 0.0):
@@ -109,10 +138,10 @@ _RTOL = 1e-11
 
 
 class TwoBodyDynamics:
-    """Nonlinear two-body relative motion, optionally with J2, in Encke form.
+    """Nonlinear two-body relative motion, optionally with J2, as relative Cowell integration.
 
     The target follows its own orbit and the chaser is carried as an inertial offset
-    (dr, dv) driven by the gravity difference g(r_t + dr) - g(r_t), so the small relative
+    (dr, dv) driven by the differential gravity g(r_t + dr) - g(r_t), so the small relative
     motion is integrated with its own tolerances instead of being lost in 7000 km positions.
     The target starts on a circular orbit at its ascending node. The Hill frame of the
     output uses the frame's exact rotation, including the out-of-plane rate J2 causes.
@@ -146,8 +175,8 @@ class TwoBodyDynamics:
     def _rhs(self, t: float, y: np.ndarray, accel_hill: np.ndarray) -> np.ndarray:
         r_t, v_t, dr, dv = y[0:3], y[3:6], y[6:9], y[9:12]
         C, _ = hill_frame(r_t, v_t)
-        g_t = self._gravity(r_t)
-        return np.concatenate([v_t, g_t, dv, self._gravity(r_t + dr) - g_t + C @ accel_hill])
+        dg = differential_gravity(r_t, dr, self.body, self.j2)
+        return np.concatenate([v_t, self._gravity(r_t), dv, dg + C @ accel_hill])
 
     def _to_hill(self, y: np.ndarray) -> np.ndarray:
         r_t = y[..., 0:3]
