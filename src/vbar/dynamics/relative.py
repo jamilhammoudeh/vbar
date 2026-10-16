@@ -15,8 +15,10 @@ import math
 import numpy as np
 from numpy.typing import ArrayLike
 
+from ..conventions import hill_frame
 from .bodies import Body, get_body
 from .cw import CWDiscretizer, mean_motion
+from .models import TwoBodyDynamics, gravity_gradient
 
 # Hill in-plane [x, y, vx, vy] to Yamanaka and Ankersen's [x, z, vx, vz], whose x is along-track
 # and z points at the central body (the ISS-style LVLH axes of `vbar.conventions`).
@@ -380,3 +382,41 @@ class CurvilinearCWDynamics:
         x0, local = self._segment
         phi, gamma = self.disc.matrices(tau)
         return curvilinear_to_hill(phi @ x0 + gamma @ local, self.radius)
+
+
+class LinearizedTwoBodyDynamics(TwoBodyDynamics):
+    """Relative motion linearized about the target's own orbit, with or without J2.
+
+    The chaser's inertial offset obeys d2(dr)/dt2 = G(r_t) dr + C a, with G the gravity
+    gradient (point mass and J2) along the target's numerically integrated orbit and C the Hill
+    axes, mapped to the Hill frame exactly: the exact first-order model, linear and time-varying
+    under J2. With J2 off it is CW on a circular orbit and Yamanaka-Ankersen on an elliptic one.
+    Left out against the nonlinear model: the second-order terms, which dominate the linear J2
+    model's error (Alfriend et al., Spacecraft Formation Flying, sec. 7.4); one-orbit
+    along-track drift -(9 pi rho^2 / 4a)(2 + cos 2 alpha) for a projected circular orbit of
+    radius rho and phase alpha (their eq 5.64). Arguments as for `TwoBodyDynamics`, without
+    perturbations.
+    """
+
+    def __init__(
+        self,
+        body: str | Body = "earth",
+        altitude: float = 500e3,
+        inclination: float = 0.0,
+        j2: bool = True,
+        rtol: float = 1e-11,
+        elements: ArrayLike | None = None,
+    ):
+        super().__init__(body, altitude, inclination, j2, rtol, elements=elements)
+        self.name = "linear_j2" if j2 else "linear_twobody"
+
+    def _rhs(self, t: float, y: np.ndarray, accel_hill: np.ndarray) -> np.ndarray:
+        r_t, v_t, dr, dv = y[0:3], y[3:6], y[6:9], y[9:12]
+        C, _ = hill_frame(r_t, v_t)
+        dg = gravity_gradient(r_t, self.body, self.j2) @ dr
+        return np.concatenate([v_t, self._gravity(r_t), dv, dg + C @ accel_hill])
+
+    def _relative_jacobian(self, y: np.ndarray) -> np.ndarray:
+        jac = np.zeros((3, 6))
+        jac[:, :3] = gravity_gradient(y[0:3], self.body, self.j2)
+        return jac

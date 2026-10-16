@@ -6,8 +6,9 @@ import pytest
 from vbar.conventions import hill_frame
 from vbar.dynamics.bodies import EARTH, Body
 from vbar.dynamics.kepler import state_from_elements
-from vbar.dynamics.models import TwoBodyDynamics, gravity, gravity_gradient
+from vbar.dynamics.models import CWDynamics, TwoBodyDynamics, gravity, gravity_gradient
 from vbar.dynamics.perturbations import Drag, HarrisPriester, SolarPressure
+from vbar.dynamics.relative import LinearizedTwoBodyDynamics, YamanakaAnkersenDynamics
 
 ZERO = np.zeros(3)
 S0 = np.array([300.0, -800.0, 150.0, 0.1, -0.2, 0.05])
@@ -130,3 +131,51 @@ def hill_map(target, body, j2):
     out[:3, :3] = out[3:, 3:] = C.T
     out[3:, :3] = -skew(w) @ C.T
     return out
+
+
+def test_linearized_two_body_is_cw_on_a_circular_orbit():
+    m = LinearizedTwoBodyDynamics(j2=False, rtol=1e-13)
+    cw = CWDynamics(m.n)
+    period = 2 * np.pi / m.n
+    for model in (m, cw):
+        model.reset(S0)
+    assert m.name == "linear_twobody"
+    linear, _ = m.advance(ACCEL, period)
+    exact, _ = cw.advance(ACCEL, period)
+    assert np.max(np.abs(linear - exact)) < 1e-11 * np.max(np.abs(exact))
+
+
+def test_linearized_two_body_is_yamanaka_ankersen_on_an_elliptic_orbit():
+    # Two independent routes to the same linear model: integration and the closed form.
+    m = LinearizedTwoBodyDynamics(j2=False, elements=[8000e3, 0.2, 0.9, 0.3, 1.1, 0.7], rtol=1e-13)
+    ya = YamanakaAnkersenDynamics(8000e3, 0.2, 0.7)
+    for model in (m, ya):
+        model.reset(S0)
+    period = 2 * np.pi / ya.n
+    linear, _ = m.advance(ACCEL, period)
+    closed_form, _ = ya.advance(ACCEL, period)
+    assert np.max(np.abs(linear - closed_form)) < 1e-11 * np.max(np.abs(closed_form))
+
+
+def pco_state(rho, alpha, n):
+    s, c = np.sin(alpha), np.cos(alpha)
+    return [0.5 * rho * s, rho * c, rho * s, 0.5 * rho * n * c, -rho * n * s, rho * n * c]
+
+
+@pytest.mark.parametrize("alpha_deg, published", [(0.0, -11.0), (90.0, -3.5)])
+def test_linear_j2_model_error_is_the_second_order_drift(alpha_deg, published):
+    # Alfriend et al., Spacecraft Formation Flying, examples 7.3 to 7.6: 0.5 km projected
+    # circular orbit about a mean 7100 km, 70 deg, node 45 deg target; the linear J2 model's
+    # 15-orbit along-track error, read from figures, is -11 m and -3.5 m, the two-body
+    # second-order drift of eq 5.64 with a small J2 part.
+    mean = [7100e3, 0.0, np.radians(70.0), np.radians(45.0), 0.0, 0.0]
+    truth = TwoBodyDynamics(j2=True, elements=mean)
+    linear = LinearizedTwoBodyDynamics(j2=True, elements=mean)
+    alpha = np.radians(alpha_deg)
+    for m in (truth, linear):
+        m.reset(pco_state(500.0, alpha, truth.n))
+    duration = 15 * 2 * np.pi / truth.n
+    error = truth.advance(ZERO, duration)[0][1] - linear.advance(ZERO, duration)[0][1]
+    second_order = -15 * 9 * np.pi * 500.0**2 / (4 * 7100e3) * (2 + np.cos(2 * alpha))
+    assert error == pytest.approx(second_order, rel=1e-3)
+    assert error == pytest.approx(published, abs=0.5)
