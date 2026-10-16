@@ -1,4 +1,4 @@
-"""Central bodies: gravitational parameter, equatorial radius and J2."""
+"""Central-body constants (GM, equatorial radius, J2) and the Sun's radius and distance."""
 
 from __future__ import annotations
 
@@ -21,6 +21,9 @@ EARTH = Body("earth", mu=3.986004418e14, radius=6_378_137.0, j2=1.08262982131e-3
 KERBIN = Body("kerbin", mu=3.5316e12, radius=600_000.0)
 
 BODIES = {body.name: body for body in (EARTH, KERBIN)}
+
+AU = 1.495978707e11  # m, IAU 2012 resolution B2
+SUN_RADIUS = 6.957e8  # m, IAU 2015 nominal solar radius
 
 
 def get_body(body: str | Body) -> Body:
