@@ -22,9 +22,9 @@ def test_propellant_use_follows_the_rocket_equation(layout):
 
 
 def test_box_thrusters_spend_propellant_on_each_axis():
-    box = Spacecraft(layout="box").apply([1.0, 1.0, 0.0], 10.0)
-    ball = Spacecraft(layout="ball").apply([1.0, 1.0, 0.0], 10.0)
-    assert box.dv_l1 == pytest.approx(0.4) and box.dv_l2 == pytest.approx(0.2 * math.sqrt(2))
+    box = Spacecraft(layout="box").apply([0.6, 0.6, 0.0], 10.0)
+    ball = Spacecraft(layout="ball").apply([0.6, 0.6, 0.0], 10.0)
+    assert box.dv_l1 == pytest.approx(0.24) and box.dv_l2 == pytest.approx(0.12 * math.sqrt(2))
     assert ball.dv_l1 == box.dv_l1 and ball.dv_l2 == box.dv_l2
     assert box.propellant_kg / ball.propellant_kg == pytest.approx(math.sqrt(2), rel=1e-4)
 
@@ -72,3 +72,29 @@ def test_invalid_spacecraft_is_rejected():
         Spacecraft(layout="cone")
     with pytest.raises(ValueError, match="propellant"):
         Spacecraft(mass=500.0, propellant=600.0)
+
+
+def test_box_limits_each_axis_and_ball_keeps_direction():
+    box = Spacecraft(layout="box")
+    u, saturated, _ = box.limit([2.0, -0.5, -3.0], 10.0)
+    assert np.array_equal(u, [1.0, -0.5, -1.0]) and saturated
+    ball = Spacecraft(layout="ball")
+    u, saturated, _ = ball.limit([2.0, -0.5, -3.0], 10.0)
+    assert np.linalg.norm(u) == pytest.approx(1.0) and saturated
+    assert np.allclose(u / np.linalg.norm(u), np.array([2.0, -0.5, -3.0]) / np.sqrt(13.25))
+    u, saturated, _ = ball.limit([0.6, 0.0, 0.7], 10.0)
+    assert np.array_equal(u, [0.6, 0.0, 0.7]) and not saturated
+
+
+def test_impulses_below_the_minimum_bit_are_dropped():
+    # A 0.7 mm/s minimum, as on PRISMA (Alfriend et al., Spacecraft Formation Flying, p. 272),
+    # is 0.35 N s for 500 kg; at 0.02 m/s^2 for 10 s a full command gives 200 mm/s.
+    craft = Spacecraft(max_accel=0.02, layout="box", mass=500.0, min_impulse=0.35)
+    u, saturated, below = craft.limit([0.003, -0.004, 0.5], 10.0)
+    assert np.array_equal(u, [0.0, -0.004, 0.5]) and below and not saturated
+    act = craft.apply([0.003, 2.0, 0.0], 10.0)
+    assert act.below_mib and act.saturated
+    assert np.array_equal(act.segments[0][1], [0.0, 0.02, 0.0])
+    ball = Spacecraft(max_accel=0.02, layout="ball", mass=500.0, min_impulse=0.35)
+    act = ball.apply([0.002, 0.002, 0.0], 10.0)
+    assert act.below_mib and act.dv_l2 == 0.0 and act.propellant_kg == 0.0
