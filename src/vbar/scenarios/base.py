@@ -26,7 +26,7 @@ from gymnasium import spaces
 from ..agents.base import AgentView
 from ..constraints import Constraint, SegmentMinimum, segment_minimum
 from ..dynamics import make_dynamics
-from ..spacecraft import Actuation, PerfectNav, Sensor, Spacecraft
+from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
 ACTION_MODES = ("normalized", "accel", "thrust")
 STREAMS = ("sensor", "actuator", "target", "agent")
@@ -57,6 +57,7 @@ class EnvConfig:
     propellant_kg: float | None = None
     min_impulse: float = 0.0
     delay_s: float = 0.0
+    execution: ExecutionError | None = None
     sensor: Sensor = field(default_factory=PerfectNav)
     violation_samples: int = 20
 
@@ -125,6 +126,7 @@ class BaseEnv(gym.Env):
             min_impulse=config.min_impulse,
             delay=config.delay_s,
             drive=config.drive,
+            execution=config.execution,
         )
         self.sensor = config.sensor
         self.constraints = tuple(self._constraints())
@@ -185,7 +187,7 @@ class BaseEnv(gym.Env):
         }
         self.state = np.asarray(self._sample_start(self.np_random), dtype=float)
         self.dynamics.reset(self.state)
-        self.spacecraft.reset()
+        self.spacecraft.reset(self.rngs["actuator"])
         self.sensor.reset(self.rngs["sensor"])
         self.t = 0.0
         self.steps = 0

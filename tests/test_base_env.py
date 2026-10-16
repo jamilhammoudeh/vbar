@@ -7,7 +7,7 @@ from gymnasium.utils.env_checker import check_env
 from vbar.constraints import KeepOut
 from vbar.dynamics import cw_discrete
 from vbar.scenarios import BaseEnv, EnvConfig
-from vbar.spacecraft import GaussianNav
+from vbar.spacecraft import ExecutionError, GaussianNav
 
 # Two-sided 1e-6 normal quantile: each statistical check fails a correct model with that
 # probability; seeds are fixed, so the tests are deterministic.
@@ -133,3 +133,16 @@ def test_thrust_actions_are_newtons_against_the_thrust_of_a_full_command():
     _, newtons = fly(Coast(EnvConfig(action_mode="thrust", **base)), 4, 10.0 * actions)
     assert np.allclose(normalized, newtons, rtol=1e-14, atol=1e-12)
     assert Coast(EnvConfig(action_mode="thrust")).action_space.high[0] == pytest.approx(10.0)
+
+
+def test_execution_error_draws_come_from_their_own_stream():
+    actions = np.random.default_rng(7).uniform(-1.0, 1.0, (10, 3))
+    error = ExecutionError(scale_bias=0.02, scale_sigma=0.05, noise_sigma=0.01)
+    noisy = dict(sensor=GaussianNav(), execution=error)
+    obs_a, truth_a = fly(Coast(EnvConfig(**noisy)), 9, actions)
+    obs_b, truth_b = fly(Coast(EnvConfig(**noisy)), 9, actions)
+    obs_c, truth_c = fly(Coast(EnvConfig(sensor=GaussianNav())), 9, actions)
+    assert np.array_equal(truth_a, truth_b) and np.array_equal(obs_a, obs_b)
+    assert np.array_equal(truth_a[0], truth_c[0]) and not np.array_equal(truth_a[1:], truth_c[1:])
+    # The sensor's draws do not depend on whether the thrusters have errors.
+    assert np.allclose(obs_a - truth_a, obs_c - truth_c, rtol=0.0, atol=1e-12)

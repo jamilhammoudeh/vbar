@@ -3,10 +3,12 @@ import math
 import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
+from scipy.spatial.transform import Rotation
+from scipy.stats import chi2
 
 from vbar.conventions import G0
 from vbar.dynamics import EARTH, CWDynamics, cw_rhs, mean_motion
-from vbar.spacecraft import Spacecraft
+from vbar.spacecraft import ExecutionError, Spacecraft
 
 
 @pytest.mark.parametrize("drive", ["accel", "thrust"])
@@ -235,3 +237,58 @@ def test_constant_thrust_needs_a_dry_mass():
         Spacecraft(drive="thrust")
     with pytest.raises(ValueError, match="drive"):
         Spacecraft(drive="pulsed")
+
+
+def delivered(craft, command, count):
+    """Delivered commands (fractions) for `count` burns of `command`, ball layout, no delay."""
+    return np.array(
+        [craft.apply(command, 10.0).segments[0][1] / craft.max_accel for _ in range(count)]
+    )
+
+
+def test_execution_error_has_the_specified_mean_and_covariance():
+    # Each check fails a correct model with probability 1e-6; the seed is fixed.
+    z, count = 4.89, 20000
+    error = ExecutionError(
+        scale_bias=0.05, scale_sigma=0.02, noise_sigma=0.01, misalignment=(0.0, 0.0, 0.03)
+    )
+    craft = Spacecraft(layout="ball", execution=error)
+    craft.reset(np.random.default_rng(0))
+    command = np.array([0.6, -0.3, 0.2])
+    out = delivered(craft, command, count)
+    rotated = Rotation.from_rotvec([0.0, 0.0, 0.03]).apply(command)
+    cov = 0.02**2 * np.outer(rotated, rotated) + 0.01**2 * np.eye(3)
+    sigma = np.sqrt(np.diag(cov))
+    assert np.all(np.abs(out.mean(axis=0) - 1.05 * rotated) < z * sigma / np.sqrt(count))
+    ratio = (count - 1) * np.diag(np.cov(out, rowvar=False)) / np.diag(cov)
+    assert np.all((ratio > chi2.ppf(5e-7, count - 1)) & (ratio < chi2.ppf(1 - 5e-7, count - 1)))
+    corr = np.corrcoef(out, rowvar=False)
+    assert np.all(np.abs(corr - cov / np.outer(sigma, sigma)) < z / np.sqrt(count))
+
+
+def test_one_degree_misalignment_matches_published_cross_axis_values():
+    error = ExecutionError(misalignment=(0.0, 0.0, np.radians(1.0)))
+    craft = Spacecraft(max_accel=0.02, layout="ball", execution=error)
+    accel = craft.apply([1.0, 0.0, 0.0], 10.0).segments[0][1]
+    # Fehse, Automated Rendezvous and Docking, p. 97: 1 deg on a 1 m/s burn puts 0.017452 m/s
+    # across it. At 0.02 m/s^2 that is 3.5e-4 m/s^2, about what holding 100 m below the target
+    # takes (3 n^2 x = 3.7e-4 m/s^2 at 500 km).
+    assert accel[1] / np.linalg.norm(accel) == pytest.approx(0.017452, abs=5e-7)
+    assert accel[1] == pytest.approx(3.49e-4, abs=5e-7)
+    assert np.linalg.norm(accel) == pytest.approx(0.02, rel=1e-15)
+
+
+def test_execution_error_leaves_coasting_alone_and_stays_hidden():
+    error = ExecutionError(scale_bias=0.1, scale_sigma=0.05, noise_sigma=0.02)
+    craft = Spacecraft(delay=25.0, execution=error)
+    craft.reset(np.random.default_rng(1))
+    assert np.array_equal(craft.apply(np.zeros(3), 10.0).segments[0][1], np.zeros(3))
+    craft.apply([0.5, 0.0, 0.0], 10.0)
+    assert np.array_equal(craft.pending()[-1][1], [0.5, 0.0, 0.0])
+
+
+def test_propellant_is_spent_on_the_delivered_thrust():
+    craft = Spacecraft(layout="ball", execution=ExecutionError(scale_bias=0.1))
+    act = craft.apply([0.5, 0.0, 0.0], 10.0)
+    assert act.dv_l2 == pytest.approx(1.1 * 0.5 * 0.02 * 10.0, rel=1e-14)
+    assert act.propellant_kg == pytest.approx(500.0 * -math.expm1(-act.dv_l2 / (220.0 * G0)))

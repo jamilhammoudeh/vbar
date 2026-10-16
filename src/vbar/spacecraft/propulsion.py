@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.spatial.transform import Rotation
 
 from ..conventions import G0
 
@@ -43,6 +44,31 @@ class Actuation:
     empty: bool = False
 
 
+@dataclass(frozen=True)
+class ExecutionError:
+    """Thrust execution error per burn: delivered = R (commanded (1 + delta) + w).
+
+    After Alfriend et al., Spacecraft Formation Flying, eqs 11.1 to 11.3. `delta` is
+    `scale_bias` plus `scale_sigma` times a standard normal draw per burn; `w` is Gaussian with
+    `noise_sigma` per axis, in fractions of a full command; `R` rotates by the fixed rotation
+    vector `misalignment` (rad, Hill axes). A burn is one command; coasting is never perturbed,
+    and the delivered command is not limited again, since a scale bias means the thrusters
+    deliver more or less than their rating.
+    """
+
+    scale_bias: float = 0.0
+    scale_sigma: float = 0.0
+    noise_sigma: float = 0.0
+    misalignment: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    def apply(self, command: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        if not np.any(command):
+            return command
+        delta = self.scale_bias + self.scale_sigma * rng.standard_normal()
+        noisy = command * (1.0 + delta) + self.noise_sigma * rng.standard_normal(3)
+        return Rotation.from_rotvec(self.misalignment).apply(noisy)
+
+
 def _mass_flow_factors(x: float) -> tuple[float, float]:
     """H(x) = -ln(1 - x) / x and G(x) = (x + (1 - x) ln(1 - x)) / x^2 for burned mass fraction x.
 
@@ -67,6 +93,7 @@ class Spacecraft:
     (N s); a command that would is dropped (per axis for the box layout). Commands take effect
     `delay` s after they are issued. With `drive="thrust"` a command of 1 asks for the thrust
     that gives `max_accel` at the initial mass, and it needs a dry mass (propellant below mass).
+    `execution` perturbs each burn as delivered; `reset(rng)` gives it its random stream.
     """
 
     def __init__(
@@ -79,6 +106,7 @@ class Spacecraft:
         min_impulse: float = 0.0,
         delay: float = 0.0,
         drive: str = "accel",
+        execution: ExecutionError | None = None,
     ):
         if layout not in LAYOUTS:
             raise ValueError(f"unknown thruster layout {layout!r}, expected box or ball")
@@ -89,6 +117,7 @@ class Spacecraft:
         self.min_impulse = min_impulse
         self.delay = delay
         self.drive = drive
+        self.execution = execution
         self.max_thrust = max_accel * mass
         self.exhaust_speed = isp * G0
         self.initial_mass = mass
@@ -99,10 +128,12 @@ class Spacecraft:
             raise ValueError("constant thrust needs propellant less than the mass")
         self.reset()
 
-    def reset(self) -> None:
+    def reset(self, rng: np.random.Generator | None = None) -> None:
         self.mass = self.initial_mass
         self.t = 0.0
-        self._queue: list[tuple[float, np.ndarray]] = []
+        self.rng = rng if rng is not None else np.random.default_rng()
+        # (time it takes effect, command as limited, command as delivered)
+        self._queue: list[tuple[float, np.ndarray, np.ndarray]] = []
 
     @property
     def propellant(self) -> float:
@@ -144,7 +175,8 @@ class Spacecraft:
         stays on, so a delay that is not a whole number of steps splits the interval in two.
         """
         u, saturated, below_mib = self.limit(command, duration)
-        self._queue.append((self.t + self.delay, u))
+        delivered = u if self.execution is None else self.execution.apply(u, self.rng)
+        self._queue.append((self.t + self.delay, u, delivered))
         end = self.t + duration
         segments: list[tuple[float, np.ndarray]] = []
         dv_l2 = dv_l1 = used = 0.0
@@ -163,16 +195,16 @@ class Spacecraft:
 
     def pending(self) -> list[tuple[float, np.ndarray]]:
         """Issued commands not yet in effect: (seconds until they take effect, command)."""
-        return [(t - self.t, u) for t, u in self._queue if t > self.t + _TIME_TOL]
+        return [(t - self.t, u) for t, u, _ in self._queue if t > self.t + _TIME_TOL]
 
     def _pieces(self, start: float, end: float):
         """(t0, t1, command) for the commands in effect between `start` and `end`."""
-        times = [t for t, _ in self._queue]
+        times = [t for t, _, _ in self._queue]
         t0 = start
         while t0 < end - _TIME_TOL:
             # The command in effect is the last one issued that has taken effect by t0.
             active = [k for k, t in enumerate(times) if t <= t0 + _TIME_TOL]
-            command = self._queue[active[-1]][1] if active else np.zeros(3)
+            command = self._queue[active[-1]][2] if active else np.zeros(3)
             later = [t for t in times if t > t0 + _TIME_TOL]
             t1 = min([end, *later])
             if end - t1 <= _TIME_TOL:
