@@ -8,8 +8,8 @@ V-BAR is a headless Python benchmark for spacecraft rendezvous and proximity-ope
 controllers. Classical guidance laws, reinforcement learning agents and LLM agents fly the same
 scenarios and are scored with the same metrics.
 
-**Status: early development (0.1).** The dynamics layer is validated (see
-[Tests](#tests)). The environment has one scenario, the safety-filter interface has
+**Status: early development (0.2).** The dynamics, spacecraft, sensor and constraint layers are
+validated (see [Tests](#tests)). The environment has one scenario, the safety-filter interface has
 only its pass-through ("filter off") implementation, and interfaces may change before 1.0.
 
 ## Why
@@ -180,23 +180,30 @@ x, _ = dyn.advance([0.0, 0.0, 0.0], 600.0)  # hold zero acceleration for 600 s
 | `"twobody"` | Nonlinear relative motion under point-mass gravity, integrated numerically in a form that keeps the relative state accurate far below a millimetre. |
 | `"twobody_j2"` | The same with Earth's oblateness (J2). The target starts on a circular orbit in J2 mean elements, and the Hill frame includes the extra rotation J2 causes. |
 
-Also included: Kepler propagation for any conic (`vbar.dynamics.kepler`), conversion between
-states and classical orbital elements for elliptic orbits, and J2 secular rates with a first-order mean-osculating
-element map (`vbar.dynamics.mean_elements`). Earth uses the WGS 84 constants; a Kerbin body with
-KSP's values is available for comparison with KSPDG.
+Also included, each documented in [docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md):
+
+- differential drag and solar radiation pressure with Earth shadow for the two-body model
+  (`vbar.dynamics.perturbations`), and elliptic or phased target orbits;
+- the Yamanaka-Ankersen elliptic model, curvilinear Clohessy-Wiltshire and linearized two-body
+  motion with J2 (`vbar.dynamics.relative`); transition matrices from the variational
+  equations; model-error measures between models (`vbar.dynamics.fidelity`);
+- Earth-Moon three-body models: the circular restricted problem, linear models about libration
+  points and periodic orbits, and the bicircular Sun perturbation (`vbar.dynamics.cr3bp`), with
+  halo-orbit seeds, correctors, continuation and Floquet analysis
+  (`vbar.dynamics.periodic_orbits`);
+- Kepler propagation for any conic (`vbar.dynamics.kepler`), conversion between states and
+  classical elements for elliptic orbits, and J2 secular rates with a first-order mean-osculating
+  element map (`vbar.dynamics.mean_elements`).
+
+Earth uses the WGS 84 constants; a Kerbin body with KSP's values is available for comparison with
+KSPDG.
 
 ## Documentation
 
 How each part is built, with its equations, methods, assumptions and limits, is in
-[docs/](https://github.com/jamilhammoudeh/vbar/tree/main/docs):
-[frames](https://github.com/jamilhammoudeh/vbar/blob/main/docs/frames.md),
-[dynamics](https://github.com/jamilhammoudeh/vbar/blob/main/docs/dynamics.md),
-[spacecraft](https://github.com/jamilhammoudeh/vbar/blob/main/docs/spacecraft.md),
-[sensors](https://github.com/jamilhammoudeh/vbar/blob/main/docs/sensors.md),
-[constraints](https://github.com/jamilhammoudeh/vbar/blob/main/docs/constraints.md),
-[environment](https://github.com/jamilhammoudeh/vbar/blob/main/docs/environment.md) and
-[validation](https://github.com/jamilhammoudeh/vbar/blob/main/docs/validation.md); the
-[index](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md) lists every page.
+[docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part:
+frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
+spacecraft, sensors, constraints, the environment, and validation.
 
 ## Tests
 
