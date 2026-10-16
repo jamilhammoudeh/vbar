@@ -90,6 +90,24 @@ def test_twobody_absolute_states_match_kepler_over_ten_orbits(inclination_deg):
         assert np.linalg.norm(s1[3:] - v) < 1e-9 * np.linalg.norm(v)
 
 
+def test_hohmann_transfer_from_7000_to_7200_km_costs_105_5392_m_per_s():
+    # Schaub and Junkins' worked example; their printed 104.351 m/s used a wrong circular speed.
+    r1, r2 = 7000e3, 7200e3
+    a_transfer = 0.5 * (r1 + r2)
+    dv1 = np.sqrt(EARTH.mu * (2 / r1 - 1 / a_transfer)) - np.sqrt(EARTH.mu / r1)
+    m = TwoBodyDynamics(altitude=r1 - EARTH.radius)
+    m.reset([0.0, 0.0, 0.0, 0.0, dv1, 0.0])
+    m.advance(ZERO, np.pi * np.sqrt(a_transfer**3 / EARTH.mu))
+    s = m.chaser_state()
+    r = np.linalg.norm(s[:3])
+    assert r == pytest.approx(r2, rel=1e-11)
+    assert abs(s[:3] @ s[3:] / r) < 1e-8
+    dv2 = np.sqrt(EARTH.mu / r2) - np.linalg.norm(s[3:])
+    assert dv1 == pytest.approx(52.9554, abs=5e-5)
+    assert dv2 == pytest.approx(52.5838, abs=5e-5)
+    assert dv1 + dv2 == pytest.approx(105.5392, abs=5e-5)
+
+
 def test_twobody_minus_cw_error_grows_quadratically_with_range():
     twobody = TwoBodyDynamics()
     cw = CWDynamics(twobody.n)
