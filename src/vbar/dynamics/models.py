@@ -7,8 +7,8 @@ constant in the Hill frame over a segment.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Protocol
+from collections.abc import Callable, Sequence
+from typing import Any, Protocol
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -116,13 +116,12 @@ def gravity(r: ArrayLike, body: Body, j2: bool = False) -> np.ndarray:
     return g
 
 
-def differential_gravity(r: ArrayLike, dr: ArrayLike, body: Body, j2: bool = False) -> np.ndarray:
-    """Gravity at `r + dr` minus gravity at `r` (m/s^2), accurate to rounding for any `dr`.
+def point_mass_difference(r: ArrayLike, dr: ArrayLike, mu: float) -> np.ndarray:
+    """Point-mass gravity at `r + dr` minus at `r`, accurate to rounding for any `dr`.
 
     Subtracting two 8 m/s^2 accelerations directly leaves 1e-15 m/s^2 of rounding, a 1e-9
-    relative error at 1 m of separation. The point-mass part uses Battin's f(q) from Encke's
-    method instead (Battin, An Introduction to the Mathematics and Methods of Astrodynamics);
-    the J2 part is a direct difference, whose rounding is J2 times smaller.
+    relative error at 1 m of separation. Battin's f(q) from Encke's method avoids it (Battin,
+    An Introduction to the Mathematics and Methods of Astrodynamics). Any consistent units.
     """
     r = np.asarray(r, dtype=float)
     dr = np.asarray(dr, dtype=float)
@@ -131,8 +130,19 @@ def differential_gravity(r: ArrayLike, dr: ArrayLike, body: Body, j2: bool = Fal
     # f(q) = (|r + dr| / |r|)^3 - 1, written without subtracting nearly equal numbers.
     f = q * (3.0 + 3.0 * q + q * q) / (1.0 + (1.0 + q) ** 1.5)
     r_c2 = _dot(r_c, r_c)
-    dg = -body.mu / (r_c2 * np.sqrt(r_c2)) * (dr - f * r)
+    return -mu / (r_c2 * np.sqrt(r_c2)) * (dr - f * r)
+
+
+def differential_gravity(r: ArrayLike, dr: ArrayLike, body: Body, j2: bool = False) -> np.ndarray:
+    """Gravity at `r + dr` minus gravity at `r` (m/s^2), accurate to rounding for any `dr`.
+
+    The point-mass part is `point_mass_difference`; the J2 part is a direct difference, whose
+    rounding is J2 times smaller.
+    """
+    dg = point_mass_difference(r, dr, body.mu)
     if j2 and body.j2:
+        r = np.asarray(r, dtype=float)
+        r_c = r + np.asarray(dr, dtype=float)
         dg = dg + _j2_acceleration(r_c, body) - _j2_acceleration(r, body)
     return dg
 
@@ -169,6 +179,43 @@ def circular_orbit(body: Body, altitude: float, inclination: float = 0.0):
     r = np.array([a, 0.0, 0.0])
     v = speed * np.array([0.0, np.cos(inclination), np.sin(inclination)])
     return r, v
+
+
+def integrate_segment(
+    rhs: Callable[..., np.ndarray],
+    y: np.ndarray,
+    duration: float,
+    args: tuple,
+    rtol: float,
+    atol: np.ndarray,
+    step: float | None,
+) -> tuple[Any, float | None]:
+    """One DOP853 segment with dense output, started from the previous segment's step.
+
+    Returns the solution and the step to start the next segment with.
+    """
+    # Restarting every decision step from scipy's initial step guess costs about five times
+    # the evaluations. Start from the largest step of the last segment instead, allowed to
+    # grow by the step-size controller's limit of 10: a segment's final step is cut short to
+    # land on its end, so on its own it would pin later segments to two steps.
+    span = abs(duration)
+    first_step = None if step is None or span == 0.0 else min(10.0 * step, span)
+    sol = solve_ivp(
+        rhs,
+        (0.0, duration),
+        y,
+        method="DOP853",
+        args=args,
+        rtol=rtol,
+        atol=atol,
+        dense_output=True,
+        first_step=first_step,
+    )
+    if not sol.success:
+        raise RuntimeError(f"integration failed: {sol.message}")
+    if span > 0.0:
+        step = float(np.max(np.abs(np.diff(sol.t))))
+    return sol, step
 
 
 # Absolute tolerances for the integrated blocks [r_target, v_target, dr, dv] in m and m/s.
@@ -277,29 +324,11 @@ class TwoBodyDynamics:
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """Hold `accel_hill` (m/s^2) for `duration` s. Same returns as `CWDynamics.advance`."""
         accel = np.array(accel_hill, dtype=float)
-        # Restarting every decision step from scipy's initial step guess costs about five times
-        # the evaluations. Start from the largest step of the last segment instead, allowed to
-        # grow by the step-size controller's limit of 10: a segment's final step is cut short to
-        # land on its end, so on its own it would pin later segments to two steps.
-        span = abs(duration)
-        first_step = None if self._step is None or span == 0.0 else min(10.0 * self._step, span)
-        sol = solve_ivp(
-            self._rhs,
-            (0.0, duration),
-            self._y,
-            method="DOP853",
-            args=(accel,),
-            rtol=self.rtol,
-            atol=_ATOL,
-            dense_output=True,
-            first_step=first_step,
+        sol, self._step = integrate_segment(
+            self._rhs, self._y, duration, (accel,), self.rtol, _ATOL, self._step
         )
-        if not sol.success:
-            raise RuntimeError(f"two-body integration failed: {sol.message}")
         self._sol = sol
         self._y = sol.y[:, -1]
-        if span > 0.0:
-            self._step = float(np.max(np.abs(np.diff(sol.t))))
         samples = None
         if n_samples > 0:
             samples = self._to_hill(sol.sol(np.linspace(0.0, duration, n_samples)).T)
