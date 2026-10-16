@@ -30,11 +30,10 @@ practical. The physics is checked against closed-form solutions and published te
 ## Install
 
 ```bash
-pip install "vbar @ git+https://github.com/jamilhammoudeh/vbar"
+pip install vbar
 ```
 
-The `vbar` release on PyPI is an early preview that predates the current dynamics. For
-development:
+For development:
 
 ```bash
 git clone https://github.com/jamilhammoudeh/vbar
