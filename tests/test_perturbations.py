@@ -275,11 +275,11 @@ def test_hill_velocity_with_solar_pressure_needs_the_full_frame_rate():
     assert np.max(np.abs(keplerian[3:] - rate)) > 1e-8
 
 
-def sunward_plate_acceleration(plate, sun=SUN):
+def sunward_plate_acceleration(plate):
     """Acceleration of `plate` on a spacecraft at noon, where Hill x points at the Sun."""
     r = np.array([EARTH.radius + 500e3, 0.0, 0.0])
     v = np.array([0.0, 7.6e3, 0.0])
-    model = FlatPlatePressure(sun, [plate], [plate])
+    model = FlatPlatePressure(SUN, [plate], [plate])
     return model.accelerations(r, v, ZERO, ZERO)[0]
 
 
@@ -325,3 +325,20 @@ def test_flat_plates_act_through_the_two_body_model():
     # The target is pushed harder than the chaser: about 1e-6 m/s^2 of differential force
     # displaces the chaser by about 0.5 a t^2 = 2 m in 2000 s.
     assert 0.5 < np.linalg.norm(gap[:3]) < 5.0
+
+
+def test_lunisolar_tides_are_negligible_against_differential_drag():
+    # Tidal acceleration 2 GM d / D^3 at d = 1 km: Moon GM 4.9028e12 m^3/s^2 at 3.844e8 m, Sun
+    # GM 1.32712440018e20 m^3/s^2 at 1 AU (IAU and JPL values).
+    moon = 2 * 4.9028e12 * 1e3 / 3.844e8**3
+    sun = 2 * 1.32712440018e20 * 1e3 / AU**3
+    assert moon == pytest.approx(1.7e-10, rel=0.05)
+    assert sun == pytest.approx(7.9e-11, rel=0.05)
+    # A 10% ballistic mismatch at 500 km (C_D 2.2, A/m 0.01 m^2/kg), on the night side where
+    # the density is near its minimum.
+    r = np.array([-(EARTH.radius + 500e3), 0.0, 0.0])
+    v = np.array([0.0, -np.sqrt(EARTH.mu / np.linalg.norm(r)), 0.0])
+    b = 1 / (2.2 * 0.01)
+    drag = Drag(HarrisPriester(SUN, exponent=2), b, 1.1 * b)
+    _, differential = drag.accelerations(r, v, ZERO, ZERO)
+    assert moon + sun < 0.01 * np.linalg.norm(differential)

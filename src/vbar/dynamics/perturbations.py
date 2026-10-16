@@ -3,6 +3,16 @@
 Positions are body-centred inertial in m, with z along the spin axis, and may be stacked as
 (..., 3). `sun` is the inertial unit vector from the body toward the Sun; over a rendezvous
 episode it moves by about 1 deg per day, so models hold it fixed.
+
+Relative motion in low orbit is driven by differential gravity (J2 included), differential drag
+and differential solar pressure. At 500 km a 10% mismatch in ballistic coefficient gives 2e-8
+to 1e-7 m/s^2 of differential drag, metres of along-track drift per orbit. Left out, with their
+differential accelerations at 1 km separation (Montenbruck and Gill, Satellite Orbits, fig. 3.1
+and secs. 3.2 to 3.7): lunar and solar gravity, 1.7e-10 and 8e-11 m/s^2, under a centimetre
+per orbit; harmonics beyond J2, 2e-8 to 5e-8 m/s^2 but periodic, centimetres per orbit; Earth
+albedo and infrared, 10 to 35% of a solar pressure that already largely cancels between the
+two spacecraft; relativity and tides, nothing measurable. They matter for the absolute orbit,
+not for the chaser relative to the target.
 """
 
 from __future__ import annotations
