@@ -3,8 +3,9 @@
 The map is Brouwer's first-order theory in Lyddane's nonsingular form, as given by Schaub and
 Junkins, Analytical Mechanics of Space Systems, appendix on mean and osculating elements.
 Elements are classical [a, e, i, raan, argp, M] as in `vbar.dynamics.kepler`. The map is
-first order in J2: a round trip through it leaves errors of order J2^2 (metres in a in LEO),
-so compare mean elements that were computed the same way.
+first order in J2: a round trip through it leaves errors of order J2^2 (tens of metres in a
+in LEO), so compare mean elements that were computed the same way. Its inclination variable
+is sin(i/2), so accuracy in i falls off toward 180 deg (round trip 4e-6 rad at 150 deg).
 """
 
 from __future__ import annotations
