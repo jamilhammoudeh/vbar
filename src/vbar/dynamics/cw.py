@@ -4,7 +4,7 @@ The CW equations describe how a "chaser" spacecraft moves relative to a
 "target" spacecraft that is in a circular orbit, when the two are close
 together (meters to a few kilometers).
 
-Frame (Hill / LVLH frame, centered on the target):
+Frame (Hill frame, centered on the target):
     x : radial, pointing away from Earth (the "R-bar")
     y : along-track, the direction the target is flying (the "V-bar")
     z : cross-track, completing a right-handed frame (orbit normal)
