@@ -124,9 +124,33 @@ def richardson_coefficients(mu: float, point: int) -> RichardsonHalo:
     )
     l2 = 1.5 * c3 * (a24 - 2.0 * a22) + 9.0 / 8.0 * c4 + 2.0 * lam**2 * s2
     return RichardsonHalo(
-        mu, point, gamma, c2, c3, c4, wp, k, a21, a22, a23, a24, a31, a32, b21, b22, b31, b32,
-        d21, d31, d32, s1, s2, l1, l2, lam**2 - c2,
-    )  # fmt: skip
+        mu,
+        point,
+        gamma,
+        c2,
+        c3,
+        c4,
+        wp,
+        k,
+        a21,
+        a22,
+        a23,
+        a24,
+        a31,
+        a32,
+        b21,
+        b22,
+        b31,
+        b32,
+        d21,
+        d31,
+        d32,
+        s1,
+        s2,
+        l1,
+        l2,
+        lam**2 - c2,
+    )
 
 
 def richardson_halo(mu: float, point: int, az: float, branch: int = 1) -> tuple[np.ndarray, float]:
@@ -220,9 +244,15 @@ def half_period_crossing(state: ArrayLike, mu: float) -> tuple[float, np.ndarray
     """
     state = np.asarray(state, dtype=float)
     sol = solve_ivp(
-        _variational_rhs, (0.0, 20.0), np.concatenate([state, np.eye(6).ravel()]),
-        method="DOP853", rtol=_RTOL, atol=_ATOL, args=(mu,), events=_PlaneCrossing(state[4]),
-    )  # fmt: skip
+        _variational_rhs,
+        (0.0, 20.0),
+        np.concatenate([state, np.eye(6).ravel()]),
+        method="DOP853",
+        rtol=_RTOL,
+        atol=_ATOL,
+        args=(mu,),
+        events=_PlaneCrossing(state[4]),
+    )
     if not sol.t_events[0].size:
         raise RuntimeError("no crossing of the x-z plane found")
     end = sol.y_events[0][0]
@@ -455,9 +485,15 @@ def floquet_modes(
     times = np.asarray(times, dtype=float)
     y0 = np.concatenate([np.asarray(state, dtype=float), np.eye(6).ravel()])
     sol = solve_ivp(
-        _variational_rhs, (0.0, period), y0, method="DOP853", rtol=_RTOL, atol=_ATOL,
-        args=(mu,), dense_output=True,
-    )  # fmt: skip
+        _variational_rhs,
+        (0.0, period),
+        y0,
+        method="DOP853",
+        rtol=_RTOL,
+        atol=_ATOL,
+        args=(mu,),
+        dense_output=True,
+    )
     eig, vectors = np.linalg.eig(sol.y[6:42, -1].reshape(6, 6))
     logs = np.log(eig.astype(complex))
     phis = sol.sol(times)[6:42].T.reshape(-1, 6, 6)
