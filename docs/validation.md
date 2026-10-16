@@ -172,6 +172,42 @@ apolune radii, Jacobi constant and monodromy eigenvalues.
 - Sec. 5.1: the change of the Jacobi constant in a time-periodic system, checked on the bicircular
   model with thrust.
 
+## Published examples behind the engine
+
+The tests and defaults of the spacecraft, sensor and constraint models and the environment
+([spacecraft.md](spacecraft.md), [sensors.md](sensors.md), [constraints.md](constraints.md),
+[environment.md](environment.md)) rest on the published values below. Statistical checks are set
+to fail a correct model with probability 1e-6 and use fixed seeds.
+
+**Montenbruck and Gill, *Satellite Orbits: Models, Methods and Applications***
+
+- Eq. 3.129 and table 3.13: the delta-v of a constant-thrust burn,
+  $-(F / \dot m)\ln(1 - \dot m t / m_0)$, for a 10 N, Isp 350 s station-keeping thruster on
+  1000 kg for 600 s, to 1e-12.
+- Eqs. 3.126 to 3.130: constant-thrust flight with the mass equation; one orbit of 10 s burns at
+  0.02 m/s^2 matches DOP853 on the Clohessy-Wiltshire equations with $\mathbf F / m(t)$ to
+  4.5e-9 m.
+
+**Fehse, *Automated Rendezvous and Docking of Spacecraft***
+
+- Page 97: a 1 deg thrust misalignment puts 0.017452 m/s across a 1 m/s burn, reproduced by the
+  execution error model to 5e-7.
+- Secs. 2.4 and 5.3.2: relative navigation good to about 1% of range, the default of the
+  range-scaled sensor (5 m at 500 m).
+
+**Alfriend, Vadali, Gurfil, How and Breger, *Spacecraft Formation Flying***
+
+- Page 272: PRISMA's 0.7 mm/s minimum impulse bit, 0.35 N s on 500 kg, as the minimum impulse
+  test's parameter.
+- Eqs. 11.1 to 11.3: the per-burn execution error model, checked for its mean and covariance over
+  20000 burns.
+- Ch. 12: the carrier-phase differential GPS accuracies at 100 m, 1 km and 10 km behind the
+  `:nav2` defaults (4 cm and 0.4 mm/s at 1 km).
+
+The rocket equation, the minimum range of Clohessy-Wiltshire flybys and the Gauss-Markov
+covariances are checked against closed forms and independent integrations rather than printed
+examples; the pages above give the numbers.
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -197,3 +233,10 @@ apolune radii, Jacobi constant and monodromy eigenvalues.
   and the bicircular model.
 - IAU 2012 resolution B2 and IAU 2015 resolution B3: the astronomical unit and the nominal solar
   radius.
+- Tsiolkovsky's rocket equation, and Montenbruck and Gill (eqs 3.126 to 3.130), for propellant use
+  at constant acceleration and at constant thrust.
+- Alfriend et al. (eqs 11.1 to 11.3): the thrust execution error model.
+- Brent, *Algorithms for Minimization without Derivatives* (Prentice-Hall, 1973): the bounded
+  scalar minimization that refines the in-step constraint minimum.
+- Donzé and Maler (FORMATS 2010): constraint margins as the signed distance to violation of
+  signal temporal logic.

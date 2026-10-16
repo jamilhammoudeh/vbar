@@ -11,5 +11,8 @@ and how it is tested.
 | [relative-motion.md](relative-motion.md) | elliptic targets in the two-body model, Yamanaka-Ankersen, curvilinear Clohessy-Wiltshire, linearized two-body motion with J2, their error scalings |
 | [transition-matrices.md](transition-matrices.md) | transition and input matrices from the variational equations, STM adequacy, the modeling-error index |
 | [three-body.md](three-body.md) | the CR3BP and its constant sets, the libration-point, periodic linear and bicircular models, Richardson seeds, correctors, continuation and Floquet analysis |
-| [environment.md](environment.md) | the approach scenario: actions, observations, start states, keep-out checking, metrics, reward, agents |
+| [spacecraft.md](spacecraft.md) | thruster layouts and limits, the minimum impulse bit, mass and the rocket equation, constant-acceleration and constant-thrust drives, actuation delay and segments, execution error |
+| [sensors.md](sensors.md) | perfect navigation, white noise with an episode bias (`:nav1`), range-scaled errors in the sensor frame, time-correlated Gauss-Markov errors (`:nav2`) |
+| [constraints.md](constraints.md) | constraint margins, the keep-out sphere, sampling and refinement inside a step, the Lipschitz certificate and its assumptions |
+| [environment.md](environment.md) | the base environment and the approach scenario: actions, observation channels, random streams, propagation, keep-out checking, what agents and metrics see, reward, agents, configuration |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |
