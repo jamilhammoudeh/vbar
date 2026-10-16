@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import pytest
+from scipy.integrate import solve_ivp
 
 from vbar.conventions import hill_frame
 from vbar.dynamics.bodies import EARTH, Body
@@ -118,10 +119,23 @@ def test_transition_matrix_reproduces_published_example(j2, row, tol):
     to_hill_0 = hill_map(target, body, j2)
     m.reset(to_hill_0 @ np.r_[r - target[:3], v - target[3:]])
     phi, _ = m.transition_matrices(ZERO, 86400.0)
-    m.advance(ZERO, 86400.0)
-    inertial = np.linalg.inv(hill_map(m.target_state(), body, j2)) @ phi @ to_hill_0
+    inertial = np.linalg.inv(hill_map(target_after(target, 86400.0, body, j2), body, j2))
+    inertial = inertial @ phi @ to_hill_0
     n = math.sqrt(body.mu / a**3)
     assert np.max(np.abs(normalized(inertial, n)[0] - row)) < tol
+
+
+def target_after(target, duration, body, j2):
+    """The target's inertial state `duration` s on, under the model's gravity alone."""
+    sol = solve_ivp(
+        lambda t, s: np.r_[s[3:], gravity(s[:3], body, j2)],
+        (0.0, duration),
+        target,
+        method="DOP853",
+        rtol=1e-11,
+        atol=np.repeat([1e-6, 1e-9], 3),
+    )
+    return sol.y[:, -1]
 
 
 def hill_map(target, body, j2):
