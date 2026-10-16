@@ -52,7 +52,9 @@ def acceleration(r: ArrayLike, v: ArrayLike, mu: float) -> np.ndarray:
     """Acceleration in the synodic frame at positions `r` and velocities `v`, (..., 3)."""
     r = np.asarray(r, dtype=float)
     v = np.asarray(v, dtype=float)
-    a = np.stack([r[..., 0] + 2.0 * v[..., 1], r[..., 1] - 2.0 * v[..., 0], 0.0 * r[..., 2]], -1)
+    a = np.stack(
+        [r[..., 0] + 2.0 * v[..., 1], r[..., 1] - 2.0 * v[..., 0], np.zeros_like(r[..., 2])], -1
+    )
     for mass, p in primaries(mu):
         if mass:
             d = r - p
