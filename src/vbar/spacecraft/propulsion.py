@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -204,18 +205,10 @@ class Spacecraft:
 
     def _pieces(self, start: float, end: float):
         """(t0, t1, command) for the commands in effect between `start` and `end`."""
-        times = [t for t, _, _ in self._queue]
-        t0 = start
-        while t0 < end - _TIME_TOL:
-            # The command in effect is the last one issued that has taken effect by t0.
-            active = [k for k, t in enumerate(times) if t <= t0 + _TIME_TOL]
-            command = self._queue[active[-1]][2] if active else np.zeros(3)
-            later = [t for t in times if t > t0 + _TIME_TOL]
-            t1 = min([end, *later])
-            if end - t1 <= _TIME_TOL:
-                t1 = end
-            yield t0, t1, command
-            t0 = t1
+        inside = {t for t, _, _ in self._queue if start + _TIME_TOL < t < end - _TIME_TOL}
+        for t0, t1 in pairwise([start, *sorted(inside), end]):
+            active = [delivered for t, _, delivered in self._queue if t <= t0 + _TIME_TOL]
+            yield t0, t1, active[-1] if active else np.zeros(3)
 
     def _burn(self, u: np.ndarray, duration: float):
         """Segments, delta-v (2-norm, 1-norm), propellant used and run-out for one command."""

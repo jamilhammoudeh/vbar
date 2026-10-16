@@ -142,6 +142,19 @@ def test_delay_shifts_the_applied_commands_in_time(delay):
     assert sum(duration for _, duration, _ in profile) == pytest.approx(120.0, rel=1e-15)
 
 
+@pytest.mark.parametrize("delay", [10.0 - 1e-9, 10.0 + 5e-10, 5e-10])
+def test_switch_within_the_tolerance_of_a_step_boundary_falls_on_it(delay):
+    # 9.999999999 s used to leave the last 1e-9 s of every step out of its segments.
+    craft = Spacecraft(max_accel=0.02, delay=delay)
+    commands = [[0.1, 0.0, 0.0], [0.2, 0.0, 0.0], [0.3, 0.0, 0.0]]
+    late = delay > 1e-9
+    for k, u in enumerate(commands):
+        ((duration, accel),) = craft.apply(u, 10.0).segments
+        assert duration == 10.0
+        expected = np.zeros(3) if late and k == 0 else 0.02 * np.array(commands[k - late])
+        assert np.array_equal(accel, expected)
+
+
 def test_pending_lists_commands_not_yet_in_effect():
     craft = Spacecraft(delay=25.0)
     craft.apply([1.0, 0.0, 0.0], 10.0)
