@@ -197,23 +197,47 @@ def test_hohmann_transfer_from_7000_to_7200_km_costs_105_5392_m_per_s():
     assert dv1 + dv2 == pytest.approx(105.5392, abs=5e-5)
 
 
-def test_twobody_minus_cw_error_grows_quadratically_with_range():
-    twobody = TwoBodyDynamics()
+def pco_state(rho, alpha, n):
+    """Projected circular orbit: (y, z) circle of radius rho, x = rho / 2 sin(n t + alpha)."""
+    s, c = np.sin(alpha), np.cos(alpha)
+    return [0.5 * rho * s, rho * c, rho * s, 0.5 * rho * n * c, -rho * n * s, rho * n * c]
+
+
+# One-orbit along-track drift of two-body motion relative to CW, as a multiple of D^2 / a, for
+# CW-bounded starts at range D (Alfriend et al., Spacecraft Formation Flying, eqs 5.63, 5.64
+# and 5.73).
+SECOND_ORDER_DRIFT = {
+    "vbar_offset": (lambda d, n: [0.0, d, 0.0, 0.0, 0.0, 0.0], -6 * np.pi),
+    "radial_offset": (lambda d, n: [d, 0.0, 0.0, 0.0, -2 * n * d, 0.0], 3 * np.pi),
+    "pco_alpha_0": (lambda d, n: pco_state(d, 0.0, n), -27 * np.pi / 4),
+    "pco_alpha_90": (lambda d, n: pco_state(d, np.pi / 2, n), -9 * np.pi / 4),
+}
+
+
+@pytest.mark.parametrize("geometry", SECOND_ORDER_DRIFT)
+@pytest.mark.parametrize(
+    "d, rtol",
+    [
+        # At 1 cm the drift is about 1e-8 of the range, close to the default integrator's
+        # error of 1e-9 of the range per orbit, so the sub-metre cases run tighter.
+        (0.01, 1e-13),
+        (1.0, 1e-13),
+        (100.0, 1e-11),
+        (1000.0, 1e-11),
+        (5000.0, 1e-11),
+    ],
+)
+def test_twobody_minus_cw_drift_matches_second_order_coefficient(geometry, d, rtol):
+    start, coefficient = SECOND_ORDER_DRIFT[geometry]
+    twobody = TwoBodyDynamics(rtol=rtol)
     cw = CWDynamics(twobody.n)
     period = 2 * np.pi / twobody.n
-    shape = np.r_[1.0, 0.5, 0.3, twobody.n * np.array([0.2, -2.0, 0.4])]
-    ranges = np.array([100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0, 6400.0])
-    errors = []
-    for rho in ranges:
-        twobody.reset(rho * shape)
-        cw.reset(rho * shape)
-        nonlinear, _ = twobody.advance(ZERO, period)
-        linear, _ = cw.advance(ZERO, period)
-        errors.append(np.linalg.norm(nonlinear[:3] - linear[:3]))
-    ratios = np.array(errors[1:]) / np.array(errors[:-1])
-    assert np.all(np.abs(ratios - 4.0) < 0.1)
-    slope = np.polyfit(np.log(ranges), np.log(errors), 1)[0]
-    assert slope == pytest.approx(2.0, abs=0.01)
+    twobody.reset(start(d, twobody.n))
+    cw.reset(start(d, twobody.n))
+    nonlinear, _ = twobody.advance(ZERO, period)
+    linear, _ = cw.advance(ZERO, period)
+    a = EARTH.radius + twobody.altitude
+    assert nonlinear[1] - linear[1] == pytest.approx(coefficient * d**2 / a, rel=1e-2)
 
 
 def test_twobody_conserves_energy_over_ten_orbits():

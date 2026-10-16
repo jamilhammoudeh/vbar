@@ -134,7 +134,6 @@ def circular_orbit(body: Body, altitude: float, inclination: float = 0.0):
 # The offset blocks get their own small tolerances so relative motion is resolved well below
 # a millimetre whatever the orbit size.
 _ATOL = np.repeat([1e-6, 1e-9, 1e-9, 1e-12], 3)
-_RTOL = 1e-11
 
 
 class TwoBodyDynamics:
@@ -145,6 +144,8 @@ class TwoBodyDynamics:
     motion is integrated with its own tolerances instead of being lost in 7000 km positions.
     The target starts on a circular orbit at its ascending node. The Hill frame of the
     output uses the frame's exact rotation, including the out-of-plane rate J2 causes.
+    `rtol` is the integrator's relative tolerance; at the default the relative state is
+    within about 1e-9 of its own size after one orbit.
     """
 
     def __init__(
@@ -153,11 +154,13 @@ class TwoBodyDynamics:
         altitude: float = 500e3,
         inclination: float = 0.0,
         j2: bool = False,
+        rtol: float = 1e-11,
     ):
         self.body = get_body(body)
         self.altitude = altitude
         self.inclination = inclination
         self.j2 = j2
+        self.rtol = rtol
         self.name = "twobody_j2" if j2 else "twobody"
         self.n = mean_motion(self.body.radius + altitude, self.body.mu)
         self._y = np.zeros(12)
@@ -201,7 +204,7 @@ class TwoBodyDynamics:
             self._y,
             method="DOP853",
             args=(accel,),
-            rtol=_RTOL,
+            rtol=self.rtol,
             atol=_ATOL,
             dense_output=True,
             first_step=first_step,
