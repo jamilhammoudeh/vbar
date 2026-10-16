@@ -66,7 +66,9 @@ with its own call, so no integrator steps across a thrust change. `dynamics` sel
 Each segment is sampled at `violation_samples` = 20 points per full step, and the lowest margin is
 refined between samples with a certified lower bound ([constraints.md](constraints.md)). The
 environment tracks the minimum range to the target, whether the zone was ever entered, the number
-of steps that entered it, and the certified lower bound on the margin.
+of steps that entered it, and the certified lower bound on the margin. A scenario lists in
+`soft_constraints` the constraints it scores without failing the run; every other constraint is
+hard (the approach scenario's keep-out sphere is hard).
 
 ## Capture
 

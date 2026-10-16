@@ -118,6 +118,8 @@ class BaseEnv(gym.Env):
     metadata = {"render_modes": []}
     scenario_name = "base"
     record: StepRecord | None = None
+    # Constraints scored but not counted as failures; every other constraint is hard.
+    soft_constraints: tuple[str, ...] = ()
 
     def __init__(self, config: EnvConfig):
         super().__init__()
