@@ -3,7 +3,12 @@ import pytest
 from scipy.integrate import quad
 
 from vbar.dynamics.bodies import AU, EARTH, SUN_RADIUS
-from vbar.dynamics.perturbations import conical_shadow, cylindrical_shadow
+from vbar.dynamics.perturbations import (
+    HarrisPriester,
+    conical_shadow,
+    cylindrical_shadow,
+    geodetic_height,
+)
 
 SUN = np.array([1.0, 0.0, 0.0])
 
@@ -90,3 +95,57 @@ def test_conical_and_cylindrical_shadow_agree_on_average_over_a_leo_orbit(beta_d
     points = circle(EARTH.radius + 500e3, 200_000)
     conical = conical_shadow(points, sun).mean()
     assert conical == pytest.approx(cylindrical_shadow(points, sun).mean(), abs=5e-5)
+
+
+def test_geodetic_height_reproduces_published_example():
+    # Montenbruck and Gill, Satellite Orbits, exercise 5.3 (WGS 84): h = -63.667 m.
+    h = geodetic_height([1917032.190, 6029782.349, -801376.113])
+    assert h == pytest.approx(-63.667, abs=5e-4)
+
+
+def test_geodetic_height_at_the_equator_and_poles():
+    polar_radius = EARTH.radius * (1 - EARTH.flattening)
+    points = [[EARTH.radius + 4e5, 0.0, 0.0], [0.0, 0.0, polar_radius + 4e5], [0, 0, -polar_radius]]
+    assert geodetic_height(points) == pytest.approx([4e5, 4e5, 0.0], abs=1e-8)
+
+
+def on_equator(height, angle):
+    r = EARTH.radius + height
+    return [r * np.cos(angle), r * np.sin(angle), 0.0]
+
+
+@pytest.mark.parametrize(
+    "height_km, rho_min, rho_max",
+    # Montenbruck and Gill, table 3.8, in g/km^3.
+    [(400, 2.249, 7.492), (500, 0.3916, 2.042), (600, 0.08070, 0.6390)],
+)
+def test_harris_priester_density_at_bulge_apex_and_antipode(height_km, rho_min, rho_max):
+    density = HarrisPriester(SUN, exponent=2)
+    # With the Sun on the equator the apex is on the equator, 30 deg east of the Sun.
+    apex = np.radians(30.0)
+    assert density(on_equator(1e3 * height_km, apex)) == pytest.approx(1e-12 * rho_max, rel=1e-12)
+    assert density(on_equator(1e3 * height_km, apex + np.pi)) == pytest.approx(
+        1e-12 * rho_min, rel=1e-12
+    )
+
+
+def test_harris_priester_density_is_exponential_between_table_heights():
+    density = HarrisPriester(SUN, exponent=2)
+    apex = np.radians(30.0)
+    middle = density(on_equator(410e3, apex))
+    assert middle == pytest.approx(np.sqrt(7.492 * 5.684) * 1e-12, rel=1e-12)
+
+
+@pytest.mark.parametrize("exponent", [2, 6])
+def test_harris_priester_bulge_narrows_with_the_exponent(exponent):
+    density = HarrisPriester(SUN, exponent=exponent)
+    side = density(on_equator(500e3, np.radians(30.0 + 90.0)))
+    blend = 0.5 ** (exponent / 2)
+    assert side == pytest.approx(1e-12 * (0.3916 + (2.042 - 0.3916) * blend), rel=1e-12)
+
+
+def test_harris_priester_density_ends_at_1000_km_and_refuses_below_100_km():
+    density = HarrisPriester(SUN, exponent=2)
+    assert density(on_equator(1001e3, 0.0)) == 0.0
+    with pytest.raises(ValueError, match="100 km"):
+        density(on_equator(99e3, 0.0))
