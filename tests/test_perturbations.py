@@ -185,12 +185,12 @@ def test_drag_acts_against_the_velocity_relative_to_the_rotating_air():
     assert ratio == pytest.approx((1 - EARTH.spin_rate * r / V_400) ** 2, rel=1e-14)
 
 
-def test_differential_drag_drift_matches_published_values():
-    # Fehse eq 4.3 and fig 4.3: a chaser with ballistic coefficient 470 kg/m^2 and 1.5 times
-    # the target's, from the target's position, at 1e-11 kg/m^3 for three orbits at 400 km.
-    # The values solve CW with that constant differential acceleration (the book's text, about
-    # 70 m behind and 5 m above, does not follow from its numbers); flown here through the
-    # nonlinear model, where the target also decays 9 m per orbit.
+def test_differential_drag_drift_matches_cw_with_the_constant_differential_force():
+    # The setting of Fehse eq 4.3 and fig 4.3: a chaser with ballistic coefficient 470 kg/m^2
+    # and 1.5 times the target's, from the target's position, at 1e-11 kg/m^3 for three orbits
+    # at 400 km. The expected values solve CW with that constant differential acceleration; the
+    # book's text, about 70 m behind and 5 m above, does not follow from its numbers. Flown
+    # here through the nonlinear model, where the target also decays 9 m per orbit.
     drag = Drag(constant_density(1e-11), 470.0 / 1.5, 470.0, STILL_EARTH)
     m = TwoBodyDynamics(STILL_EARTH, 400e3, perturbations=[drag])
     m.reset(np.zeros(6))
