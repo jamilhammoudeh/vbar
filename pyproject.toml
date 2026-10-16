@@ -75,3 +75,14 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 module = ["scipy.*"]
 ignore_missing_imports = true
+
+[tool.mutmut]
+source_paths = [
+    "src/vbar/dynamics/cw.py",
+    "src/vbar/dynamics/kepler.py",
+    "src/vbar/dynamics/mean_elements.py",
+    "src/vbar/spacecraft/propulsion.py",
+    "src/vbar/constraints.py",
+]
+also_copy = ["src", "CITATION.cff", "pyproject.toml"]
+pytest_add_cli_args = ["--ignore=tests/test_docs.py", "-p", "no:cacheprovider"]
