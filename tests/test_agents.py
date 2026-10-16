@@ -1,9 +1,11 @@
+import dataclasses
 import re
 
 import numpy as np
+import pytest
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
-from vbar.agents import LLMAgent, PDAgent
+from vbar.agents import LLMAgent, PDAgent, action_scale
 from vbar.agents.base import AgentView
 from vbar.spacecraft import GaussianNav
 
@@ -129,3 +131,46 @@ def test_pd_agent_flies_the_same_in_accel_action_mode():
     )
     assert np.allclose(normalized["states"], accel["states"], rtol=0.0, atol=1e-9)
     assert np.allclose(0.02 * normalized["actions"], accel["actions"], rtol=1e-14, atol=0.0)
+
+
+def test_pd_agent_commands_newtons_in_thrust_action_mode():
+    # Under constant thrust a command in newtons and the same fraction of a full command give the
+    # same thrust, so the two runs must fly the same trajectory.
+    start = (-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)
+    base = dict(start_state=start, drive="thrust", propellant_kg=100.0)
+    normalized = run_episode(ApproachEnv(ApproachConfig(**base)), PDAgent())
+    thrust = run_episode(ApproachEnv(ApproachConfig(action_mode="thrust", **base)), PDAgent())
+    assert thrust["captured"]
+    assert np.allclose(normalized["states"], thrust["states"], rtol=0.0, atol=1e-9)
+    assert np.allclose(10.0 * normalized["actions"], thrust["actions"], rtol=1e-14, atol=0.0)
+
+
+def test_agents_read_only_the_navigated_state_when_channels_are_on():
+    channels = ("t_remaining", "propellant_fraction", "pending_commands")
+    start = (-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)
+    plain = run_episode(ApproachEnv(ApproachConfig(start_state=start, delay_s=5.0)), PDAgent())
+    cfg = ApproachConfig(start_state=start, delay_s=5.0, observation_channels=channels)
+    extended = run_episode(ApproachEnv(cfg), PDAgent())
+    assert np.array_equal(plain["states"], extended["states"])
+    llm = LLMAgent(lambda prompt: '{"ax": 0, "ay": 0, "az": 0}')
+    assert run_episode(ApproachEnv(cfg), llm)["dv_used_mps"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("mode", "scale"), [("normalized", 1.0), ("accel", 0.02), ("thrust", 10.0)]
+)
+def test_llm_fractions_are_converted_to_the_action_mode(mode, scale):
+    agent = LLMAgent(lambda prompt: '{"ax": 0.5, "ay": 0, "az": 0}')
+    cfg = ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=3, action_mode=mode)
+    result = run_episode(ApproachEnv(cfg), agent)
+    assert np.array_equal(result["actions"][0], [0.5 * scale, 0.0, 0.0])
+    # Half thrust for 30 s; in thrust mode the mass falls by 1.4e-4 of itself meanwhile.
+    assert result["dv_used_mps"] == pytest.approx(0.3, rel=2e-4)
+
+
+def test_unsupported_action_modes_are_rejected():
+    view = ApproachEnv(ApproachConfig(action_mode="thrust")).agent_view()
+    with pytest.raises(ValueError, match="mass_kg"):
+        PDAgent().reset(dataclasses.replace(view, mass_kg=None))
+    with pytest.raises(ValueError, match="action mode"):
+        action_scale(dataclasses.replace(view, action_mode="impulse"))

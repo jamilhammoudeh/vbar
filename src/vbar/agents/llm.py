@@ -17,7 +17,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from .base import AgentView
+from .base import AgentView, action_scale
 
 PROMPT_TEMPLATE = """You are the guidance system of a chaser spacecraft near a target spacecraft.
 
@@ -62,6 +62,7 @@ class LLMAgent:
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
         self.view = view
+        self.scale = action_scale(view)
         self.log = []
 
     def act(self, obs, info):
@@ -92,6 +93,7 @@ class LLMAgent:
         failed = action is None
         if failed:
             action = np.zeros(3)  # safe default: coast
+        action = action * self.scale
         self.log.append(
             {
                 "time_s": info["time_s"],

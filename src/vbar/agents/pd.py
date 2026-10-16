@@ -18,10 +18,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from .base import AgentView
+from .base import AgentView, action_scale
 
 
 class PDAgent:
+    """PD law toward the hold point, issued in the view's action mode.
+
+    In thrust mode it asks for the thrust its acceleration needs at the initial mass.
+    """
+
     def __init__(self, wn: float = 0.01, zeta: float = 1.0, name: str = "pd"):
         self.wn = wn
         self.zeta = zeta
@@ -31,13 +36,12 @@ class PDAgent:
         self.n = view.n
         self.hold = np.array(view.goal["hold_point"], dtype=float)
         self.max_accel = view.max_accel
-        self.normalized = view.action_mode == "normalized"
+        self.scale = action_scale(view)
 
     def act(self, obs, info):
-        x, y, z, vx, vy, vz = obs
+        x, y, z, vx, vy, vz = obs[:6]
         n = self.n
         cw = np.array([3 * n**2 * x + 2 * n * vy, -2 * n * vx, -(n**2) * z])
         kp, kd = self.wn**2, 2 * self.zeta * self.wn
-        a = -cw - kp * (obs[:3] - self.hold) - kd * obs[3:]
-        u = np.clip(a / self.max_accel, -1.0, 1.0)
-        return u if self.normalized else u * self.max_accel
+        a = -cw - kp * (obs[:3] - self.hold) - kd * obs[3:6]
+        return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale

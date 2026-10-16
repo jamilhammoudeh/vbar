@@ -38,6 +38,19 @@ class AgentView:
         object.__setattr__(self, "constraints", constraints)
 
 
+def action_scale(view: AgentView) -> float:
+    """Action units per fraction of a full command: 1, m/s^2, or N at the initial mass."""
+    if view.action_mode == "normalized":
+        return 1.0
+    if view.action_mode == "accel":
+        return view.max_accel
+    if view.action_mode == "thrust":
+        if view.mass_kg is None:
+            raise ValueError("thrust actions need the view's mass_kg")
+        return view.max_accel * view.mass_kg
+    raise ValueError(f"unknown action mode {view.action_mode!r}")
+
+
 class Agent(Protocol):
     name: str
 
