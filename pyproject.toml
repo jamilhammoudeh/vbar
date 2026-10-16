@@ -42,6 +42,7 @@ Issues = "https://github.com/jamilhammoudeh/vbar/issues"
 plot = ["matplotlib>=3.8"]
 dev = [
     "pytest>=8",
+    "pytest-cov>=5",
     "hypothesis>=6.100",
     "ruff==0.17.1",
     "mypy==2.4.0",
