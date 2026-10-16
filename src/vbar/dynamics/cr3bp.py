@@ -11,9 +11,10 @@ Equations of motion (their eq 2.3.8):
 
 The frame has the orientation and Coriolis sign of the Hill frame of the smaller primary's
 orbit, and at mu = 0 the linearization about (1, 0, 0) is CW with n = 1. Jacobi constants are
-Szebehely's, C = 2 Omega - v^2; Koon et al.'s convention adds mu (1 - mu) (their eq 2.3.14),
-which puts L4 and L5 at exactly 3. Coriolis terms do no work, so the Jacobi constant cannot
-detect a sign error in them; the inertial-frame cross-check can.
+C = 2 Omega - v^2 with the Omega above, which has no constant term; Koon et al.'s convention
+adds mu (1 - mu) (their eq 2.3.14), which puts L4 and L5 at exactly 3. Coriolis terms do no
+work, so the Jacobi constant cannot detect a sign error in them; the inertial-frame
+cross-check can.
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ def rhs(t: float, state: np.ndarray, mu: float) -> np.ndarray:
 
 
 def jacobi_constant(state: ArrayLike, mu: float) -> np.ndarray:
-    """Szebehely's Jacobi constant 2 Omega - v^2 of states (..., 6)."""
+    """Jacobi constant 2 Omega - v^2 of states (..., 6), Omega without a constant term."""
     state = np.asarray(state, dtype=float)
     v = state[..., 3:6]
     return 2.0 * potential(state[..., 0:3], mu) - np.sum(v * v, axis=-1)

@@ -48,7 +48,7 @@ def test_book_constant_sets_are_consistent():
 
 
 def test_earth_moon_lagrange_points_and_jacobi_constants():
-    # Computed, mu = 0.01215: x of L1, L2, L3 and C (Szebehely) at L1 to L4; the book's
+    # Computed, mu = 0.01215: x of L1, L2, L3 and C = 2 Omega - v^2 at L1 to L4; the book's
     # convention adds mu (1 - mu) = 0.012002.
     points = cr3bp.lagrange_points(MU)
     assert points[:3, 0] == pytest.approx([0.8369180073, 1.1556799131, -1.0050624018], abs=1e-10)
