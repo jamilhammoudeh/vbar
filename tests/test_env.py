@@ -4,7 +4,7 @@ from gymnasium.utils.env_checker import check_env
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DriftAgent, LLMAgent, PDAgent, parse_action
-from vbar.safety import FilteredAgent, PassThroughFilter
+from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter
 
 
 def test_gymnasium_api_compliance():
@@ -76,3 +76,43 @@ def test_filtered_agent_counts_interventions():
     agent = FilteredAgent(PDAgent(), PassThroughFilter())
     r = run_episode(env, agent)
     assert r["filter_interventions"] == 0
+
+
+class HalvingFilter:
+    """Halves every command; reports itself as certified infeasible when asked to."""
+
+    name = "halve"
+
+    def __init__(self, status="feasible"):
+        self.status = status
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        if self.status == "feasible":
+            return 0.5 * action
+        return FilterResult(0.5 * action, True, self.status, slack=0.1, conflicting=("keep_out",))
+
+
+def test_filtered_agent_keeps_the_raw_command_and_a_result_for_a_bare_filter():
+    env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=3))
+    agent = FilteredAgent(PDAgent(), HalvingFilter())
+    r = run_episode(env, agent)
+    assert r["filter_interventions"] == 3
+    assert agent.last_result.status == "feasible" and agent.last_result.intervened
+    assert np.allclose(agent.last_result.action, 0.5 * agent.last_command)
+    assert agent.last_result.compute_s >= 0.0
+
+
+def test_filtered_agent_passes_a_filter_result_through():
+    env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=2))
+    agent = FilteredAgent(PDAgent(), HalvingFilter("infeasible_certified"))
+    run_episode(env, agent)
+    assert agent.last_result.status == "infeasible_certified"
+    assert agent.last_result.conflicting == ("keep_out",)
+
+
+def test_filter_result_rejects_an_unknown_status():
+    with pytest.raises(ValueError, match="status"):
+        FilterResult(np.zeros(3), False, "maybe")

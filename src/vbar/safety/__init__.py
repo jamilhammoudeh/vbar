@@ -1,14 +1,42 @@
 """Safety filters wrap an agent and modify unsafe commands before they are applied.
 
-Only the pass-through filter (filter off) exists so far. `FilteredAgent` counts
-interventions, the decisions where the filter changed the agent's command.
+Only the pass-through filter (filter off) exists so far. A filter returns either the action or a
+`FilterResult`; `FilteredAgent` counts interventions, the decisions where the filter changed the
+agent's command, and keeps the last command and result for the step record.
 """
 
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass
+
 import numpy as np
 
 from ..agents.base import AgentView
+
+FILTER_STATUSES = ("feasible", "infeasible_certified", "solver_failed")
+
+
+@dataclass(frozen=True)
+class FilterResult:
+    """One filter decision.
+
+    `status` is "feasible", "infeasible_certified" (proven infeasible by a certificate) or
+    "solver_failed" (no answer and no proof, a filter defect); `slack` is the constraint violation
+    the returned action accepts, `conflicting` names the constraints that could not all hold, and
+    `compute_s` is the filter's wall time (s).
+    """
+
+    action: np.ndarray
+    intervened: bool
+    status: str = "feasible"
+    slack: float = 0.0
+    conflicting: tuple[str, ...] = ()
+    compute_s: float = 0.0
+
+    def __post_init__(self):
+        if self.status not in FILTER_STATUSES:
+            raise ValueError(f"unknown filter status {self.status!r}, expected {FILTER_STATUSES}")
 
 
 class PassThroughFilter:
@@ -24,7 +52,12 @@ class PassThroughFilter:
 
 
 class FilteredAgent:
-    """Agent + safety filter, presented as a single agent."""
+    """Agent + safety filter, presented as a single agent.
+
+    After each `act`, `last_command` is the agent's own command and `last_result` the filter's
+    `FilterResult`; a filter that returns a bare action gets a result with status "feasible",
+    `intervened` when any component moved by more than `tol`, and its measured wall time.
+    """
 
     def __init__(self, agent, safety_filter, tol: float = 1e-6):
         self.agent = agent
@@ -37,14 +70,25 @@ class FilteredAgent:
         self.filter.reset(view)
         self.interventions = 0
         self.decisions = 0
+        self.last_command: np.ndarray | None = None
+        self.last_result: FilterResult | None = None
 
     def act(self, obs, info):
         raw = np.asarray(self.agent.act(obs, info), dtype=float)
-        safe = np.asarray(self.filter.filter(obs, raw), dtype=float)
+        t0 = time.perf_counter()
+        out = self.filter.filter(obs, raw)
+        elapsed = time.perf_counter() - t0
+        if isinstance(out, FilterResult):
+            result = out
+        else:
+            safe = np.asarray(out, dtype=float)
+            moved = bool(np.max(np.abs(safe - raw)) > self.tol)
+            result = FilterResult(safe, moved, compute_s=elapsed)
         self.decisions += 1
-        if np.max(np.abs(safe - raw)) > self.tol:
-            self.interventions += 1
-        return safe
+        self.interventions += int(result.intervened)
+        self.last_command = raw
+        self.last_result = result
+        return np.asarray(result.action, dtype=float)
 
 
-__all__ = ["FilteredAgent", "PassThroughFilter"]
+__all__ = ["FILTER_STATUSES", "FilterResult", "FilteredAgent", "PassThroughFilter"]

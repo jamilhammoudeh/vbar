@@ -14,6 +14,11 @@ release may change the public API, and every such change is listed under Changed
 - A test that runs every python example in README.md and `docs/`, coverage reporting in CI, a
   throughput benchmark (`benchmarks/steps.py`) and weekly mutation testing of the core modules.
 - SECURITY.md.
+- Constraint types: speed and closing-speed limits, an approach cone with its apex at the port,
+  Sun exclusion, passive-speed envelopes and an approach-zone ellipsoid. `Constraint.rate_bound`
+  takes a lower bound on the range, `rho_min`.
+- `FilterResult` with a status, slack, conflicting constraints and compute time; `FilteredAgent`
+  keeps the last command and result.
 
 ## [0.2.0] - 2026-10-16
 

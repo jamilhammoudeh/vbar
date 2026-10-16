@@ -140,7 +140,13 @@ action in the view's action mode. Provided:
   reply, action, failure flag and latency go to `log`.
 - `FilteredAgent(agent, safety_filter)` (`vbar.safety`): wraps an agent with a filter that has
   `reset(view)` and `filter(obs, action)`, and counts the steps where the filter changed the
-  command. Only the pass-through filter exists so far.
+  command. The filter returns the action or a `FilterResult`: the action, whether it intervened,
+  a status (`feasible`, `infeasible_certified` when a certificate proves no safe action exists,
+  `solver_failed` when it found neither), the accepted slack, the conflicting constraints and its
+  wall time. A bare action is wrapped as `feasible`, intervened when a component moved by more
+  than `tol` (1e-6), with the measured time. After each decision `last_command` and `last_result`
+  hold the agent's command and the result, for the step record ([metrics.md](metrics.md)). Only
+  the pass-through filter exists so far.
 
 `vbar.agents.action_scale(view)` gives the action units per fraction of a full command.
 
