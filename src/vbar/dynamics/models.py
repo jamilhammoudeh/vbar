@@ -137,6 +137,28 @@ def differential_gravity(r: ArrayLike, dr: ArrayLike, body: Body, j2: bool = Fal
     return dg
 
 
+def gravity_gradient(r: ArrayLike, body: Body, j2: bool = False) -> np.ndarray:
+    """Jacobian of `gravity` with respect to position (1/s^2), shape (..., 3, 3)."""
+    r = np.asarray(r, dtype=float)
+    r2 = np.sum(r * r, axis=-1)[..., None, None]
+    rr = r[..., :, None] * r[..., None, :]
+    eye = np.eye(3)
+    grad = -body.mu / (r2 * np.sqrt(r2)) * (eye - 3.0 * rr / r2)
+    if j2 and body.j2:
+        # Derivative of 1.5 J2 mu R^2 (5 r_i z^2 / r^7 - c_i r_i / r^5), c = (1, 1, 3).
+        r5 = r2 * r2 * np.sqrt(r2)
+        z = r[..., 2][..., None, None]
+        c = np.array([1.0, 1.0, 3.0])
+        z_part = (
+            z * z / (r5 * r2) * eye
+            + 2.0 * z / (r5 * r2) * r[..., :, None] * np.array([0.0, 0.0, 1.0])
+            - 7.0 * z * z / (r5 * r2 * r2) * rr
+        )
+        c_part = -np.diag(c) / r5 + 5.0 * c[:, None] * rr / (r5 * r2)
+        grad = grad + 1.5 * body.j2 * body.mu * body.radius**2 * (5.0 * z_part + c_part)
+    return grad
+
+
 def circular_orbit(body: Body, altitude: float, inclination: float = 0.0):
     """Inertial position and velocity at the ascending node (on +x) of a circular orbit.
 
@@ -153,6 +175,9 @@ def circular_orbit(body: Body, altitude: float, inclination: float = 0.0):
 # The offset blocks get their own small tolerances so relative motion is resolved well below
 # a millimetre whatever the orbit size.
 _ATOL = np.repeat([1e-6, 1e-9, 1e-9, 1e-12], 3)
+# Steps for central differences of perturbing forces (m, m/s); drag and solar pressure vary
+# over tens of kilometres and kilometres per second, so the truncation error is below 1e-9.
+_FD_STEP = np.repeat([1.0, 1e-3], 3)
 
 
 class TwoBodyDynamics:
@@ -285,6 +310,79 @@ class TwoBodyDynamics:
         if self._sol is None:
             raise RuntimeError("no segment has been advanced since reset")
         return self._to_hill(self._sol.sol(tau))
+
+    def transition_matrices(
+        self, accel_hill: ArrayLike, duration: float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Hill-frame transition and input matrices of the segment `advance` would fly next.
+
+        phi = d x(t + duration) / d x(t) and gamma = d x(t + duration) / d accel_hill for the
+        relative Hill state x, from the variational equations of this same model integrated
+        along the chaser's own trajectory (Montenbruck and Gill, Satellite Orbits, sec. 7.2);
+        an STM from a simpler model drifts from the state it is used with. Gravity's gradient
+        is analytic, the perturbations' come from central differences. The model's state is
+        not changed.
+        """
+        accel = np.array(accel_hill, dtype=float)
+        n = self.n
+        atol_phi = 1e-12 * np.outer([1, 1, 1, n, n, n], [1, 1, 1, 1 / n, 1 / n, 1 / n])
+        atol_gamma = 1e-12 * np.outer([1 / n**2] * 3 + [1 / n] * 3, [1, 1, 1])
+        sol = solve_ivp(
+            self._variational_rhs,
+            (0.0, duration),
+            np.concatenate([self._y, np.eye(6).ravel(), np.zeros(18)]),
+            method="DOP853",
+            args=(accel,),
+            rtol=self.rtol,
+            atol=np.concatenate([_ATOL, atol_phi.ravel(), atol_gamma.ravel()]),
+        )
+        if not sol.success:
+            raise RuntimeError(f"variational integration failed: {sol.message}")
+        end = sol.y[:, -1]
+        to_hill_0, from_hill_0 = self._hill_maps(self._y)
+        to_hill_1, _ = self._hill_maps(end[:12])
+        phi = to_hill_1 @ end[12:48].reshape(6, 6) @ from_hill_0
+        return phi, to_hill_1 @ end[48:66].reshape(6, 3)
+
+    def _relative_jacobian(self, y: np.ndarray) -> np.ndarray:
+        """d(dv/dt) / d(dr, dv) for the chaser's offset at state `y`, shape (3, 6)."""
+        r_t, v_t, dr, dv = y[0:3], y[3:6], y[6:9], y[9:12]
+        jac = np.zeros((3, 6))
+        jac[:, :3] = gravity_gradient(r_t + dr, self.body, self.j2)
+        if self.perturbations:
+            # All twelve shifted offsets in one stacked evaluation per force.
+            steps = np.diag(_FD_STEP)
+            offsets = np.concatenate([dr, dv]) + np.concatenate([steps, -steps])
+            for p in self.perturbations:
+                shifted = p.accelerations(r_t, v_t, offsets[:, :3], offsets[:, 3:])[1]
+                jac += ((shifted[:6] - shifted[6:]) / (2.0 * _FD_STEP[:, None])).T
+        return jac
+
+    def _variational_rhs(self, t: float, y: np.ndarray, accel_hill: np.ndarray) -> np.ndarray:
+        a = np.zeros((6, 6))
+        a[0:3, 3:6] = np.eye(3)
+        a[3:6, :] = self._relative_jacobian(y[:12])
+        b = np.zeros((6, 3))
+        b[3:6, :], _ = hill_frame(y[0:3], y[3:6])
+        phi = y[12:48].reshape(6, 6)
+        gamma = y[48:66].reshape(6, 3)
+        return np.concatenate(
+            [self._rhs(t, y[:12], accel_hill), (a @ phi).ravel(), (a @ gamma + b).ravel()]
+        )
+
+    def _hill_maps(self, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Linear maps from the inertial offset (dr, dv) to the Hill state and back."""
+        C, omega = hill_frame(y[0:3], y[3:6], self._target_acceleration(y))
+        w = np.array(
+            [[0.0, -omega[2], omega[1]], [omega[2], 0.0, -omega[0]], [-omega[1], omega[0], 0.0]]
+        )
+        to_hill = np.zeros((6, 6))
+        to_hill[:3, :3] = to_hill[3:, 3:] = C.T
+        to_hill[3:, :3] = -w @ C.T
+        from_hill = np.zeros((6, 6))
+        from_hill[:3, :3] = from_hill[3:, 3:] = C
+        from_hill[3:, :3] = C @ w
+        return to_hill, from_hill
 
     def target_state(self) -> np.ndarray:
         """Target inertial [r, v] in m and m/s."""
