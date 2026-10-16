@@ -1,5 +1,8 @@
+import math
+
 import numpy as np
 import pytest
+from scipy.spatial.transform import Rotation
 
 from vbar.conventions import (
     HILL_TO_ISS,
@@ -10,6 +13,7 @@ from vbar.conventions import (
     iss_to_hill,
 )
 from vbar.dynamics.bodies import EARTH
+from vbar.dynamics.kepler import state_from_elements
 
 A_LEO = EARTH.radius + 500e3
 V_LEO = np.sqrt(EARTH.mu / A_LEO)
@@ -150,3 +154,32 @@ def test_iss_lvlh_round_trip_on_states_is_exact():
     states = np.random.default_rng(3).normal(size=(7, 6))
     assert np.array_equal(iss_to_hill(hill_to_iss(states)), states)
     assert np.array_equal(hill_to_iss(states)[:, 3:], hill_to_iss(states[:, 3:]))
+
+
+def book_rotation(axis, angle):
+    """Elementary rotation of the coordinate axes, as Montenbruck and Gill print it (passive)."""
+    c, s = math.cos(angle), math.sin(angle)
+    if axis == 0:
+        return np.array([[1.0, 0.0, 0.0], [0.0, c, s], [0.0, -s, c]])
+    if axis == 1:
+        return np.array([[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]])
+    return np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+@pytest.mark.parametrize("axis", range(3))
+def test_book_rotation_matrices_are_transposes_of_active_rotations(axis):
+    for angle in (0.3, -1.2, 2.5):
+        active = Rotation.from_rotvec(angle * np.eye(3)[axis]).as_matrix()
+        assert np.allclose(book_rotation(axis, angle), active.T, rtol=0.0, atol=1e-15)
+
+
+def test_orbit_orientation_follows_the_books_passive_rotation_sequence():
+    # Montenbruck and Gill eq 2.50: inertial = Rz(-raan) Rx(-i) Rz(-argp) perifocal, which is
+    # scipy's intrinsic z-x-z sequence with the angles as given.
+    a, e, i, raan, argp = 8000e3, 0.2, 0.9, 1.1, 2.0
+    r, v = state_from_elements([a, e, i, raan, argp, 0.0], EARTH.mu)
+    to_inertial = book_rotation(2, -raan) @ book_rotation(0, -i) @ book_rotation(2, -argp)
+    assert np.allclose(Rotation.from_euler("ZXZ", [raan, i, argp]).as_matrix(), to_inertial)
+    perigee_speed = math.sqrt(EARTH.mu / a * (1 + e) / (1 - e))
+    assert np.allclose(r, to_inertial @ [a * (1 - e), 0.0, 0.0], rtol=1e-14, atol=0.0)
+    assert np.allclose(v, to_inertial @ [0.0, perigee_speed, 0.0], rtol=1e-14, atol=0.0)

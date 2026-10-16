@@ -7,6 +7,14 @@ The Hill frame is centred on the target and rotates with its orbit: x radial out
 y along-track (V-bar), z along the orbit normal r x v. It is the frame called RIC, RSW or RTN
 elsewhere. Relative velocities are rates seen in the rotating frame, not inertial velocity
 differences.
+
+Rotation matrices map components between frames and follow scipy's active convention: the
+matrix of quaternion `q_a_b` (scalar last) takes components in frame b to frame a,
+v_a = R(q_a_b) v_b, and `hill_frame` returns C with v_inertial = C v_hill. Textbook elementary
+rotations are passive (Montenbruck and Gill's R_x, R_y, R_z; Schaub and Junkins' direction
+cosine matrices): the book's R(angle) is the transpose of the active rotation by that angle,
+and Schaub and Junkins' [BN] with Euler parameters beta_B/N is R(q_n_b).T with
+q_n_b = [beta_1, beta_2, beta_3, beta_0].
 """
 
 from __future__ import annotations
