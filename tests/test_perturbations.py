@@ -342,3 +342,18 @@ def test_lunisolar_tides_are_negligible_against_differential_drag():
     drag = Drag(HarrisPriester(SUN, exponent=2), b, 1.1 * b)
     _, differential = drag.accelerations(r, v, ZERO, ZERO)
     assert moon + sun < 0.01 * np.linalg.norm(differential)
+
+
+def test_ten_percent_drag_mismatch_drifts_metres_per_orbit_at_500_km():
+    # At constant Harris-Priester minimum or maximum density a 10% mismatch for C_D 2.2 and
+    # A/m 0.01 m^2/kg drifts the chaser 1.1 to 5.9 m along-track per orbit (CW with the
+    # constant differential acceleration); the bulge keeps the real drift between the two.
+    b = 1 / (2.2 * 0.01)
+    drag = Drag(HarrisPriester([0.5, 0.5, 0.7], exponent=4), b, 1.1 * b)
+    perturbed = TwoBodyDynamics(inclination=np.radians(51.6), j2=True, perturbations=[drag])
+    plain = TwoBodyDynamics(inclination=np.radians(51.6), j2=True)
+    for m in (perturbed, plain):
+        m.reset(np.zeros(6))
+    period = 2 * np.pi / plain.n
+    drift = perturbed.advance(ZERO, period)[0][1] - plain.advance(ZERO, period)[0][1]
+    assert -5.9 < drift < -1.1
