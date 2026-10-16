@@ -85,6 +85,27 @@ def test_equatorial_circular_state_gives_angles_from_the_x_axis():
     assert wrapped(raan + argp + M - u) == pytest.approx(0.0, abs=1e-14)
 
 
+def test_keplerian_transition_matrix_matches_published_example():
+    # Montenbruck and Gill, exercise 7.1: a = R + 650 km, e = 0.001, i = 51 deg, other angles 0,
+    # one day, velocity rows and columns scaled by 1/n. Only the first row is compared; it is
+    # printed to 5 decimals and central differences add under 1e-6.
+    mu = 398600.4415e9
+    a = 6378.137e3 + 650e3
+    n = math.sqrt(mu / a**3)
+    y0 = np.r_[state_from_elements([a, 0.001, math.radians(51.0), 0.0, 0.0, 0.0], mu)]
+    row = np.zeros(6)
+    for j, h in enumerate([1.0, 1.0, 1.0, 1e-3, 1e-3, 1e-3]):
+        plus, minus = y0.copy(), y0.copy()
+        plus[j] += h
+        minus[j] -= h
+        x_plus = propagate_kepler(plus[:3], plus[3:], 86400.0, mu)[0][0]
+        x_minus = propagate_kepler(minus[:3], minus[3:], 86400.0, mu)[0][0]
+        row[j] = (x_plus - x_minus) / (2 * h)
+    row[3:] *= n
+    expected = [-279.15804, -0.68758, -0.84909, -2.08471, -176.75552, -218.27488]
+    assert np.max(np.abs(row - expected)) < 6e-6
+
+
 def test_universal_variables_match_mean_anomaly_propagation():
     rng = np.random.default_rng(1)
     for _ in range(20):
