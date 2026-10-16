@@ -47,7 +47,7 @@ class ThreeBodySystem:
     (m) and `period` their orbital period (s). Nondimensional units have length 1, period
     2 pi and total mass 1. Results in metres and seconds move by about 0.15% between published
     sets of the same system (Koon, Lo, Marsden and Ross, Dynamical Systems, the Three-Body
-    Problem and Space Mission Design, table 2.2.1 and ch. 6), so every result states its set.
+    Problem and Space Mission Design, table 2.2.1 and ch. 6).
     """
 
     name: str

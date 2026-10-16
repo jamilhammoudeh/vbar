@@ -208,10 +208,7 @@ class Drag:
     a = -rho |v_r| v_r / (2 B), with v_r the velocity relative to the air and B = m / (C_D A)
     each spacecraft's ballistic coefficient in kg/m^2 (Montenbruck and Gill, Satellite Orbits,
     eq 3.97). `density` maps inertial positions (..., 3) to kg/m^3, for example
-    `HarrisPriester`. Drag is the largest non-gravitational relative force in low orbit;
-    ballistic coefficients of similar spacecraft differ by 10 to 50%, those of a compact chaser
-    and a space station by a factor of 4 to 8 (Fehse, Automated Rendezvous and Docking of
-    Spacecraft, sec. 4.2.1).
+    `HarrisPriester`.
     """
 
     name = "drag"

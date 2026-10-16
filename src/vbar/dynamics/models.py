@@ -349,10 +349,9 @@ class TwoBodyDynamics:
 
         phi = d x(t + duration) / d x(t) and gamma = d x(t + duration) / d accel_hill for the
         relative Hill state x, from the variational equations of this same model integrated
-        along the chaser's own trajectory (Montenbruck and Gill, Satellite Orbits, sec. 7.2);
-        an STM from a simpler model drifts from the state it is used with. Gravity's gradient
-        is analytic, the perturbations' come from central differences. The model's state is
-        not changed.
+        along the chaser's own trajectory (Montenbruck and Gill, Satellite Orbits, sec. 7.2).
+        Gravity's gradient is analytic, the perturbations' come from central differences. The
+        model's state is not changed.
         """
         accel = np.array(accel_hill, dtype=float)
         n = self.n

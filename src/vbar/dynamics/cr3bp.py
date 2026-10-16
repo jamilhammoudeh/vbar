@@ -377,18 +377,13 @@ class PeriodicLinearDynamics:
 
     Linear time-periodic: the offset obeys d(dx)/dt = A(t) dx + B a, with A from the
     potential's Hessian along the target's orbit (Koon et al. eqs 4.2.4 and 6.7.1). One period
-    is integrated once, in `pieces` stretches each started from the identity: the target, the
-    stretch's transition matrix phi(t) and G(t), the integral of phi^-1 B. A segment is then
-    algebra: within a stretch phi(t2, t1) = phi(t2) phi(t1)^-1 and gamma = phi(t2) (G(t2) -
-    G(t1)), across stretches the products, and periodicity carries this to every later period.
-    Short stretches keep the matrices in these products small; one matrix from the start of the
-    period grows past 1e3 near the perilune of a near-rectilinear halo orbit, and its products
-    lose as many digits. On that orbit segments match a direct integration of the linear
-    equations to 1e-13 of the state, and to about 1e-8 through perilune, where the matrices depend
-    on the target's position as sharply as the orbit does (integrated at rtol 1e-13 it closes
-    to 1e-10 per period). `target_state` must start a periodic orbit of nondimensional
-    `period` to that precision. Same frame and units as `CR3BPDynamics`; left out against it:
-    terms of second order in the separation.
+    is integrated once, in `pieces` stretches; a segment is then products of their transition
+    and input matrices, and periodicity carries them to every later period. On a
+    near-rectilinear halo orbit segments match a direct integration of the linear equations to
+    1e-13 of the state, and to about 1e-8 through perilune. `target_state` must start a
+    periodic orbit of nondimensional `period` to that precision; integrated at rtol 1e-13 such
+    an orbit closes to 1e-10 per period. Same frame and units as `CR3BPDynamics`; left out
+    against it: terms of second order in the separation.
     """
 
     name = "cr3bp_linear"
@@ -408,6 +403,11 @@ class PeriodicLinearDynamics:
         self._stretches = []
         self.monodromy = np.eye(6)
         target = np.asarray(target_state, dtype=float)
+        # Each stretch starts from the identity and carries the target, its transition matrix
+        # phi(t) and G(t), the integral of phi^-1 B, so that within it phi(t2, t1) =
+        # phi(t2) phi(t1)^-1 and gamma = phi(t2) (G(t2) - G(t1)). Short stretches keep these
+        # matrices small: one from the start of the period grows past 1e3 near the perilune of
+        # a near-rectilinear halo orbit, and its products lose as many digits.
         for a, b in zip(self._anchors[:-1], self._anchors[1:], strict=True):
             y0 = np.concatenate([target, np.eye(6).ravel(), np.zeros(18)])
             sol = solve_ivp(

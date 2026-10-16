@@ -4,10 +4,9 @@ Richardson's third-order halo approximation as a seed, differential correctors f
 Lyapunov and halo orbits, pseudo-arclength continuation along a halo family with a check for
 jumps to another family, and monodromy and Floquet analysis. Nondimensional synodic states as in
 `vbar.dynamics.cr3bp`. Methods from Koon, Lo, Marsden and Ross, Dynamical Systems, the
-Three-Body Problem and Space Mission Design, secs. 4.3 to 4.4 and 6.6 to 7.2, with their
-corrections: Richardson's b22 is +3 c3 wp / d1 and a32 contains 4 c3 (k a24 - b22) (their sec.
-6.6 prints both wrongly), and the correctors keep the crossing-time terms that their sec. 6.7
-leaves out.
+Three-Body Problem and Space Mission Design, secs. 4.3 to 4.4 and 6.6 to 7.2. Richardson's
+b22 is +3 c3 wp / d1 and a32 contains 4 c3 (k a24 - b22), correcting sec. 6.6; the correctors
+include the crossing-time terms.
 
 Halo orbits are named by libration point and by the sign of z where they are farthest from
 the smaller primary: "northern" and "southern" swap meaning between Sun-Earth L1 and
@@ -320,12 +319,10 @@ def family_jump(
 ) -> bool:
     """Whether `current` is not the neighbour of `previous` on one family.
 
-    Along a family the start state and the period change smoothly: a step of `step` in the
-    start state moves it by about `step`, and the period by about `slope` (its rate of change
-    on the previous step) times `step`. A converged orbit that breaks either belongs to another
-    family: continuing the Earth-Moon L2 halo family in z0, as Koon et al. do in sec. 6.7,
-    lands past the family's largest z0 on an unrelated orbit of about twice the period.
-    Without a slope, a period change of a fifth counts as a jump.
+    Along a family a step of `step` moves the start state by about `step` and the period by
+    about `slope` (its rate of change on the previous step) times `step`; a converged orbit that
+    breaks either belongs to another family. Without a slope, a period change of a fifth counts
+    as a jump.
     """
     moved = float(np.linalg.norm(current.state - previous.state))
     change = abs(current.period - previous.period)

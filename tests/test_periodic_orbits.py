@@ -1,6 +1,6 @@
-"""Reference-orbit generator tests. Values marked "computed" were obtained with Koon, Lo, Marsden
-and Ross's methods and constants (Dynamical Systems, the Three-Body Problem and Space Mission
-Design) and are reproduced here independently; the others are printed in the book."""
+"""Reference-orbit generator tests. Values marked "computed" come from a separate implementation
+of Koon, Lo, Marsden and Ross's methods with their constants (Dynamical Systems, the Three-Body
+Problem and Space Mission Design); the others are printed in the book."""
 
 import numpy as np
 import pytest
