@@ -143,6 +143,22 @@ def test_speed_bounds_and_certificate_hold_on_two_body_motion(seed):
         assert dense_speed[200 * i : 200 * (i + 1) + 1].max() <= speed[i]
 
 
+def test_coarse_sampling_gives_no_finite_bound_rather_than_a_wrong_one():
+    # 1000 s between samples is past the 350 s at which the speed bound stops closing at 500 km;
+    # the bound used to come out above the true minimum here (212.4 m against 208.3 m).
+    m = CWDynamics(N)
+    m.reset([0.0, 400.0, 0.0, 0.3, 0.0, 0.0])
+    _, sampled = m.advance(np.zeros(3), 2000.0, n_samples=3)
+    times = np.linspace(0.0, 2000.0, 3)
+    speed, accel = interval_bounds(sampled, times[1], 0.0, N)
+    assert np.all(np.isinf(speed)) and np.all(np.isinf(accel))
+    found = segment_minimum(KEEP_OUT, m.state_in_last_segment, times, sampled, 0.0, N)
+    dense = np.array([m.state_in_last_segment(t) for t in np.linspace(0.0, 2000.0, 20001)])
+    exact = KEEP_OUT.margin(dense).min()
+    assert found.lower_bound == -np.inf
+    assert found.margin == pytest.approx(exact, abs=1e-3)
+
+
 def test_flat_margin_is_not_refined_past_the_resolution():
     # On the V-bar the range is constant; every interval's bound is within 1 mm of the samples.
     found, sampled = detected_minimum(np.array([0.0, 400.0, 0.0, 0.0, 0.0, 0.0]), np.zeros(3), 10.0)

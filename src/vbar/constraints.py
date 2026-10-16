@@ -80,6 +80,8 @@ def interval_bounds(
     `states` are samples `h` s apart, `thrust` (m/s^2) the thrust acceleration's magnitude and
     `n` (rad/s) the mean motion. Between samples |v| <= mean of the end speeds + A h / 2 and
     rho <= larger end range + v h / 2, with A = thrust + c (3 n^2 rho + 2 n v); solved for v.
+    The solution needs g = c h (1.5 n^2 h + 2 n) / 2 < 1; for longer intervals both bounds are
+    infinite.
     """
     rho = np.linalg.norm(states[:, :3], axis=1)
     speed = np.linalg.norm(states[:, 3:], axis=1)
@@ -87,6 +89,9 @@ def interval_bounds(
     speed_mid = 0.5 * (speed[:-1] + speed[1:])
     c = _NATURAL_MARGIN
     gain = 0.5 * h * c * (1.5 * n * n * h + 2.0 * n)
+    if gain >= 1.0:
+        unbounded = np.full(len(rho_end), np.inf)
+        return unbounded, unbounded
     v = (speed_mid + 0.5 * h * (thrust + 3.0 * c * n * n * rho_end)) / (1.0 - gain)
     accel = thrust + c * (3.0 * n * n * (rho_end + 0.5 * h * v) + 2.0 * n * v)
     return v, accel
