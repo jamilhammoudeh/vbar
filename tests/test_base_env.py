@@ -124,3 +124,12 @@ def test_observations_carry_no_true_state_information_when_noise_is_on():
     assert set(env.agent_info()) == {"time_s"}
     view_fields = {f.name for f in dataclasses.fields(env.agent_view())}
     assert view_fields.isdisjoint({"state", "true_state", "record", "dynamics", "sensor"})
+
+
+def test_thrust_actions_are_newtons_against_the_thrust_of_a_full_command():
+    actions = np.random.default_rng(6).uniform(-1.0, 1.0, (5, 3))
+    base = dict(drive="thrust", propellant_kg=400.0)
+    _, normalized = fly(Coast(EnvConfig(**base)), 4, actions)
+    _, newtons = fly(Coast(EnvConfig(action_mode="thrust", **base)), 4, 10.0 * actions)
+    assert np.allclose(normalized, newtons, rtol=1e-14, atol=1e-12)
+    assert Coast(EnvConfig(action_mode="thrust")).action_space.high[0] == pytest.approx(10.0)

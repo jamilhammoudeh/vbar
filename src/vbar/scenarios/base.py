@@ -28,7 +28,7 @@ from ..constraints import Constraint, SegmentMinimum, segment_minimum
 from ..dynamics import make_dynamics
 from ..spacecraft import Actuation, PerfectNav, Sensor, Spacecraft
 
-ACTION_MODES = ("normalized", "accel")
+ACTION_MODES = ("normalized", "accel", "thrust")
 STREAMS = ("sensor", "actuator", "target", "agent")
 
 
@@ -37,8 +37,9 @@ class EnvConfig:
     """Parameters every scenario shares (SI units, angles in rad).
 
     `action_mode` "normalized" takes fractions of `max_accel` per Hill axis, "accel" takes
-    m/s^2. `thrust_limit` is the thruster layout ("box" or "ball"). `violation_samples` is the
-    number of constraint samples per step before refinement.
+    m/s^2 and "thrust" newtons. `thrust_limit` is the thruster layout ("box" or "ball") and
+    `drive` holds either the acceleration ("accel") or the thrust ("thrust") over a burn.
+    `violation_samples` is the number of constraint samples per step before refinement.
     """
 
     dt: float = 10.0
@@ -50,6 +51,7 @@ class EnvConfig:
     action_mode: str = "normalized"
     max_accel: float = 0.02
     thrust_limit: str = "box"
+    drive: str = "accel"
     isp: float = 220.0
     mass_kg: float = 500.0
     propellant_kg: float | None = None
@@ -122,10 +124,15 @@ class BaseEnv(gym.Env):
             propellant=config.propellant_kg,
             min_impulse=config.min_impulse,
             delay=config.delay_s,
+            drive=config.drive,
         )
         self.sensor = config.sensor
         self.constraints = tuple(self._constraints())
-        high = 1.0 if config.action_mode == "normalized" else config.max_accel
+        high = {
+            "normalized": 1.0,
+            "accel": config.max_accel,
+            "thrust": config.max_accel * config.mass_kg,
+        }[config.action_mode]
         self.action_space = spaces.Box(-high, high, shape=(3,), dtype=np.float32)
         self.observation_space = spaces.Box(-1e7, 1e7, shape=(6,), dtype=np.float64)
         self.state = np.zeros(6)
@@ -161,6 +168,7 @@ class BaseEnv(gym.Env):
             action_mode=self.cfg.action_mode,
             max_accel=self.cfg.max_accel,
             thrust_limit=self.cfg.thrust_limit,
+            mass_kg=self.cfg.mass_kg,
             goal=self._goal(),
             constraints=tuple(public_spec(c) for c in self.constraints),
         )
@@ -189,7 +197,12 @@ class BaseEnv(gym.Env):
 
     def step(self, action):
         command = np.asarray(action, dtype=float)
-        fraction = command if self.cfg.action_mode == "normalized" else command / self.cfg.max_accel
+        if self.cfg.action_mode == "accel":
+            fraction = command * self.spacecraft.mass / self.spacecraft.max_force
+        elif self.cfg.action_mode == "thrust":
+            fraction = command / self.spacecraft.max_force
+        else:
+            fraction = command
         actuation = self.spacecraft.apply(fraction, self.cfg.dt)
         trace = self._fly(actuation)
         self.t += self.cfg.dt

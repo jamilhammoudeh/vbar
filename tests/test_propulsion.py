@@ -2,15 +2,20 @@ import math
 
 import numpy as np
 import pytest
+from scipy.integrate import solve_ivp
 
 from vbar.conventions import G0
+from vbar.dynamics import EARTH, CWDynamics, cw_rhs, mean_motion
 from vbar.spacecraft import Spacecraft
 
 
+@pytest.mark.parametrize("drive", ["accel", "thrust"])
 @pytest.mark.parametrize("layout", ["box", "ball"])
-def test_propellant_use_follows_the_rocket_equation(layout):
+def test_propellant_use_follows_the_rocket_equation(layout, drive):
     rng = np.random.default_rng(0)
-    craft = Spacecraft(max_accel=0.02, layout=layout, isp=220.0, mass=500.0)
+    craft = Spacecraft(
+        max_accel=0.02, layout=layout, isp=220.0, mass=500.0, propellant=400.0, drive=drive
+    )
     dv = propellant = 0.0
     for _ in range(360):
         act = craft.apply(rng.uniform(-1.0, 1.0, 3), 10.0)
@@ -153,3 +158,80 @@ def test_delayed_burns_spend_propellant_by_the_rocket_equation():
     dv = sum(a.dv_l1 for a in acts)
     propellant = sum(a.propellant_kg for a in acts)
     assert propellant == pytest.approx(500.0 * -math.expm1(-dv / (220.0 * G0)), rel=1e-9)
+
+
+def test_constant_thrust_delta_v_matches_the_finite_burn_formula():
+    # Montenbruck and Gill, Satellite Orbits, eq 3.129: dv = -(F / mdot) ln(1 - mdot t / m0); a
+    # 10 N, Isp 350 s station-keeping thruster (their table 3.13) on 1000 kg for 600 s.
+    craft = Spacecraft(
+        max_accel=0.01, layout="ball", isp=350.0, mass=1000.0, propellant=500.0, drive="thrust"
+    )
+    act = craft.apply([1.0, 0.0, 0.0], 600.0)
+    flow = 10.0 / (350.0 * G0)
+    assert act.dv_l2 == pytest.approx(
+        -(10.0 / flow) * math.log1p(-flow * 600.0 / 1000.0), rel=1e-12
+    )
+    assert act.propellant_kg == pytest.approx(flow * 600.0, rel=1e-12)
+
+
+def test_constant_thrust_acceleration_rises_as_propellant_burns():
+    craft = Spacecraft(max_accel=0.02, layout="ball", mass=500.0, propellant=100.0, drive="thrust")
+    accels = []
+    for _ in range(5):
+        act = craft.apply([1.0, 0.0, 0.0], 600.0)
+        accels.append(act.dv_l2 / 600.0)
+    assert np.all(np.diff(accels) > 0.0)
+    mean_mass = 500.0 - act.propellant_kg * 4.5
+    assert accels[-1] == pytest.approx(10.0 / mean_mass, rel=1e-4)
+
+
+def test_constant_thrust_stops_at_the_dry_mass():
+    craft = Spacecraft(max_accel=0.02, layout="ball", mass=500.0, propellant=0.01, drive="thrust")
+    act = craft.apply([1.0, 0.0, 0.0], 10.0)
+    burn = 0.01 / (10.0 / (220.0 * G0))
+    assert sum(d for d, _ in act.segments[:-1]) == pytest.approx(burn, rel=1e-12)
+    assert np.array_equal(act.segments[-1][1], np.zeros(3)) and act.empty
+    assert act.dv_l2 == pytest.approx(220.0 * G0 * math.log(500.0 / 499.99), rel=1e-9)
+    assert craft.mass == 499.99
+
+
+def rising_thrust(t, y, n, thrust, flow):
+    """CW state and mass under constant thrust (N) and mass flow (kg/s)."""
+    return np.r_[cw_rhs(t, y[:6], n, thrust / y[6]), -flow]
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+def test_constant_thrust_segments_follow_the_exact_rising_acceleration(layout):
+    # Reference: DOP853 on the CW equations with a = F / m(t) and the mass equation.
+    n = mean_motion(EARTH.radius + 500e3)
+    craft = Spacecraft(max_accel=0.02, layout=layout, mass=500.0, propellant=400.0, drive="thrust")
+    model = CWDynamics(n)
+    state = np.array([100.0, -300.0, 20.0, 0.1, 0.0, -0.05])
+    model.reset(state)
+    exact = np.r_[state, 500.0]
+    for u in np.random.default_rng(0).uniform(-1.0, 1.0, (int(2 * np.pi / n // 10.0), 3)):
+        for duration, accel in craft.apply(u, 10.0).segments:
+            model.advance(accel, duration)
+        thrust = craft.limit(u, 10.0)[0] * craft.max_thrust
+        size = np.sum(np.abs(thrust)) if layout == "box" else np.linalg.norm(thrust)
+        exact = solve_ivp(
+            rising_thrust,
+            (0.0, 10.0),
+            exact,
+            method="DOP853",
+            args=(n, thrust, size / (220.0 * G0)),
+            rtol=1e-13,
+            atol=1e-12,
+        ).y[:, -1]
+    final, _ = model.advance(np.zeros(3), 0.0)
+    # One mean-acceleration segment per step would be off by 1e-3 m here.
+    assert np.max(np.abs(final[:3] - exact[:3])) < 1e-7
+    assert np.max(np.abs(final[3:] - exact[3:6])) < 1e-10
+    assert craft.mass == pytest.approx(exact[6], rel=1e-12)
+
+
+def test_constant_thrust_needs_a_dry_mass():
+    with pytest.raises(ValueError, match="constant thrust"):
+        Spacecraft(drive="thrust")
+    with pytest.raises(ValueError, match="drive"):
+        Spacecraft(drive="pulsed")

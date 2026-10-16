@@ -15,8 +15,8 @@ class AgentView:
     """What an agent may know about the scenario: its public parameters, never the true state.
 
     `n` is the reference mean motion (rad/s), `max_accel` the acceleration (m/s^2) a command of 1
-    asks for, `goal` and `constraints` the public task description, and `observation` the
-    names of the observation entries in order.
+    asks for at the initial mass `mass_kg`, `goal` and `constraints` the public task description,
+    and `observation` the names of the observation entries in order.
     """
 
     scenario_id: str
@@ -26,6 +26,7 @@ class AgentView:
     action_mode: str
     max_accel: float
     thrust_limit: str
+    mass_kg: float | None = None
     goal: Mapping[str, Any] = field(default_factory=dict)
     constraints: tuple[Mapping[str, Any], ...] = ()
     observation: tuple[str, ...] = ("x", "y", "z", "vx", "vy", "vz")
