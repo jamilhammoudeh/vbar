@@ -17,9 +17,10 @@ PERIOD = 2 * np.pi / N
 EPS = np.finfo(float).eps
 
 durations = st.floats(min_value=1e-3, max_value=PERIOD)
-positions = st.lists(st.floats(-2000.0, 2000.0), min_size=3, max_size=3)
-velocities = st.lists(st.floats(-2.0, 2.0), min_size=3, max_size=3)
-accels = st.lists(st.floats(-0.02, 0.02), min_size=3, max_size=3)
+# Subnormal inputs lose relative precision when scaled, which no tolerance in m or m/s covers.
+positions = st.lists(st.floats(-2000.0, 2000.0, allow_subnormal=False), min_size=3, max_size=3)
+velocities = st.lists(st.floats(-2.0, 2.0, allow_subnormal=False), min_size=3, max_size=3)
+accels = st.lists(st.floats(-0.02, 0.02, allow_subnormal=False), min_size=3, max_size=3)
 quaternions = st.lists(st.floats(-1.0, 1.0), min_size=4, max_size=4).filter(
     lambda q: np.linalg.norm(q) > 0.1
 )
