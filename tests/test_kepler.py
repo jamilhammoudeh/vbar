@@ -43,6 +43,15 @@ def test_kepler_solution_keeps_the_revolution_of_the_mean_anomaly(e):
         assert E - e * math.sin(E) == pytest.approx(M, abs=1e-13)
 
 
+@pytest.mark.parametrize(
+    "M, e", [(5.962388955709969, 0.4554446879160051), (6.178474180256207, 0.8286765614028038)]
+)
+def test_kepler_solution_converges_just_below_a_full_revolution(M, e):
+    # Newton's correction here alternates between neighbouring floats of E near 2 pi.
+    E = solve_kepler(M, e)
+    assert E - e * math.sin(E) == pytest.approx(M, abs=4 * np.finfo(float).eps * M)
+
+
 def test_elements_from_state_match_published_example():
     # Montenbruck and Gill, Satellite Orbits, exercise 2.3, with the book's GM.
     r = np.array([10000e3, 40000e3, -5000e3])

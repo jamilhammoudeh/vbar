@@ -25,7 +25,9 @@ def solve_kepler(M: float, e: float) -> float:
     for _ in range(50):
         dE = (E - e * math.sin(E) - M_rev) / (1.0 - e * math.cos(E))
         E -= dE
-        if abs(dE) < 1e-15:
+        # Convergence is quadratic, so after a correction this small the error is near 1e-24;
+        # demanding less stalls on one-ulp oscillations.
+        if abs(dE) < 1e-12:
             return E + (M - M_rev)
     raise RuntimeError("kepler's equation did not converge")
 
@@ -126,7 +128,7 @@ def lagrange_coefficients(
         # dF/dchi is the radius, which is positive, so the root is unique.
         d_chi = residual / r_norm
         chi -= d_chi
-        if abs(d_chi) <= 1e-15 * max(1.0, abs(chi)):
+        if abs(d_chi) < 1e-12 * max(1.0, abs(chi)):
             break
     else:
         raise RuntimeError("universal kepler equation did not converge")
