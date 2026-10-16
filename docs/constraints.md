@@ -39,6 +39,11 @@ $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
   and the margin is the robustness of "$d \le R_c$ implies inside the cone",
   $\max(d - R_c,\ s)$ (m), so it is continuous where the cone turns on. Both terms are 1-Lipschitz
   in position, so the rate bound is $V$; resolution 1 mm; $0 < \theta < \pi/2$.
+- `SunExclusion(half_angle, sun_direction, rate)`: keep the Sun out of a sensor that looks from the
+  chaser at the target. Margin $\angle(-\mathbf r, \hat{\mathbf s}(t)) - \theta_s$ (rad). The Sun is
+  fixed in inertial space and the Hill frame turns at `rate` (the mean motion of a circular target
+  orbit) about z, so $\hat{\mathbf s}(t) = R_z(-n t)\,\hat{\mathbf s}_0$. The line of sight turns
+  at most $V/\rho$, so the rate bound is $V / \rho_{\min} + n$; resolution 1e-5 rad.
 
 ## Sampling and refinement
 
@@ -132,6 +137,8 @@ its minimum margin is negative.
 - The cone margin equals the signed distance found by a direct search over the cone's generators
   (Nelder-Mead from 63 starts) to 1e-6 m for 12 random cones and points, including points behind
   the apex; it is continuous across the active range.
+- The sun-exclusion margin is checked looking into the Sun and from above, and the Sun direction
+  turns from +y to +x in a quarter orbit.
 - A constant margin on the V-bar is not refined.
 
 ## Example

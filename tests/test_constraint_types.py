@@ -6,6 +6,7 @@ from vbar.constraints import (
     ApproachCone,
     ClosingSpeedLimit,
     SpeedLimit,
+    SunExclusion,
     closing_speed,
     segment_minimum,
 )
@@ -136,7 +137,30 @@ def test_cone_rejects_a_half_angle_outside_its_range():
         ApproachCone(np.pi / 2)
 
 
-@pytest.mark.parametrize("constraint", [SPEED, CLOSING, CONE], ids=lambda c: c.name)
+SUN = SunExclusion(np.radians(20.0), sun_direction=(0.3, 1.0, 0.2), rate=N)
+
+
+def test_sun_exclusion_margin_is_the_angle_between_line_of_sight_and_sun_minus_the_half_angle():
+    sun = SunExclusion(np.radians(20.0), sun_direction=(0.0, 1.0, 0.0), rate=N)
+    behind = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])
+    # Looking along +y at the target, straight into the Sun.
+    assert sun.margin(behind, 0.0) == pytest.approx(-np.radians(20.0))
+    above = np.array([100.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    assert sun.margin(above, 0.0) == pytest.approx(np.radians(70.0))
+
+
+def test_sun_turns_backward_in_the_hill_frame_by_a_quarter_turn_per_quarter_orbit():
+    sun = SunExclusion(np.radians(20.0), sun_direction=(0.0, 1.0, 0.0), rate=N)
+    assert np.allclose(sun.sun_at(0.5 * np.pi / N), [1.0, 0.0, 0.0], atol=1e-12)
+    below = np.array([-100.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    assert sun.margin(below, 0.5 * np.pi / N) == pytest.approx(-np.radians(20.0))
+
+
+@pytest.mark.parametrize(
+    "constraint",
+    [SPEED, CLOSING, CONE, SUN],
+    ids=lambda c: f"{c.name}_{getattr(c, 'axis', '')}",
+)
 @pytest.mark.parametrize("seed", range(12))
 def test_certificate_and_refined_minimum_bracket_the_dense_minimum(constraint, seed):
     found, dense = found_and_dense(constraint, seed)

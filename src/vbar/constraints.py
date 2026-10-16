@@ -171,6 +171,42 @@ class ApproachCone:
 
 
 @dataclass(frozen=True)
+class SunExclusion:
+    """Keep the Sun out of a sensor looking from the chaser at the target; margin in rad.
+
+    The margin is angle(-r, s) - half_angle, with s the unit Sun direction in Hill axes. The Sun
+    is fixed in inertial space, so in the Hill frame, which turns at `rate` (rad/s, the mean
+    motion n of a circular target orbit) about z, s(t) = Rz(-rate t) `sun_direction`.
+    """
+
+    half_angle: float
+    sun_direction: tuple[float, float, float]
+    rate: float
+    name: str = "sun_exclusion"
+    resolution: ClassVar[float] = 1e-5
+
+    def sun_at(self, t: float | np.ndarray) -> np.ndarray:
+        """Unit Sun direction in Hill axes at `t` s, shape (..., 3)."""
+        s0 = np.asarray(self.sun_direction, dtype=float)
+        s0 = s0 / np.linalg.norm(s0)
+        angle = -self.rate * np.asarray(t, dtype=float)
+        c, s = np.cos(angle), np.sin(angle)
+        return np.stack([c * s0[0] - s * s0[1], s * s0[0] + c * s0[1], np.full_like(c, s0[2])], -1)
+
+    def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
+        look = -np.asarray(state)[..., :3]
+        sun = self.sun_at(t)
+        angle = np.arctan2(np.linalg.norm(np.cross(look, sun), axis=-1), np.sum(look * sun, -1))
+        return angle - self.half_angle
+
+    def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
+        # The line of sight turns at most |v| / rho and the Sun direction at `rate`.
+        if rho_min <= 0.0:
+            return np.inf
+        return speed / rho_min + abs(self.rate)
+
+
+@dataclass(frozen=True)
 class SegmentMinimum:
     """Lowest margin of one constraint over a segment and a certified lower bound on it.
 
