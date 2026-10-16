@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation
 
 from vbar.conventions import hill_frame, hill_to_inertial, inertial_to_hill
 from vbar.dynamics import EARTH, cw_discrete, cw_system, mean_motion
+from vbar.dynamics.kepler import lagrange_coefficients, state_from_elements
 from vbar.dynamics.models import TwoBodyDynamics, gravity
 
 N = mean_motion(EARTH.radius + 500e3)
@@ -90,6 +91,20 @@ def test_cw_response_is_linear(r0, v0, accel, t, c):
     s1 = phi @ s0 + gamma @ a
     scaled = phi @ (c * s0) + gamma @ (c * a)
     assert np.allclose(scaled, c * s1, rtol=1e-12, atol=1e-12 * np.max(np.abs(s1)))
+
+
+@given(
+    st.floats(6.8e6, 4.2e7),
+    st.floats(0.0, 0.95),
+    st.lists(st.floats(0.0, 2 * np.pi), min_size=4, max_size=4),
+    st.floats(-2e5, 2e5),
+)
+def test_lagrange_coefficients_satisfy_f_gdot_minus_g_fdot_equals_one(a, e, angles, t):
+    r0, v0 = state_from_elements([a, e, *angles], EARTH.mu)
+    f, g, f_dot, g_dot = lagrange_coefficients(r0, v0, t, EARTH.mu)
+    # g is the small difference t - chi^3 c3 / sqrt(mu), so it carries the rounding of t.
+    scale = abs(f * g_dot) + abs(g * f_dot) + abs(t * f_dot)
+    assert abs(f * g_dot - g * f_dot - 1.0) < 64 * EPS * scale
 
 
 @settings(max_examples=15, deadline=None)
