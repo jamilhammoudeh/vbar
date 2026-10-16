@@ -9,8 +9,9 @@ continuous time. The agent sees only the sensor's output and `agent_info()`; the
 to the `info` dict and the step's full `record` for metrics and logging.
 
 The episode seed drives Gymnasium's generator, which samples the start state; the sensor,
-actuator, target and agent streams are spawned from the same seed sequence, so changing one
-model does not change another's random draws.
+actuator and target streams are spawned from the same seed sequence, so changing one model does
+not change another's random draws. The agent's stream is seeded separately by the runner, so
+nothing an agent holds is derived from the episode seed.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecra
 
 ACTION_MODES = ("normalized", "accel", "thrust")
 CHANNELS = ("t_remaining", "propellant_fraction", "pending_commands")
-STREAMS = ("sensor", "actuator", "target", "agent")
+STREAMS = ("sensor", "actuator", "target")
 
 
 @dataclass

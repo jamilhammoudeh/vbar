@@ -24,12 +24,88 @@ class Spy:
 
 def test_agents_receive_only_the_view_a_random_stream_and_the_time():
     spy = Spy()
-    run_episode(ApproachEnv(ApproachConfig(max_steps=5)), spy, seed=0)
+    result = run_episode(ApproachEnv(ApproachConfig(max_steps=5)), spy, seed=0)
     view, rng = spy.reset_args
     assert isinstance(view, AgentView) and isinstance(rng, np.random.Generator)
     assert view.goal["hold_point"] == (0.0, -100.0, 0.0)
     assert view.constraints == ({"type": "keep_out", "radius": 50.0},)
     assert spy.info_keys == {"time_s"}
+    # The stream is a root seeded by the agent seed alone, not a child of the episode seed.
+    assert rng.bit_generator.seed_seq.entropy == result["agent_seed"]
+    assert rng.bit_generator.seed_seq.spawn_key == ()
+
+
+NOISE = dict(sigma_pos=10.0, sigma_vel=0.01, bias_pos=5.0, bias_vel=0.005)
+
+
+class SiblingCheat:
+    """Rebuilds the episode's streams from the seed sequence behind its own generator."""
+
+    name = "sibling-cheat"
+
+    def reset(self, view, rng=None):
+        seq = rng.bit_generator.seed_seq
+        sibling = np.random.SeedSequence(
+            seq.entropy, spawn_key=(*seq.spawn_key[:-1], 0), pool_size=seq.pool_size
+        )
+        self.replica = GaussianNav(**NOISE)
+        self.replica.reset(np.random.default_rng(sibling))
+        master = np.random.Generator(np.random.PCG64(np.random.SeedSequence(seq.entropy)))
+        self.start_guess = ApproachEnv()._sample_start(master)
+
+    def denoise(self, obs, info):
+        return obs - self.replica.observe(np.zeros(6), info["time_s"])
+
+
+def cheat_errors(rng, seed):
+    """Truth recovered by the cheat minus the truth, over 20 steps, and its start-state error."""
+    env = ApproachEnv(ApproachConfig(sensor=GaussianNav(**NOISE)))
+    obs, info = env.reset(seed=seed)
+    cheat = SiblingCheat()
+    cheat.reset(env.agent_view(), rng)
+    start_error = np.linalg.norm(cheat.start_guess - info["true_state"])
+    errors = []
+    for _ in range(20):
+        errors.append(cheat.denoise(obs, env.agent_info()) - info["true_state"])
+        obs, _, _, _, info = env.step(np.zeros(3))
+    return np.array(errors), start_error
+
+
+def test_agent_stream_reveals_neither_the_sensor_noise_nor_the_start_state():
+    # A child of the episode seed, as an agent stream spawned by the environment would be,
+    # gives the cheat the truth to rounding, so the attack itself works.
+    child = np.random.default_rng(np.random.SeedSequence(7, spawn_key=(3,)))
+    errors, start_error = cheat_errors(child, 7)
+    assert np.max(np.abs(errors)) < 1e-9 and start_error < 1e-9
+    # The runner's stream leaves the cheat with two independent noise draws, sqrt(2) x 10 m.
+    spy = Spy()
+    run_episode(ApproachEnv(ApproachConfig(max_steps=1)), spy, seed=7)
+    errors, start_error = cheat_errors(spy.reset_args[1], 7)
+    assert np.median(np.abs(errors[:, :3])) > 1.0 and start_error > 1.0
+
+
+class RandomAgent:
+    name = "random"
+
+    def reset(self, view, rng=None):
+        self.rng = rng
+
+    def act(self, obs, info):
+        return self.rng.uniform(-1.0, 1.0, 3)
+
+
+def test_agent_seed_reproduces_the_run_and_is_recorded():
+    env = ApproachEnv(ApproachConfig(max_steps=20))
+    first = run_episode(env, RandomAgent(), seed=3, agent_seed=11)
+    again = run_episode(env, RandomAgent(), seed=3, agent_seed=11)
+    other = run_episode(env, RandomAgent(), seed=3, agent_seed=12)
+    assert first["agent_seed"] == 11
+    assert np.array_equal(first["actions"], again["actions"])
+    assert np.array_equal(first["states"], again["states"])
+    assert not np.array_equal(first["actions"], other["actions"])
+    drawn = run_episode(env, RandomAgent(), seed=3)
+    replayed = run_episode(env, RandomAgent(), seed=3, agent_seed=drawn["agent_seed"])
+    assert np.array_equal(drawn["actions"], replayed["actions"])
 
 
 def test_llm_prompt_is_built_from_the_observation_not_the_truth():
