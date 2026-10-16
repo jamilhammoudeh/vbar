@@ -32,8 +32,10 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
-MU_EARTH = 3.986004418e14  # m^3/s^2
-R_EARTH = 6_378_137.0  # m
+from .bodies import EARTH
+
+MU_EARTH = EARTH.mu
+R_EARTH = EARTH.radius
 
 
 def mean_motion(semi_major_axis_m: float, mu: float = MU_EARTH) -> float:
