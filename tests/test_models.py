@@ -4,27 +4,10 @@ import pytest
 from vbar.conventions import inertial_to_hill
 from vbar.dynamics import cw_stm
 from vbar.dynamics.bodies import EARTH, KERBIN
+from vbar.dynamics.kepler import propagate_kepler
 from vbar.dynamics.models import CWDynamics, TwoBodyDynamics, make_dynamics
 
 ZERO = np.zeros(3)
-
-
-def kepler(r0, v0, t, mu):
-    """Analytic two-body propagation of an elliptic orbit (Lagrange f and g, eccentric anomaly)."""
-    r0_norm = np.linalg.norm(r0)
-    a = 1.0 / (2.0 / r0_norm - v0 @ v0 / mu)
-    sigma = r0 @ v0 / np.sqrt(mu)
-    n = np.sqrt(mu / a**3)
-    dE = n * t
-    for _ in range(50):
-        f = dE + sigma / np.sqrt(a) * (1 - np.cos(dE)) - (1 - r0_norm / a) * np.sin(dE) - n * t
-        dE -= f / (1 + sigma / np.sqrt(a) * np.sin(dE) - (1 - r0_norm / a) * np.cos(dE))
-    r_norm = a + (r0_norm - a) * np.cos(dE) + sigma * np.sqrt(a) * np.sin(dE)
-    f = 1 - a / r0_norm * (1 - np.cos(dE))
-    g = t - np.sqrt(a**3 / mu) * (dE - np.sin(dE))
-    f_dot = -np.sqrt(mu * a) / (r_norm * r0_norm) * np.sin(dE)
-    g_dot = 1 - a / r_norm * (1 - np.cos(dE))
-    return f * r0 + g * v0, f_dot * r0 + g_dot * v0
 
 
 def state_at_range(rng, rho, n):
@@ -87,11 +70,24 @@ def test_twobody_matches_analytic_kepler_over_one_orbit(rho, seed):
     target, chaser = m.target_state(), m.chaser_state()
     period = 2 * np.pi / m.n
     final, _ = m.advance(ZERO, period)
-    r_t, v_t = kepler(target[:3], target[3:], period, EARTH.mu)
-    r_c, v_c = kepler(chaser[:3], chaser[3:], period, EARTH.mu)
+    r_t, v_t = propagate_kepler(target[:3], target[3:], period, EARTH.mu)
+    r_c, v_c = propagate_kepler(chaser[:3], chaser[3:], period, EARTH.mu)
     expected = inertial_to_hill(r_t, v_t, r_c - r_t, v_c - v_t)
     assert np.max(np.abs(final[:3] - expected[:3])) < 1e-5
     assert np.max(np.abs(final[3:] - expected[3:])) < 1e-8
+
+
+@pytest.mark.parametrize("inclination_deg", [0.0, 51.6])
+def test_twobody_absolute_states_match_kepler_over_ten_orbits(inclination_deg):
+    m = TwoBodyDynamics(inclination=np.radians(inclination_deg))
+    m.reset([5000.0, 2000.0, -3000.0, 1.0, -2.0, 0.5])
+    start = [m.target_state(), m.chaser_state()]
+    duration = 10 * 2 * np.pi / m.n
+    m.advance(ZERO, duration)
+    for s0, s1 in zip(start, [m.target_state(), m.chaser_state()], strict=True):
+        r, v = propagate_kepler(s0[:3], s0[3:], duration, EARTH.mu)
+        assert np.linalg.norm(s1[:3] - r) < 1e-9 * np.linalg.norm(r)
+        assert np.linalg.norm(s1[3:] - v) < 1e-9 * np.linalg.norm(v)
 
 
 def test_twobody_minus_cw_error_grows_quadratically_with_range():
