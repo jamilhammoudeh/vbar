@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "vbar"
 dynamic = ["version"]
-description = "A fast, headless, cross-platform benchmark for testing AI and classical spacecraft controllers, with safety filters."
+description = "Headless benchmark for classical, reinforcement learning and LLM spacecraft rendezvous controllers."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
