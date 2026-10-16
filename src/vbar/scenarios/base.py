@@ -19,7 +19,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
-from typing import Any
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -31,7 +31,8 @@ from ..dynamics import make_dynamics
 from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
 ACTION_MODES = ("normalized", "accel", "thrust")
-CHANNELS = ("t_remaining", "propellant_fraction", "pending_commands")
+SCALAR_CHANNELS = ("t_remaining", "propellant_fraction")
+CHANNELS = (*SCALAR_CHANNELS, "pending_commands")
 STREAMS = ("sensor", "actuator", "target")
 
 
@@ -160,8 +161,6 @@ class BaseEnv(gym.Env):
         self.state = np.zeros(6)
         self.t = 0.0
 
-    # Scenario hooks.
-
     def _sample_start(self, rng: np.random.Generator) -> np.ndarray:
         raise NotImplementedError
 
@@ -174,8 +173,6 @@ class BaseEnv(gym.Env):
     def _evaluate(self, record: StepRecord) -> tuple[float, bool, dict[str, Any]]:
         """Reward, whether the episode ends, and scenario entries for `info`."""
         return 0.0, False, {}
-
-    # Public interface.
 
     @property
     def scenario_id(self) -> str:
@@ -257,8 +254,8 @@ class BaseEnv(gym.Env):
             if duration <= 0.0:
                 continue
             count = max(2, round(self.cfg.violation_samples * duration / self.cfg.dt))
-            self.state, samples = self.dynamics.advance(accel, duration, n_samples=count)
-            assert samples is not None
+            self.state, sampled = self.dynamics.advance(accel, duration, n_samples=count)
+            samples = cast(np.ndarray, sampled)
             tau = np.linspace(0.0, duration, count)
             thrust = float(np.linalg.norm(accel))
             for c in self.constraints:
@@ -280,9 +277,7 @@ class BaseEnv(gym.Env):
     def _observation_names(self) -> tuple[str, ...]:
         names = ["x", "y", "z", "vx", "vy", "vz"]
         channels = self.cfg.observation_channels
-        for name in CHANNELS[:2]:
-            if name in channels:
-                names.append(name)
+        names += [name for name in SCALAR_CHANNELS if name in channels]
         if "pending_commands" in channels:
             for k in range(self.pending_slots):
                 names += [f"pending_{k}_t", f"pending_{k}_x", f"pending_{k}_y", f"pending_{k}_z"]
