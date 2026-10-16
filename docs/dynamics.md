@@ -9,15 +9,36 @@ without changing anything else:
 
 | Member | Meaning |
 |---|---|
-| `name` | `"cw"`, `"twobody"` or `"twobody_j2"` |
-| `n` | mean motion of the target's reference orbit (rad/s) |
-| `reset(rel_state)` | set the chaser's Hill-frame state `[x, y, z, vx, vy, vz]` |
-| `advance(accel_hill, duration, n_samples=0)` | hold a Hill-frame acceleration (m/s^2) for `duration` s; returns the final state and, if `n_samples > 0`, the states at `n_samples` evenly spaced times in `[0, duration]`, endpoints included |
+| `name` | the model's name, from the table below |
+| `n` | the rate of the model's reference frame (rad/s), listed per model below |
+| `reset(rel_state)` | set the chaser's state relative to the target, `[x, y, z, vx, vy, vz]` in the model's frame |
+| `advance(accel_hill, duration, n_samples=0)` | hold an acceleration (m/s^2) in the model's frame for `duration` s; returns the final state and, if `n_samples > 0`, the states at `n_samples` evenly spaced times in `[0, duration]`, endpoints included |
 | `state_in_last_segment(tau)` | the state `tau` s into the most recent `advance` |
 
-The acceleration is held constant in the Hill frame, which rotates with the target, over each
-segment. `make_dynamics(kind, body="earth", altitude=500e3, inclination=0.0)` builds a model by
-name.
+The acceleration is held constant in the model's frame over each segment. For the Earth-orbit
+models that frame is the target's Hill frame, which rotates with the target; for the three-body
+models it is the synodic frame of the primaries, whose axes near the smaller primary are the Hill
+axes of its orbit. Every model accepts these arguments by name as well as by position.
+
+| `name` | Class | Frame | `n` | Page |
+|---|---|---|---|---|
+| `cw` | `CWDynamics(n)` | Hill | the given mean motion | this page |
+| `twobody`, `twobody_j2` | `TwoBodyDynamics` | Hill, exact rotation | Keplerian mean motion of the (mean) semi-major axis | this page |
+| `twobody_drag`, `twobody_j2_drag_srp`, ... | `TwoBodyDynamics(perturbations=...)` | Hill, exact rotation | as above | [perturbations.md](perturbations.md) |
+| `ya` | `YamanakaAnkersenDynamics` | Hill of an elliptic Keplerian target | mean motion | [relative-motion.md](relative-motion.md) |
+| `cw_curvilinear` | `CurvilinearCWDynamics` | Hill states in and out | circular mean motion | [relative-motion.md](relative-motion.md) |
+| `linear_twobody`, `linear_j2` | `LinearizedTwoBodyDynamics` | Hill, exact rotation | as `TwoBodyDynamics` | [relative-motion.md](relative-motion.md) |
+| `cr3bp` | `CR3BPDynamics` | synodic | synodic rate, $2\pi$ over the primaries' period | [three-body.md](three-body.md) |
+| `libration` | `LibrationPointDynamics` | synodic | synodic rate | [three-body.md](three-body.md) |
+| `cr3bp_linear` | `PeriodicLinearDynamics` | synodic | synodic rate | [three-body.md](three-body.md) |
+| `bicircular` | `BicircularDynamics` | synodic | synodic rate | [three-body.md](three-body.md) |
+
+A perturbed two-body model's name is `twobody` or `twobody_j2` followed by `_` and each force's
+name (`drag`, `srp`, `srp_plate`) in the order given. `make_dynamics(kind, body="earth",
+altitude=500e3, inclination=0.0)` builds `"cw"`, `"twobody"` or `"twobody_j2"` by name; the other
+models take parameters it cannot carry and are built from their classes. Transition matrices of
+the models and the metrics that compare them are in
+[transition-matrices.md](transition-matrices.md).
 
 ## Clohessy-Wiltshire (`"cw"`)
 
@@ -100,7 +121,12 @@ guess, which cuts the cost of a 10 s step from about 84 gravity evaluations to 1
 **Target orbit.** The target starts at the ascending node (on +x) of a circular orbit with the
 given altitude and inclination. With J2, "circular" means circular in first-order mean elements
 (see below); the osculating state then carries J2's short-period terms instead of a spurious
-eccentricity that would make the target's own orbit wobble.
+eccentricity that would make the target's own orbit wobble. Given classical elements `elements`
+`[a, e, i, raan, argp, M]` (m, rad), the target starts from them instead, and with J2 they are
+mean elements ([relative-motion.md](relative-motion.md)).
+
+**Other forces.** `perturbations` adds drag and solar radiation pressure on both spacecraft
+([perturbations.md](perturbations.md)).
 
 **Output.** The Hill state is formed with the exact frame rotation, including the out-of-plane
 rate J2 causes ([frames.md](frames.md)).
@@ -162,4 +188,10 @@ Code: `vbar.dynamics.bodies`.
 | `KERBIN` | 3.5316e12 | 600000 | 0 | Kerbal Space Program, as used by KSPDG |
 
 Earth's J2 is the value of WGS 84's normal gravity field, which follows from its GM, radius,
-flattening and spin rate. It differs from EGM96's own J2 by 3e-6 relative.
+flattening and spin rate. It differs from EGM96's own J2 by 3e-6 relative. `EARTH` also carries
+the WGS 84 spin rate (7.292115e-5 rad/s) and flattening (1/298.257223563), used by the drag model
+and the geodetic height.
+
+The module also holds the Sun's constants for solar pressure (`AU` = 1.495978707e11 m, IAU 2012;
+`SUN_RADIUS` = 6.957e8 m, IAU 2015; `SOLAR_PRESSURE` = 4.56e-6 N/m^2) and the three-body constant
+sets ([three-body.md](three-body.md)).
