@@ -1,8 +1,24 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
+type: software
 title: "V-BAR: Verified Benchmark for Autonomous Rendezvous"
+abstract: >-
+  A headless, pip-installable benchmark for testing classical, reinforcement learning and
+  LLM spacecraft controllers on rendezvous and proximity operations, with and without
+  safety filters.
 authors:
   - family-names: Hammoudeh
     given-names: Jamil
-version: 0.0.1
+    email: j.hammoudeh@outlook.com
+repository-code: "https://github.com/jamilhammoudeh/vbar"
 license: MIT
+version: 0.0.1
+keywords:
+  - spacecraft
+  - rendezvous
+  - proximity operations
+  - guidance navigation and control
+  - benchmark
+  - reinforcement learning
+  - safety filter
+  - clohessy-wiltshire
