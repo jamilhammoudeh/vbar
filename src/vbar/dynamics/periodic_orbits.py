@@ -27,6 +27,8 @@ from . import cr3bp
 
 _RTOL = 1e-13
 _ATOL = 1e-15
+# The free start components of a halo family member: x0, z0 and vy0.
+_FAMILY = [0, 2, 4]
 
 
 @dataclass(frozen=True)
@@ -334,9 +336,6 @@ def _arclength_step(
         full = np.vstack([_crossing_jacobian(end, phi, mu, _FAMILY), tangent])
         s[_FAMILY] -= np.linalg.solve(full, residual)
     raise RuntimeError("continuation step too long for the family's curvature")
-
-
-_FAMILY = [0, 2, 4]
 
 
 def continue_halo(
