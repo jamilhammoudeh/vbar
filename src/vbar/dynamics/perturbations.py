@@ -171,11 +171,11 @@ class HarrisPriester:
     """Harris-Priester upper-atmosphere density (kg/m^3) for mean solar activity.
 
     Between 100 and 1000 km of geodetic height the table's minimum and maximum densities are
-    interpolated exponentially and blended over the diurnal bulge, whose apex trails the Sun by
-    30 deg in right ascension: rho = rho_min + (rho_max - rho_min) cos^n(psi / 2), with psi the
-    angle from the apex. `exponent` n is 2 for low-inclination orbits up to 6 for polar ones
-    (Montenbruck and Gill, Satellite Orbits, sec. 3.5.2). Density is zero above 1000 km.
-    Density models of this kind agree with each other only to 15 to 40%.
+    interpolated exponentially and blended over the diurnal bulge, whose apex lies 30 deg east of
+    the Sun in right ascension (2 pm local time): rho = rho_min + (rho_max - rho_min)
+    cos^n(psi / 2), with psi the angle from the apex. `exponent` n is 2 for low-inclination
+    orbits up to 6 for polar ones (Montenbruck and Gill, Satellite Orbits, sec. 3.5.2). Density
+    is zero above 1000 km. Density models of this kind agree with each other only to 15 to 40%.
     """
 
     lag = np.radians(30.0)
