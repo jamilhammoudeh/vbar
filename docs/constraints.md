@@ -1,6 +1,7 @@
 # Constraints and the in-step minimum
 
-Code: `vbar.constraints` (`Constraint`, `KeepOut`, `segment_minimum`, `interval_bounds`). A
+Code: `vbar.constraints` (`Constraint`, `KeepOut`, `segment_minimum`, `interval_bounds`,
+`range_lower_bounds`). A
 constraint's margin is $\ge 0$ where it holds and $< 0$ where it is violated, in the constraint's
 units, as in the quantitative semantics of signal temporal logic (Donzé and Maler, 2010). The
 environment finds each constraint's lowest margin over every constant-acceleration segment of a
@@ -9,8 +10,9 @@ step, not only at the step's samples ([environment.md](environment.md)).
 ## Constraints
 
 A constraint has a `name`, a `margin(states, t)` vectorized over stacked states `(..., 6)`, a
-`rate_bound(speed, accel)` that bounds $|dm/dt|$ given bounds on $|\mathbf v|$ and
-$|\dot{\mathbf v}|$, and a `resolution` in margin units. The first one is:
+`rate_bound(speed, accel, rho_min)` that bounds $|dm/dt|$ given bounds on $|\mathbf v|$ and
+$|\dot{\mathbf v}|$ and a lower bound on the range, and a `resolution` in margin units. The first
+one is:
 
 - `KeepOut(radius)`: stay outside a sphere around the target. Margin $\rho - r_{\text{ko}}$ (m),
   rate bound $|d\rho/dt| = |\mathbf r \cdot \mathbf v| / \rho \le |\mathbf v|$, resolution 1 mm.
@@ -37,7 +39,9 @@ $$
 
 $L$ is `rate_bound` evaluated on bounds $V$ and $A$ for the speed and the acceleration over the
 interval. The same two-line argument gives $|\mathbf v| \le \tfrac12(|\mathbf v_i| + |\mathbf
-v_{i+1}| + A h)$ and $\rho \le \max(\rho_i, \rho_{i+1}) + \tfrac12 V h$. In Clohessy-Wiltshire
+v_{i+1}| + A h)$, $\rho \le \max(\rho_i, \rho_{i+1}) + \tfrac12 V h$ and $\rho \ge \max(0,
+\tfrac12(\rho_i + \rho_{i+1} - V h))$. The last is the `rho_min` passed to `rate_bound`; constraints
+whose rate grows as the range falls (closing speed, viewing angles) need it. In Clohessy-Wiltshire
 motion the natural acceleration $(3n^2x + 2n\dot y,\ -2n\dot x,\ -n^2 z)$ is at most
 $3n^2\rho + 2n|\mathbf v|$, so with thrust acceleration $a_T$ and a safety factor $c$ = 2
 
@@ -96,6 +100,8 @@ its minimum margin is negative.
   minute and the certificate lies below the dense minimum.
 - With 1000 s between samples the bound is infinite, not wrong, and refinement still finds the
   minimum to 1 mm.
+- Over 10 flybys the range bound lies below the range of 1901 dense samples on every interval,
+  and it is zero when the speed bound is infinite.
 - A constant margin on the V-bar is not refined.
 
 ## Example

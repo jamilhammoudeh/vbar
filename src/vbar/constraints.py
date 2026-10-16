@@ -40,8 +40,11 @@ class Constraint(Protocol):
 
     def margin(self, state: np.ndarray, t: float | np.ndarray) -> np.ndarray: ...
 
-    def rate_bound(self, speed: float, accel: float) -> float:
-        """Bound on |d margin / dt| given bounds on |v| (m/s) and |dv/dt| (m/s^2)."""
+    def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
+        """Bound on |d margin / dt| given |v| <= speed (m/s), |dv/dt| <= accel (m/s^2).
+
+        `rho_min` (m) is a lower bound on the range over the same interval.
+        """
         ...
 
 
@@ -56,7 +59,7 @@ class KeepOut:
     def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
         return np.linalg.norm(np.asarray(state)[..., :3], axis=-1) - self.radius
 
-    def rate_bound(self, speed: float, accel: float) -> float:
+    def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
         # |d rho / dt| = |r . v| / rho <= |v|.
         return speed
 
@@ -98,6 +101,18 @@ def interval_bounds(
     return v, accel
 
 
+def range_lower_bounds(states: np.ndarray, h: float, speed: np.ndarray) -> np.ndarray:
+    """Lower bound on the range (m) over each interval between consecutive samples.
+
+    With |d rho / dt| <= `speed` on an interval of length `h`, rho stays above both
+    rho_i - speed (t - t_i) and rho_{i+1} - speed (t_{i+1} - t), so above where they meet.
+    """
+    rho = np.linalg.norm(states[:, :3], axis=1)
+    with np.errstate(invalid="ignore"):
+        lower = 0.5 * (rho[:-1] + rho[1:] - speed * h)
+    return np.maximum(np.nan_to_num(lower, nan=0.0, neginf=0.0), 0.0)
+
+
 def segment_minimum(
     constraint: Constraint,
     state_at: Callable[[float], np.ndarray],
@@ -120,7 +135,13 @@ def segment_minimum(
         return SegmentMinimum(t0 + best_t, best, best)
     h = float(times[1] - times[0])
     speed, accel = interval_bounds(states, h, thrust, n)
-    rates = np.array([constraint.rate_bound(v, a) for v, a in zip(speed, accel, strict=True)])
+    rho_min = range_lower_bounds(states, h, speed)
+    rates = np.array(
+        [
+            constraint.rate_bound(v, a, rho_min=r)
+            for v, a, r in zip(speed, accel, rho_min, strict=True)
+        ]
+    )
     bounds = 0.5 * (margins[:-1] + margins[1:] - rates * h)
     for i in np.argsort(bounds):
         if bounds[i] >= best - constraint.resolution:

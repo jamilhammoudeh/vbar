@@ -3,7 +3,7 @@ import pytest
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
-from vbar.constraints import KeepOut, interval_bounds, segment_minimum
+from vbar.constraints import KeepOut, interval_bounds, range_lower_bounds, segment_minimum
 from vbar.dynamics import EARTH, CWDynamics, TwoBodyDynamics, cw_rhs, cw_stm, mean_motion
 
 N = mean_motion(EARTH.radius + 500e3)
@@ -164,3 +164,23 @@ def test_flat_margin_is_not_refined_past_the_resolution():
     found, sampled = detected_minimum(np.array([0.0, 400.0, 0.0, 0.0, 0.0, 0.0]), np.zeros(3), 10.0)
     assert found.margin == sampled
     assert 0.0 < found.margin - found.lower_bound < KEEP_OUT.resolution
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_range_bound_lies_below_the_dense_range_on_every_interval(seed):
+    state, accel, duration = random_flyby(seed)
+    m = CWDynamics(N)
+    m.reset(state)
+    _, sampled = m.advance(accel, duration, n_samples=20)
+    h = duration / 19
+    speed, _ = interval_bounds(sampled, h, float(np.linalg.norm(accel)), N)
+    lower = range_lower_bounds(sampled, h, speed)
+    dense = np.array([m.state_in_last_segment(t) for t in np.linspace(0.0, duration, 1901)])
+    dense_range = np.linalg.norm(dense[:, :3], axis=1)
+    for i in range(19):
+        assert dense_range[100 * i : 100 * (i + 1) + 1].min() >= lower[i]
+
+
+def test_range_bound_is_zero_when_the_speed_bound_is_infinite():
+    states = np.array([[0.0, 400.0, 0.0, 0.3, 0.0, 0.0], [0.0, 500.0, 0.0, 0.3, 0.0, 0.0]])
+    assert range_lower_bounds(states, 1000.0, np.array([np.inf]))[0] == 0.0
