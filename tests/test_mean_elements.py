@@ -48,12 +48,14 @@ def test_mean_to_osculating_matches_published_example():
     # Alfriend et al., Spacecraft Formation Flying, example 3.1: mean a = 7100 km, i = 70 deg,
     # raan = 45 deg, q1 = q2 = 0.05, argument of latitude 0. The argument of latitude and q1
     # differ from the book in the fifth decimal, a second-order difference between the two
-    # books' forms of the theory.
+    # books' forms of the theory. Reproduced with Re = 6378.1363 km (the book's) and the EGM96
+    # J2; WGS 84's J2 moves a by 3 cm.
+    body = Body("earth", 398600.4415e9, 6378136.3, 1.0826267e-3)
     e = math.hypot(0.05, 0.05)
     argp = math.atan2(0.05, 0.05)
     E = math.atan2(math.sqrt(1 - e * e) * math.sin(-argp), e + math.cos(-argp))
     mean = [7100e3, e, math.radians(70.0), math.radians(45.0), argp, E - e * math.sin(E)]
-    a, e_osc, i, raan, argp_osc, M = mean_to_osculating(mean, EARTH)
+    a, e_osc, i, raan, argp_osc, M = mean_to_osculating(mean, body)
     assert a == pytest.approx(7109.31795e3, abs=5e-3)
     assert i == pytest.approx(1.22196, abs=5e-6)
     assert raan == pytest.approx(0.78547, abs=5e-6)

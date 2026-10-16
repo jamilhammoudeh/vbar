@@ -5,9 +5,17 @@ from vbar.dynamics import mean_motion
 from vbar.dynamics.bodies import EARTH, KERBIN, get_body
 
 
-def test_earth_j2_matches_egm96_c20():
-    c20 = -0.484165371736e-3  # EGM-96 fully normalized C20
-    assert EARTH.j2 == pytest.approx(-np.sqrt(5.0) * c20, rel=1e-8)
+def test_earth_j2_follows_from_the_wgs84_defining_constants():
+    # Normal-field J2 of the ellipsoid with WGS 84's a, f, GM and spin rate (Moritz, Geodetic
+    # Reference System 1980, closed form), so GM, radius and J2 are one matched set.
+    a, f, gm, w = EARTH.radius, 1 / 298.257223563, EARTH.mu, 7.292115e-5
+    e2 = f * (2 - f)
+    e_prime = np.sqrt(e2 / (1 - e2))
+    m = w**2 * a**2 * a * (1 - f) / gm
+    q0 = 0.5 * ((1 + 3 / e_prime**2) * np.arctan(e_prime) - 3 / e_prime)
+    assert EARTH.j2 == pytest.approx(e2 / 3 * (1 - 2 / 15 * m * e_prime / q0), rel=1e-11)
+    assert EARTH.mu == 3.986004418e14
+    assert EARTH.radius == 6378137.0
 
 
 def test_kerbin_synchronous_orbit_period_is_its_sidereal_day():
