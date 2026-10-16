@@ -75,8 +75,8 @@ class RangeScaledNav:
     and max(floor, k_lateral rho) across it; the defaults follow Fehse's rule that relative
     navigation is good to about 1% of range (Automated Rendezvous and Docking of Spacecraft, 2.4
     and 5.3.2), and `c_range` models camera ranging from pattern size. Velocity errors are
-    isotropic with max(floor_vel, k_vel rho); those defaults are ours: 0.05 m/s at 500 m, as for
-    relative GPS, and 1 mm/s at 10 m.
+    isotropic with max(floor_vel, k_vel rho); the velocity defaults (0.05 m/s at 500 m, 1 mm/s
+    at 10 m) are synthetic, not taken from a sensor.
     """
 
     name = "range_scaled"

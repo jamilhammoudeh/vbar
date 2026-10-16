@@ -1,16 +1,12 @@
 """Approach to a hold point with a keep-out zone.
 
-Task: fly to a hold point near the target (by default 100 m behind it on the V-bar) and stop
-there without entering a keep-out sphere around the target. The keep-out check runs in
-continuous time, between and within steps.
+Fly to a hold point near the target (by default 100 m behind it on the V-bar) and stop there
+without entering a keep-out sphere around the target, checked in continuous time within every
+step. Benchmark quantities are in `info`.
 
-Gymnasium API: `obs, info = env.reset(seed=...)`, then
-`obs, reward, terminated, truncated, info = env.step(action)`. Actions are 3 numbers in
-[-1, 1], fractions of `max_accel` per Hill axis held for `dt`; observations are the navigated
-relative state [x, y, z, vx, vy, vz]. Benchmark quantities are in `info`.
-
-The reward is the shaped signal of the first release, kept so that existing results carry over.
-It is not the benchmark score, and it pays the capture bonus even after a keep-out violation.
+The reward is a shaped training signal, not the benchmark score: progress toward the hold point
+in units of 100 m, minus `reward_dv_weight` times the step's delta-v, minus 1 for a step that
+enters the keep-out zone, plus 10 on capture, which it pays even after a violation.
 """
 
 from __future__ import annotations

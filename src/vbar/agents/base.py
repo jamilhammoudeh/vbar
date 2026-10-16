@@ -55,8 +55,7 @@ class Agent(Protocol):
     name: str
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
-        """Called at the start of each episode with the scenario's public description and an
-        optional random stream for the agent's own use."""
+        """Start an episode with the scenario's public description and the agent's own stream."""
 
     def act(self, obs: np.ndarray, info: dict) -> np.ndarray:
         """Return an action in the view's action mode (by default fractions of `max_accel`).
