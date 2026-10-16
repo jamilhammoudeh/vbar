@@ -56,7 +56,30 @@ def test_cw_motion_is_time_reversible(t):
 @given(durations)
 def test_cw_transition_preserves_phase_volume(t):
     phi, _ = cw_discrete(N, t)
-    assert np.linalg.det(phi) == pytest.approx(1.0, rel=1e-9)
+    # LU rounding on entries up to 2e4 s; the worst seen is 2e-14.
+    assert abs(np.linalg.det(phi) - 1.0) < 1e-12
+
+
+# The CW flow is symplectic in the canonical coordinates (r, v + omega x r). In the Hill state
+# [r, v] that reads phi^T J' phi = J' with J' = [[2 [omega]x, I], [-I, 0]]; the standard J fails
+# on correct code because of the Coriolis term (Schaub and Junkins; Scheeres, ch. 6).
+OMEGA_CROSS = np.array([[0.0, -N, 0.0], [N, 0.0, 0.0], [0.0, 0.0, 0.0]])
+J_HILL = np.block([[2 * OMEGA_CROSS, np.eye(3)], [-np.eye(3), np.zeros((3, 3))]])
+
+
+@given(durations)
+def test_cw_transition_is_symplectic_in_canonical_coordinates(t):
+    phi, _ = cw_discrete(N, t)
+    bound = 64 * EPS * np.linalg.norm(phi) ** 2 * np.linalg.norm(J_HILL)
+    assert np.max(np.abs(phi.T @ J_HILL @ phi - J_HILL)) < bound
+
+
+@given(durations)
+def test_cw_inverse_follows_from_the_symplectic_form(t):
+    phi, _ = cw_discrete(N, t)
+    phi_back, _ = cw_discrete(N, -t)
+    inverse = np.linalg.solve(J_HILL, phi.T @ J_HILL)
+    assert np.max(np.abs(inverse - phi_back)) < 64 * EPS * np.linalg.norm(phi) ** 2
 
 
 @given(st.floats(min_value=1e-3, max_value=1000.0))
