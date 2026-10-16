@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.linalg import expm
 
 MU_EARTH = 3.986004418e14  # m^3/s^2
 R_EARTH = 6_378_137.0  # m
@@ -80,6 +81,71 @@ def cw_stm(n: float, t: float) -> np.ndarray:
             [0, 0, -n * s, 0, 0, c],
         ]
     )
+
+
+def cw_system(n: float) -> tuple[np.ndarray, np.ndarray]:
+    """Continuous-time matrices of the CW equations, state' = A state + B accel."""
+    A = np.zeros((6, 6))
+    A[0:3, 3:6] = np.eye(3)
+    A[3, 0] = 3.0 * n**2
+    A[3, 4] = 2.0 * n
+    A[4, 3] = -2.0 * n
+    A[5, 2] = -(n**2)
+    B = np.zeros((6, 3))
+    B[3:6, :] = np.eye(3)
+    return A, B
+
+
+def cw_discrete(n: float, dt: float) -> tuple[np.ndarray, np.ndarray]:
+    """Exact zero-order-hold discretization, state(t + dt) = phi state(t) + gamma accel.
+
+    Exact for an acceleration held constant in the Hill frame over `dt`. Both matrices come
+    from one exponential of [[A, B], [0, 0]] dt (C. Van Loan, "Computing integrals involving
+    the matrix exponential", IEEE TAC 23(3), 1978).
+    """
+    A, B = cw_system(n)
+    M = np.zeros((9, 9))
+    M[:6, :6] = A
+    M[:6, 6:] = B
+    E = expm(M * dt)
+    return E[:6, :6].copy(), E[:6, 6:].copy()
+
+
+class CWDiscretizer:
+    """Caches exact CW transition matrices by duration, keyed to the nanosecond."""
+
+    # Arbitrary durations (latencies, refinement) would otherwise grow the cache without bound.
+    max_entries = 4096
+
+    def __init__(self, n: float):
+        self.n = n
+        self._matrices: dict[float, tuple[np.ndarray, np.ndarray]] = {}
+        self._samples: dict[tuple[float, int], tuple[np.ndarray, np.ndarray]] = {}
+
+    def matrices(self, dt: float) -> tuple[np.ndarray, np.ndarray]:
+        """(phi, gamma) for an acceleration held `dt` seconds."""
+        key = round(float(dt), 9)
+        if key not in self._matrices:
+            if len(self._matrices) >= self.max_entries:
+                self._matrices.clear()
+            self._matrices[key] = cw_discrete(self.n, key)
+        return self._matrices[key]
+
+    def sample_matrices(self, dt: float, m: int) -> tuple[np.ndarray, np.ndarray]:
+        """Stacked (phi, gamma) at `m` evenly spaced times in [0, dt], endpoints included.
+
+        Shapes (m, 6, 6) and (m, 6, 3), so all sub-step states come from one batched product.
+        """
+        key = (round(float(dt), 9), int(m))
+        if key not in self._samples:
+            if len(self._samples) >= self.max_entries:
+                self._samples.clear()
+            pairs = [cw_discrete(self.n, t) for t in np.linspace(0.0, key[0], key[1])]
+            self._samples[key] = (
+                np.stack([phi for phi, _ in pairs]),
+                np.stack([gamma for _, gamma in pairs]),
+            )
+        return self._samples[key]
 
 
 def propagate(

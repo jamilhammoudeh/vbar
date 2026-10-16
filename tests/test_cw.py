@@ -2,8 +2,9 @@
 
 import numpy as np
 import pytest
+from scipy.integrate import quad_vec
 
-from vbar.dynamics import R_EARTH, cw_stm, mean_motion, propagate
+from vbar.dynamics import R_EARTH, CWDiscretizer, cw_discrete, cw_stm, mean_motion, propagate
 
 N = mean_motion(R_EARTH + 500e3)
 PERIOD = 2 * np.pi / N
@@ -66,3 +67,93 @@ def test_constant_thrust_changes_velocity():
     a = np.array([0.0, 0.01, 0.0])
     s1 = propagate(s0, N, 1.0, a)
     assert s1[4] == pytest.approx(0.01, rel=1e-3)
+
+
+def random_state(rng):
+    return np.r_[rng.uniform(-2000, 2000, 3), rng.uniform(-2, 2, 3)]
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_exact_cw_matches_closed_form_over_one_orbit(seed):
+    s0 = random_state(np.random.default_rng(seed))
+    phi, _ = cw_discrete(N, PERIOD)
+    exact = cw_stm(N, PERIOD) @ s0
+    s1 = phi @ s0
+    assert np.max(np.abs(s1[:3] - exact[:3])) < 1e-9
+    assert np.max(np.abs(s1[3:] - exact[3:])) < 1e-12
+
+
+@pytest.mark.parametrize("dt", [1.0, 10.0, 1000.0, PERIOD])
+def test_exact_cw_thrust_matrix_is_integral_of_stm(dt):
+    _, gamma = cw_discrete(N, dt)
+    integral, _ = quad_vec(lambda s: cw_stm(N, s)[:, 3:], 0.0, dt, epsabs=0.0, epsrel=1e-14)
+    assert np.max(np.abs(gamma - integral)) < 1e-12 * np.max(np.abs(integral))
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_exact_cw_matches_dop853_over_one_orbit(seed):
+    rng = np.random.default_rng(seed)
+    s0 = random_state(rng)
+    # Small enough that one orbit of thrust keeps the chaser within tens of km, where
+    # DOP853 near its tightest rtol resolves 1e-9 m.
+    accel = rng.uniform(-1e-3, 1e-3, 3)
+    phi, gamma = cw_discrete(N, PERIOD)
+    s1 = phi @ s0 + gamma @ accel
+    numeric = propagate(s0, N, PERIOD, accel, rtol=3e-14, atol=1e-12)
+    assert np.max(np.abs(s1[:3] - numeric[:3])) < 1e-9
+    assert np.max(np.abs(s1[3:] - numeric[3:])) < 1e-12
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_stepped_exact_cw_stays_at_rounding_floor(seed):
+    s0 = random_state(np.random.default_rng(seed))
+    dt = 10.0
+    steps = int(PERIOD // dt)
+    phi, _ = cw_discrete(N, dt)
+    path = [s0]
+    for _ in range(steps):
+        path.append(phi @ path[-1])
+    path = np.array(path)
+    exact = cw_stm(N, steps * dt) @ s0
+    scale = np.max(np.abs(path[:, :3]))
+    assert np.max(np.abs(path[-1, :3] - exact[:3])) < 1e-12 * scale
+    assert np.max(np.abs(path[-1, 3:] - exact[3:])) < 1e-12 * N * scale
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_stepped_exact_cw_matches_dop853_with_thrust(seed):
+    rng = np.random.default_rng(seed)
+    dt = 10.0
+    phi, gamma = cw_discrete(N, dt)
+    exact = numeric = random_state(rng)
+    peak = np.max(np.abs(exact[:3]))
+    for _ in range(int(PERIOD // dt)):
+        accel = rng.uniform(-0.02, 0.02, 3)
+        exact = phi @ exact + gamma @ accel
+        numeric = propagate(numeric, N, dt, accel, rtol=1e-13, atol=1e-12)
+        peak = max(peak, np.max(np.abs(exact[:3])))
+    assert np.max(np.abs(exact[:3] - numeric[:3])) < 1e-12 * peak
+    assert np.max(np.abs(exact[3:] - numeric[3:])) < 1e-12 * N * peak
+
+
+def test_exact_cw_rbar_offset_drifts_12_pi_x0_per_orbit():
+    phi, _ = cw_discrete(N, PERIOD)
+    s1 = phi @ np.array([-100.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    assert s1[1] == pytest.approx(12 * np.pi * 100.0, rel=1e-12)
+
+
+def test_exact_cw_vbar_point_is_equilibrium():
+    s0 = np.array([0.0, 400.0, 0.0, 0.0, 0.0, 0.0])
+    phi, _ = cw_discrete(N, PERIOD)
+    assert np.allclose(phi @ s0, s0, rtol=0.0, atol=1e-12)
+
+
+def test_sample_matrices_span_the_step():
+    disc = CWDiscretizer(N)
+    phis, gammas = disc.sample_matrices(10.0, 5)
+    assert phis.shape == (5, 6, 6) and gammas.shape == (5, 6, 3)
+    assert np.array_equal(phis[0], np.eye(6)) and np.array_equal(gammas[0], np.zeros((6, 3)))
+    phi, gamma = disc.matrices(10.0)
+    assert np.array_equal(phis[-1], phi) and np.array_equal(gammas[-1], gamma)
+    phi_mid, gamma_mid = cw_discrete(N, 5.0)
+    assert np.array_equal(phis[2], phi_mid) and np.array_equal(gammas[2], gamma_mid)
