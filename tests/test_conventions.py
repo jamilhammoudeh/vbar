@@ -183,3 +183,47 @@ def test_orbit_orientation_follows_the_books_passive_rotation_sequence():
     perigee_speed = math.sqrt(EARTH.mu / a * (1 + e) / (1 - e))
     assert np.allclose(r, to_inertial @ [a * (1 - e), 0.0, 0.0], rtol=1e-14, atol=0.0)
     assert np.allclose(v, to_inertial @ [0.0, perigee_speed, 0.0], rtol=1e-14, atol=0.0)
+
+
+# Schaub and Junkins, Analytical Mechanics of Space Systems, ch. 3 examples: frames B and F
+# with 3-2-1 (yaw, pitch, roll) angles (30, -45, 60) deg and (10, 25, -15) deg relative to N.
+# Their direction cosine matrix [BN] is R(q_n_b).T.
+R_NB = Rotation.from_euler("ZYX", [30.0, -45.0, 60.0], degrees=True)
+R_NF = Rotation.from_euler("ZYX", [10.0, 25.0, -15.0], degrees=True)
+
+
+def test_321_angles_give_published_direction_cosines():
+    BN = R_NB.as_matrix().T
+    assert np.allclose(BN[0], [0.612372, 0.353553, 0.707107], rtol=0.0, atol=5e-7)
+    FN = [
+        [0.892539, 0.157379, -0.422618],
+        [-0.275451, 0.932257, -0.234570],
+        [0.357073, 0.325773, 0.875426],
+    ]
+    assert np.allclose(R_NF.as_matrix().T, FN, rtol=0.0, atol=5e-7)
+    # B relative to F: [BF] = [BN][FN]^T. The book's angle triple for it is garbled in print;
+    # the matrix is not.
+    BF = [
+        [0.303372, -0.0049418, 0.952859],
+        [-0.935315, 0.1895340, 0.298769],
+        [-0.182075, -0.9818620, 0.052877],
+    ]
+    assert np.allclose((R_NF.inv() * R_NB).as_matrix().T, BF, rtol=0.0, atol=5e-7)
+
+
+def test_euler_parameters_and_mrps_match_published_values():
+    # beta_F/N = (0.961798, -0.14565, 0.202665, 0.112505), scalar first in the book.
+    q = R_NF.as_quat(canonical=True)
+    assert np.allclose(q, [-0.14565, 0.202665, 0.112505, 0.961798], rtol=0.0, atol=5e-6)
+    rotvec = R_NF.as_rotvec()
+    phi = np.linalg.norm(rotvec)
+    assert np.degrees(phi) == pytest.approx(31.7762, abs=5e-5)
+    assert np.allclose(rotvec / phi, [-0.532035, 0.740302, 0.410964], rtol=0.0, atol=5e-7)
+    sigma = R_NF.as_mrp()
+    assert np.allclose(sigma, [-0.0742431, 0.103306, 0.0573479], rtol=0.0, atol=5e-7)
+    shadow = -sigma / (sigma @ sigma)
+    # The book forms the shadow set as -beta / (1 - beta_0) from its rounded beta; 1 - beta_0 =
+    # 0.038202 carries 1e-5 relative rounding.
+    assert np.all(np.abs(shadow - [3.81263, -5.30509, -2.945]) <= [1e-4, 1e-4, 5e-4])
+    # The principal angle is 4 atan |sigma|; the book's printed 7.94 deg is a quarter of it.
+    assert np.degrees(4 * np.arctan(np.linalg.norm(sigma))) == pytest.approx(31.776, abs=5e-4)
