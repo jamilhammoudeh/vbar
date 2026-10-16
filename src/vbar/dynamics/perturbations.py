@@ -7,11 +7,13 @@ episode it moves by about 1 deg per day, so models hold it fixed.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import ArrayLike
 
+from ..conventions import hill_frame
 from .bodies import AU, EARTH, SOLAR_PRESSURE, SUN_RADIUS, Body
 
 # Harris-Priester densities for mean solar activity: height (km), minimum and maximum (g/km^3,
@@ -271,3 +273,77 @@ class SolarPressure:
         """Target's acceleration and the chaser's minus the target's, m/s^2."""
         target = self.acceleration(r, self.target)
         return target, self.acceleration(r + dr, self.chaser) - target
+
+
+@dataclass(frozen=True)
+class Plate:
+    """A flat surface, lit on either side, of a spacecraft holding its attitude in Hill axes.
+
+    `area_to_mass` is the plate's area over the spacecraft's mass (m^2/kg), `normal` a unit
+    vector in the target's Hill axes, and `specular` and `diffuse` the fractions of light
+    reflected each way; the rest is absorbed.
+    """
+
+    area_to_mass: float
+    normal: tuple[float, float, float]
+    specular: float = 0.0
+    diffuse: float = 0.0
+
+
+class FlatPlatePressure:
+    """Solar radiation pressure on spacecraft made of flat plates, dimmed by the conical shadow.
+
+    A lit plate feels -nu P (AU / d)^2 (A / m) cos(t) [(1 - s) u + 2 (s cos(t) + f / 3) n], with
+    u the unit vector to the Sun, n the normal on the lit side, t the angle between them, and s
+    and f the specular and diffuse fractions (Montenbruck and Gill, Satellite Orbits, eq 3.72,
+    with Lambertian diffuse reflection; Scheeres, Orbital Motion in Strongly Perturbed
+    Environments, eq 2.64). Both spacecraft keep their plates fixed in the target's Hill axes
+    (the chaser's own axes differ by its angular separation, 1e-4 rad at 1 km). Plates shading
+    one another, and the target shading the chaser, are not modelled.
+    """
+
+    name = "srp_plate"
+
+    def __init__(
+        self,
+        sun: ArrayLike,
+        target: Sequence[Plate],
+        chaser: Sequence[Plate],
+        body: Body = EARTH,
+        distance: float = AU,
+    ):
+        self.sun = _unit(sun)
+        self.target = tuple(target)
+        self.chaser = tuple(chaser)
+        self.body = body
+        self.distance = distance
+
+    def acceleration(self, r: ArrayLike, axes: np.ndarray, plates: Sequence[Plate]) -> np.ndarray:
+        """Acceleration (m/s^2) at inertial `r` of `plates` oriented by Hill axes `axes`.
+
+        `axes` has the Hill x, y, z axes as columns in inertial coordinates (`hill_frame`).
+        """
+        r = np.asarray(r, dtype=float)
+        to_sun = self.distance * self.sun - r
+        d = np.sqrt(_dot(to_sun, to_sun))
+        u = to_sun / d[..., None]
+        lit = conical_shadow(r, self.sun, self.body, self.distance)
+        scale = lit * SOLAR_PRESSURE * (AU / d) ** 2
+        accel = np.zeros_like(r)
+        for plate in plates:
+            n = axes @ np.asarray(plate.normal, dtype=float)
+            cos_t = _dot(n, u)
+            n = np.where(cos_t[..., None] < 0.0, -n, n)
+            cos_t = np.abs(cos_t)
+            normal_part = 2.0 * (plate.specular * cos_t + plate.diffuse / 3.0)
+            push = (1.0 - plate.specular) * u + normal_part[..., None] * n
+            accel = accel - (scale * plate.area_to_mass * cos_t)[..., None] * push
+        return accel
+
+    def accelerations(
+        self, r: np.ndarray, v: np.ndarray, dr: np.ndarray, dv: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Target's acceleration and the chaser's minus the target's, m/s^2."""
+        axes, _ = hill_frame(r, v)
+        target = self.acceleration(r, axes, self.target)
+        return target, self.acceleration(r + dr, axes, self.chaser) - target

@@ -7,7 +7,9 @@ from vbar.dynamics.bodies import AU, EARTH, SOLAR_PRESSURE, SUN_RADIUS, Body
 from vbar.dynamics.models import TwoBodyDynamics
 from vbar.dynamics.perturbations import (
     Drag,
+    FlatPlatePressure,
     HarrisPriester,
+    Plate,
     SolarPressure,
     conical_shadow,
     cylindrical_shadow,
@@ -271,3 +273,55 @@ def test_hill_velocity_with_solar_pressure_needs_the_full_frame_rate():
         target[:3], target[3:], chaser[:3] - target[:3], chaser[3:] - target[3:]
     )
     assert np.max(np.abs(keplerian[3:] - rate)) > 1e-8
+
+
+def sunward_plate_acceleration(plate, sun=SUN):
+    """Acceleration of `plate` on a spacecraft at noon, where Hill x points at the Sun."""
+    r = np.array([EARTH.radius + 500e3, 0.0, 0.0])
+    v = np.array([0.0, 7.6e3, 0.0])
+    model = FlatPlatePressure(sun, [plate], [plate])
+    return model.accelerations(r, v, ZERO, ZERO)[0]
+
+
+@pytest.mark.parametrize(
+    "specular, diffuse, c_r", [(0.0, 0.0, 1.0), (1.0, 0.0, 2.0), (0.0, 1.0, 5.0 / 3.0)]
+)
+def test_sun_facing_plate_equals_a_cannonball(specular, diffuse, c_r):
+    plate = Plate(0.01, (1.0, 0.0, 0.0), specular, diffuse)
+    accel = sunward_plate_acceleration(plate)
+    cannonball = SolarPressure(SUN, c_r * 0.01, 0.0).acceleration(
+        [EARTH.radius + 500e3, 0, 0], c_r * 0.01
+    )
+    assert np.allclose(accel, cannonball, rtol=1e-14, atol=1e-24)
+    # A plate is lit on both sides.
+    flipped = sunward_plate_acceleration(Plate(0.01, (-1.0, 0.0, 0.0), specular, diffuse))
+    assert np.array_equal(accel, flipped)
+
+
+def test_oblique_mirror_is_pushed_along_its_normal_by_cos_squared():
+    # Montenbruck and Gill eq 3.72: a specular plate at incidence t feels 2 P (A/m) cos^2 t
+    # along its normal, away from the Sun.
+    t = np.radians(35.0)
+    plate = Plate(0.02, (np.cos(t), np.sin(t), 0.0), specular=1.0)
+    accel = sunward_plate_acceleration(plate)
+    flux = (AU / (AU - EARTH.radius - 500e3)) ** 2
+    normal = np.array([np.cos(t), np.sin(t), 0.0])
+    expected = -2 * SOLAR_PRESSURE * flux * 0.02 * np.cos(t) ** 2 * normal
+    assert np.allclose(accel, expected, rtol=1e-12, atol=1e-22)
+
+
+def test_flat_plates_act_through_the_two_body_model():
+    plates = FlatPlatePressure(
+        [0.3, -0.4, 0.866],
+        [Plate(0.5, (1.0, 0.0, 0.0), 0.3, 0.2)],
+        [Plate(0.02, (0.0, 0.0, 1.0), 0.1, 0.1), Plate(0.01, (0.0, 1.0, 0.0))],
+    )
+    m = TwoBodyDynamics(inclination=0.9, perturbations=[plates])
+    plain = TwoBodyDynamics(inclination=0.9)
+    assert m.name == "twobody_srp_plate"
+    for model in (m, plain):
+        model.reset([100.0, -300.0, 20.0, 0.0, 0.0, 0.0])
+    gap = m.advance(ZERO, 2000.0)[0] - plain.advance(ZERO, 2000.0)[0]
+    # The target is pushed harder than the chaser: about 1e-6 m/s^2 of differential force
+    # displaces the chaser by about 0.5 a t^2 = 2 m in 2000 s.
+    assert 0.5 < np.linalg.norm(gap[:3]) < 5.0
