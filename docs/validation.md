@@ -71,6 +71,107 @@ equations"** (*SIAM Journal on Numerical Analysis* 9, 1972)
 
 - Two-body test problems D1 to D5 (eccentricity 0.1 to 0.9), integrated by the two-body model.
 
+## Published examples behind the fidelity models
+
+The tests of the perturbation, relative-motion, transition-matrix and three-body models
+([perturbations.md](perturbations.md), [relative-motion.md](relative-motion.md),
+[transition-matrices.md](transition-matrices.md), [three-body.md](three-body.md)) reproduce the
+examples below. Where a printed value cannot be reproduced from the book's own numbers, the test
+says what it checks instead.
+
+**Montenbruck and Gill, *Satellite Orbits: Models, Methods and Applications***
+
+- Sec. 3.4.1: the Earth's umbra and penumbra half-cones, 0.264 and 0.269 deg, and the umbra's
+  vertex 1.384e6 km behind the Earth; the cylindrical shadow's eclipse fractions at 500 km
+  (37.8%, 35.8% and 23.1% at beta angles of 0, 30 and 60 deg) follow from the same geometry.
+- Eqs. 3.85 to 3.94: the conical shadow function, checked against a numerical integration of the
+  overlap of the solar and Earth disks.
+- Table 3.8: Harris-Priester minimum and maximum densities at 400, 500 and 600 km.
+- Exercise 5.3: the geodetic height of (1917032.190, 6029782.349, -801376.113) m on the WGS 84
+  ellipsoid, -63.667 m.
+- Eq. 3.69: solar radiation pressure of 4.56e-6 N/m^2 at 1 AU.
+- Eq. 3.72: a specular plate at incidence $\theta$ pushed along its normal by
+  $2P\,(A/m)\cos^2\theta$; absorbing, specular and diffuse plates facing the Sun equal cannonballs
+  with $C_R$ = 1, 2 and 5/3.
+- Fig. 3.1 and secs. 3.2 to 3.7: the forces left out of relative motion; the lunar and solar
+  tidal accelerations at 1 km (1.7e-10 and 7.9e-11 m/s^2) are recomputed from IAU and JPL GMs.
+- Exercise 7.1: the first row of the inertial state transition matrix of a 650 km, 51 deg orbit
+  after one day, now from the variational equations of the two-body model: Keplerian to 6e-6 and,
+  with J2, to 2e-4 (4e-5 with WGS 84's J2; the book states neither its J2 nor its integrator
+  settings).
+- Eq. 7.109 and exercise 7.1: the STM adequacy metric and its 0.1 limit, applied to
+  Clohessy-Wiltshire against the J2 model at 500 km and 51.6 deg.
+
+**Fehse, *Automated Rendezvous and Docking of Spacecraft***
+
+- Eq. 4.3: drag of 1.3676e-6 m/s^2 at 400 km with 1e-11 kg/m^3 and a ballistic coefficient of
+  215 kg/m^2 (printed rounded to 1.38e-6).
+- Eq. 4.3 and fig. 4.3: a chaser with ballistic coefficient 470 kg/m^2, 1.5 times the target's,
+  drifts 9.213 m up and 130.24 m behind in three orbits, as Clohessy-Wiltshire with the constant
+  differential acceleration predicts. The text's "about 70 m behind and 5 m above" does not follow
+  from its numbers.
+- Fig. 4.15: a chaser started at -0.06 m/s along-track with five times the target's ballistic
+  coefficient at 9.4e-12 kg/m^3 returns after 9.08 orbits ("about ten" in the book).
+
+**Alfriend, Vadali, Gurfil, How and Breger, *Spacecraft Formation Flying***
+
+- Example 5.5: Yamanaka-Ankersen matches an integration of the linearized equations, here at
+  $e$ = 0.1, 0.5 and 0.8 with thrust and samples inside the segment.
+- Eqs. 4.77, 5.70 and 5.71: the co-orbital equilibrium, stationary in curvilinear
+  Clohessy-Wiltshire and in the two-body model.
+- Eqs. 5.79 to 5.88: Clohessy-Wiltshire in curvilinear coordinates.
+- Examples 7.3 to 7.6 and eq. 5.64: the linearized J2 model's 15-orbit along-track error on a
+  0.5 km projected circular orbit about a mean 7100 km, 70 deg, node 45 deg target, -11 m and
+  -3.5 m at phases 0 and 90 deg (read from figures), and the second-order drift
+  $-(9\pi\rho^2/4a)(2 + \cos 2\alpha)$ per orbit to 0.1%.
+- Sec. 8.3 and eqs. 8.58 to 8.60: the modeling-error index, flat in separation for J2 left out by
+  Clohessy-Wiltshire on a projected circular orbit at 8000 km and 50 deg.
+
+**Yamanaka and Ankersen, "New State Transition Matrix for Relative Motion on an Arbitrary
+Elliptical Orbit"** (*Journal of Guidance, Control, and Dynamics* 25(1), 2002)
+
+- The fundamental matrix in the paper's frame and state order, its pseudo-initial-value inverse,
+  and its reduction to Clohessy-Wiltshire at $e = 0$.
+
+**Koon, Lo, Marsden and Ross, *Dynamical Systems, the Three-Body Problem and Space Mission
+Design*** (version 1.3, 2022)
+
+- Table 2.2.1: the Earth-Moon, Sun-Jupiter and Sun-Earth velocity units, 1.025, 13.102 and
+  29.784 km/s. The table's Sun-Earth period, 3.147e7 s, is a misprint for 3.156e7 s.
+- Sec. 2.3, eqs. 2.3.1 to 2.3.5 and 2.3.14: the synodic equations against an inertial-frame
+  integration, and the two Jacobi constant conventions, which differ by $\mu(1 - \mu)$.
+- Sec. 2.5: the Sun-Jupiter Hill radius 6.825e-2 and L1 at 0.9324.
+- Sec. 4.4: the Sun-Jupiter L2 and L3 energies, about -1.519 and -1.501.
+- Fig. 2.5.1: linear stability of L4 below Routh's mass ratio 0.038521.
+- Eqs. 2.6.1 to 2.6.4 and 6.4.1: the linearization at a massless secondary, and the
+  libration-point equations at $c_2 = 1$, are Clohessy-Wiltshire.
+- Eq. 3.3.1: the time-reversal mirror symmetry, in its spatial form.
+- Secs. 6.3 and 6.4: the Sun-Earth L1 constants $\gamma_1$ = 1.001090475e-2, $c_2$, $c_3$, $c_4$,
+  $\omega_p$, $\omega_v$ and $\kappa$, with Richardson's mass ratio 3.040357143e-6.
+- Sec. 6.6: Richardson's coefficients $s_1$, $s_2$, $l_1$, $l_2$ and $\Delta$ at Sun-Earth L1,
+  reproduced to 1e-6 with $b_{22} = +3c_3\omega_p/d_1$ and $a_{32}$ containing
+  $4c_3(\kappa a_{24} - b_{22})$ (both misprinted), and $l_1$ = -15.96560314 as printed in
+  sec. 6.6 (sec. 6.4's -15.9650314 is a misprint); the ISEE-3 halo with $A_z$ = 110,000 km,
+  $A_x$ about 206,000 km, $A_y$ about 665,000 km and a period of 177.73 days.
+- Secs. 4.3 and 6.7: the transition matrix is symplectic in canonical coordinates, and so keeps
+  $J = [[2W, I], [-I, 0]]$ in position and velocity.
+- Sec. 6.7: continuing the Earth-Moon L2 halo family in $z_0$ lands on an unrelated orbit past the
+  family's largest $z_0$; the tests detect the jump and pass the turning point by
+  pseudo-arclength continuation.
+- Eqs. 5.3.4 to 5.3.7: the bicircular Sun's mass, distance and synodic rate, consistent with
+  $\omega_S = 1 - \sqrt{(m_S + 1)/a_S^3}$.
+
+Values described in the tests as computed were obtained with a separate implementation of Koon et
+al.'s methods and constants: the Earth-Moon Lagrange points and Jacobi constants, the collinear
+constants at Earth-Moon L1 and L2, a planar Lyapunov orbit at Earth-Moon L1, a small Earth-Moon L2
+halo from Richardson's seed, and the 9:2 near-rectilinear halo orbit's state, period, perilune and
+apolune radii, Jacobi constant and monodromy eigenvalues.
+
+**Scheeres, *Orbital Motion in Strongly Perturbed Environments*** (Springer, 2012)
+
+- Sec. 5.1: the change of the Jacobi constant in a time-periodic system, checked on the bicircular
+  model with thrust.
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -82,4 +183,17 @@ equations"** (*SIAM Journal on Numerical Analysis* 9, 1972)
   propagation and its starting value for hyperbolas.
 - Brouwer (*Astronomical Journal* 64, 1959) and Lyddane (*Astronomical Journal* 68, 1963), in the
   form given by Schaub and Junkins: the first-order J2 mean-osculating element map.
-- NIMA TR8350.2, *Department of Defense World Geodetic System 1984*: Earth's GM, radius and J2.
+- NIMA TR8350.2, *Department of Defense World Geodetic System 1984*: Earth's GM, radius and J2,
+  and its spin rate and flattening.
+- Montenbruck and Gill, *Satellite Orbits* (Springer, 2000): the Harris-Priester density model
+  (sec. 3.5.2), the geodetic height iteration (eqs 5.83 to 5.88), cannonball and flat-plate solar
+  pressure (eqs 3.69 to 3.75), drag in a co-rotating atmosphere (eq 3.97), the conical shadow
+  function (eqs 3.85 to 3.94) and the variational equations (sec. 7.2).
+- Yamanaka and Ankersen (*Journal of Guidance, Control, and Dynamics* 25(1), 2002): the elliptic
+  relative-motion transition matrix.
+- Richardson, "Analytic Construction of Periodic Orbits about the Collinear Points" (*Celestial
+  Mechanics* 22, 1980), and Koon, Lo, Marsden and Ross (secs. 2 to 8): the CR3BP, the collinear
+  constants, the third-order halo seed, differential correction, monodromy and Floquet analysis,
+  and the bicircular model.
+- IAU 2012 resolution B2 and IAU 2015 resolution B3: the astronomical unit and the nominal solar
+  radius.
