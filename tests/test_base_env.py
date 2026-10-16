@@ -201,3 +201,37 @@ def test_environment_with_every_channel_follows_the_gymnasium_api():
     env.reset(seed=0)
     obs, _, _, _, _ = env.step([1.0, 0.0, 0.0])
     assert obs.shape == (6,)
+
+
+def test_every_thrust_change_is_a_boundary_for_the_integrator():
+    # Delay 3.7 s and constant thrust that runs out partway through: each two-body integration
+    # holds one acceleration and starts at a switch time.
+    cfg = EnvConfig(
+        dynamics="twobody_j2", inclination=0.9, delay_s=3.7, drive="thrust", propellant_kg=0.3
+    )
+    env = Coast(cfg)
+    env.reset(seed=0)
+    calls = []
+    advance = env.dynamics.advance
+
+    def logged(accel, duration, n_samples=0):
+        calls.append((duration, np.array(accel)))
+        return advance(accel, duration, n_samples)
+
+    env.dynamics.advance = logged
+    traced, run_out = [], None
+    for k in range(12):
+        env.step([1.0, -1.0, 0.5] if k % 2 else [-0.5, 1.0, 1.0])
+        traced += [(d, a) for _, d, a in env.record.segment.segments]
+        if env.record.actuation.empty and run_out is None:
+            run_out = env.record.segment.segments[-1][0]
+    assert [d for d, _ in calls] == [d for d, _ in traced]
+    assert all(np.array_equal(a, b) for (_, a), (_, b) in zip(calls, traced, strict=True))
+    starts = np.cumsum([0.0] + [d for d, _ in calls])
+    for t in [10.0 * k + 3.7 for k in range(12)]:
+        assert np.min(np.abs(starts - t)) < 1e-9
+    # The run-out falls inside a burn, away from every step and delay switch.
+    switches = np.r_[10.0 * np.arange(13), 10.0 * np.arange(12) + 3.7]
+    assert run_out is not None and np.min(np.abs(run_out - switches)) > 1e-3
+    after = [a for (_, a), t in zip(calls, starts, strict=False) if t >= run_out - 1e-9]
+    assert all(not np.any(a) for a in after)

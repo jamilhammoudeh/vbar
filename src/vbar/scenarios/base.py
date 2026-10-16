@@ -236,7 +236,12 @@ class BaseEnv(gym.Env):
         return self.obs.copy(), float(reward), terminated, truncated, info
 
     def _fly(self, actuation: Actuation) -> SegmentTrace:
-        """Propagate each constant-acceleration segment and check constraints within it."""
+        """Propagate each constant-acceleration segment and check constraints within it.
+
+        Each segment is its own `advance` call, so no integrator steps across a thrust change.
+        Discontinuities inside a dynamics model's own forces (shadow entry and exit) are the
+        model's to split.
+        """
         t0 = self.t
         segments, times, states = [], [], []
         minima: dict[str, SegmentMinimum] = {}
