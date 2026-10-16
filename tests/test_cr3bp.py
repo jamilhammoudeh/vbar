@@ -7,6 +7,7 @@ import math
 import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
+from scipy.linalg import expm
 
 from vbar.dynamics import cr3bp
 from vbar.dynamics.bodies import (
@@ -17,10 +18,11 @@ from vbar.dynamics.bodies import (
     Body,
     ThreeBodySystem,
 )
-from vbar.dynamics.cw import cw_system
+from vbar.dynamics.cw import cw_discrete, cw_system
 from vbar.dynamics.models import TwoBodyDynamics
 
 MU = EARTH_MOON_KLMR.mu
+EPS = np.finfo(float).eps
 # Computed: 9:2 synodic-resonant L2 near-rectilinear halo orbit with its apolune below the
 # plane, at its perilune-side crossing of the x-z plane, and its period.
 NRHO = np.array([0.9873849199042153, 0.0, 0.008369210996156513, 0.0, 1.6744665364075588, 0.0])
@@ -141,11 +143,11 @@ def test_nrho_closes_after_one_period():
     assert radius.max() * 385000 == pytest.approx(71274, abs=1)
 
 
-def inertial_propagation(state, t, mu, coriolis_sign=1.0):
+def inertial_propagation(state, t, mu):
     """Propagate in the barycentric inertial frame with the primaries on circles, then rotate
     the result back into the synodic frame at time t (book eqs 2.3.1 to 2.3.5)."""
     r, v = state[:3], state[3:]
-    inertial0 = np.r_[r, v + coriolis_sign * np.cross([0.0, 0.0, 1.0], r)]
+    inertial0 = np.r_[r, v + np.cross([0.0, 0.0, 1.0], r)]
 
     def rhs(tau, s):
         c, s_ = math.cos(tau), math.sin(tau)
@@ -160,7 +162,7 @@ def inertial_propagation(state, t, mu, coriolis_sign=1.0):
     c, s_ = math.cos(t), math.sin(t)
     rot = np.array([[c, s_, 0.0], [-s_, c, 0.0], [0.0, 0.0, 1.0]])
     r1 = rot @ end[:3]
-    return np.r_[r1, rot @ end[3:] - coriolis_sign * np.cross([0.0, 0.0, 1.0], r1)]
+    return np.r_[r1, rot @ end[3:] - np.cross([0.0, 0.0, 1.0], r1)]
 
 
 def test_synodic_equations_match_an_inertial_frame_integration():
@@ -253,3 +255,58 @@ def test_massless_secondary_reduces_to_two_body_relative_motion():
     assert m.n == pytest.approx(twobody.n, rel=1e-15)
     assert np.max(np.abs(to_hill @ synodic - hill)[:3]) < 1e-6
     assert np.max(np.abs(to_hill @ synodic - hill)[3:]) < 1e-11
+
+
+@pytest.mark.parametrize("dt", [1e-3, 1.0, 600.0, 86400.0, 2.4e6])
+def test_libration_hold_with_c2_one_is_cw(dt):
+    # Book eq 6.4.1 at c2 = 1 is CW; this includes CW's defective zero eigenvalue and short
+    # steps, where both closed forms avoid cancellation.
+    n = 2.66e-6
+    phi, gamma = cr3bp.libration_discrete(n, 1.0, dt)
+    phi_cw, gamma_cw = cw_discrete(n, dt)
+    assert np.max(np.abs(phi - phi_cw)) < 4 * EPS * np.max(np.abs(phi_cw))
+    assert np.max(np.abs(gamma - gamma_cw)) < 8 * EPS * np.max(np.abs(gamma_cw))
+
+
+@pytest.mark.parametrize("dt", [10.0, 3600.0, 86400.0])
+def test_libration_hold_matches_the_matrix_exponential(dt):
+    # Van Loan's block exponential as an independent oracle, at Earth-Moon L1.
+    n, c2 = 2.66e-6, cr3bp.collinear_coefficient(MU, 1, 2)
+    block = np.zeros((9, 9))
+    block[0:3, 3:6] = block[3:6, 6:9] = np.eye(3)
+    block[3, 0], block[4, 1], block[5, 2] = (1 + 2 * c2) * n**2, (1 - c2) * n**2, -c2 * n**2
+    block[3, 4], block[4, 3] = 2 * n, -2 * n
+    exact = expm(block * dt)
+    phi, gamma = cr3bp.libration_discrete(n, c2, dt)
+    assert np.max(np.abs(phi - exact[:6, :6])) < 1e-14 * np.max(np.abs(phi))
+    assert np.max(np.abs(gamma - exact[:6, 6:])) < 1e-14 * np.max(np.abs(gamma))
+
+
+def test_libration_model_error_against_cr3bp_grows_as_range_squared():
+    model = cr3bp.LibrationPointDynamics.at_point(SYSTEM, 1)
+    truth = cr3bp.CR3BPDynamics(SYSTEM, np.r_[cr3bp.lagrange_points(SYSTEM.mu)[0], np.zeros(3)])
+    assert model.n == truth.n
+    u = np.array([0.3, -0.8, 0.5]) / np.linalg.norm([0.3, -0.8, 0.5])
+    errors = []
+    for rho in (10.0, 100.0, 1000.0):
+        for m in (model, truth):
+            m.reset(np.r_[rho * u, 1e-5 * rho * u[[1, 2, 0]]])
+        errors.append(
+            np.max(
+                np.abs(
+                    model.advance(np.zeros(3), 6 * 3600.0)[0][:3]
+                    - truth.advance(np.zeros(3), 6 * 3600.0)[0][:3]
+                )
+            )
+        )
+    assert errors[0] < 1e-7
+    assert errors[1] / errors[0] == pytest.approx(100.0, rel=1e-3)
+    assert errors[2] / errors[1] == pytest.approx(100.0, rel=1e-3)
+
+
+def test_libration_saddle_e_folds_in_a_day_and_a_half_at_earth_moon_l1():
+    # Computed from the eigenvalues of book secs. 2.7 and 6.4: e-folding time 1 / lambda is
+    # 1.5 days at Earth-Moon L1 and 2 days at L2.
+    for point, days in ((1, 1.5), (2, 2.0)):
+        lam, _, _, _ = cr3bp.libration_frequencies(cr3bp.collinear_coefficient(MU, point, 2))
+        assert EARTH_MOON_KLMR.time / lam / 86400 == pytest.approx(days, abs=0.1)

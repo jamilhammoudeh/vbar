@@ -164,7 +164,7 @@ class CWDiscretizer:
         if key not in self._matrices:
             if len(self._matrices) >= self.max_entries:
                 self._matrices.clear()
-            self._matrices[key] = cw_discrete(self.n, key)
+            self._matrices[key] = self._discrete(key)
         return self._matrices[key]
 
     def sample_matrices(self, dt: float, m: int) -> tuple[np.ndarray, np.ndarray]:
@@ -176,8 +176,11 @@ class CWDiscretizer:
         if key not in self._samples:
             if len(self._samples) >= self.max_entries:
                 self._samples.clear()
-            self._samples[key] = cw_discrete(self.n, np.linspace(0.0, key[0], key[1]))
+            self._samples[key] = self._discrete(np.linspace(0.0, key[0], key[1]))
         return self._samples[key]
+
+    def _discrete(self, dt: float | np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return cw_discrete(self.n, dt)
 
 
 def propagate(

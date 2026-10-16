@@ -25,7 +25,8 @@ from numpy.typing import ArrayLike
 from scipy.optimize import brentq
 
 from .bodies import ThreeBodySystem
-from .models import integrate_segment, point_mass_difference
+from .cw import CWDiscretizer
+from .models import CWDynamics, integrate_segment, point_mass_difference
 
 _CORIOLIS = np.array([[0.0, 2.0, 0.0], [-2.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
 
@@ -231,3 +232,120 @@ class CR3BPDynamics:
     def chaser_state(self) -> np.ndarray:
         """Chaser's nondimensional synodic state."""
         return self._y[0:6] + self._y[6:12]
+
+
+def _hold_terms(mu: float, s: np.ndarray) -> tuple[np.ndarray, ...]:
+    """C, S, K, D, E of exp(A s) with A^2 = mu: cosh(sqrt(mu) s), its integrals and tails.
+
+    S = int C, K = (C - 1) / mu = int S, D = (S - s) / mu, E = (K - s^2 / 2) / mu, all power
+    series in y = mu s^2 with coefficients 1 / (2k + j)!, valid for either sign of mu. Series
+    below |y| = 1, where the closed forms of D and E cancel; above it they lose at most two
+    digits of terms that are then small beside C, S and K.
+    """
+    y = mu * s * s
+    small = np.abs(y) < 1.0
+    series = [sum(y**k / math.factorial(2 * k + j) for k in range(12)) for j in range(5)]
+    x = np.sqrt(np.abs(y))
+    x_safe = np.where(small, 1.0, x)
+    if mu > 0.0:
+        c, sn = np.cosh(x_safe), np.sinh(x_safe)
+        k = 2.0 * np.sinh(0.5 * x_safe) ** 2
+        d, e = sn - x_safe, c - 1.0 - 0.5 * x_safe**2
+    else:
+        c, sn = np.cos(x_safe), np.sin(x_safe)
+        k = 2.0 * np.sin(0.5 * x_safe) ** 2
+        d, e = x_safe - sn, c - 1.0 + 0.5 * x_safe**2
+    closed = [c, sn / x_safe, k / x_safe**2, d / x_safe**3, e / x_safe**4]
+    powers = [1.0, s, s**2, s**3, s**4]
+    return tuple(
+        p * np.where(small, ser, cl) for p, ser, cl in zip(powers, series, closed, strict=True)
+    )
+
+
+def libration_discrete(
+    n: float, c2: float, dt: float | np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Exact zero-order-hold matrices of the linear dynamics at a collinear point.
+
+    x'' - 2 n y' - (1 + 2 c2) n^2 x = a_x,  y'' + 2 n x' + (c2 - 1) n^2 y = a_y,
+    z'' + c2 n^2 z = a_z (Koon et al. eq 6.4.1, n the synodic rate); c2 = 1 is CW. The in-plane
+    matrix satisfies (A^2 - lambda^2)(A^2 + wp^2) = 0, so exp(A t) = C(A^2) + A S(A^2) is a
+    two-point interpolation in A^2, exact also at c2 = 1 where CW's zero eigenvalue is
+    defective. Same returns as `vbar.dynamics.cw_discrete`.
+    """
+    s = n * np.asarray(dt, dtype=float)
+    lam, wp, wv, _ = libration_frequencies(c2)
+    mu1, mu2 = lam * lam, -wp * wp
+    delta = mu1 - mu2
+    _, _, k1, d1, e1 = _hold_terms(mu1, s)
+    _, _, k2, d2, e2 = _hold_terms(mu2, s)
+    # Interpolation weights on A^2 and I for C, S and K; the differences that would cancel
+    # are written as sums of like-signed terms.
+    c_a, c_b = (mu1 * k1 - mu2 * k2) / delta, 1.0 + mu1 * mu2 * (k2 - k1) / delta
+    s_a, s_b = (mu1 * d1 - mu2 * d2) / delta, s + mu1 * mu2 * (d2 - d1) / delta
+    k_a, k_b = (mu1 * e1 - mu2 * e2) / delta, 0.5 * s * s + mu1 * mu2 * (e2 - e1) / delta
+    a = np.array(
+        [
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [1.0 + 2.0 * c2, 0.0, 0.0, 2.0],
+            [0.0, 1.0 - c2, -2.0, 0.0],
+        ]
+    )
+    powers = [np.eye(4), a, a @ a, a @ a @ a]
+
+    def combine(*weights: np.ndarray) -> np.ndarray:
+        return sum(w[..., None, None] * m for w, m in zip(weights, powers, strict=True))
+
+    phi_in = combine(c_b, s_b, c_a, s_a)
+    gamma_in = combine(s_b, k_b, s_a, k_a)[..., :, 2:4]
+    zx = wv * s
+    sin_z, cos_z = np.sin(zx), np.cos(zx)
+    shape = s.shape
+    phi = np.zeros(shape + (6, 6))
+    gamma = np.zeros(shape + (6, 3))
+    plane = [0, 1, 3, 4]
+    phi[(..., *np.ix_(plane, plane))] = phi_in
+    gamma[(..., *np.ix_(plane, [0, 1]))] = gamma_in
+    phi[..., 2, 2], phi[..., 2, 5] = cos_z, sin_z / wv
+    phi[..., 5, 2], phi[..., 5, 5] = -wv * sin_z, cos_z
+    gamma[..., 2, 2] = 2.0 * np.sin(0.5 * zx) ** 2 / wv**2
+    gamma[..., 5, 2] = sin_z / wv
+    # From time in 1/n and velocity in units of n to seconds and m/s.
+    scale = np.array([1.0, 1.0, 1.0, n, n, n])
+    return phi * scale[:, None] / scale[None, :], gamma * scale[:, None] / n**2
+
+
+class LibrationDiscretizer(CWDiscretizer):
+    """Caches `libration_discrete` matrices by duration, keyed to the nanosecond."""
+
+    def __init__(self, n: float, c2: float):
+        super().__init__(n)
+        self.c2 = c2
+
+    def _discrete(self, dt: float | np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return libration_discrete(self.n, self.c2, dt)
+
+
+class LibrationPointDynamics(CWDynamics):
+    """Relative motion about a target held at a collinear Lagrange point, linear and exact.
+
+    The constant-coefficient linearization of the CR3BP at L1 or L2 in synodic axes, SI units,
+    with the acceleration held in synodic axes and the exact zero-order hold of
+    `libration_discrete`. `n` is the synodic frame's rate (rad/s). The motion has a saddle,
+    e-folding in 1.5 days at Earth-Moon L1 and 2 days at L2, and two oscillations. With c2 = 1
+    it is CW. Left out against `CR3BPDynamics` with its target at the point: terms of second
+    order in the separation.
+    """
+
+    name = "libration"
+
+    def __init__(self, n: float, c2: float):
+        super().__init__(n)
+        self.c2 = c2
+        self.disc = LibrationDiscretizer(n, c2)
+
+    @classmethod
+    def at_point(cls, system: ThreeBodySystem, point: int) -> LibrationPointDynamics:
+        """The model about L1 or L2 (`point` 1 or 2) of `system`."""
+        return cls(1.0 / system.time, collinear_coefficient(system.mu, point, 2))
