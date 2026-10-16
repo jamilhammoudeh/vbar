@@ -1,0 +1,62 @@
+name: Scenario proposal
+description: A rendezvous or proximity-operations scenario for the benchmark.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Scenarios are audited before they are scored: a reference controller must solve it,
+        drifting must not, and the outcome must be deterministic given the scenario ID and seed.
+  - type: textarea
+    id: task
+    attributes:
+      label: Task
+      description: What the controller must achieve.
+    validations:
+      required: true
+  - type: textarea
+    id: start
+    attributes:
+      label: Start conditions
+      description: Distributions over the initial relative state (Hill frame, m and m/s).
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target behavior
+      options:
+        - passive
+        - tumbling
+        - maneuvering
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Keep-out zones, approach cones, speed limits and their parameters.
+    validations:
+      required: true
+  - type: textarea
+    id: success
+    attributes:
+      label: Success criteria and timeout
+      description: Exact conditions for success, and when the episode ends.
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Actuators and sensors
+      description: Thrust limits, Isp, minimum impulse bit, navigation noise.
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference solution
+      description: A controller or analytic result that solves the scenario, or a bound on the best cost.
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: Papers, mission documents or standards the parameters come from.

@@ -69,6 +69,10 @@ pytest -q
 
 Tests check the dynamics against known exact results: the closed-form solution, V-bar equilibrium, closed relative ellipses, and the 12π·|x0| along-track drift per orbit.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Citation
 
 See [CITATION.cff](CITATION.cff).

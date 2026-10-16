@@ -1,0 +1,33 @@
+name: Bug report
+description: A wrong result, an error or a crash.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest script that shows the problem, with scenario settings and seed.
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: vbar version
+      description: Output of `python -c "import vbar; print(vbar.__version__)"`.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Python version and operating system
+      placeholder: 3.12, Ubuntu 24.04
+    validations:
+      required: true
