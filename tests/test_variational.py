@@ -142,10 +142,10 @@ def target_after(target, duration, body, j2):
 def hill_map(target, body, j2):
     """Linear map from the inertial offset (dr, dv) to the Hill state of the target `target`."""
     C, w = hill_frame(target[:3], target[3:], gravity(target[:3], body, j2))
-    out = np.zeros((6, 6))
-    out[:3, :3] = out[3:, 3:] = C.T
-    out[3:, :3] = -skew(w) @ C.T
-    return out
+    to_hill = np.zeros((6, 6))
+    to_hill[:3, :3] = to_hill[3:, 3:] = C.T
+    to_hill[3:, :3] = -skew(w) @ C.T
+    return to_hill
 
 
 def test_linearized_two_body_is_cw_on_a_circular_orbit():

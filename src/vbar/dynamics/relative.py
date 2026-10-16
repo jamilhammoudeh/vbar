@@ -224,9 +224,9 @@ class YamanakaAnkersenDynamics:
             integrand = self._fundamental_inverse(f, self.k2 * tau) @ inputs
             pieces.append(np.tensordot(weights, integrand, axes=1))
         cumulative = np.cumsum(np.array(pieces), axis=0)
-        out = np.empty_like(cumulative)
-        out[order] = cumulative
-        return out.reshape(d.shape + (6, 3))
+        integrals = np.empty_like(cumulative)
+        integrals[order] = cumulative
+        return integrals.reshape(d.shape + (6, 3))
 
     def advance(
         self, accel_hill: ArrayLike, duration: float, n_samples: int = 0

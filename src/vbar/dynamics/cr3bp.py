@@ -524,11 +524,11 @@ class BicircularDynamics(CR3BPDynamics):
         return self.sun.distance * np.array([math.cos(angle), math.sin(angle), 0.0])
 
     def _rhs(self, t: float, y: np.ndarray, accel: np.ndarray) -> np.ndarray:
-        out = super()._rhs(t, y, accel)
+        dy = super()._rhs(t, y, accel)
         r_s = self.sun_position(self._elapsed + t)
         m = self.sun.mass
         d = y[0:3] - r_s
         indirect = m * r_s / self.sun.distance**3
-        out[3:6] += -m * d / np.linalg.norm(d) ** 3 - indirect
-        out[9:12] += point_mass_difference(d, y[6:9], m)
-        return out
+        dy[3:6] += -m * d / np.linalg.norm(d) ** 3 - indirect
+        dy[9:12] += point_mass_difference(d, y[6:9], m)
+        return dy

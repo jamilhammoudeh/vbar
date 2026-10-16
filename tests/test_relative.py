@@ -212,13 +212,13 @@ def test_curvilinear_cw_error_for_vbar_offsets_falls_as_the_fourth_power():
     period = 2 * np.pi / truth.n
     errors = {}
     for d in (1000.0, 2000.0):
-        out = {}
+        finals = {}
         for m in (truth, curvilinear, cw):
             m.reset([0.0, d, 0.0, 0.0, 0.0, 0.0])
-            out[m.name] = m.advance(ZERO, period)[0][:3]
-        errors[d] = np.max(np.abs(out["cw_curvilinear"] - out["twobody"]))
+            finals[m.name] = m.advance(ZERO, period)[0][:3]
+        errors[d] = np.max(np.abs(finals["cw_curvilinear"] - finals["twobody"]))
         # Cartesian CW misses the second-order drift 6 pi d^2 / a.
-        assert np.max(np.abs(out["cw"] - out["twobody"])) == pytest.approx(
+        assert np.max(np.abs(finals["cw"] - finals["twobody"])) == pytest.approx(
             6 * np.pi * d**2 / A_500, rel=1e-2
         )
     assert errors[1000.0] < 1e-6

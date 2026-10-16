@@ -188,14 +188,14 @@ def _variational_rhs(t: float, y: np.ndarray, mu: float) -> np.ndarray:
         ]
     )
     phi = y[6:42].reshape(6, 6)
-    out = np.empty(42)
-    out[0:6] = (vx, vy, vz, x + 2.0 * vy - k1 * d1 - k2 * d2, yy - 2.0 * vx - k * yy, -k * z)
-    dphi = out[6:42].reshape(6, 6)
+    dy = np.empty(42)
+    dy[0:6] = (vx, vy, vz, x + 2.0 * vy - k1 * d1 - k2 * d2, yy - 2.0 * vx - k * yy, -k * z)
+    dphi = dy[6:42].reshape(6, 6)
     dphi[0:3] = phi[3:6]
     dphi[3:6] = hessian @ phi[0:3]
     dphi[3] += 2.0 * phi[4]
     dphi[4] -= 2.0 * phi[3]
-    return out
+    return dy
 
 
 class _PlaneCrossing:
