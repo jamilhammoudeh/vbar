@@ -3,8 +3,17 @@
 import numpy as np
 import pytest
 from scipy.integrate import quad_vec
+from scipy.linalg import expm
 
-from vbar.dynamics import R_EARTH, CWDiscretizer, cw_discrete, cw_stm, mean_motion, propagate
+from vbar.dynamics import (
+    R_EARTH,
+    CWDiscretizer,
+    cw_discrete,
+    cw_stm,
+    cw_system,
+    mean_motion,
+    propagate,
+)
 
 N = mean_motion(R_EARTH + 500e3)
 PERIOD = 2 * np.pi / N
@@ -83,6 +92,20 @@ def test_exact_cw_matches_closed_form_over_one_orbit(seed):
     assert np.max(np.abs(s1[3:] - exact[3:])) < 1e-12
 
 
+@pytest.mark.parametrize("dt", [1.0, 10.0, 100.0, 1000.0])
+def test_exact_cw_matches_van_loan_exponential(dt):
+    # Both matrices from one exponential of [[A, B], [0, 0]] dt (Van Loan, 1978). Durations
+    # stay short because scipy's expm loses accuracy near one orbit before version 1.18.
+    A, B = cw_system(N)
+    M = np.zeros((9, 9))
+    M[:6, :6] = A
+    M[:6, 6:] = B
+    E = expm(M * dt)
+    phi, gamma = cw_discrete(N, dt)
+    assert np.max(np.abs(phi - E[:6, :6])) < 1e-12 * np.max(np.abs(E[:6, :6]))
+    assert np.max(np.abs(gamma - E[:6, 6:])) < 1e-12 * np.max(np.abs(E[:6, 6:]))
+
+
 @pytest.mark.parametrize("dt", [1.0, 10.0, 1000.0, PERIOD])
 def test_exact_cw_thrust_matrix_is_integral_of_stm(dt):
     _, gamma = cw_discrete(N, dt)
@@ -154,6 +177,8 @@ def test_sample_matrices_span_the_step():
     assert phis.shape == (5, 6, 6) and gammas.shape == (5, 6, 3)
     assert np.array_equal(phis[0], np.eye(6)) and np.array_equal(gammas[0], np.zeros((6, 3)))
     phi, gamma = disc.matrices(10.0)
-    assert np.array_equal(phis[-1], phi) and np.array_equal(gammas[-1], gamma)
+    assert np.allclose(phis[-1], phi, rtol=1e-15, atol=0.0)
+    assert np.allclose(gammas[-1], gamma, rtol=1e-15, atol=0.0)
     phi_mid, gamma_mid = cw_discrete(N, 5.0)
-    assert np.array_equal(phis[2], phi_mid) and np.array_equal(gammas[2], gamma_mid)
+    assert np.allclose(phis[2], phi_mid, rtol=1e-15, atol=0.0)
+    assert np.allclose(gammas[2], gamma_mid, rtol=1e-15, atol=0.0)

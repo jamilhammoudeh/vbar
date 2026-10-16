@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.linalg import expm
 
 from .bodies import EARTH
 
@@ -67,9 +66,8 @@ def cw_stm(n: float, t: float) -> np.ndarray:
 
     state(t) = cw_stm(n, t) @ state(0)
 
-    This is the closed-form solution of the CW equations. The simulator
-    integrates the equations numerically; this matrix is used to check
-    that the numerical integration is correct.
+    This is the textbook closed form, kept as an independent check on the propagators. Its
+    1 - cos(nt) terms lose about four digits when nt is below 1e-2; `cw_discrete` does not.
     """
     s, c = np.sin(n * t), np.cos(n * t)
     nt = n * t
@@ -98,19 +96,41 @@ def cw_system(n: float) -> tuple[np.ndarray, np.ndarray]:
     return A, B
 
 
-def cw_discrete(n: float, dt: float) -> tuple[np.ndarray, np.ndarray]:
+def cw_discrete(n: float, dt: float | np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Exact zero-order-hold discretization, state(t + dt) = phi state(t) + gamma accel.
 
-    Exact for an acceleration held constant in the Hill frame over `dt`. Both matrices come
-    from one exponential of [[A, B], [0, 0]] dt (C. Van Loan, "Computing integrals involving
-    the matrix exponential", IEEE TAC 23(3), 1978).
+    Closed forms of phi = expm(A dt) and gamma = int_0^dt expm(A s) ds B, exact for an
+    acceleration held constant in the Hill frame over `dt`. 1 - cos(n dt) is evaluated as
+    2 sin^2(n dt / 2) so short steps keep full precision. An array of durations gives
+    stacked matrices of shape (..., 6, 6) and (..., 6, 3).
     """
-    A, B = cw_system(n)
-    M = np.zeros((9, 9))
-    M[:6, :6] = A
-    M[:6, 6:] = B
-    E = expm(M * dt)
-    return E[:6, :6].copy(), E[:6, 6:].copy()
+    t = np.asarray(dt, dtype=float)
+    nt = n * t
+    s, c = np.sin(nt), np.cos(nt)
+    k = 2.0 * np.sin(0.5 * nt) ** 2
+    d = nt - s
+    o, i = np.zeros_like(t), np.ones_like(t)
+    phi = np.array(
+        [
+            [1 + 3 * k, o, o, s / n, 2 * k / n, o],
+            [-6 * d, i, o, -2 * k / n, (4 * s - 3 * nt) / n, o],
+            [o, o, c, o, o, s / n],
+            [3 * n * s, o, o, c, 2 * s, o],
+            [-6 * n * k, o, o, -2 * s, 1 - 4 * k, o],
+            [o, o, -n * s, o, o, c],
+        ]
+    )
+    gamma = np.array(
+        [
+            [k / n**2, 2 * d / n**2, o],
+            [-2 * d / n**2, 4 * k / n**2 - 1.5 * t**2, o],
+            [o, o, k / n**2],
+            [s / n, 2 * k / n, o],
+            [-2 * k / n, (4 * s - 3 * nt) / n, o],
+            [o, o, s / n],
+        ]
+    )
+    return np.moveaxis(phi, (0, 1), (-2, -1)), np.moveaxis(gamma, (0, 1), (-2, -1))
 
 
 class CWDiscretizer:
@@ -142,11 +162,7 @@ class CWDiscretizer:
         if key not in self._samples:
             if len(self._samples) >= self.max_entries:
                 self._samples.clear()
-            pairs = [cw_discrete(self.n, t) for t in np.linspace(0.0, key[0], key[1])]
-            self._samples[key] = (
-                np.stack([phi for phi, _ in pairs]),
-                np.stack([gamma for _, gamma in pairs]),
-            )
+            self._samples[key] = cw_discrete(self.n, np.linspace(0.0, key[0], key[1]))
         return self._samples[key]
 
 
