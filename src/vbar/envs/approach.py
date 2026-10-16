@@ -16,7 +16,7 @@ Observation: the chaser's 6-element state [x, y, z, vx, vy, vz] relative to
 the target (see vbar.dynamics.cw for the frame).
 
 Benchmark metrics are reported in `info`; the reward is a simple shaped
-signal for reinforcement learning and is NOT the benchmark score.
+signal for reinforcement learning and is not the benchmark score.
 """
 
 from __future__ import annotations
@@ -63,7 +63,6 @@ class ApproachEnv(gym.Env):
         self.observation_space = spaces.Box(-1e7, 1e7, shape=(6,), dtype=np.float64)
         self.state = np.zeros(6)
 
-    # ------------------------------------------------------------------ #
     def _sample_start(self) -> np.ndarray:
         if self.cfg.start_state is not None:
             return np.array(self.cfg.start_state, dtype=float)
@@ -85,7 +84,6 @@ class ApproachEnv(gym.Env):
             "captured": self.captured,
         }
 
-    # ------------------------------------------------------------------ #
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self.state = self._sample_start()

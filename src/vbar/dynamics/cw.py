@@ -17,7 +17,7 @@ Equations of motion (n = mean motion of the target orbit, a = thrust accel):
     y'' = -2 n x'           + a_y
     z'' = -n^2 z            + a_z
 
-Assumptions (state these in any paper that uses this model):
+Assumptions:
     1. Target orbit is circular.
     2. Chaser is close to the target compared with the orbit radius
        (the equations come from linearizing two-body gravity).

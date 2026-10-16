@@ -1,15 +1,10 @@
 """LLM agent: asks a language model for a thrust command at each decision step.
 
-This module does not depend on any model provider. You pass in a function
-`complete(prompt: str) -> str` that calls whatever model you want (a hosted
-API or a local model). That keeps the benchmark provider-neutral and makes
-the exact prompt part of the logged, reproducible record.
+The model call is passed in as `complete(prompt: str) -> str`, so any hosted
+API or local model works. Each call's prompt, raw reply, parsed action, parse
+failure flag and wall-clock latency are stored in `self.log`.
 
-Every call's prompt, raw reply, parsed action, parse failures, and wall-clock
-latency are logged in `self.log`.
-
-Note: in v0 the simulation pauses while the model thinks. A "real-time" mode,
-where the clock keeps running during the model call (as in KSPDG), is planned.
+The simulation clock is paused during the model call.
 """
 
 from __future__ import annotations

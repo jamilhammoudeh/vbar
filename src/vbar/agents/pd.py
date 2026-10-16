@@ -9,10 +9,9 @@ point like a damped spring:
 With Kp = wn^2 and Kd = 2 * zeta * wn, the error behaves like a damped
 oscillator with natural frequency wn and damping ratio zeta.
 
-This baseline flies (roughly) a straight line to the hold point. It does NOT
-know about the keep-out zone, so if the target sits between the start and the
-hold point, it will fly through the keep-out zone. That is the point: it shows
-why a safety filter is needed.
+The controller ignores the keep-out zone, so it flies straight through it when
+the target lies between the start and the hold point. It serves as the
+unfiltered baseline.
 """
 
 from __future__ import annotations

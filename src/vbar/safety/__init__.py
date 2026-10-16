@@ -1,13 +1,7 @@
-"""Safety filters: wrap any agent and correct unsafe commands before they run.
+"""Safety filters wrap an agent and modify unsafe commands before they are applied.
 
-v0 only defines the interface and a pass-through filter. Planned:
-    - CBF-QP filter (control barrier function + quadratic program) for the
-      keep-out sphere and approach-speed limits.
-    - Wrapping or porting AFRL's run-time-assurance library (act3-ace), which
-      should be cited, not reinvented.
-
-The wrapper records how often the filter changed the agent's command
-("interventions"), which is one of the benchmark's core metrics.
+Only the pass-through filter (filter off) exists so far. `FilteredAgent` counts
+interventions, the decisions where the filter changed the agent's command.
 """
 
 from __future__ import annotations
