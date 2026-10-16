@@ -1,0 +1,23 @@
+Third-party notices for V-BAR
+
+V-BAR is released under the MIT license (see LICENSE). This file lists material from other
+projects that is included in this repository, and its license.
+
+Contributor Covenant, version 2.1
+  Used in:  CODE_OF_CONDUCT.md (contact address filled in)
+  Source:   https://github.com/EthicalSource/contributor_covenant, commit b1b0a0f,
+            content/version/2/1/code_of_conduct.md
+  License:  Creative Commons Attribution 4.0 International (CC BY 4.0), the license of that
+            repository at that commit
+  Credit:   Organization for Ethical Source and the Contributor Covenant contributors
+
+No third-party source code is included. Methods taken from the literature are reimplemented
+and cited where they are used.
+
+Dependencies are installed separately and are not redistributed with V-BAR. CI fails if any
+installed dependency, including optional extras, declares a GPL-family license or no license.
+At the time of writing:
+  numpy       BSD-3-Clause
+  scipy       BSD-3-Clause
+  gymnasium   MIT
+  matplotlib  Matplotlib License (PSF-based), optional "plot" extra
