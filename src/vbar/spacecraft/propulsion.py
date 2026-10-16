@@ -25,7 +25,7 @@ from ..conventions import G0
 LAYOUTS = ("box", "ball")
 DRIVES = ("accel", "thrust")
 # Command switch times closer than this (s) to an interval boundary fall on it.
-_TIME_TOL = 1e-9
+_SWITCH_TOL = 1e-9
 
 
 @dataclass(frozen=True)
@@ -152,9 +152,9 @@ class Spacecraft:
         """Thrust (N) of a command of 1 now, per axis for box and in total for ball."""
         return self.max_thrust if self.drive == "thrust" else self.max_accel * self.mass
 
-    def _spend_rate(self, vector: np.ndarray) -> float:
-        """Length of an acceleration or thrust in the layout's norm."""
-        return float(np.sum(np.abs(vector)) if self.layout == "box" else np.linalg.norm(vector))
+    def _layout_norm(self, a: np.ndarray) -> float:
+        """Norm propellant is spent on: 1-norm over the box's axes, 2-norm for the ball."""
+        return float(np.sum(np.abs(a)) if self.layout == "box" else np.linalg.norm(a))
 
     def limit(self, command: ArrayLike, duration: float) -> tuple[np.ndarray, bool, bool]:
         """Command the thrusters can deliver when held for `duration` s.
@@ -185,74 +185,73 @@ class Spacecraft:
         delivered = u if self.execution is None else self.execution.apply(u, self.rng)
         self._queue.append((self.t + self.delay, u, delivered))
         end = self.t + duration
-        segments: list[tuple[float, np.ndarray]] = []
-        dv_l2 = dv_l1 = used = 0.0
-        empty = False
-        for t0, t1, piece in self._pieces(self.t, end):
-            burn = self._burn(piece, t1 - t0)
-            segments.extend(burn[0])
-            dv_l2 += burn[1]
-            dv_l1 += burn[2]
-            used += burn[3]
-            empty = empty or burn[4]
+        burns = [self._burn(piece, t1 - t0) for t0, t1, piece in self._pieces(self.t, end)]
         self.t = end
-        while len(self._queue) > 1 and self._queue[1][0] <= self.t + _TIME_TOL:
+        while len(self._queue) > 1 and self._queue[1][0] <= self.t + _SWITCH_TOL:
             self._queue.pop(0)
-        return Actuation(tuple(segments), dv_l2, dv_l1, used, saturated, below_mib, empty)
+        return Actuation(
+            tuple(segment for burn in burns for segment in burn.segments),
+            sum(burn.dv_l2 for burn in burns),
+            sum(burn.dv_l1 for burn in burns),
+            sum(burn.propellant_kg for burn in burns),
+            saturated,
+            below_mib,
+            any(burn.empty for burn in burns),
+        )
 
     def pending(self) -> list[tuple[float, np.ndarray]]:
         """Issued commands not yet in effect: (seconds until they take effect, command)."""
-        return [(t - self.t, u) for t, u, _ in self._queue if t > self.t + _TIME_TOL]
+        return [(t - self.t, u) for t, u, _ in self._queue if t > self.t + _SWITCH_TOL]
 
     def in_effect(self) -> np.ndarray:
         """The command acting now, as limited (zero before the first one takes effect)."""
-        acting = [u for t, u, _ in self._queue if t <= self.t + _TIME_TOL]
+        acting = [u for t, u, _ in self._queue if t <= self.t + _SWITCH_TOL]
         return acting[-1] if acting else np.zeros(3)
 
     def _pieces(self, start: float, end: float):
         """(t0, t1, command) for the commands in effect between `start` and `end`."""
-        inside = {t for t, _, _ in self._queue if start + _TIME_TOL < t < end - _TIME_TOL}
+        inside = {t for t, _, _ in self._queue if start + _SWITCH_TOL < t < end - _SWITCH_TOL}
         for t0, t1 in pairwise([start, *sorted(inside), end]):
-            active = [delivered for t, _, delivered in self._queue if t <= t0 + _TIME_TOL]
+            active = [delivered for t, _, delivered in self._queue if t <= t0 + _SWITCH_TOL]
             yield t0, t1, active[-1] if active else np.zeros(3)
 
-    def _burn(self, u: np.ndarray, duration: float):
-        """Segments, delta-v (2-norm, 1-norm), propellant used and run-out for one command."""
+    def _burn(self, u: np.ndarray, duration: float) -> Actuation:
+        """Hold the delivered command `u` for `duration` s, stopping at the dry mass."""
         zero = np.zeros(3)
         if not np.any(u) or duration == 0.0:
-            return [(duration, zero)], 0.0, 0.0, 0.0, False
+            return Actuation(((duration, zero),), 0.0, 0.0, 0.0)
         if self.mass <= self.dry_mass:
-            return [(duration, zero)], 0.0, 0.0, 0.0, True
+            return Actuation(((duration, zero),), 0.0, 0.0, 0.0, empty=True)
         ve = self.exhaust_speed
         if self.drive == "accel":
             accel = u * self.max_accel
-            rate = self._spend_rate(accel)
-            burn = duration
+            rate = self._layout_norm(accel)
+            tau = duration
             if self.dry_mass > 0.0:
                 # Burn time until the propellant is gone, from m0 exp(-rate t / ve) = m_dry.
-                burn = min(duration, ve / rate * math.log(self.mass / self.dry_mass))
-            used = -self.mass * math.expm1(-rate * burn / ve)
-            dv = accel * burn
+                tau = min(duration, ve / rate * math.log(self.mass / self.dry_mass))
+            used = -self.mass * math.expm1(-rate * tau / ve)
+            dv = accel * tau
+            segments = [(tau, accel)]
         else:
             thrust = u * self.max_thrust
-            flow = self._spend_rate(thrust) / ve
-            burn = min(duration, (self.mass - self.dry_mass) / flow)
-            used = flow * burn
+            flow = self._layout_norm(thrust) / ve
+            tau = min(duration, (self.mass - self.dry_mass) / flow)
+            used = flow * tau
             h, g = _mass_flow_factors(used / self.mass)
             a0 = thrust / self.mass
-            dv = a0 * burn * h
+            dv = a0 * tau * h
             # Two half-burn segments whose accelerations give the exact delta-v and displacement
             # of the rising acceleration; one mean-acceleration segment would leave
             # a^2 tau^3 / (12 ve), 1.5e-5 m for 0.02 m/s^2 over 10 s.
-            halves = [(0.5 * burn, a0 * (4.0 * g - h)), (0.5 * burn, a0 * (3.0 * h - 4.0 * g))]
-        if burn < duration:
+            segments = [(0.5 * tau, a0 * (4.0 * g - h)), (0.5 * tau, a0 * (3.0 * h - 4.0 * g))]
+        empty = tau < duration
+        if empty:
             used = self.mass - self.dry_mass
             self.mass = self.dry_mass
+            segments.append((duration - tau, zero))
         else:
             self.mass -= used
-        segments = [(burn, accel)] if self.drive == "accel" else halves
-        if burn < duration:
-            segments.append((duration - burn, zero))
         dv_l2 = float(np.linalg.norm(dv))
         dv_l1 = float(np.sum(np.abs(dv)))
-        return segments, dv_l2, dv_l1, used, burn < duration
+        return Actuation(tuple(segments), dv_l2, dv_l1, used, empty=empty)
