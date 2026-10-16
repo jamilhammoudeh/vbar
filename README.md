@@ -154,8 +154,19 @@ The simulation clock is paused while the model answers.
 ### Reinforcement learning
 
 `ApproachEnv` follows the Gymnasium API (`reset(seed=...)`, `step(action)`), by default with a
-`Box(-1, 1, (3,))` action space and a 6-element observation, so it works with standard RL
-libraries. Its reward is a shaped training signal (progress toward the hold point, minus delta-v,
+`Box(-1, 1, (3,))` action space and a 6-element observation, and passes Gymnasium's environment
+checker, so it works with standard RL libraries. Importing `vbar` registers it:
+
+```python
+import gymnasium as gym
+
+import vbar  # noqa: F401
+
+env = gym.make("vbar/Approach-v0")
+obs, info = env.reset(seed=0)
+obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
+```
+ Its reward is a shaped training signal (progress toward the hold point, minus delta-v,
 minus a penalty for each step in the keep-out zone, plus a bonus on capture) and is not the
 benchmark score; score agents on the metrics in `info`. The reward and `info` come from the true
 state, so evaluate trained policies through `run_episode`, which passes them only the observation

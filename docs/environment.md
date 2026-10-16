@@ -16,7 +16,9 @@ radius 50 m; target on a circular 500 km orbit.
 ## Interface
 
 Gymnasium API: `reset(seed=...)` returns `(obs, info)`; `step(action)` returns
-`(obs, reward, terminated, truncated, info)`.
+`(obs, reward, terminated, truncated, info)`. Importing `vbar` registers the scenario as
+`vbar/Approach-v0`, so `gymnasium.make("vbar/Approach-v0", config=ApproachConfig(...))` builds it,
+and it passes `gymnasium.utils.env_checker.check_env` (tested in `tests/test_registration.py`).
 
 - **Action:** three numbers held for one step of `dt` = 10 s, in the units of `action_mode`:
   `"normalized"` (default, `Box(-1, 1, (3,))`) takes fractions of `max_accel` = 0.02 m/s^2 per
