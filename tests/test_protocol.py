@@ -1,5 +1,7 @@
 """Every dynamics model behaves the same through the `Dynamics` interface."""
 
+import inspect
+
 import numpy as np
 import pytest
 
@@ -57,3 +59,21 @@ def test_model_satisfies_the_dynamics_interface(name):
     assert not np.allclose(model.state_in_last_segment(120.0), 0.0)
     _, none = model.advance(np.zeros(3), 10.0)
     assert none is None
+
+
+@pytest.mark.parametrize("name", MODELS)
+def test_model_takes_the_interface_arguments_by_name(name):
+    for method in ("reset", "advance", "state_in_last_segment"):
+        expected = list(inspect.signature(getattr(Dynamics, method)).parameters)
+        assert list(inspect.signature(getattr(MODELS[name](), method)).parameters) == expected[1:]
+    start = np.array([150.0, -400.0, 30.0, 0.05, 0.1, -0.02])
+    accel = np.array([2e-4, -1e-4, 5e-5])
+    positional = MODELS[name]()
+    final, samples = drive(positional, start, accel, 120.0)
+    model = MODELS[name]()
+    model.reset(rel_state=start)
+    by_name, named_samples = model.advance(accel_hill=accel, duration=120.0, n_samples=5)
+    assert np.array_equal(by_name, final) and np.array_equal(named_samples, samples)
+    assert np.array_equal(
+        model.state_in_last_segment(tau=60.0), positional.state_in_last_segment(60.0)
+    )

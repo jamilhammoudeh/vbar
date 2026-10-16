@@ -200,14 +200,14 @@ class CR3BPDynamics:
         return np.concatenate([v_t, acceleration(r_t, v_t, mu), dv, da])
 
     def advance(
-        self, accel: ArrayLike, duration: float, n_samples: int = 0
+        self, accel_hill: ArrayLike, duration: float, n_samples: int = 0
     ) -> tuple[np.ndarray, np.ndarray | None]:
-        """Hold `accel` (m/s^2, synodic axes) for `duration` s.
+        """Hold `accel_hill` (m/s^2, here in synodic axes) for `duration` s.
 
         Returns the final relative state and, if `n_samples > 0`, the states at `n_samples`
         evenly spaced times in [0, duration], endpoints included, shape (n_samples, 6).
         """
-        a = np.asarray(accel, dtype=float) / self.system.acceleration
+        a = np.asarray(accel_hill, dtype=float) / self.system.acceleration
         tau = duration / self.system.time
         sol, self._step = integrate_segment(
             self._rhs, self._y, tau, (a,), self.rtol, self._atol, self._step
@@ -462,10 +462,13 @@ class PeriodicLinearDynamics:
         self._segment = None
 
     def advance(
-        self, accel: ArrayLike, duration: float, n_samples: int = 0
+        self, accel_hill: ArrayLike, duration: float, n_samples: int = 0
     ) -> tuple[np.ndarray, np.ndarray | None]:
-        """Hold `accel` (m/s^2, synodic axes) for `duration` s; returns as `CR3BPDynamics`."""
-        a = np.array(accel, dtype=float)
+        """Hold `accel_hill` (m/s^2, here in synodic axes) for `duration` s.
+
+        Same returns as `CR3BPDynamics.advance`.
+        """
+        a = np.array(accel_hill, dtype=float)
         x0 = self._state
         self._segment = (self._t, x0, a)
         samples = None
