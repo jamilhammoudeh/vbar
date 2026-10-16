@@ -36,7 +36,10 @@ class Constraint(Protocol):
     @property
     def name(self) -> str: ...
 
-    resolution: ClassVar[float]  # margin units; refinement threshold below the best value
+    @property
+    def resolution(self) -> float:
+        """Margin units; intervals whose bound is this far below the best value are refined."""
+        ...
 
     def margin(self, state: np.ndarray, t: float | np.ndarray) -> np.ndarray: ...
 
