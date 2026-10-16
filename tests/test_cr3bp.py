@@ -310,3 +310,93 @@ def test_libration_saddle_e_folds_in_a_day_and_a_half_at_earth_moon_l1():
     for point, days in ((1, 1.5), (2, 2.0)):
         lam, _, _, _ = cr3bp.libration_frequencies(cr3bp.collinear_coefficient(MU, point, 2))
         assert EARTH_MOON_KLMR.time / lam / 86400 == pytest.approx(days, abs=0.1)
+
+
+def nrho_linear_reference(t0, t1, offset, accel):
+    """Integrate the linear equations along the NRHO from nondimensional t0 to t1, restarting
+    the target on the periodic orbit at each period boundary as the periodic model does."""
+
+    def linear(t, y, a):
+        return np.r_[cr3bp.rhs(t, y[:6], MU), cr3bp.jacobian(y[:3], MU) @ y[6:] + np.r_[0, 0, 0, a]]
+
+    t, d = t0, offset
+    k = math.floor(t0 / NRHO_PERIOD)
+    target = propagate(NRHO, t0 - k * NRHO_PERIOD) if t0 > k * NRHO_PERIOD else NRHO
+    while t < t1:
+        stop = min(t1, (k + 1) * NRHO_PERIOD)
+        end = solve_ivp(
+            linear, (t, stop), np.r_[target, d], "DOP853", rtol=1e-13, atol=1e-18, args=(accel,)
+        ).y[:, -1]
+        t, d, target, k = stop, end[6:], NRHO, k + 1
+    return d
+
+
+@pytest.mark.parametrize(
+    "start_days, days, tol", [(0.0, 0.007, 1e-12), (3.0, 1.0, 1e-12), (5.0, 2.0, 1e-7)]
+)
+def test_periodic_linear_model_matches_integrating_the_linear_equations(start_days, days, tol):
+    # The last case runs through perilune and into the next period.
+    m = cr3bp.PeriodicLinearDynamics(SYSTEM, NRHO, NRHO_PERIOD)
+    accel = np.array([2e-5, -1e-5, 5e-6])
+    phi, gamma = m.matrices(start_days * 86400.0, days * 86400.0)
+    got = phi @ OFFSET + gamma @ accel
+    scale = np.repeat([SYSTEM.length, SYSTEM.velocity], 3)
+    t0 = start_days * 86400.0 / SYSTEM.time
+    t1 = t0 + days * 86400.0 / SYSTEM.time
+    expected = nrho_linear_reference(t0, t1, OFFSET / scale, accel / SYSTEM.acceleration) * scale
+    assert np.max(np.abs(got - expected)) < tol * np.max(np.abs(expected))
+
+
+def test_periodic_linear_model_reuses_the_monodromy_matrix():
+    m = cr3bp.PeriodicLinearDynamics(SYSTEM, NRHO, NRHO_PERIOD)
+    period = NRHO_PERIOD * SYSTEM.time
+    scale = np.repeat([SYSTEM.length, SYSTEM.velocity], 3)
+    one, _ = m.matrices(0.0, period)
+    two, _ = m.matrices(0.0, 2 * period)
+    assert np.allclose(one * scale[None, :] / scale[:, None], m.monodromy, rtol=0, atol=1e-12)
+    assert np.max(np.abs(two - one @ one)) < 1e-12 * np.max(np.abs(two))
+    m.reset(OFFSET)
+    before, _ = m.advance(np.zeros(3), 0.3 * period)
+    forward, samples = m.advance([1e-5, 0.0, 0.0], 0.9 * period, n_samples=4)
+    back, _ = m.advance([1e-5, 0.0, 0.0], -0.9 * period)
+    assert np.allclose(samples[-1], forward, rtol=1e-14, atol=0)
+    assert np.max(np.abs(back - before)) < 1e-10 * np.max(np.abs(forward))
+
+
+def test_periodic_linear_model_error_against_cr3bp_grows_as_range_squared():
+    # A passive chaser offset from perilune, one day.
+    model = cr3bp.PeriodicLinearDynamics(SYSTEM, NRHO, NRHO_PERIOD)
+    truth = cr3bp.CR3BPDynamics(SYSTEM, NRHO)
+    errors = []
+    for rho in (10.0, 100.0, 1000.0):
+        for m in (model, truth):
+            m.reset([rho, 0.0, 0.0, 0.0, 0.0, 0.0])
+        linear, _ = model.advance(np.zeros(3), 86400.0)
+        nonlinear, _ = truth.advance(np.zeros(3), 86400.0)
+        errors.append(np.linalg.norm(linear[:3] - nonlinear[:3]))
+    assert errors[1] / errors[0] == pytest.approx(100.0, rel=2e-3)
+    assert errors[2] / errors[1] == pytest.approx(100.0, rel=2e-3)
+
+
+def test_cr3bp_transition_matrices_keep_the_rotating_symplectic_form():
+    # Book secs. 4.3 and 6.7: symplectic in canonical coordinates. In [r, v] the invariant
+    # form is J = [[2 W, I], [-I, 0]]; the standard one fails on correct code.
+    def variational(t, y):
+        phi = y[6:].reshape(6, 6)
+        return np.r_[cr3bp.rhs(t, y[:6], MU), (cr3bp.jacobian(y[:3], MU) @ phi).ravel()]
+
+    phi = (
+        solve_ivp(
+            variational, (0, 0.7), np.r_[NRHO, np.eye(6).ravel()], "DOP853", rtol=1e-13, atol=1e-15
+        )
+        .y[6:, -1]
+        .reshape(6, 6)
+    )
+    w = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    rotating = np.block([[2 * w, np.eye(3)], [-np.eye(3), np.zeros((3, 3))]])
+    standard = np.block([[np.zeros((3, 3)), np.eye(3)], [-np.eye(3), np.zeros((3, 3))]])
+    size = np.max(np.abs(phi)) ** 2
+    assert np.max(np.abs(phi.T @ rotating @ phi - rotating)) < 1e-15 * size
+    assert np.max(np.abs(phi.T @ standard @ phi - standard)) > 1.0
+    assert np.max(np.abs(cr3bp.transition_inverse(phi) @ phi - np.eye(6))) < 1e-15 * size
+    assert np.linalg.det(phi) == pytest.approx(1.0, abs=1e-8)

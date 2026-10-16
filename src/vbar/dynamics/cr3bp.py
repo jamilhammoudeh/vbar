@@ -22,6 +22,7 @@ import math
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
 from .bodies import ThreeBodySystem
@@ -349,3 +350,138 @@ class LibrationPointDynamics(CWDynamics):
     def at_point(cls, system: ThreeBodySystem, point: int) -> LibrationPointDynamics:
         """The model about L1 or L2 (`point` 1 or 2) of `system`."""
         return cls(1.0 / system.time, collinear_coefficient(system.mu, point, 2))
+
+
+# W is the cross-product matrix of z, W r = z x r.
+_W = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+_J = np.block([[2.0 * _W, np.eye(3)], [-np.eye(3), np.zeros((3, 3))]])
+_J_INV = np.linalg.inv(_J)
+
+
+def transition_inverse(phi: ArrayLike) -> np.ndarray:
+    """Inverse of a CR3BP transition matrix in [r, v] coordinates, without a solve.
+
+    The flow is Hamiltonian in canonical momenta p = v + z x r, so in [r, v] it keeps
+    J = [[2 W, I], [-I, 0]] with W the cross-product matrix of z: phi^T J phi = J and
+    phi^-1 = J^-1 phi^T J. The standard J does not hold in these coordinates.
+    """
+    phi = np.asarray(phi, dtype=float)
+    return _J_INV @ np.swapaxes(phi, -1, -2) @ _J
+
+
+class PeriodicLinearDynamics:
+    """Relative motion linearized about a periodic CR3BP orbit, with an exact zero-order hold.
+
+    Linear time-periodic: the offset obeys d(dx)/dt = A(t) dx + B a, with A from the
+    potential's Hessian along the target's orbit (Koon et al. eqs 4.2.4 and 6.7.1). One period
+    is integrated once, in `pieces` stretches each started from the identity: the target, the
+    stretch's transition matrix phi(t) and G(t), the integral of phi^-1 B. A segment is then
+    algebra: within a stretch phi(t2, t1) = phi(t2) phi(t1)^-1 and gamma = phi(t2) (G(t2) -
+    G(t1)), across stretches the products, and periodicity carries this to every later period.
+    Short stretches keep the matrices in these products small; one matrix from the start of the
+    period grows past 1e3 near the perilune of a near-rectilinear halo orbit, and its products
+    lose as many digits. On that orbit segments match a direct integration of the linear
+    equations to 1e-13 of the state, and to 1e-8 through perilune, where the matrices depend
+    on the target's position as sharply as the orbit does (integrated at rtol 1e-13 it closes
+    to 1e-10 per period). `target_state` must start a periodic orbit of nondimensional
+    `period` to that precision. Same frame and units as `CR3BPDynamics`; left out against it:
+    terms of second order in the separation.
+    """
+
+    name = "cr3bp_linear"
+
+    def __init__(
+        self,
+        system: ThreeBodySystem,
+        target_state: ArrayLike,
+        period: float,
+        rtol: float = 1e-13,
+        pieces: int = 32,
+    ):
+        self.system = system
+        self.period = period
+        self.n = 1.0 / system.time
+        self._anchors = np.linspace(0.0, period, pieces + 1)
+        self._stretches = []
+        self.monodromy = np.eye(6)
+        target = np.asarray(target_state, dtype=float)
+        for a, b in zip(self._anchors[:-1], self._anchors[1:], strict=True):
+            y0 = np.concatenate([target, np.eye(6).ravel(), np.zeros(18)])
+            sol = solve_ivp(
+                self._rhs, (a, b), y0, method="DOP853", rtol=rtol, atol=1e-15, dense_output=True
+            )
+            if not sol.success:
+                raise RuntimeError(f"integration failed: {sol.message}")
+            self._stretches.append(sol.sol)
+            target = sol.y[0:6, -1]
+            self.monodromy = sol.y[6:42, -1].reshape(6, 6) @ self.monodromy
+        self._scale = np.repeat([system.length, system.velocity], 3)
+        self._t = 0.0
+        self._state = np.zeros(6)
+        self._segment: tuple[float, np.ndarray, np.ndarray] | None = None
+
+    def _rhs(self, t: float, y: np.ndarray) -> np.ndarray:
+        phi = y[6:42].reshape(6, 6)
+        a = jacobian(y[0:3], self.system.mu)
+        inputs = transition_inverse(phi)[:, 3:6]
+        return np.concatenate([rhs(t, y[0:6], self.system.mu), (a @ phi).ravel(), inputs.ravel()])
+
+    def matrices(self, t0: float, duration: float) -> tuple[np.ndarray, np.ndarray]:
+        """Transition and input matrices in m, m/s and s from `t0` (s since reset) on."""
+        T = self.period
+        start = t0 / self.system.time
+        end = start + duration / self.system.time
+        lo, hi = min(start, end), max(start, end)
+        first, last = math.floor(lo / T), math.floor(hi / T)
+        marks = (T * np.arange(first, last + 1)[:, None] + self._anchors[None, :-1]).ravel()
+        marks = np.append(marks, T * (last + 1))
+        inside = marks[(marks > lo) & (marks < hi)]
+        edges = [start, *(inside if end >= start else inside[::-1]), end]
+        phi, gamma = np.eye(6), np.zeros((6, 3))
+        for a, b in zip(edges[:-1], edges[1:], strict=True):
+            middle = 0.5 * (a + b)
+            k = math.floor(middle / T)
+            j = min(
+                int(np.searchsorted(self._anchors, middle - k * T, side="right")) - 1,
+                len(self._stretches) - 1,
+            )
+            stretch = self._stretches[j]
+            y_a, y_b = stretch(a - k * T), stretch(b - k * T)
+            phi_a, phi_b = y_a[6:42].reshape(6, 6), y_b[6:42].reshape(6, 6)
+            step = phi_b @ transition_inverse(phi_a)
+            gamma = step @ gamma + phi_b @ (y_b[42:60] - y_a[42:60]).reshape(6, 3)
+            phi = step @ phi
+        scale = self._scale
+        return phi * scale[:, None] / scale[None, :], gamma * (scale / self.system.acceleration)[
+            :, None
+        ]
+
+    def reset(self, rel_state: ArrayLike) -> None:
+        self._t = 0.0
+        self._state = np.array(rel_state, dtype=float)
+        self._segment = None
+
+    def advance(
+        self, accel: ArrayLike, duration: float, n_samples: int = 0
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """Hold `accel` (m/s^2, synodic axes) for `duration` s; returns as `CR3BPDynamics`."""
+        a = np.array(accel, dtype=float)
+        x0 = self._state
+        self._segment = (self._t, x0, a)
+        samples = None
+        if n_samples > 0:
+            samples = np.array(
+                [self.state_in_last_segment(tau) for tau in np.linspace(0.0, duration, n_samples)]
+            )
+        phi, gamma = self.matrices(self._t, duration)
+        self._state = phi @ x0 + gamma @ a
+        self._t += duration
+        return self._state.copy(), samples
+
+    def state_in_last_segment(self, tau: float) -> np.ndarray:
+        """State `tau` seconds into the most recent segment."""
+        if self._segment is None:
+            raise RuntimeError("no segment has been advanced since reset")
+        t0, x0, a = self._segment
+        phi, gamma = self.matrices(t0, tau)
+        return phi @ x0 + gamma @ a
