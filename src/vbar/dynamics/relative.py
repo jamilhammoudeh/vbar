@@ -1,0 +1,265 @@
+"""Relative-motion models between CW and the nonlinear two-body model.
+
+All hold the chaser's state relative to the target in the target's Hill frame
+([x, y, z, vx, vy, vz], see `vbar.conventions`) and satisfy the `Dynamics` protocol, with an
+acceleration held constant in Hill axes over each segment. Their errors against the nonlinear
+model scale differently with the separation rho: two-body nonlinearity left out by a linear model
+grows as rho^2, J2 left out as rho, the target's eccentricity left out as e rho (Alfriend et al.,
+Spacecraft Formation Flying, sec. 8.3).
+"""
+
+from __future__ import annotations
+
+import math
+
+import numpy as np
+from numpy.typing import ArrayLike
+
+from .bodies import Body, get_body
+from .cw import mean_motion
+
+# Hill in-plane [x, y, vx, vy] to Yamanaka and Ankersen's [x, z, vx, vz], whose x is along-track
+# and z points at the central body (the ISS-style LVLH axes of `vbar.conventions`).
+_HILL_TO_YA = np.array(
+    [[0.0, 1.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, -1.0, 0.0]]
+)
+_IN_PLANE = [0, 1, 3, 4]
+# Gauss-Legendre rule for the forced response, on pieces of at most 1/32 orbit, shortened
+# further on eccentric orbits by the peak rate of the true anomaly over its mean.
+_GL_NODES, _GL_WEIGHTS = np.polynomial.legendre.leggauss(12)
+
+
+def true_anomaly(M: ArrayLike, e: float) -> np.ndarray:
+    """True anomaly (rad) at mean anomaly `M` (rad, any shape) on an orbit of eccentricity `e`."""
+    M = np.asarray(M, dtype=float)
+    M_rev = M % math.tau
+    # As in `vbar.dynamics.kepler.solve_kepler`, vectorized.
+    E = np.full_like(M_rev, math.pi) if e >= 0.8 else M_rev
+    for _ in range(50):
+        dE = (E - e * np.sin(E) - M_rev) / (1.0 - e * np.cos(E))
+        E = E - dE
+        if np.max(np.abs(dE), initial=0.0) < 1e-12:
+            break
+    else:
+        raise RuntimeError("kepler's equation did not converge")
+    # f - E without wrapping, so f stays in E's revolution.
+    f = E + 2.0 * np.arctan2(e * np.sin(E), 1.0 + np.sqrt(1.0 - e * e) - e * np.cos(E))
+    return f + (M - M_rev)
+
+
+def ya_in_plane(f: ArrayLike, e: float, J: ArrayLike) -> np.ndarray:
+    """Fundamental matrix of the in-plane Tschauner-Hempel equations, (..., 4, 4).
+
+    Yamanaka and Ankersen, "New State Transition Matrix for Relative Motion on an Arbitrary
+    Elliptical Orbit", JGCD 25(1), 2002, in the paper's frame and order: [x, z, x', z'] with x
+    along-track, z toward the central body, each coordinate scaled by rho = 1 + e cos f and
+    differentiated with respect to the true anomaly f. J = k^2 (t - t_ref) with
+    k^2 = mu^2 / h^3, for any reference time.
+    """
+    f = np.asarray(f, dtype=float)
+    J = np.broadcast_to(np.asarray(J, dtype=float), f.shape)
+    rho = 1.0 + e * np.cos(f)
+    s, c = rho * np.sin(f), rho * np.cos(f)
+    ds = np.cos(f) + e * np.cos(2.0 * f)
+    dc = -(np.sin(f) + e * np.sin(2.0 * f))
+    o, i = np.zeros_like(f), np.ones_like(f)
+    psi = np.array(
+        [
+            [i, -c * (1.0 + 1.0 / rho), s * (1.0 + 1.0 / rho), 3.0 * rho**2 * J],
+            [o, s, c, 2.0 - 3.0 * e * s * J],
+            [o, 2.0 * s, 2.0 * c - e, 3.0 * (1.0 - 2.0 * e * s * J)],
+            [o, ds, dc, -3.0 * e * (ds * J + s / rho**2)],
+        ]
+    )
+    return np.moveaxis(psi, (0, 1), (-2, -1))
+
+
+def ya_in_plane_inverse(f: ArrayLike, e: float, J: ArrayLike) -> np.ndarray:
+    """Inverse of `ya_in_plane`, (..., 4, 4), in closed form.
+
+    At J = 0 it is the paper's pseudo-initial-value matrix. A shift of J adds J (3, -3e, 0, 0)
+    in the first three columns' coordinates to the fourth column, a nilpotent update whose
+    inverse is exact.
+    """
+    f = np.asarray(f, dtype=float)
+    J = np.broadcast_to(np.asarray(J, dtype=float), f.shape)
+    rho = 1.0 + e * np.cos(f)
+    s, c = rho * np.sin(f), rho * np.cos(f)
+    o = np.zeros_like(f)
+    start = np.array(
+        [
+            [
+                1.0 - e * e + o,
+                3.0 * e * s * (1.0 / rho + 1.0 / rho**2),
+                -e * s * (1.0 + 1.0 / rho),
+                2.0 - e * c,
+            ],
+            [o, -3.0 * s * (1.0 / rho + e * e / rho**2), s * (1.0 + 1.0 / rho), c - 2.0 * e],
+            [o, -3.0 * (c / rho + e), c * (1.0 + 1.0 / rho) + e, -s],
+            [o, 3.0 * rho + e * e - 1.0, -(rho**2), e * s],
+        ]
+    ) / (1.0 - e * e)
+    start = np.moveaxis(start, (0, 1), (-2, -1))
+    shifted = start.copy()
+    shifted[..., 0, :] -= 3.0 * J[..., None] * start[..., 3, :]
+    shifted[..., 1, :] += 3.0 * e * J[..., None] * start[..., 3, :]
+    return shifted
+
+
+class YamanakaAnkersenDynamics:
+    """Linear relative motion about an elliptic Keplerian target (Yamanaka and Ankersen 2002).
+
+    Exact for the linearized two-body problem at any eccentricity below 1; at e = 0 it is CW.
+    The free motion uses the closed-form Yamanaka-Ankersen solution; the response to an
+    acceleration held in Hill axes, which has no closed form, is integrated by Gauss-Legendre
+    quadrature to rounding. The target's orbit has semi-major axis `semi_major_axis` (m),
+    eccentricity `eccentricity`, and mean anomaly `mean_anomaly` (rad) at reset; its
+    orientation does not enter. `n` is its mean motion. Left out against the nonlinear model:
+    two-body nonlinearity, about rho^2 / a per orbit.
+    """
+
+    name = "ya"
+
+    def __init__(
+        self,
+        semi_major_axis: float,
+        eccentricity: float,
+        mean_anomaly: float = 0.0,
+        body: str | Body = "earth",
+    ):
+        self.body = get_body(body)
+        self.a = semi_major_axis
+        self.e = eccentricity
+        self.mean_anomaly = mean_anomaly
+        self.n = mean_motion(semi_major_axis, self.body.mu)
+        h = math.sqrt(self.body.mu * semi_major_axis * (1.0 - eccentricity**2))
+        self.k2 = self.body.mu**2 / h**3
+        self._t = 0.0
+        self._state = np.zeros(6)
+        self._segment: tuple[float, np.ndarray, np.ndarray] | None = None
+
+    def reset(self, rel_state: ArrayLike) -> None:
+        self._t = 0.0
+        self._state = np.array(rel_state, dtype=float)
+        self._segment = None
+
+    def _anomaly(self, t: ArrayLike) -> np.ndarray:
+        return true_anomaly(self.mean_anomaly + self.n * np.asarray(t, dtype=float), self.e)
+
+    def _scaling(self, f: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Maps from Hill states to scaled states and back, (..., 6, 6) each."""
+        rho = 1.0 + self.e * np.cos(f)
+        e_sin = self.e * np.sin(f)
+        eye = np.eye(3)
+        to_scaled = np.zeros(f.shape + (6, 6))
+        to_scaled[..., :3, :3] = rho[..., None, None] * eye
+        to_scaled[..., 3:, :3] = -e_sin[..., None, None] * eye
+        to_scaled[..., 3:, 3:] = (1.0 / (self.k2 * rho))[..., None, None] * eye
+        to_hill = np.zeros(f.shape + (6, 6))
+        to_hill[..., :3, :3] = (1.0 / rho)[..., None, None] * eye
+        to_hill[..., 3:, :3] = (self.k2 * e_sin)[..., None, None] * eye
+        to_hill[..., 3:, 3:] = (self.k2 * rho)[..., None, None] * eye
+        return to_scaled, to_hill
+
+    def _fundamental(self, f: np.ndarray, J: np.ndarray) -> np.ndarray:
+        """Fundamental matrix of the scaled equations in Hill order, (..., 6, 6)."""
+        psi = np.zeros(f.shape + (6, 6))
+        psi[(..., *np.ix_(_IN_PLANE, _IN_PLANE))] = _HILL_TO_YA.T @ ya_in_plane(f, self.e, J)
+        cos_f, sin_f = np.cos(f), np.sin(f)
+        psi[..., 2, 2], psi[..., 2, 5] = cos_f, sin_f
+        psi[..., 5, 2], psi[..., 5, 5] = -sin_f, cos_f
+        return psi
+
+    def _fundamental_inverse(self, f: np.ndarray, J: np.ndarray) -> np.ndarray:
+        inverse = np.zeros(f.shape + (6, 6))
+        inverse[(..., *np.ix_(_IN_PLANE, _IN_PLANE))] = (
+            ya_in_plane_inverse(f, self.e, J) @ _HILL_TO_YA
+        )
+        cos_f, sin_f = np.cos(f), np.sin(f)
+        inverse[..., 2, 2], inverse[..., 2, 5] = cos_f, -sin_f
+        inverse[..., 5, 2], inverse[..., 5, 5] = sin_f, cos_f
+        return inverse
+
+    def matrices(self, t0: float, durations: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
+        """Transition and input matrices from `t0` (s since reset) over each of `durations`.
+
+        Returns phi (..., 6, 6) and gamma (..., 6, 3) with state(t0 + d) = phi state(t0) +
+        gamma accel for an acceleration held in Hill axes.
+        """
+        d = np.asarray(durations, dtype=float)
+        f0 = self._anomaly(t0)
+        to_scaled0, _ = self._scaling(f0)
+        start = self._fundamental_inverse(f0, np.zeros(())) @ to_scaled0
+        f = self._anomaly(t0 + d)
+        _, to_hill = self._scaling(f)
+        carry = to_hill @ self._fundamental(f, self.k2 * d)
+        phi = carry @ start
+        gamma = carry @ self._forced_integral(t0, d)
+        return phi, gamma
+
+    def _forced_integral(self, t0: float, d: np.ndarray) -> np.ndarray:
+        """Integral over [t0, t0 + d] of the inverse fundamental matrix times the input map.
+
+        Evaluated between consecutive sorted durations and summed, so many sample times share
+        one pass of the quadrature.
+        """
+        flat = d.ravel()
+        order = np.argsort(flat)
+        edges = np.concatenate([[0.0], flat[order]])
+        per_orbit = 32.0 * (1.0 + self.e) ** 2 / (1.0 - self.e**2) ** 1.5
+        pieces = []
+        for lo, hi in zip(edges[:-1], edges[1:], strict=True):
+            count = max(1, math.ceil(per_orbit * self.n * abs(hi - lo) / math.tau))
+            bounds = np.linspace(lo, hi, count + 1)
+            half = 0.5 * np.diff(bounds)
+            tau = (0.5 * (bounds[:-1] + bounds[1:]))[:, None] + half[:, None] * _GL_NODES
+            weights = (half[:, None] * _GL_WEIGHTS).ravel()
+            tau = tau.ravel()
+            f = self._anomaly(t0 + tau)
+            rho = 1.0 + self.e * np.cos(f)
+            inputs = np.zeros(tau.shape + (6, 3))
+            inputs[:, 3:, :] = (1.0 / (self.k2 * rho))[:, None, None] * np.eye(3)
+            integrand = self._fundamental_inverse(f, self.k2 * tau) @ inputs
+            pieces.append(np.tensordot(weights, integrand, axes=1))
+        cumulative = np.cumsum(np.array(pieces), axis=0)
+        out = np.empty_like(cumulative)
+        out[order] = cumulative
+        return out.reshape(d.shape + (6, 3))
+
+    def advance(
+        self, accel_hill: ArrayLike, duration: float, n_samples: int = 0
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """Hold `accel_hill` (m/s^2) for `duration` s. Same returns as `CWDynamics.advance`."""
+        accel = np.array(accel_hill, dtype=float)
+        x0 = self._state
+        self._segment = (self._t, x0, accel)
+        samples = None
+        if n_samples > 0:
+            phis, gammas = self.matrices(self._t, np.linspace(0.0, duration, n_samples))
+            samples = phis @ x0 + gammas @ accel
+        phi, gamma = self.matrices(self._t, duration)
+        self._state = phi @ x0 + gamma @ accel
+        self._t += duration
+        return self._state.copy(), samples
+
+    def state_in_last_segment(self, tau: float) -> np.ndarray:
+        """State `tau` seconds into the most recent segment."""
+        if self._segment is None:
+            raise RuntimeError("no segment has been advanced since reset")
+        t0, x0, accel = self._segment
+        phi, gamma = self.matrices(t0, tau)
+        return phi @ x0 + gamma @ accel
+
+    def make_bounded(self, rel_state: ArrayLike) -> np.ndarray:
+        """`rel_state` with its along-track velocity changed so the motion repeats every orbit.
+
+        The coefficient of the secular solution (the J column) must vanish; at e = 0 this is
+        CW's vy = -2 n x. Applies at the model's current time.
+        """
+        state = np.array(rel_state, dtype=float)
+        f0 = self._anomaly(self._t)
+        to_scaled, _ = self._scaling(f0)
+        secular = self._fundamental_inverse(f0, np.zeros(()))[_IN_PLANE[3]]
+        weights = secular @ to_scaled
+        state[4] -= (weights @ state) / weights[4]
+        return state
