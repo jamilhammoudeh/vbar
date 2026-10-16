@@ -180,9 +180,8 @@ def test_twobody_absolute_states_match_kepler_over_ten_orbits(inclination_deg):
         assert np.linalg.norm(s1[3:] - v) < 1e-9 * np.linalg.norm(v)
 
 
-def test_hohmann_transfer_from_7000_to_7200_km_costs_105_5392_m_per_s():
-    # Schaub and Junkins' worked example; their printed 104.351 m/s used a wrong circular speed.
-    r1, r2 = 7000e3, 7200e3
+def hohmann_through_model(r1, r2):
+    """Burns (m/s) of a Hohmann transfer flown by the chaser through the two-body model."""
     a_transfer = 0.5 * (r1 + r2)
     dv1 = np.sqrt(EARTH.mu * (2 / r1 - 1 / a_transfer)) - np.sqrt(EARTH.mu / r1)
     m = TwoBodyDynamics(altitude=r1 - EARTH.radius)
@@ -192,10 +191,22 @@ def test_hohmann_transfer_from_7000_to_7200_km_costs_105_5392_m_per_s():
     r = np.linalg.norm(s[:3])
     assert r == pytest.approx(r2, rel=1e-11)
     assert abs(s[:3] @ s[3:] / r) < 1e-8
-    dv2 = np.sqrt(EARTH.mu / r2) - np.linalg.norm(s[3:])
+    return dv1, np.sqrt(EARTH.mu / r2) - np.linalg.norm(s[3:])
+
+
+def test_hohmann_transfer_from_7000_to_7200_km_costs_105_5392_m_per_s():
+    # Schaub and Junkins' worked example; their printed 104.351 m/s used a wrong circular speed.
+    dv1, dv2 = hohmann_through_model(7000e3, 7200e3)
     assert dv1 == pytest.approx(52.9554, abs=5e-5)
     assert dv2 == pytest.approx(52.5838, abs=5e-5)
     assert dv1 + dv2 == pytest.approx(105.5392, abs=5e-5)
+
+
+def test_hohmann_transfer_from_750_to_775_km_altitude_costs_13_08_m_per_s():
+    # Montenbruck and Gill, Satellite Orbits, exercise 2.1.
+    radius = 6378.137e3
+    dv1, dv2 = hohmann_through_model(radius + 750e3, radius + 775e3)
+    assert dv1 + dv2 == pytest.approx(13.08, abs=5e-3)
 
 
 def pco_state(rho, alpha, n):
