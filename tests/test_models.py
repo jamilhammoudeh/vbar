@@ -6,8 +6,8 @@ import pytest
 from vbar.conventions import inertial_to_hill
 from vbar.dynamics import cw_stm
 from vbar.dynamics.bodies import EARTH, KERBIN
-from vbar.dynamics.kepler import elements_from_state, propagate_kepler
-from vbar.dynamics.mean_elements import j2_secular_rates, osculating_to_mean
+from vbar.dynamics.kepler import elements_from_state, propagate_kepler, state_from_elements
+from vbar.dynamics.mean_elements import j2_secular_rates, mean_to_osculating, osculating_to_mean
 from vbar.dynamics.models import (
     CWDynamics,
     TwoBodyDynamics,
@@ -289,6 +289,28 @@ def test_j2_target_mean_raan_and_latitude_rates_match_secular_theory(inclination
     excess = 1.5 * EARTH.j2 * (EARTH.radius / a) ** 2 * (4 * np.cos(inclination) ** 2 - 1)
     latitude = wrapped(end[4] + end[5] - start[4] - start[5]) + 10 * 2 * np.pi
     assert latitude / (m.n * duration) - 1 == pytest.approx(excess, rel=1e-2)
+
+
+@pytest.mark.parametrize("inclination_deg", [30.0, 97.4])
+def test_j2_apsidal_and_nodal_rates_match_secular_theory_on_an_eccentric_orbit(inclination_deg):
+    # The chaser flies an e = 0.3 orbit through the same model, thousands of km from the
+    # target; the argument of perigee is only well defined away from circular orbits.
+    inclination = np.radians(inclination_deg)
+    m = TwoBodyDynamics(inclination=inclination, j2=True)
+    m.reset(np.zeros(6))
+    target = m.target_state()
+    mean = [10000e3, 0.3, inclination, 0.4, 0.9, 0.3]
+    r, v = state_from_elements(mean_to_osculating(mean, EARTH), EARTH.mu)
+    accel = gravity(target[:3], EARTH, j2=True)
+    m.reset(inertial_to_hill(target[:3], target[3:], r - target[:3], v - target[3:], accel))
+    duration = 5 * 2 * np.pi * np.sqrt(mean[0] ** 3 / EARTH.mu)
+    start = mean_elements(m.chaser_state())
+    m.advance(ZERO, duration)
+    end = mean_elements(m.chaser_state())
+    raan_dot, argp_dot, _ = j2_secular_rates(start[0], start[1], start[2], EARTH)
+    # The first-order rates leave out J2^2 terms worth about 0.2%.
+    assert wrapped(end[3] - start[3]) / duration == pytest.approx(raan_dot, rel=1e-2)
+    assert wrapped(end[4] - start[4]) / duration == pytest.approx(argp_dot, rel=1e-2)
 
 
 @pytest.mark.parametrize("t", [500.0, 1400.0, 2800.0])
