@@ -91,6 +91,46 @@ def test_halo_corrector_from_richardson_seed(small_l2_halo):
     assert far[2] < -abs(orbit.state[2])
 
 
+def test_holding_z0_jumps_family_and_the_jump_is_detected(small_l2_halo):
+    # Book sec. 6.7 continues in z0; past the family's largest z0 (about 0.075) the corrector
+    # lands on an unrelated orbit of about 27 days instead of failing.
+    _, orbit = small_l2_halo
+    orbits = [orbit]
+    for _ in range(10):
+        state = orbits[-1].state.copy()
+        state[2] += 0.005
+        orbits.append(po.correct_halo(state, MU, fixed="z"))
+    step = np.linalg.norm(orbits[-1].state - orbits[-2].state)
+    slope = abs(orbits[-1].period - orbits[-2].period) / step
+    assert not any(
+        po.family_jump(a, b, step, slope) for a, b in zip(orbits[1:-1], orbits[2:], strict=True)
+    )
+    state = orbits[-1].state.copy()
+    state[2] = 0.1
+    other = po.correct_halo(state, MU, fixed="z")
+    assert other.period * EARTH_MOON_KLMR.time / 86400 == pytest.approx(27.15, abs=0.05)
+    assert po.family_jump(orbits[-1], other, step, slope)
+
+
+def test_pseudo_arclength_continuation_passes_the_z0_turning_point(small_l2_halo):
+    _, orbit = small_l2_halo
+    family = po.continue_halo(orbit, MU, step=0.04, count=10)
+    z0 = np.array([f.state[2] for f in family])
+    assert z0.argmax() not in (0, len(z0) - 1)
+    assert np.all(np.diff([f.period for f in family]) < 0)
+
+
+def test_continuation_reaches_the_9_2_nrho(small_l2_halo):
+    # Computed: the Earth-Moon L2 family through the small halo reaches the 9:2 synodic-
+    # resonant near-rectilinear halo orbit, period 2/9 of 29.530589 days; holding z0 or x0
+    # alone cannot get there.
+    _, orbit = small_l2_halo
+    assert NRHO_PERIOD * EARTH_MOON_KLMR.time / 86400 == pytest.approx(2 * 29.530589 / 9, abs=1e-4)
+    nrho = po.halo_by_period(orbit, MU, NRHO_PERIOD)
+    assert np.max(np.abs(nrho.state - NRHO)) < 1e-10
+    assert nrho.jacobi == pytest.approx(3.0466675644, abs=1e-10)
+
+
 def test_nrho_monodromy_and_floquet_modes():
     # Computed: eigenvalues -2.176942, -0.45936, 0.684704 +- 0.728821i and a pair at 1;
     # stability index -1.318, mildly unstable with a sign flip each revolution.

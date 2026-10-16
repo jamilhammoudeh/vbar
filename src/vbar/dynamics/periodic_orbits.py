@@ -1,7 +1,8 @@
 """Periodic reference orbits of the CR3BP and their stability.
 
 Richardson's third-order halo approximation as a seed, differential correctors for planar
-Lyapunov and halo orbits, and monodromy and Floquet analysis. Nondimensional synodic states as in
+Lyapunov and halo orbits, pseudo-arclength continuation along a halo family with a check for
+jumps to another family, and monodromy and Floquet analysis. Nondimensional synodic states as in
 `vbar.dynamics.cr3bp`. Methods from Koon, Lo, Marsden and Ross, Dynamical Systems, the
 Three-Body Problem and Space Mission Design, secs. 4.3 to 4.4 and 6.6 to 7.2, with their
 corrections: Richardson's b22 is +3 c3 wp / d1 and a32 contains 4 c3 (k a24 - b22) (their sec.
@@ -265,7 +266,7 @@ def correct_halo(
 
     Drives vx and vz at the next x-z plane crossing to zero; the orbit is then symmetric about
     that plane. Holding z0 fails where the family turns back in z0, as it does on the way from
-    small Earth-Moon L2 halos to the near-rectilinear ones.
+    small Earth-Moon L2 halos to the near-rectilinear ones; `continue_halo` handles that.
     """
     s = np.array(state, dtype=float)
     free = {"z": [0, 4], "x": [2, 4]}[fixed]
@@ -276,6 +277,153 @@ def correct_halo(
             return PeriodicOrbit(s, 2.0 * t, float(cr3bp.jacobi_constant(s, mu)), iteration - 1)
         s[free] -= np.linalg.solve(_crossing_jacobian(end, phi, mu, free), miss)
     raise RuntimeError("halo corrector did not converge")
+
+
+class FamilyJump(RuntimeError):
+    """Continuation left the family it was following."""
+
+
+def family_jump(
+    previous: PeriodicOrbit, current: PeriodicOrbit, step: float, slope: float | None = None
+) -> bool:
+    """Whether `current` is not the neighbour of `previous` on one family.
+
+    Along a family the start state and the period change smoothly: a step of `step` in the
+    start state moves it by about `step`, and the period by about `slope` (its rate of change
+    on the previous step) times `step`. A converged orbit that breaks either belongs to another
+    family: continuing the Earth-Moon L2 halo family in z0, as Koon et al. do in sec. 6.7,
+    lands past the family's largest z0 on an unrelated orbit of about twice the period.
+    Without a slope, a period change of a fifth counts as a jump.
+    """
+    moved = float(np.linalg.norm(current.state - previous.state))
+    change = abs(current.period - previous.period)
+    if slope is None:
+        expected = 0.2 * previous.period
+    else:
+        expected = 3.0 * slope * step + 0.01 * previous.period
+    return moved > 2.0 * step or change > expected
+
+
+def _tangent(orbit: PeriodicOrbit, mu: float, reference: np.ndarray) -> np.ndarray:
+    """Unit tangent of the family at `orbit` in (x0, z0, vy0), on `reference`'s side."""
+    _, end, phi = half_period_crossing(orbit.state, mu)
+    null = np.linalg.svd(_crossing_jacobian(end, phi, mu, _FAMILY))[2][-1]
+    return null if null @ reference > 0.0 else -null
+
+
+def _arclength_step(
+    orbit: PeriodicOrbit, tangent: np.ndarray, step: float, mu: float
+) -> PeriodicOrbit:
+    """The family member `step` along `tangent` from `orbit`, corrected on the normal plane.
+
+    Raises RuntimeError if the corrector does not converge or has to move more than half a
+    step off the prediction: the step is then too long for the family's curvature, and the
+    corrector could land on another arm of a folded family.
+    """
+    predicted = orbit.state.copy()
+    predicted[_FAMILY] += step * tangent
+    s = predicted.copy()
+    for iteration in range(1, 21):
+        t, end, phi = half_period_crossing(s, mu)
+        offset = tangent @ (s[_FAMILY] - orbit.state[_FAMILY]) - step
+        residual = np.array([end[3], end[5], offset])
+        if np.max(np.abs(residual)) < 1e-12:
+            if np.linalg.norm(s - predicted) > 0.5 * abs(step):
+                break
+            return PeriodicOrbit(s, 2.0 * t, float(cr3bp.jacobi_constant(s, mu)), iteration - 1)
+        full = np.vstack([_crossing_jacobian(end, phi, mu, _FAMILY), tangent])
+        s[_FAMILY] -= np.linalg.solve(full, residual)
+    raise RuntimeError("continuation step too long for the family's curvature")
+
+
+_FAMILY = [0, 2, 4]
+
+
+def continue_halo(
+    start: PeriodicOrbit, mu: float, step: float, count: int, direction: ArrayLike = (0, 1, 0)
+) -> list[PeriodicOrbit]:
+    """Follow a halo family from `start` by pseudo-arclength continuation.
+
+    The unknowns (x0, z0, vy0) satisfy two crossing conditions, so the family is a curve; each
+    step moves `step` along its tangent and corrects on the plane normal to it, which passes
+    turning points in x0 or z0 where holding either fails. The first step goes to the side of
+    `direction` in (x0, z0, vy0); by default z0 grows. Raises `FamilyJump` if a step lands on
+    another family.
+    """
+    orbits = [start]
+    tangent = np.asarray(direction, dtype=float)
+    slope = None
+    for _ in range(count):
+        tangent = _tangent(orbits[-1], mu, tangent)
+        orbit = _arclength_step(orbits[-1], tangent, step, mu)
+        if family_jump(orbits[-1], orbit, step, slope):
+            raise FamilyJump(f"left the family after {len(orbits) - 1} steps")
+        slope = abs(orbit.period - orbits[-1].period) / step
+        orbits.append(orbit)
+    return orbits
+
+
+def halo_by_period(
+    start: PeriodicOrbit,
+    mu: float,
+    period: float,
+    step: float = 0.02,
+    max_step: float = 0.1,
+    direction: ArrayLike = (0, 1, 0),
+) -> PeriodicOrbit:
+    """The member of `start`'s halo family with nondimensional `period`, to 1e-12.
+
+    Continues as `continue_halo`, doubling the step up to `max_step` while the corrector
+    converges in four iterations or fewer and halving it when it fails or lands off the
+    family, until the period is passed; then finds the step that lands on it by false position
+    (Illinois variant) between the two bracketing members.
+    """
+    current = start
+    tangent = np.asarray(direction, dtype=float)
+    slope = None
+    for _ in range(1000):
+        tangent = _tangent(current, mu, tangent)
+        try:
+            orbit = _arclength_step(current, tangent, step, mu)
+            if family_jump(current, orbit, step, slope):
+                raise FamilyJump("landed off the family")
+        except RuntimeError:
+            if step < 1e-4:
+                raise
+            step *= 0.5
+            continue
+        if (orbit.period - period) * (current.period - period) <= 0.0:
+            return _land_on_period(current, orbit, tangent, step, period, mu)
+        slope = abs(orbit.period - current.period) / step
+        current = orbit
+        if orbit.iterations <= 4:
+            step = min(2.0 * step, max_step)
+    raise RuntimeError("period not reached")
+
+
+def _land_on_period(
+    near: PeriodicOrbit,
+    far: PeriodicOrbit,
+    tangent: np.ndarray,
+    step: float,
+    period: float,
+    mu: float,
+) -> PeriodicOrbit:
+    lo, f_lo = 0.0, near.period - period
+    hi, f_hi = step, far.period - period
+    best = far
+    for _ in range(40):
+        s = hi - f_hi * (hi - lo) / (f_hi - f_lo)
+        best = _arclength_step(near, tangent, s, mu)
+        f = best.period - period
+        if abs(f) < 1e-12:
+            return best
+        if f * f_hi < 0.0:
+            lo, f_lo = hi, f_hi
+        else:
+            f_lo *= 0.5
+        hi, f_hi = s, f
+    raise RuntimeError("period not reached")
 
 
 def monodromy(state: ArrayLike, period: float, mu: float) -> np.ndarray:
