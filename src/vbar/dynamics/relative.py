@@ -16,7 +16,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from .bodies import Body, get_body
-from .cw import mean_motion
+from .cw import CWDiscretizer, mean_motion
 
 # Hill in-plane [x, y, vx, vy] to Yamanaka and Ankersen's [x, z, vx, vz], whose x is along-track
 # and z points at the central body (the ISS-style LVLH axes of `vbar.conventions`).
@@ -263,3 +263,120 @@ class YamanakaAnkersenDynamics:
         weights = secular @ to_scaled
         state[4] -= (weights @ state) / weights[4]
         return state
+
+
+def hill_to_curvilinear(rel_state: ArrayLike, radius: float) -> np.ndarray:
+    """Curvilinear relative state about a circular target orbit of `radius` (m).
+
+    [r - r0, r0 theta, r0 phi] and their rates: the chaser's radius minus the target's, and
+    arc lengths at the target's radius along the orbit (angle theta from the target in its
+    orbit plane) and across it (latitude phi above that plane). Inputs may be stacked (..., 6).
+    """
+    s = np.asarray(rel_state, dtype=float)
+    x, y, z = s[..., 0], s[..., 1], s[..., 2]
+    vx, vy, vz = s[..., 3], s[..., 4], s[..., 5]
+    px = radius + x
+    rho2 = px * px + y * y
+    r = np.sqrt(rho2 + z * z)
+    rho = np.sqrt(rho2)
+    r_dot = (px * vx + y * vy + z * vz) / r
+    theta_dot = (px * vy - y * vx) / rho2
+    phi_dot = (vz * r - z * r_dot) / (r * rho)
+    # r - r0 without cancelling two 7000 km numbers.
+    dr = (2.0 * radius * x + x * x + y * y + z * z) / (r + radius)
+    return np.stack(
+        [
+            dr,
+            radius * np.arctan2(y, px),
+            radius * np.arcsin(z / r),
+            r_dot,
+            radius * theta_dot,
+            radius * phi_dot,
+        ],
+        axis=-1,
+    )
+
+
+def curvilinear_to_hill(curvilinear: ArrayLike, radius: float) -> np.ndarray:
+    """Inverse of `hill_to_curvilinear`."""
+    c = np.asarray(curvilinear, dtype=float)
+    r = radius + c[..., 0]
+    theta, phi = c[..., 1] / radius, c[..., 2] / radius
+    r_dot, theta_dot, phi_dot = c[..., 3], c[..., 4] / radius, c[..., 5] / radius
+    radial, along, normal = _spherical_axes(theta, phi)
+    # cos(phi) cos(theta) - 1 without cancellation, so small offsets keep full precision.
+    cp = np.cos(phi)
+    x = c[..., 0] * radial[..., 0] - 2.0 * radius * (
+        cp * np.sin(0.5 * theta) ** 2 + np.sin(0.5 * phi) ** 2
+    )
+    position = np.stack([x, r * radial[..., 1], r * radial[..., 2]], axis=-1)
+    velocity = (
+        r_dot[..., None] * radial
+        + (r * np.cos(phi) * theta_dot)[..., None] * along
+        + (r * phi_dot)[..., None] * normal
+    )
+    return np.concatenate([position, velocity], axis=-1)
+
+
+def _spherical_axes(theta: np.ndarray, phi: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Local radial, along-track and normal unit vectors in Hill axes, (..., 3) each."""
+    ct, st, cp, sp = np.cos(theta), np.sin(theta), np.cos(phi), np.sin(phi)
+    radial = np.stack([cp * ct, cp * st, sp], axis=-1)
+    along = np.stack([-st, ct, np.zeros_like(ct)], axis=-1)
+    normal = np.stack([-sp * ct, -sp * st, cp], axis=-1)
+    return radial, along, normal
+
+
+class CurvilinearCWDynamics:
+    """CW motion in curvilinear coordinates about a circular target orbit.
+
+    The CW equations hold to first order in the radius difference and the along-track and
+    cross-track arc lengths as well as in Cartesian Hill coordinates (Alfriend et al.,
+    Spacecraft Formation Flying, eqs 5.79 to 5.88), but curvilinear coordinates follow the
+    orbit's curvature: a chaser on the target's circle is exactly stationary, and a V-bar
+    offset D, which Cartesian CW gets wrong by 6 pi D^2 / a per orbit, is right to O(D^4).
+    Other geometries keep second-order errors of their own; a radial offset X started with
+    CW's bounded velocity drifts -12 pi X^2 / a per orbit here, against two-body's 3 pi X^2 / a
+    and Cartesian CW's zero. States in and out are Cartesian Hill states, mapped exactly.
+    The acceleration is resolved along the chaser's local radial, along-track and normal axes
+    at the start of each segment and held there; those axes turn against the Hill axes by the
+    change of the chaser's angle from the target, 1e-6 rad over 10 m.
+    """
+
+    name = "cw_curvilinear"
+
+    def __init__(self, radius: float, body: str | Body = "earth"):
+        self.radius = radius
+        self.n = mean_motion(radius, get_body(body).mu)
+        self.disc = CWDiscretizer(self.n)
+        self._curvilinear = np.zeros(6)
+        self._segment: tuple[np.ndarray, np.ndarray] | None = None
+
+    def reset(self, rel_state: ArrayLike) -> None:
+        self._curvilinear = hill_to_curvilinear(rel_state, self.radius)
+        self._segment = None
+
+    def advance(
+        self, accel_hill: ArrayLike, duration: float, n_samples: int = 0
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """Hold `accel_hill` (m/s^2) for `duration` s. Same returns as `CWDynamics.advance`."""
+        x0 = self._curvilinear
+        theta, phi = x0[1] / self.radius, x0[2] / self.radius
+        accel = np.array(accel_hill, dtype=float)
+        local = np.array([accel @ axis for axis in _spherical_axes(theta, phi)])
+        self._segment = (x0, local)
+        samples = None
+        if n_samples > 0:
+            phis, gammas = self.disc.sample_matrices(duration, n_samples)
+            samples = curvilinear_to_hill(phis @ x0 + gammas @ local, self.radius)
+        phi_d, gamma = self.disc.matrices(duration)
+        self._curvilinear = phi_d @ x0 + gamma @ local
+        return curvilinear_to_hill(self._curvilinear, self.radius), samples
+
+    def state_in_last_segment(self, tau: float) -> np.ndarray:
+        """State `tau` seconds into the most recent segment."""
+        if self._segment is None:
+            raise RuntimeError("no segment has been advanced since reset")
+        x0, local = self._segment
+        phi, gamma = self.disc.matrices(tau)
+        return curvilinear_to_hill(phi @ x0 + gamma @ local, self.radius)
