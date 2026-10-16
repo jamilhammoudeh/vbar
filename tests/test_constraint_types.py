@@ -8,6 +8,7 @@ from vbar.constraints import (
     PassiveSpeed,
     SpeedLimit,
     SunExclusion,
+    ZoneEntry,
     closing_speed,
     segment_minimum,
 )
@@ -141,6 +142,7 @@ def test_cone_rejects_a_half_angle_outside_its_range():
 SUN = SunExclusion(np.radians(20.0), sun_direction=(0.3, 1.0, 0.2), rate=N)
 PASSIVE_VBAR = PassiveSpeed("vbar", 15.0, N)
 PASSIVE_RBAR = PassiveSpeed("rbar", 15.0, N)
+ZONE = ZoneEntry((30.0, 60.0, 30.0))
 
 
 def test_sun_exclusion_margin_is_the_angle_between_line_of_sight_and_sun_minus_the_half_angle():
@@ -202,9 +204,34 @@ def test_passive_speed_rejects_an_unknown_axis():
         PassiveSpeed("hbar", 15.0, N)
 
 
+def test_zone_margin_is_zero_on_the_ellipsoid_and_infinite_after_go():
+    iss = ZoneEntry((1000.0, 2000.0, 1000.0), go_time=600.0)
+    surface = np.array([0.0, -2000.0, 0.0, 0.0, 0.0, 0.0])
+    assert iss.margin(surface, 0.0) == pytest.approx(0.0)
+    assert iss.margin(np.array([0.0, -3000.0, 0.0, 0, 0, 0]), 0.0) == pytest.approx(500.0)
+    assert iss.margin(surface * 0.5, 599.0) < 0.0
+    assert iss.margin(surface * 0.5, 600.0) == np.inf
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_zone_margin_lies_below_the_distance_to_the_ellipsoid(seed):
+    rng = np.random.default_rng(seed)
+    axes = rng.uniform(10.0, 100.0, 3)
+    zone = ZoneEntry(tuple(axes))
+    point = rng.normal(size=3) * 150.0
+    u = rng.normal(size=(200000, 3))
+    surface = axes * u / np.linalg.norm(u, axis=1, keepdims=True)
+    distance = np.linalg.norm(surface - point, axis=1).min()
+    margin = float(zone.margin(np.r_[point, 0.0, 0.0, 0.0]))
+    if margin > 0.0:
+        assert margin <= distance
+    sphere = ZoneEntry((40.0, 40.0, 40.0))
+    assert sphere.margin(np.r_[point, 0, 0, 0]) == pytest.approx(np.linalg.norm(point) - 40.0)
+
+
 @pytest.mark.parametrize(
     "constraint",
-    [SPEED, CLOSING, CONE, SUN, PASSIVE_VBAR, PASSIVE_RBAR],
+    [SPEED, CLOSING, CONE, SUN, PASSIVE_VBAR, PASSIVE_RBAR, ZONE],
     ids=lambda c: f"{c.name}_{getattr(c, 'axis', '')}",
 )
 @pytest.mark.parametrize("seed", range(12))

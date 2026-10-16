@@ -59,6 +59,14 @@ $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
   envelope. The margin is the envelope at $\rho$ minus the closing speed (m/s). The R-bar
   envelope's slope $n f'/(2\sqrt f)$, $f = 7h^2 - 8hd + d^2$, falls with $h$, so its rate bound is
   taken at $\rho_{\min}$ (infinite for $\rho_{\min} \le d$).
+- `ZoneEntry(semi_axes, center, go_time)`: stay out of an ellipsoid until the GO event at
+  `go_time`. With $q = |D^{-1}(\mathbf r - \mathbf c)|$, $D$ the semi-axes and $a_{\min}$ the
+  smallest, the margin is $a_{\min}(q - 1)$ (m), then $+\infty$ from `go_time` on. Since
+  $|q(\mathbf x) - q(\mathbf y)| \le |\mathbf x - \mathbf y| / a_{\min}$, the margin is 1-Lipschitz
+  (rate bound $V$) and never above the distance to the ellipsoid outside it, equal to it for a
+  sphere. The ISS approach ellipsoid is $\pm$2000 m along-track and $\pm$1000 m otherwise
+  (Fehse 5.6), `ZoneEntry((1000, 2000, 1000))`. The GO event must fall on a step boundary, since
+  the rate bound does not cover a jump inside a segment.
 
 ## Sampling and refinement
 
@@ -158,6 +166,8 @@ its minimum margin is negative.
   free drift from the envelope at 20, 50 and 300 m comes within 15 m of the target to 1e-8
   relative over 200001 samples of one orbit. The V-bar coast at 0.1 m/s and 400 km is 42.21 m
   (K5), and free drift from the V-bar envelope with gaps of 5, 50 and 500 m reaches the structure.
+- The zone margin is zero on the ISS ellipsoid, infinite after GO, below the distance to 8 random
+  ellipsoids (200000 surface samples) and equal to it for a sphere.
 - A constant margin on the V-bar is not refined.
 
 ## Example
