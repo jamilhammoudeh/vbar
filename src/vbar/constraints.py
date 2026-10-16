@@ -10,8 +10,9 @@ Local refinement finds the minimum but cannot prove there is no lower one betwee
 each segment also gets a certified lower bound from a Lipschitz argument: on a sample interval
 of length h whose margin changes at most L per second, the margin never falls below
 (m_i + m_{i+1} - L h) / 2, which is at least min_i m_i - L h / 2. Every interval whose bound is
-more than the constraint's `resolution` below the best value found is refined, so the reported
-minimum is within `resolution` of the true one.
+more than the constraint's `resolution` below the best value found is refined with a bounded
+Brent search, which finds the true minimum when the refined interval holds a single dip.
+Refinement does not tighten the bound, which can stay up to L h / 2 below the reported minimum.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ class Constraint(Protocol):
     @property
     def name(self) -> str: ...
 
-    resolution: ClassVar[float]  # margin units; how closely the minimum is resolved
+    resolution: ClassVar[float]  # margin units; refinement threshold below the best value
 
     def margin(self, state: np.ndarray, t: float | np.ndarray) -> np.ndarray: ...
 
