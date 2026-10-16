@@ -122,7 +122,7 @@ def test_exact_cw_matches_dop853_over_one_orbit(seed):
     accel = rng.uniform(-1e-3, 1e-3, 3)
     phi, gamma = cw_discrete(N, PERIOD)
     s1 = phi @ s0 + gamma @ accel
-    numeric = propagate(s0, N, PERIOD, accel, rtol=3e-14, atol=1e-12)
+    numeric = propagate(s0, N, PERIOD, accel, rtol=1e-13, atol=1e-14)
     assert np.max(np.abs(s1[:3] - numeric[:3])) < 1e-9
     assert np.max(np.abs(s1[3:] - numeric[3:])) < 1e-12
 
@@ -153,7 +153,7 @@ def test_stepped_exact_cw_matches_dop853_with_thrust(seed):
     for _ in range(int(PERIOD // dt)):
         accel = rng.uniform(-0.02, 0.02, 3)
         exact = phi @ exact + gamma @ accel
-        numeric = propagate(numeric, N, dt, accel, rtol=1e-13, atol=1e-12)
+        numeric = propagate(numeric, N, dt, accel, rtol=1e-13, atol=1e-14)
         peak = max(peak, np.max(np.abs(exact[:3])))
     assert np.max(np.abs(exact[:3] - numeric[:3])) < 1e-12 * peak
     assert np.max(np.abs(exact[3:] - numeric[3:])) < 1e-12 * N * peak
