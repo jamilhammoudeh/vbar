@@ -1,7 +1,7 @@
 # Constraints and the in-step minimum
 
 Code: `vbar.constraints` (`Constraint`, `KeepOut`, `segment_minimum`, `interval_bounds`,
-`range_lower_bounds`). A
+`range_lower_bounds`, and the constraint types below). A
 constraint's margin is $\ge 0$ where it holds and $< 0$ where it is violated, in the constraint's
 units, as in the quantitative semantics of signal temporal logic (Donzé and Maler, 2010). The
 environment finds each constraint's lowest margin over every constant-acceleration segment of a
@@ -11,11 +11,19 @@ step, not only at the step's samples ([environment.md](environment.md)).
 
 A constraint has a `name`, a `margin(states, t)` vectorized over stacked states `(..., 6)`, a
 `rate_bound(speed, accel, rho_min)` that bounds $|dm/dt|$ given bounds on $|\mathbf v|$ and
-$|\dot{\mathbf v}|$ and a lower bound on the range, and a `resolution` in margin units. The first
-one is:
+$|\dot{\mathbf v}|$ and a lower bound on the range, and a `resolution` in margin units. With
+$\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
 
 - `KeepOut(radius)`: stay outside a sphere around the target. Margin $\rho - r_{\text{ko}}$ (m),
   rate bound $|d\rho/dt| = |\mathbf r \cdot \mathbf v| / \rho \le |\mathbf v|$, resolution 1 mm.
+- `SpeedLimit(v0, v1)`: margin $v_0 + v_1\rho - |\mathbf v|$ (m/s), the distance-dependent limit of
+  Dunlap et al., "Comparing Run Time Assurance Approaches for Safe Spacecraft Docking" (2021),
+  eq. 14, which uses $v_0$ = 0.2 m/s and $v_1 = 4n$. Rate bound $|v_1| V + A$, resolution
+  1e-5 m/s.
+- `ClosingSpeedLimit(v0, v1)`: margin $v_0 + v_1\rho - \max(0, -\dot\rho)$ (m/s), the same limit on
+  the speed toward the target only (`closing_speed`). Since $\ddot\rho = (|\mathbf v|^2 -
+  \dot\rho^2)/\rho + \hat{\mathbf r}\cdot\dot{\mathbf v}$, the rate bound is $|v_1| V + V^2 /
+  \rho_{\min} + A$, infinite when $\rho_{\min}$ = 0. Resolution 1e-5 m/s.
 
 ## Sampling and refinement
 
@@ -102,6 +110,10 @@ its minimum margin is negative.
   minimum to 1 mm.
 - Over 10 flybys the range bound lies below the range of 1901 dense samples on every interval,
   and it is zero when the speed bound is infinite.
+- `tests/test_constraint_types.py`: for every constraint type, over 12 flybys (coasting and
+  thrusting at 0.1 to 3 m/s) the certificate is finite and lies below the minimum of 4001 dense
+  samples, and the refined minimum is within 1e-6 of it. Hand-built states check each margin
+  formula.
 - A constant margin on the V-bar is not refined.
 
 ## Example

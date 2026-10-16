@@ -64,6 +64,68 @@ class KeepOut:
         return speed
 
 
+def closing_speed(state: np.ndarray) -> np.ndarray:
+    """max(0, -rho_dot) (m/s), the speed at which the range falls; |v| at the origin."""
+    state = np.asarray(state)
+    r, v = state[..., :3], state[..., 3:6]
+    rho = np.linalg.norm(r, axis=-1)
+    speed = np.linalg.norm(v, axis=-1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rho_dot = np.where(rho > 0.0, np.sum(r * v, axis=-1) / rho, -speed)
+    return np.maximum(-rho_dot, 0.0)
+
+
+def _closing_rate_bound(speed: float, accel: float, rho_min: float) -> float:
+    # rho_ddot = (|v|^2 - rho_dot^2) / rho + r_hat . dv/dt, so |rho_ddot| <= |v|^2 / rho + |dv/dt|.
+    if rho_min <= 0.0:
+        return np.inf
+    return speed * speed / rho_min + accel
+
+
+@dataclass(frozen=True)
+class SpeedLimit:
+    """Speed no higher than v0 + v1 rho; margin v0 + v1 rho - |v| (m/s).
+
+    The distance-dependent form of the run time assurance docking benchmark (Dunlap et al.,
+    "Comparing Run Time Assurance Approaches for Safe Spacecraft Docking", 2021, eq. 14,
+    v0 = 0.2 m/s, v1 = 4 n).
+    """
+
+    v0: float
+    v1: float
+    name: str = "speed_limit"
+    resolution: ClassVar[float] = 1e-5
+
+    def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
+        state = np.asarray(state)
+        rho = np.linalg.norm(state[..., :3], axis=-1)
+        return self.v0 + self.v1 * rho - np.linalg.norm(state[..., 3:6], axis=-1)
+
+    def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
+        return abs(self.v1) * speed + accel
+
+
+@dataclass(frozen=True)
+class ClosingSpeedLimit:
+    """Closing speed no higher than v0 + v1 rho; margin v0 + v1 rho - max(0, -rho_dot) (m/s).
+
+    Only the speed toward the target counts, so moving across the line of sight or away is free.
+    """
+
+    v0: float
+    v1: float
+    name: str = "closing_speed_limit"
+    resolution: ClassVar[float] = 1e-5
+
+    def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
+        state = np.asarray(state)
+        rho = np.linalg.norm(state[..., :3], axis=-1)
+        return self.v0 + self.v1 * rho - closing_speed(state)
+
+    def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
+        return abs(self.v1) * speed + _closing_rate_bound(speed, accel, rho_min)
+
+
 @dataclass(frozen=True)
 class SegmentMinimum:
     """Lowest margin of one constraint over a segment and a certified lower bound on it.
