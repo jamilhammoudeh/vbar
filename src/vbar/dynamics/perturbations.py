@@ -99,7 +99,7 @@ def cylindrical_shadow(r: ArrayLike, sun: ArrayLike, body: Body = EARTH) -> np.n
     """1 in sunlight, 0 inside the body's shadow cylinder.
 
     For lighting, where the few seconds of penumbra do not matter (Montenbruck and Gill,
-    Satellite Orbits, sec. 3.4.2).
+    Satellite Orbits, sec. 3.4.1).
     """
     r = np.asarray(r, dtype=float)
     along = _dot(r, _unit(sun))
