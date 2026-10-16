@@ -46,6 +46,7 @@ request.
 ## Pull requests
 
 - One change per pull request, with its tests.
+- A change to a feature updates its page in `docs/` in the same pull request.
 - Commit messages are short, lowercase and in the past tense: `added drag model`,
   `fixed keep-out check`.
 - Do not copy code from other projects unless its license allows it, and say where it came from.
