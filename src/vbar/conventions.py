@@ -56,8 +56,8 @@ def inertial_to_hill(
     `dr` and `dv` are the chaser's inertial position and velocity minus the target's.
     """
     C, omega = hill_frame(r, v, accel)
-    rho = np.einsum("...ji,...j->...i", C, dr)
-    rho_dot = np.einsum("...ji,...j->...i", C, dv) - np.cross(omega, rho)
+    rho = np.einsum("...ji,...j->...i", C, np.asarray(dr, dtype=float))
+    rho_dot = np.einsum("...ji,...j->...i", C, np.asarray(dv, dtype=float)) - np.cross(omega, rho)
     return np.concatenate([rho, rho_dot], axis=-1)
 
 
