@@ -104,6 +104,43 @@ def test_state_in_last_segment_needs_a_segment(kind):
         m.state_in_last_segment(1.0)
 
 
+def test_twobody_decision_steps_cost_under_20_gravity_evaluations_each():
+    m = TwoBodyDynamics(inclination=np.radians(51.6))
+    calls = 0
+    rhs = m._rhs
+
+    def counted(*args):
+        nonlocal calls
+        calls += 1
+        return rhs(*args)
+
+    m._rhs = counted
+    start = [0.0, -1000.0, 0.0, 0.0, 0.0, 0.0]
+    m.reset(start)
+    period = 2 * np.pi / m.n
+    steps = 568  # about 10 s each
+    for _ in range(steps):
+        stepped, _ = m.advance(ZERO, period / steps, n_samples=20)
+    # One DOP853 step with dense output is 16 evaluations; restarting from scipy's own initial
+    # step guess took 84.
+    assert calls < 20 * steps
+    m.reset(start)
+    continuous, _ = m.advance(ZERO, period)
+    assert np.max(np.abs(stepped[:3] - continuous[:3])) < 1e-8
+
+
+@pytest.mark.parametrize("kind", ["cw", "twobody_j2"])
+def test_zero_and_backward_segments_are_exact(kind):
+    m = make_dynamics(kind, inclination=0.9)
+    s0 = np.array([150.0, -400.0, 30.0, 0.05, 0.1, -0.02])
+    m.reset(s0)
+    forward, _ = m.advance(ZERO, 30.0)
+    same, _ = m.advance(ZERO, 0.0)
+    assert np.array_equal(same, forward)
+    back, _ = m.advance(ZERO, -30.0)
+    assert np.allclose(back, s0, rtol=0.0, atol=1e-9)
+
+
 def test_twobody_samples_are_states_within_the_segment():
     m = TwoBodyDynamics(j2=True, inclination=0.9)
     m.reset([150.0, -400.0, 30.0, 0.05, 0.1, -0.02])

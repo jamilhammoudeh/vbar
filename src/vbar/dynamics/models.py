@@ -162,12 +162,14 @@ class TwoBodyDynamics:
         self.n = mean_motion(self.body.radius + altitude, self.body.mu)
         self._y = np.zeros(12)
         self._sol = None
+        self._step: float | None = None
 
     def reset(self, rel_state: ArrayLike) -> None:
         r_t, v_t = circular_orbit(self.body, self.altitude, self.inclination)
         dr, dv = hill_to_inertial(r_t, v_t, rel_state, self._gravity(r_t))
         self._y = np.concatenate([r_t, v_t, dr, dv])
         self._sol = None
+        self._step = None
 
     def _gravity(self, r: np.ndarray) -> np.ndarray:
         return gravity(r, self.body, self.j2)
@@ -187,6 +189,12 @@ class TwoBodyDynamics:
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """Hold `accel_hill` (m/s^2) for `duration` s. Same returns as `CWDynamics.advance`."""
         accel = np.array(accel_hill, dtype=float)
+        # Restarting every decision step from scipy's initial step guess costs about five times
+        # the evaluations. Start from the largest step of the last segment instead, allowed to
+        # grow by the step-size controller's limit of 10: a segment's final step is cut short to
+        # land on its end, so on its own it would pin later segments to two steps.
+        span = abs(duration)
+        first_step = None if self._step is None or span == 0.0 else min(10.0 * self._step, span)
         sol = solve_ivp(
             self._rhs,
             (0.0, duration),
@@ -196,11 +204,14 @@ class TwoBodyDynamics:
             rtol=_RTOL,
             atol=_ATOL,
             dense_output=True,
+            first_step=first_step,
         )
         if not sol.success:
             raise RuntimeError(f"two-body integration failed: {sol.message}")
         self._sol = sol
         self._y = sol.y[:, -1]
+        if span > 0.0:
+            self._step = float(np.max(np.abs(np.diff(sol.t))))
         samples = None
         if n_samples > 0:
             samples = self._to_hill(sol.sol(np.linspace(0.0, duration, n_samples)).T)
