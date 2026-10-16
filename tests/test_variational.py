@@ -66,7 +66,8 @@ def test_gravity_gradient_matches_finite_differences(j2):
 FORCES = {
     "none": [],
     "drag": [Drag(HarrisPriester([0.3, 0.5, 0.8], exponent=4), 40.0, 60.0)],
-    # A Sun direction the orbit never leaves; shadow crossings are tested elsewhere.
+    # The orbit is a third of the time in shadow, but not on this 1500 s arc from the node;
+    # shadow crossings are tested elsewhere.
     "srp": [SolarPressure([0.0, 0.0, 1.0], 0.05, 0.01)],
 }
 
