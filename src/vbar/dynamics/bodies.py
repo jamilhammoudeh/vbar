@@ -72,8 +72,9 @@ class ThreeBodySystem:
         return self.length / self.time**2
 
 
-# The mass ratio used across the near-rectilinear halo orbit literature, from JPL ephemeris
-# GMs, the mean distance 384,400 km, and the period from Kepler's third law with WGS 84's GM.
+# The mass ratio used in the near-rectilinear halo orbit literature, whose ephemeris source is
+# not confirmed, the mean distance 384,400 km, and the period from Kepler's third law with
+# WGS 84's GM.
 _EM_MU = 0.01215058560962404
 EARTH_MOON = ThreeBodySystem(
     "earth-moon",
