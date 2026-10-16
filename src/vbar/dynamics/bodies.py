@@ -1,7 +1,8 @@
-"""Central-body constants (GM, equatorial radius, J2) and the Sun's radius and distance."""
+"""Physical constants: central bodies, the Sun, and three-body systems."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -36,6 +37,60 @@ SUN_RADIUS = 6.957e8  # m, IAU 2015 nominal solar radius
 # Radiation pressure on an absorbing surface at 1 AU: 1367 W/m^2 over the speed of light
 # (Montenbruck and Gill, Satellite Orbits, eq 3.69).
 SOLAR_PRESSURE = 4.56e-6  # N/m^2
+
+
+@dataclass(frozen=True)
+class ThreeBodySystem:
+    """Constants of a circular restricted three-body problem, named and versioned.
+
+    `mu` is the smaller primary's share of the total mass, `length` the primaries' distance
+    (m) and `period` their orbital period (s). Nondimensional units have length 1, period
+    2 pi and total mass 1. Results in metres and seconds move by about 0.15% between published
+    sets of the same system (Koon, Lo, Marsden and Ross, Dynamical Systems, the Three-Body
+    Problem and Space Mission Design, table 2.2.1 and ch. 6), so every result states its set.
+    """
+
+    name: str
+    version: int
+    mu: float
+    length: float
+    period: float
+
+    @property
+    def time(self) -> float:
+        """Seconds per nondimensional time unit."""
+        return self.period / math.tau
+
+    @property
+    def velocity(self) -> float:
+        """m/s per nondimensional velocity unit."""
+        return self.length / self.time
+
+    @property
+    def acceleration(self) -> float:
+        """m/s^2 per nondimensional acceleration unit."""
+        return self.length / self.time**2
+
+
+# The mass ratio used across the near-rectilinear halo orbit literature, from JPL ephemeris
+# GMs, the mean distance 384,400 km, and the period from Kepler's third law with WGS 84's GM.
+_EM_MU = 0.01215058560962404
+EARTH_MOON = ThreeBodySystem(
+    "earth-moon",
+    1,
+    _EM_MU,
+    3.844e8,
+    math.tau * math.sqrt(3.844e8**3 * (1.0 - _EM_MU) / EARTH.mu),
+)
+# Koon, Lo, Marsden and Ross, table 2.2.1 and sec. 5.3.
+EARTH_MOON_KLMR = ThreeBodySystem("earth-moon-klmr", 1, 0.01215, 3.85e8, 2.361e6)
+SUN_JUPITER_KLMR = ThreeBodySystem("sun-jupiter-klmr", 1, 9.537e-4, 7.784e11, 3.733e8)
+# Richardson's Sun-(Earth+Moon) mass ratio, which reproduces Koon et al.'s chapter 6
+# constants, with the distance of their sec. 6.3 and the sidereal year of their sec. 5.3 (the
+# period in their table 2.2.1, 3.147e7 s, is a misprint).
+SUN_EARTH_RICHARDSON = ThreeBodySystem(
+    "sun-earth-richardson", 1, 3.040357143e-6, 1.495978714e11, 3.156e7
+)
 
 
 def get_body(body: str | Body) -> Body:

@@ -1,0 +1,255 @@
+"""CR3BP model tests. Values marked "computed" were obtained with Koon, Lo, Marsden and Ross's
+methods and constants (Dynamical Systems, the Three-Body Problem and Space Mission Design) and are
+reproduced here independently; the others are printed in the book."""
+
+import math
+
+import numpy as np
+import pytest
+from scipy.integrate import solve_ivp
+
+from vbar.dynamics import cr3bp
+from vbar.dynamics.bodies import (
+    EARTH_MOON,
+    EARTH_MOON_KLMR,
+    SUN_EARTH_RICHARDSON,
+    SUN_JUPITER_KLMR,
+    Body,
+    ThreeBodySystem,
+)
+from vbar.dynamics.cw import cw_system
+from vbar.dynamics.models import TwoBodyDynamics
+
+MU = EARTH_MOON_KLMR.mu
+# Computed: 9:2 synodic-resonant L2 near-rectilinear halo orbit with its apolune below the
+# plane, at its perilune-side crossing of the x-z plane, and its period.
+NRHO = np.array([0.9873849199042153, 0.0, 0.008369210996156513, 0.0, 1.6744665364075588, 0.0])
+NRHO_PERIOD = 1.5088887454509277
+
+
+def propagate(state, t, mu=MU, rtol=1e-13):
+    sol = solve_ivp(cr3bp.rhs, (0.0, t), state, method="DOP853", rtol=rtol, atol=1e-15, args=(mu,))
+    return sol.y[:, -1]
+
+
+def test_book_constant_sets_are_consistent():
+    # Table 2.2.1: Earth-Moon velocity unit 1.025 km/s.
+    assert EARTH_MOON_KLMR.velocity == pytest.approx(1.025e3, rel=1e-3)
+    assert SUN_JUPITER_KLMR.velocity == pytest.approx(13.102e3, rel=1e-3)
+    assert SUN_EARTH_RICHARDSON.velocity == pytest.approx(29.784e3, rel=1e-3)
+    # The current Earth-Moon set: sidereal month 27.32 days, from Kepler's third law with the
+    # 384,400 km mean distance (the Moon's orbit is not circular).
+    assert EARTH_MOON.period / 86400 == pytest.approx(27.3, abs=0.1)
+    assert EARTH_MOON.acceleration == pytest.approx(
+        EARTH_MOON.length * (2 * np.pi / EARTH_MOON.period) ** 2
+    )
+
+
+def test_earth_moon_lagrange_points_and_jacobi_constants():
+    # Computed, mu = 0.01215: x of L1, L2, L3 and C (Szebehely) at L1 to L4; the book's
+    # convention adds mu (1 - mu) = 0.012002.
+    points = cr3bp.lagrange_points(MU)
+    assert points[:3, 0] == pytest.approx([0.8369180073, 1.1556799131, -1.0050624018], abs=1e-10)
+    states = np.c_[points, np.zeros((5, 3))]
+    c = cr3bp.jacobi_constant(states, MU)
+    expected = [3.1883357175, 3.1721558389, 3.0121465654, 2.9879976225, 2.9879976225]
+    assert c == pytest.approx(expected, abs=1e-10)
+    assert c + MU * (1 - MU) == pytest.approx(
+        [3.2003380950, 3.1841582164, 3.0241489429, 3, 3], abs=1e-10
+    )
+    points = cr3bp.lagrange_points(0.012150585)
+    assert points[:2, 0] == pytest.approx([0.8369151288, 1.1556821631], abs=1e-10)
+
+
+def test_sun_jupiter_l1():
+    # Book sec. 2.5: Hill radius 6.825e-2, L1 at 0.9324; computed gamma1 = 0.0666765476.
+    mu = SUN_JUPITER_KLMR.mu
+    x1 = cr3bp.lagrange_points(mu)[0, 0]
+    assert (mu / 3) ** (1 / 3) == pytest.approx(6.825e-2, abs=5e-6)
+    assert x1 == pytest.approx(0.9323697524, abs=1e-10)
+    assert 1 - mu - x1 == pytest.approx(0.0666765476, abs=1e-10)
+    # Book sec. 4.4: energies E = -C_book / 2 of L1, L2, L3, computed -1.5198545, -1.5192186,
+    # -1.5009532 (printed (E2, E3) about (-1.519, -1.501)).
+    points = np.c_[cr3bp.lagrange_points(mu)[:3], np.zeros((3, 3))]
+    energy = -(cr3bp.jacobi_constant(points, mu) + mu * (1 - mu)) / 2
+    assert energy == pytest.approx([-1.5198545, -1.5192186, -1.5009532], abs=5e-8)
+
+
+@pytest.mark.parametrize(
+    "point, c2, lam, wp, wv, kappa",
+    [
+        (1, 5.1475733476, 2.9320486823, 2.3343813158, 2.2688264252, 3.5864926414),
+        (2, 3.1904366096, 2.1586796525, 1.8626489826, 1.7861793330, 2.9126084820),
+    ],
+)
+def test_earth_moon_collinear_linear_constants(point, c2, lam, wp, wv, kappa):
+    # Computed with the book's eqs 2.7.1 and 6.4.1 to 6.4.3, mu = 0.01215.
+    assert cr3bp.collinear_coefficient(MU, point, 2) == pytest.approx(c2, abs=1e-10)
+    assert cr3bp.libration_frequencies(c2) == pytest.approx((lam, wp, wv, kappa), abs=1e-9)
+    if point == 2:
+        assert cr3bp.collinear_coefficient(MU, 2, 3) == pytest.approx(-2.6593411074, abs=1e-10)
+        assert cr3bp.collinear_coefficient(MU, 2, 4) == pytest.approx(2.5830168833, abs=1e-10)
+
+
+def test_sun_earth_l1_constants_reproduce_the_books_printed_values():
+    # Book secs. 6.3 and 6.4, with Richardson's mass ratio.
+    mu = SUN_EARTH_RICHARDSON.mu
+    assert 1 - mu - cr3bp.lagrange_points(mu)[0, 0] == pytest.approx(1.001090475e-2, abs=5e-12)
+    c = [cr3bp.collinear_coefficient(mu, 1, n) for n in (2, 3, 4)]
+    assert c == pytest.approx([4.0610735668, 3.0200105081, 3.0305378797], abs=1e-10)
+    _, wp, wv, kappa = cr3bp.libration_frequencies(c[0])
+    assert (wp, wv, kappa) == pytest.approx((2.086453455, 2.0152105515, 3.2292680962), abs=1e-9)
+
+
+def test_l4_loses_linear_stability_at_the_routh_ratio():
+    # Book fig. 2.5.1: spectrally stable below mu = 0.038521; exactly (1 - sqrt(23/27)) / 2.
+    routh = (1 - math.sqrt(23 / 27)) / 2
+    assert routh == pytest.approx(0.038521, abs=5e-7)
+    for mu, stable in ((routh * 0.999, True), (routh * 1.001, False)):
+        l4 = cr3bp.lagrange_points(mu)[3]
+        growth = np.max(np.linalg.eigvals(cr3bp.jacobian(l4, mu)).real)
+        assert (growth < 1e-6) == stable
+
+
+def test_jacobian_at_the_secondary_is_cw_when_its_mass_vanishes():
+    # Book eqs 2.6.1 to 2.6.4: at mu = 0 the linearization about (1, 0, 0) is CW with n = 1.
+    a, _ = cw_system(1.0)
+    assert np.array_equal(cr3bp.jacobian([1.0, 0.0, 0.0], 0.0), a)
+
+
+def test_nrho_closes_after_one_period():
+    # Computed: closes to 1.4e-10 at DOP853 rtol 1e-13; Jacobi constant 3.0466675644;
+    # perilune 3,227 km and apolune 71,274 km from the Moon at 385,000 km; apolune state
+    # (1.021853, 0, -0.18197747, 0, -0.1028871, 0).
+    assert np.max(np.abs(propagate(NRHO, NRHO_PERIOD) - NRHO)) < 3e-10
+    assert cr3bp.jacobi_constant(NRHO, MU) == pytest.approx(3.0466675644, abs=1e-10)
+    apolune = propagate(NRHO, NRHO_PERIOD / 2)
+    assert apolune == pytest.approx([1.021853, 0, -0.18197747, 0, -0.1028871, 0], abs=1e-6)
+    sol = solve_ivp(
+        cr3bp.rhs,
+        (0, NRHO_PERIOD),
+        NRHO,
+        "DOP853",
+        rtol=1e-13,
+        atol=1e-15,
+        args=(MU,),
+        dense_output=True,
+    )
+    moon = np.array([1 - MU, 0.0, 0.0])
+    radius = np.linalg.norm(sol.sol(np.linspace(0, NRHO_PERIOD, 20001))[:3].T - moon, axis=1)
+    assert radius.min() * 385000 == pytest.approx(3227, abs=1)
+    assert radius.max() * 385000 == pytest.approx(71274, abs=1)
+
+
+def inertial_propagation(state, t, mu, coriolis_sign=1.0):
+    """Propagate in the barycentric inertial frame with the primaries on circles, then rotate
+    the result back into the synodic frame at time t (book eqs 2.3.1 to 2.3.5)."""
+    r, v = state[:3], state[3:]
+    inertial0 = np.r_[r, v + coriolis_sign * np.cross([0.0, 0.0, 1.0], r)]
+
+    def rhs(tau, s):
+        c, s_ = math.cos(tau), math.sin(tau)
+        accel = np.zeros(3)
+        for mass, p in cr3bp.primaries(mu):
+            q = np.array([p[0] * c, p[0] * s_, 0.0])
+            d = s[:3] - q
+            accel -= mass * d / np.linalg.norm(d) ** 3
+        return np.r_[s[3:], accel]
+
+    end = solve_ivp(rhs, (0, t), inertial0, "DOP853", rtol=1e-13, atol=1e-15).y[:, -1]
+    c, s_ = math.cos(t), math.sin(t)
+    rot = np.array([[c, s_, 0.0], [-s_, c, 0.0], [0.0, 0.0, 1.0]])
+    r1 = rot @ end[:3]
+    return np.r_[r1, rot @ end[3:] - coriolis_sign * np.cross([0.0, 0.0, 1.0], r1)]
+
+
+def test_synodic_equations_match_an_inertial_frame_integration():
+    # The only check that sees the Coriolis sign (book sec. 2.3): a model with it flipped
+    # conserves the Jacobi constant just as well but is 0.038 off after half a time unit.
+    synodic = propagate(NRHO, 0.5)
+    assert np.max(np.abs(synodic - inertial_propagation(NRHO, 0.5, MU))) < 1e-11
+
+    def flipped(t, s, mu):
+        a = cr3bp.acceleration(s[:3], s[3:], mu)
+        a[:2] -= 4 * np.array([s[4], -s[3]])
+        return np.r_[s[3:], a]
+
+    wrong = solve_ivp(flipped, (0, 0.5), NRHO, "DOP853", rtol=1e-13, atol=1e-15, args=(MU,))
+    assert np.max(np.abs(wrong.y[:, -1] - synodic)) > 1e-2
+    jacobi = cr3bp.jacobi_constant(np.stack([NRHO, wrong.y[:, -1]]), MU)
+    assert jacobi[1] == pytest.approx(jacobi[0], abs=1e-12)
+
+
+def test_mirror_image_runs_backward():
+    # Book eq 3.3.1 in space: (x, -y, z, -vx, vy, -vz) at -t mirrors the state at t.
+    state = np.array([1.05, 0.02, 0.03, 0.01, -0.2, 0.05])
+    mirror = np.array([1, -1, 1, -1, 1, -1])
+    forward = propagate(state, 0.7)
+    backward = propagate(mirror * state, -0.7)
+    assert np.allclose(backward, mirror * forward, rtol=0, atol=1e-12)
+
+
+SYSTEM = EARTH_MOON_KLMR
+OFFSET = np.array([800.0, -1500.0, 400.0, 0.05, 0.02, -0.03])
+
+
+def absolute_difference(target, rel, accel, duration):
+    """Chaser minus target, each propagated on its own, in m and m/s."""
+    scale = np.repeat([SYSTEM.length, SYSTEM.velocity], 3)
+    a = np.asarray(accel) / SYSTEM.acceleration
+
+    def thrusted(t, s):
+        return np.r_[s[3:], cr3bp.acceleration(s[:3], s[3:], SYSTEM.mu) + a]
+
+    tau = duration / SYSTEM.time
+    chaser = solve_ivp(thrusted, (0, tau), target + rel / scale, "DOP853", rtol=1e-13, atol=1e-16)
+    return (chaser.y[:, -1] - propagate(target, tau, SYSTEM.mu)) * scale
+
+
+@pytest.mark.parametrize("accel", [np.zeros(3), np.array([2e-5, -1e-5, 5e-6])])
+def test_relative_model_matches_differenced_absolute_propagations(accel):
+    m = cr3bp.CR3BPDynamics(SYSTEM, NRHO)
+    m.reset(OFFSET)
+    final, samples = m.advance(accel, 86400.0, n_samples=5)
+    expected = absolute_difference(NRHO, OFFSET, accel, 86400.0)
+    # Each absolute state carries about 1e-13 of 385,000 km; the difference inherits it.
+    assert np.max(np.abs(final[:3] - expected[:3])) < 2e-4
+    assert np.max(np.abs(final[3:] - expected[3:])) < 1e-9
+    assert np.array_equal(samples[-1], final)
+    assert np.allclose(m.state_in_last_segment(43200.0), samples[2], rtol=0, atol=1e-9)
+
+
+def test_relative_model_conserves_jacobi_and_thrust_does_its_work():
+    # Book sec. 2.3: dC/dt = -2 v . a, so a held acceleration changes C by -2 a . dr.
+    m = cr3bp.CR3BPDynamics(SYSTEM, NRHO)
+    m.reset(OFFSET)
+    start = m.chaser_state()
+    m.advance(np.zeros(3), 2 * 86400.0)
+    coasted = m.chaser_state()
+    assert cr3bp.jacobi_constant(coasted, SYSTEM.mu) == pytest.approx(
+        cr3bp.jacobi_constant(start, SYSTEM.mu), abs=1e-12
+    )
+    accel = np.array([3e-4, -2e-4, 1e-4])
+    m.advance(accel, 3 * 3600.0)
+    burned = m.chaser_state()
+    work = -2 * (accel / SYSTEM.acceleration) @ (burned[:3] - coasted[:3])
+    change = cr3bp.jacobi_constant(burned, SYSTEM.mu) - cr3bp.jacobi_constant(coasted, SYSTEM.mu)
+    assert change == pytest.approx(work, rel=1e-9)
+
+
+def test_massless_secondary_reduces_to_two_body_relative_motion():
+    # With mu = 0 a target at rest on the unit circle is on a circular orbit about the larger
+    # primary; at (0, 1, 0) the Hill axes are the synodic y, -x and z.
+    system = ThreeBodySystem("test", 1, 0.0, 4e8, 2.3e6)
+    m = cr3bp.CR3BPDynamics(system, [0.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+    gm = system.length**3 / system.time**2
+    twobody = TwoBodyDynamics(Body("primary", gm, 0.0), altitude=system.length, rtol=1e-12)
+    to_hill = np.kron(np.eye(2), np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]))
+    m.reset(OFFSET * 10)
+    twobody.reset(to_hill @ OFFSET * 10)
+    accel = np.array([1e-5, 2e-5, -1e-5])
+    synodic, _ = m.advance(accel, 2 * 86400.0)
+    hill, _ = twobody.advance(to_hill[:3, :3] @ accel, 2 * 86400.0)
+    assert m.n == pytest.approx(twobody.n, rel=1e-15)
+    assert np.max(np.abs(to_hill @ synodic - hill)[:3]) < 1e-6
+    assert np.max(np.abs(to_hill @ synodic - hill)[3:]) < 1e-11
