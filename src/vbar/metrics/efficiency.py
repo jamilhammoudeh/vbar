@@ -8,11 +8,18 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 
+from ..agents.base import AgentView
 from ..conventions import G0
 from .episode import Episode
+from .mission import success
+
+# A run this far below its certified lower bound is reported; closer is rounding.
+_BOUND_TOL = 1e-9
 
 
 def _segments(ep: Episode) -> Iterator[tuple[int, float, np.ndarray]]:
@@ -66,6 +73,58 @@ def chatter(ep: Episode) -> float:
         signs = np.sign(axis[axis != 0.0])
         changes += int(np.sum(signs[1:] != signs[:-1]))
     return changes / ep.duration if ep.duration > 0.0 else 0.0
+
+
+@dataclass(frozen=True)
+class FuelBounds:
+    """Bounds on the least delta-v (m/s) from a start state to the scenario's success set.
+
+    `lower` must be certified (a dual-feasible bound), `upper` the best known feasible cost, both
+    for the same success set, time window and actuator norm: "l1" for box thrusters, "l2" for a
+    ball (Boyd and Vandenberghe, Convex Optimization, sections 5.1 and 5.5).
+    """
+
+    lower: float
+    upper: float
+    norm: str
+
+    def __post_init__(self):
+        if self.norm not in ("l1", "l2"):
+            raise ValueError(f"unknown norm {self.norm!r}, expected l1 or l2")
+        if not 0.0 <= self.lower <= self.upper:
+            raise ValueError("bounds must satisfy 0 <= lower <= upper")
+
+
+class Oracle(Protocol):
+    """Gives fuel bounds for a start state."""
+
+    def bounds(self, view: AgentView, start: np.ndarray) -> FuelBounds: ...
+
+
+def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | bool]:
+    """E3: delta-v in the actuator's norm over the certified lower bound, and over the upper.
+
+    The ratio to the lower bound is at least 1 by theorem when the bound matches the success set,
+    time window and norm; a successful run below it means a simulator or metric bug and is
+    flagged. Both ratios are NaN for failed runs and when no bounds are given.
+    """
+    gap: dict[str, float | bool] = {
+        "optimality_gap": math.nan,
+        "optimality_gap_upper": math.nan,
+        "below_lower_bound": False,
+    }
+    if bounds is None:
+        return gap
+    expected = "l1" if ep.view.thrust_limit == "box" else "l2"
+    if bounds.norm != expected:
+        raise ValueError(f"{ep.view.thrust_limit} thrusters need {expected} bounds")
+    if not success(ep):
+        return gap
+    dv = layout_delta_v(ep)
+    gap["below_lower_bound"] = bool(dv < bounds.lower * (1.0 - _BOUND_TOL))
+    gap["optimality_gap"] = dv / bounds.lower if bounds.lower > 0.0 else math.inf
+    gap["optimality_gap_upper"] = dv / bounds.upper if bounds.upper > 0.0 else math.inf
+    return gap
 
 
 def efficiency_metrics(ep: Episode) -> dict[str, float | int]:

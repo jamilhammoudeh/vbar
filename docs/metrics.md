@@ -94,6 +94,25 @@ run-out and filters count as flown. $\mathbf a_j$ is segment $j$'s acceleration,
 The rocket equation is multiplicative, so E2 equals the sum of the actuator's per-burn propellant;
 with propellant run-out, the actuator stops at the dry mass and later burns add no delta-v.
 
+## Optimality gap (E3)
+
+A numerical oracle returns a feasible trajectory, which is only an upper bound on the least fuel;
+a lower bound needs a dual-feasible point (Boyd and Vandenberghe, *Convex Optimization*, sections
+4.1.1, 5.1 and 5.5). An `Oracle` gives `FuelBounds(lower, upper, norm)` for a start state: a
+certified lower bound and the best known cost to reach the scenario's success set (the capture
+balls, not the exact hold point, with the episode's time window), in the actuator's norm (`"l1"`
+for box thrusters, `"l2"` for a ball). With $\Delta v$ = E1b for box and E1 for ball:
+
+| ID | Name | Definition |
+|---|---|---|
+| E3 | `optimality_gap` | $\Delta v / \text{lower}$, at least 1 by theorem |
+| E3u | `optimality_gap_upper` | $\Delta v / \text{upper}$ |
+| E3f | `below_lower_bound` | a successful run spent less than the lower bound, by more than 1e-9 relative: a simulator, actuator-accounting or metric bug |
+
+Both ratios are NaN for failed runs and when no bounds are given (`evaluate(episode, bounds)`).
+Bounds in the wrong norm are rejected, since a 2-norm bound under-counts a box actuator's cost by
+up to $\sqrt3$.
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -122,6 +141,9 @@ with propellant run-out, the actuator stops at the dry mass and later burns add 
   duty cycle of 1/2 and 3 sign changes in 80 s. A half-step delay moves the burn but not its cost;
   delta-v does not change between 10 and 2.5 s steps, and for a ball thruster it does not change
   when the command is rotated.
+- Optimality gap: a success with bounds at 0.5 and 0.8 of its delta-v gives 2 and 1.25; a success
+  1% below its lower bound is flagged, one at the bound within rounding is not; failures and
+  missing bounds give NaN; bounds in the wrong norm are rejected.
 
 ## Example
 

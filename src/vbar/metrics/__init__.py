@@ -1,6 +1,6 @@
 """Benchmark metrics: functions of a recorded episode (see docs/metrics.md)."""
 
-from .efficiency import efficiency_metrics
+from .efficiency import FuelBounds, Oracle, efficiency_metrics, optimality_gap
 from .episode import Episode, record_episode
 from .evaluate import evaluate
 from .mission import captured, mission_metrics, success
@@ -10,7 +10,9 @@ from .stl import Signal, Trace, complement, merge, minimum, negative_intervals, 
 __all__ = [
     "METRICS",
     "Episode",
+    "FuelBounds",
     "MetricInfo",
+    "Oracle",
     "Signal",
     "Trace",
     "captured",
@@ -21,6 +23,7 @@ __all__ = [
     "minimum",
     "mission_metrics",
     "negative_intervals",
+    "optimality_gap",
     "record_episode",
     "success",
     "total",
