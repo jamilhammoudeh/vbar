@@ -184,3 +184,20 @@ def test_range_bound_lies_below_the_dense_range_on_every_interval(seed):
 def test_range_bound_is_zero_when_the_speed_bound_is_infinite():
     states = np.array([[0.0, 400.0, 0.0, 0.3, 0.0, 0.0], [0.0, 500.0, 0.0, 0.3, 0.0, 0.0]])
     assert range_lower_bounds(states, 1000.0, np.array([np.inf]))[0] == 0.0
+
+
+def test_bounds_on_stacked_trajectories_equal_the_bounds_on_each():
+    trajectories = []
+    for seed in range(4):
+        state, _, _ = random_flyby(seed)
+        m = CWDynamics(N)
+        m.reset(state)
+        trajectories.append(m.advance(np.zeros(3), 10.0, n_samples=20)[1])
+    stacked = np.array(trajectories)
+    thrust = np.array([[0.0], [0.01], [0.02], [0.03]])
+    speed, accel = interval_bounds(stacked, 10.0 / 19, thrust, N)
+    lower = range_lower_bounds(stacked, 10.0 / 19, speed)
+    for k, samples in enumerate(trajectories):
+        one_speed, one_accel = interval_bounds(samples, 10.0 / 19, float(thrust[k, 0]), N)
+        assert np.array_equal(speed[k], one_speed) and np.array_equal(accel[k], one_accel)
+        assert np.array_equal(lower[k], range_lower_bounds(samples, 10.0 / 19, one_speed))

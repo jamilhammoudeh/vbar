@@ -92,7 +92,8 @@ $L$ is `rate_bound` evaluated on bounds $V$ and $A$ for the speed and the accele
 interval. The same two-line argument gives $|\mathbf v| \le \tfrac12(|\mathbf v_i| + |\mathbf
 v_{i+1}| + A h)$, $\rho \le \max(\rho_i, \rho_{i+1}) + \tfrac12 V h$ and $\rho \ge \max(0,
 \tfrac12(\rho_i + \rho_{i+1} - V h))$. The last is the `rho_min` passed to `rate_bound`; constraints
-whose rate grows as the range falls (closing speed, viewing angles) need it. In Clohessy-Wiltshire
+whose rate grows as the range falls (closing speed, viewing angles) need it. Both bounds take stacked
+trajectories, shape `(..., samples, 6)`, so many arcs are bounded in one call. In Clohessy-Wiltshire
 motion the natural acceleration $(3n^2x + 2n\dot y,\ -2n\dot x,\ -n^2 z)$ is at most
 $3n^2\rho + 2n|\mathbf v|$, so with thrust acceleration $a_T$ and a safety factor $c$ = 2
 
@@ -153,6 +154,7 @@ its minimum margin is negative.
   minimum to 1 mm.
 - Over 10 flybys the range bound lies below the range of 1901 dense samples on every interval,
   and it is zero when the speed bound is infinite.
+- Bounds on four stacked trajectories with different thrust equal the bounds on each one.
 - `tests/test_constraint_types.py`: for every constraint type, over 12 flybys (coasting and
   thrusting at 0.1 to 3 m/s) the certificate is finite and lies below the minimum of 4001 dense
   samples, and the refined minimum is within 1e-6 of it. Hand-built states check each margin

@@ -307,7 +307,7 @@ class SegmentMinimum:
 
 
 def interval_bounds(
-    states: np.ndarray, h: float, thrust: float, n: float
+    states: np.ndarray, h: float, thrust: float | np.ndarray, n: float
 ) -> tuple[np.ndarray, np.ndarray]:
     """Bounds on |v| (m/s) and |dv/dt| (m/s^2) over each interval between consecutive samples.
 
@@ -315,16 +315,17 @@ def interval_bounds(
     `n` (rad/s) the mean motion. Between samples |v| <= mean of the end speeds + A h / 2 and
     rho <= larger end range + v h / 2, with A = thrust + c (3 n^2 rho + 2 n v); solved for v.
     The solution needs g = c h (1.5 n^2 h + 2 n) / 2 < 1; for longer intervals both bounds are
-    infinite.
+    infinite. Stacked trajectories (..., samples, 6) take a `thrust` that broadcasts against
+    (..., samples - 1).
     """
-    rho = np.linalg.norm(states[:, :3], axis=1)
-    speed = np.linalg.norm(states[:, 3:], axis=1)
-    rho_end = np.maximum(rho[:-1], rho[1:])
-    speed_mid = 0.5 * (speed[:-1] + speed[1:])
+    rho = np.linalg.norm(states[..., :3], axis=-1)
+    speed = np.linalg.norm(states[..., 3:], axis=-1)
+    rho_end = np.maximum(rho[..., :-1], rho[..., 1:])
+    speed_mid = 0.5 * (speed[..., :-1] + speed[..., 1:])
     c = _NATURAL_MARGIN
     gain = 0.5 * h * c * (1.5 * n * n * h + 2.0 * n)
     if gain >= 1.0:
-        unbounded = np.full(len(rho_end), np.inf)
+        unbounded = np.full(rho_end.shape, np.inf)
         return unbounded, unbounded
     v = (speed_mid + 0.5 * h * (thrust + 3.0 * c * n * n * rho_end)) / (1.0 - gain)
     accel = thrust + c * (3.0 * n * n * (rho_end + 0.5 * h * v) + 2.0 * n * v)
@@ -337,9 +338,9 @@ def range_lower_bounds(states: np.ndarray, h: float, speed: np.ndarray) -> np.nd
     With |d rho / dt| <= `speed` on an interval of length `h`, rho stays above both
     rho_i - speed (t - t_i) and rho_{i+1} - speed (t_{i+1} - t), so above where they meet.
     """
-    rho = np.linalg.norm(states[:, :3], axis=1)
+    rho = np.linalg.norm(states[..., :3], axis=-1)
     with np.errstate(invalid="ignore"):
-        lower = 0.5 * (rho[:-1] + rho[1:] - speed * h)
+        lower = 0.5 * (rho[..., :-1] + rho[..., 1:] - speed * h)
     return np.maximum(np.nan_to_num(lower, nan=0.0, neginf=0.0), 0.0)
 
 
