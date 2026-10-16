@@ -26,7 +26,7 @@ from scipy.optimize import minimize_scalar
 
 # Refinement stops when the bracket on the time of the minimum is this narrow (s); a margin
 # that falls at 10 m/s is then off by at most 0.1 mm.
-_TIME_TOL = 1e-5
+_BRACKET_TOL = 1e-5
 # Safety factor on the CW gravity-gradient and Coriolis terms in the acceleration bound; it
 # covers the two-body nonlinearity and J2 at separations below 1% of the orbit radius.
 _NATURAL_MARGIN = 2.0
@@ -129,7 +129,7 @@ def segment_minimum(
             lambda tau: float(constraint.margin(state_at(tau), t0 + tau)),
             bounds=(times[i], times[i + 1]),
             method="bounded",
-            options={"xatol": _TIME_TOL},
+            options={"xatol": _BRACKET_TOL},
         )
         if found.fun < best:
             best_t, best = float(found.x), float(found.fun)
