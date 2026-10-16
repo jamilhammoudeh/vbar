@@ -197,6 +197,11 @@ class Spacecraft:
         """Issued commands not yet in effect: (seconds until they take effect, command)."""
         return [(t - self.t, u) for t, u, _ in self._queue if t > self.t + _TIME_TOL]
 
+    def in_effect(self) -> np.ndarray:
+        """The command acting now, as limited (zero before the first one takes effect)."""
+        acting = [u for t, u, _ in self._queue if t <= self.t + _TIME_TOL]
+        return acting[-1] if acting else np.zeros(3)
+
     def _pieces(self, start: float, end: float):
         """(t0, t1, command) for the commands in effect between `start` and `end`."""
         times = [t for t, _, _ in self._queue]

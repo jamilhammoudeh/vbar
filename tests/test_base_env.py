@@ -146,3 +146,57 @@ def test_execution_error_draws_come_from_their_own_stream():
     assert np.array_equal(truth_a[0], truth_c[0]) and not np.array_equal(truth_a[1:], truth_c[1:])
     # The sensor's draws do not depend on whether the thrusters have errors.
     assert np.allclose(obs_a - truth_a, obs_c - truth_c, rtol=0.0, atol=1e-12)
+
+
+def test_observation_channels_are_off_by_default():
+    env = Coast()
+    obs, _ = env.reset(seed=0)
+    assert obs.shape == (6,) and env.agent_view().observation == ("x", "y", "z", "vx", "vy", "vz")
+
+
+def test_time_and_propellant_channels_report_what_is_left():
+    channels = ("t_remaining", "propellant_fraction")
+    env = Coast(EnvConfig(max_steps=20, propellant_kg=10.0, observation_channels=channels))
+    obs, _ = env.reset(seed=0)
+    assert env.agent_view().observation[6:] == channels
+    assert obs[6:] == pytest.approx([200.0, 1.0])
+    for k in range(1, 4):
+        obs, _, _, _, _ = env.step([1.0, -1.0, 0.5])
+        assert obs[6] == pytest.approx(200.0 - 10.0 * k)
+        assert obs[7] == pytest.approx(env.spacecraft.propellant / 10.0, rel=1e-15)
+    assert obs[7] < 1.0
+
+
+@pytest.mark.parametrize("delay", [3.7, 25.0])
+def test_pending_commands_make_the_delayed_state_markov(delay):
+    # The next true state follows from the current one, the pending-command channel and the
+    # new action, with no other memory of past actions.
+    env = Coast(EnvConfig(delay_s=delay, observation_channels=("pending_commands",)))
+    slots = int(np.ceil(delay / 10.0))
+    assert env.observation_space.shape == (6 + 4 * slots,)
+    obs, info = env.reset(seed=0)
+    for action in np.random.default_rng(8).uniform(-1.0, 1.0, (8, 3)):
+        acting = [tuple(row) for row in obs[6:].reshape(slots, 4)] + [(delay, *action)]
+        expected = info["true_state"]
+        for k, (start, *command) in enumerate(acting):
+            end = min(acting[k + 1][0], 10.0) if k + 1 < len(acting) else 10.0
+            if end > start:
+                phi, gamma = cw_discrete(env.n, end - start)
+                expected = phi @ expected + gamma @ (0.02 * np.array(command))
+        obs, _, _, _, info = env.step(action)
+        assert np.allclose(info["true_state"], expected, rtol=0.0, atol=1e-9)
+
+
+def test_environment_with_every_channel_follows_the_gymnasium_api():
+    cfg = EnvConfig(
+        delay_s=25.0,
+        observation_channels=("t_remaining", "propellant_fraction", "pending_commands"),
+    )
+    check_env(Coast(cfg), skip_render_check=True)
+    with pytest.raises(ValueError, match="observation channels"):
+        Coast(EnvConfig(observation_channels=("range",)))
+    # Without a delay nothing is pending, so the channel is empty.
+    env = Coast(EnvConfig(observation_channels=("pending_commands",)))
+    env.reset(seed=0)
+    obs, _, _, _, _ = env.step([1.0, 0.0, 0.0])
+    assert obs.shape == (6,)

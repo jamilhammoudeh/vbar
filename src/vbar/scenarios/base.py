@@ -29,6 +29,7 @@ from ..dynamics import make_dynamics
 from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
 ACTION_MODES = ("normalized", "accel", "thrust")
+CHANNELS = ("t_remaining", "propellant_fraction", "pending_commands")
 STREAMS = ("sensor", "actuator", "target", "agent")
 
 
@@ -40,6 +41,12 @@ class EnvConfig:
     m/s^2 and "thrust" newtons. `thrust_limit` is the thruster layout ("box" or "ball") and
     `drive` holds either the acceleration ("accel") or the thrust ("thrust") over a burn.
     `violation_samples` is the number of constraint samples per step before refinement.
+
+    `observation_channels` appends, in this order, any of: "t_remaining" (s), "propellant_fraction"
+    (propellant left over propellant at start) and "pending_commands", which lists the commands
+    that will still act after this step, the one in effect first and then those not yet in effect,
+    each as (seconds until it takes effect, command in the action mode's units); it has
+    ceil(delay_s / dt) slots, zero-filled at the front before the first commands.
     """
 
     dt: float = 10.0
@@ -60,6 +67,7 @@ class EnvConfig:
     execution: ExecutionError | None = None
     sensor: Sensor = field(default_factory=PerfectNav)
     violation_samples: int = 20
+    observation_channels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -130,13 +138,19 @@ class BaseEnv(gym.Env):
         )
         self.sensor = config.sensor
         self.constraints = tuple(self._constraints())
+        unknown = set(config.observation_channels) - set(CHANNELS)
+        if unknown:
+            raise ValueError(f"unknown observation channels {sorted(unknown)}, expected {CHANNELS}")
+        self.pending_slots = int(np.ceil(config.delay_s / config.dt - 1e-9))
+        self.observation_names = self._observation_names()
         high = {
             "normalized": 1.0,
             "accel": config.max_accel,
             "thrust": config.max_accel * config.mass_kg,
         }[config.action_mode]
         self.action_space = spaces.Box(-high, high, shape=(3,), dtype=np.float32)
-        self.observation_space = spaces.Box(-1e7, 1e7, shape=(6,), dtype=np.float64)
+        shape = (len(self.observation_names),)
+        self.observation_space = spaces.Box(-1e7, 1e7, shape=shape, dtype=np.float64)
         self.state = np.zeros(6)
         self.t = 0.0
 
@@ -173,6 +187,7 @@ class BaseEnv(gym.Env):
             mass_kg=self.cfg.mass_kg,
             goal=self._goal(),
             constraints=tuple(public_spec(c) for c in self.constraints),
+            observation=self.observation_names,
         )
 
     def agent_info(self) -> dict[str, Any]:
@@ -193,18 +208,13 @@ class BaseEnv(gym.Env):
         self.steps = 0
         self.dv_l2 = self.dv_l1 = self.propellant_used = 0.0
         self.min_margins = {c.name: float(c.margin(self.state, 0.0)) for c in self.constraints}
-        self.obs = self.sensor.observe(self.state, self.t)
+        self.obs = self._observe()
         self.record = None
         return self.obs.copy(), self._info()
 
     def step(self, action):
         command = np.asarray(action, dtype=float)
-        if self.cfg.action_mode == "accel":
-            fraction = command * self.spacecraft.mass / self.spacecraft.max_force
-        elif self.cfg.action_mode == "thrust":
-            fraction = command / self.spacecraft.max_force
-        else:
-            fraction = command
+        fraction = command / self._action_scale()
         actuation = self.spacecraft.apply(fraction, self.cfg.dt)
         trace = self._fly(actuation)
         self.t += self.cfg.dt
@@ -214,7 +224,7 @@ class BaseEnv(gym.Env):
         self.propellant_used += actuation.propellant_kg
         for name, found in trace.minima.items():
             self.min_margins[name] = min(self.min_margins[name], found.margin)
-        self.obs = self.sensor.observe(self.state, self.t)
+        self.obs = self._observe()
         record = StepRecord(
             self.t, self.state.copy(), self.obs.copy(), command, command, actuation, trace
         )
@@ -246,6 +256,44 @@ class BaseEnv(gym.Env):
             states.append(samples)
             t0 += duration
         return SegmentTrace(tuple(segments), np.concatenate(times), np.concatenate(states), minima)
+
+    def _observation_names(self) -> tuple[str, ...]:
+        names = ["x", "y", "z", "vx", "vy", "vz"]
+        channels = self.cfg.observation_channels
+        for name in CHANNELS[:2]:
+            if name in channels:
+                names.append(name)
+        if "pending_commands" in channels:
+            for k in range(self.pending_slots):
+                names += [f"pending_{k}_t", f"pending_{k}_x", f"pending_{k}_y", f"pending_{k}_z"]
+        return tuple(names)
+
+    def _observe(self) -> np.ndarray:
+        """Sensor output followed by the enabled channels."""
+        parts = [self.sensor.observe(self.state, self.t)]
+        channels = self.cfg.observation_channels
+        if "t_remaining" in channels:
+            parts.append(np.array([(self.cfg.max_steps - self.steps) * self.cfg.dt]))
+        if "propellant_fraction" in channels:
+            craft = self.spacecraft
+            parts.append(np.array([craft.propellant / (craft.initial_mass - craft.dry_mass)]))
+        if "pending_commands" in channels:
+            acting = [(0.0, self.spacecraft.in_effect()), *self.spacecraft.pending()]
+            slots = np.zeros((self.pending_slots, 4))
+            # Padding goes first, so the entries stay in order of the time they take effect.
+            recent = acting[max(len(acting) - self.pending_slots, 0) :]
+            for k, (wait, u) in enumerate(recent[::-1]):
+                slots[-1 - k] = [wait, *(u * self._action_scale())]
+            parts.append(slots.ravel())
+        return np.concatenate(parts)
+
+    def _action_scale(self) -> float:
+        """Action-mode units per fraction of a full command."""
+        if self.cfg.action_mode == "accel":
+            return self.spacecraft.max_force / self.spacecraft.mass
+        if self.cfg.action_mode == "thrust":
+            return self.spacecraft.max_force
+        return 1.0
 
     def _info(self) -> dict[str, Any]:
         return {
