@@ -35,7 +35,7 @@ CHANNELS = ("t_remaining", "propellant_fraction", "pending_commands")
 STREAMS = ("sensor", "actuator", "target")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class EnvConfig:
     """Parameters every scenario shares (SI units, angles in rad).
 

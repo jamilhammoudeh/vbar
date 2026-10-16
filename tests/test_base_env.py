@@ -6,7 +6,7 @@ from gymnasium.utils.env_checker import check_env
 
 from vbar.constraints import KeepOut
 from vbar.dynamics import cw_discrete
-from vbar.scenarios import BaseEnv, EnvConfig
+from vbar.scenarios import ApproachConfig, BaseEnv, EnvConfig
 from vbar.spacecraft import ExecutionError, GaussianNav, GaussMarkovNav, RangeScaledNav
 
 # Two-sided 1e-6 normal quantile: each statistical check fails a correct model with that
@@ -249,3 +249,12 @@ def test_every_thrust_change_is_a_boundary_for_the_integrator():
     assert run_out is not None and np.min(np.abs(run_out - switches)) > 1e-3
     after = [a for (_, a), t in zip(calls, starts, strict=False) if t >= run_out - 1e-9]
     assert all(not np.any(a) for a in after)
+
+
+def test_configs_take_keyword_arguments_only():
+    # A positional value would land on whichever field is first, which moved when fields were
+    # added; keywords keep old call sites from silently setting the wrong parameter.
+    with pytest.raises(TypeError):
+        EnvConfig(400e3)
+    with pytest.raises(TypeError):
+        ApproachConfig(400e3)

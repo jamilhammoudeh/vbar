@@ -24,7 +24,7 @@ from ..constraints import Constraint, KeepOut
 from .base import BaseEnv, EnvConfig, StepRecord
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ApproachConfig(EnvConfig):
     """Scenario parameters (m, m/s) on top of the shared `EnvConfig`.
 
