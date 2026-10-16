@@ -127,6 +127,50 @@ class ClosingSpeedLimit:
 
 
 @dataclass(frozen=True)
+class ApproachCone:
+    """Stay inside a cone with its apex at `apex` (m, Hill) while within `active_range` of it.
+
+    `axis` points from the apex toward the approach side and `half_angle` (rad, below pi/2)
+    is the cone's half-angle; the corridor starts at the mating point (Fehse, Automated
+    Rendezvous and Docking of Spacecraft, 2003, sections 2.4.2 and 5.6). With d = r - apex,
+    rho = |d| and phi the angle between d and the axis, the signed distance to the cone is
+    rho sin(half_angle - phi) while phi < half_angle + pi/2 and -rho beyond, where the apex is
+    the nearest point of the cone (Boyd and Vandenberghe, Convex Optimization, exercise 8.3).
+    The margin (m) is the robustness of "rho <= active_range implies inside the cone",
+    max(rho - active_range, signed distance), so it does not jump where the cone turns on.
+    """
+
+    half_angle: float
+    axis: tuple[float, float, float] = (0.0, -1.0, 0.0)
+    apex: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    active_range: float = np.inf
+    name: str = "approach_cone"
+    resolution: ClassVar[float] = 1e-3
+
+    def __post_init__(self):
+        if not 0.0 < self.half_angle < 0.5 * np.pi:
+            raise ValueError("half_angle must be between 0 and pi/2")
+        if not np.linalg.norm(self.axis) > 0.0:
+            raise ValueError("axis must be nonzero")
+
+    def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
+        d = np.asarray(state)[..., :3] - np.asarray(self.apex, dtype=float)
+        axis = np.asarray(self.axis, dtype=float)
+        rho = np.linalg.norm(d, axis=-1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            cos_phi = np.where(rho > 0.0, d @ axis / (rho * np.linalg.norm(axis)), 1.0)
+        phi = np.arccos(np.clip(cos_phi, -1.0, 1.0))
+        inside = rho * np.sin(self.half_angle - phi)
+        distance = np.where(phi < self.half_angle + 0.5 * np.pi, inside, -rho)
+        return np.maximum(rho - self.active_range, distance)
+
+    def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
+        # A signed distance to a convex set changes no faster than the point moves, and so
+        # does the maximum of two such functions.
+        return speed
+
+
+@dataclass(frozen=True)
 class SegmentMinimum:
     """Lowest margin of one constraint over a segment and a certified lower bound on it.
 

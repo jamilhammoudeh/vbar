@@ -1,7 +1,7 @@
 # Constraints and the in-step minimum
 
-Code: `vbar.constraints` (`Constraint`, `KeepOut`, `segment_minimum`, `interval_bounds`,
-`range_lower_bounds`, and the constraint types below). A
+Code: `vbar.constraints` (`Constraint`, the constraint types below, `segment_minimum`,
+`interval_bounds`, `range_lower_bounds`). A
 constraint's margin is $\ge 0$ where it holds and $< 0$ where it is violated, in the constraint's
 units, as in the quantitative semantics of signal temporal logic (Donzé and Maler, 2010). The
 environment finds each constraint's lowest margin over every constant-acceleration segment of a
@@ -24,6 +24,21 @@ $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
   the speed toward the target only (`closing_speed`). Since $\ddot\rho = (|\mathbf v|^2 -
   \dot\rho^2)/\rho + \hat{\mathbf r}\cdot\dot{\mathbf v}$, the rate bound is $|v_1| V + V^2 /
   \rho_{\min} + A$, infinite when $\rho_{\min}$ = 0. Resolution 1e-5 m/s.
+- `ApproachCone(half_angle, axis, apex, active_range)`: stay inside a cone whose apex is the mating
+  point, since the corridor starts at the docking port or berthing box (Fehse, *Automated Rendezvous
+  and Docking of Spacecraft*, 2003, sections 2.4.2 and 5.6; ISS corridors are 10 to 15 deg). With
+  $\mathbf d = \mathbf r - \mathbf p$, $d = |\mathbf d|$ and $\varphi$ the angle between
+  $\mathbf d$ and the axis $\hat{\mathbf a}$ (pointing from the apex toward the approach side), the
+  signed distance to the cone of half-angle $\theta$ is
+  $$
+  s = \begin{cases} d \sin(\theta - \varphi) & \varphi < \theta + \pi/2 \\ -d & \text{otherwise}
+  \end{cases}
+  $$
+  where the second case is the region whose nearest cone point is the apex (Boyd and Vandenberghe,
+  *Convex Optimization*, exercise 8.3). The cone applies within `active_range` $R_c$ of the apex,
+  and the margin is the robustness of "$d \le R_c$ implies inside the cone",
+  $\max(d - R_c,\ s)$ (m), so it is continuous where the cone turns on. Both terms are 1-Lipschitz
+  in position, so the rate bound is $V$; resolution 1 mm; $0 < \theta < \pi/2$.
 
 ## Sampling and refinement
 
@@ -114,6 +129,9 @@ its minimum margin is negative.
   thrusting at 0.1 to 3 m/s) the certificate is finite and lies below the minimum of 4001 dense
   samples, and the refined minimum is within 1e-6 of it. Hand-built states check each margin
   formula.
+- The cone margin equals the signed distance found by a direct search over the cone's generators
+  (Nelder-Mead from 63 starts) to 1e-6 m for 12 random cones and points, including points behind
+  the apex; it is continuous across the active range.
 - A constant margin on the V-bar is not refined.
 
 ## Example
