@@ -277,10 +277,10 @@ Units converted from ft and ft/s; mean motion at 185 n.mi. where the book flies 
 
 **Kochenderfer, Wheeler and Wray, *Algorithms for Decision Making*** (MIT Press, 2022)
 
-- Sec. 14.1, eq. 14.5: the validation cases 90 of 100, 95 of 100 and 3 failures in 1e4. The book
-  gives the normal interval, which goes below 0 for the rare case; the tests check the exact
-  Clopper-Pearson intervals recomputed for them, (0.8238, 0.9510), (0.887, 0.984) and (6.187e-5,
-  8.765e-4), and the resolution table on the cards.
+- Sec. 14.1, eq. 14.5: 3 failures in 1e4, whose normal interval goes below 0. The tests check the
+  exact Clopper-Pearson interval recomputed for it, (6.187e-5, 8.765e-4), and for two cases of ours
+  at the 100-episode default, 90 and 95 of 100, (0.8238, 0.9510) and (0.887, 0.984), and the
+  resolution table on the cards.
 
 ## Methods
 

@@ -546,10 +546,9 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   in the tail, and a finite worst value of S4t stays its own percentile; a ratio where higher is
   worse takes the upper tail; rates count successes and leave out NaN; every safety metric in the
   list above ranks by its tail and every performance metric by the interquartile mean. The exact
-  Clopper-Pearson intervals of the validation cases in Kochenderfer et al. (section 14.1, eq. 14.5;
-  the book prints the normal approximation, recomputed here exactly) are 0.8238 to 0.9510 for 90 of
-  100 and 6.187e-5 to 8.765e-4 for 3 failures in 1e4, and the resolution table on the cards is
-  recomputed from them.
+  Clopper-Pearson interval is 6.187e-5 to 8.765e-4 for 3 failures in 1e4, the case of Kochenderfer
+  et al. (section 14.1), whose normal interval (eq. 14.5) goes below 0, and 0.8238 to 0.9510 for
+  our 90 of 100; the resolution table on the cards is recomputed from the same formula.
 
 ## Example
 
