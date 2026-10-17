@@ -265,13 +265,13 @@ class PassiveSpeed:
 
 @dataclass(frozen=True)
 class ZoneEntry:
-    """Stay out of an ellipsoid until `go_time` (s); margin a_min (q - 1) in m.
+    """Stay out of an ellipsoid up to `go_time` (s); margin a_min (q - 1) in m.
 
     q = |D^-1 (r - center)| with D the diagonal of `semi_axes` (m, Hill axes), and a_min the
     smallest semi-axis. Since |q(x) - q(y)| <= |x - y| / a_min, the margin is 1-Lipschitz in
     position and below the distance to the ellipsoid outside it, exactly that distance for a
     sphere. The ISS approach ellipsoid is 2000 m along-track and 1000 m otherwise (Fehse 5.6).
-    From `go_time` on the margin is infinite; the GO event must fall on a step boundary, since a
+    After `go_time` the margin is infinite; the GO event must fall on a step boundary, since a
     jump inside a segment is not covered by the rate bound.
     """
 
@@ -288,7 +288,8 @@ class ZoneEntry:
     def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
         offset = np.asarray(state)[..., :3] - np.asarray(self.center, dtype=float)
         q = np.linalg.norm(offset / np.asarray(self.semi_axes, dtype=float), axis=-1)
-        return np.where(np.asarray(t) < self.go_time, min(self.semi_axes) * (q - 1.0), np.inf)
+        # Finite up to and including GO, so the step ending at GO still sees the zone.
+        return np.where(np.asarray(t) <= self.go_time, min(self.semi_axes) * (q - 1.0), np.inf)
 
     def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
         return speed

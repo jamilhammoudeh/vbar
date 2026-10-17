@@ -260,6 +260,9 @@ def segment_negative_intervals(
     h, rates = _rates(signal, seg, trace.n)
     for i in range(len(t) - 1):
         a, b = m[i], m[i + 1]
+        if not (np.isfinite(a) and np.isfinite(b)):
+            # An infinite margin (a constraint switched off) leaves at most an instant below zero.
+            continue
         if a < 0.0 and b < 0.0:
             if 0.5 * (a + b + rates[i] * h) > 0.0:
                 t_peak, minus_peak = _extremum(lambda s: -f(s), t[i], t[i + 1])

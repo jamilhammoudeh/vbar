@@ -3,7 +3,7 @@ import pytest
 from metric_cases import FLYBY, drift_closest_approach, drift_range_crossings, episode, pd_episode
 
 from vbar.agents import PDAgent
-from vbar.constraints import ApproachCone, ClosingSpeedLimit, SpeedLimit, closing_speed
+from vbar.constraints import ApproachCone, ClosingSpeedLimit, SpeedLimit, ZoneEntry, closing_speed
 from vbar.dynamics import EARTH, cw_discrete, cw_stm, mean_motion
 from vbar.metrics import safety_metrics
 
@@ -94,3 +94,16 @@ def test_safety_metrics_are_unchanged_by_mirroring_the_orbit_normal():
     for key in ("min_margin", "violation_duration"):
         for name, value in a[key].items():
             assert b[key][name] == pytest.approx(value, abs=1e-9)
+
+
+def test_entering_a_zone_in_the_last_sample_interval_before_go_counts():
+    # The flyby enters a 100 m sphere at about 33.3 s; GO comes at the step boundary 33.6 s.
+    zone = ZoneEntry((100.0, 100.0, 100.0), go_time=33.6)
+    ep = episode(extra=(zone,), soft=("zone_entry",), dt=8.4, max_steps=6)
+    entry = drift_range_crossings(FLYBY, N, 100.0, 40.0)[0]
+    at_go = np.linalg.norm((cw_stm(N, 33.6) @ np.array(FLYBY))[:3])
+    m = safety_metrics(ep)
+    assert entry < 33.6
+    assert m["min_margin"]["zone_entry"] == pytest.approx(at_go - 100.0, abs=1e-3)
+    assert m["min_margin_bound"]["zone_entry"] <= m["min_margin"]["zone_entry"]
+    assert m["violation_duration"]["zone_entry"] == pytest.approx(33.6 - entry, abs=1e-6)

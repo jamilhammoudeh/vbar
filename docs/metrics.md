@@ -60,8 +60,9 @@ built for a metric (distance to the goal, the hold predicate, the contact plane)
   finder (tolerance 1e-9 s); two non-negative ends are searched for a dip only when
   $\tfrac12(m_i + m_{i+1} - Lh) < 0$, and two negative ends for a rise above zero only when
   $\tfrac12(m_i + m_{i+1} + Lh) > 0$; a dip or rise found gives two roots. Intervals that touch
-  across samples, segments and steps are merged. Like the in-step minimum, this assumes at most
-  one dip per sample interval.
+  across samples, segments and steps are merged; an interval with an infinite end (a constraint
+  switched off) adds nothing. Like the in-step minimum, this assumes at most one dip per sample
+  interval.
 - `peak(value, trace)`: the highest value of a function of the state, refined by Brent on the
   two sample intervals around the highest sample; no certificate.
 - `merge`, `complement(intervals, start, end)` and `total` combine interval lists.
@@ -377,7 +378,9 @@ needed to detect a stated change on the baselines, evidence of validity, and its
   on the rebuilt trajectory equal the environment's own search to 1e-9 m/s. S5 matches the maximum
   over 120001 closed-form samples to 1e-7. S6 is 500 s for 250 m at 0.5 m/s straight in, and
   infinite at rest on the V-bar. S1, S3 and S5 for four constraint types are the same at 4, 10 and
-  25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane.
+  25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane. An entry into an
+  approach zone in the last sample interval before its GO event is found, with its duration to
+  1e-6 s.
 - Passive safety (`tests/test_metrics_passive.py`): escape arcs reproduce Fehse's CAMs at
   400 km: an R-bar CAM 15 m below with 0.5 m/s away and 0.10 m/s retrograde is 2231.6 m ahead after
   an orbit (figs. 4.19, 4.20); a purely radial CAM advances $12\pi$ times its depth whatever its

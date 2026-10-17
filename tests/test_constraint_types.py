@@ -209,8 +209,8 @@ def test_zone_margin_is_zero_on_the_ellipsoid_and_infinite_after_go():
     surface = np.array([0.0, -2000.0, 0.0, 0.0, 0.0, 0.0])
     assert iss.margin(surface, 0.0) == pytest.approx(0.0)
     assert iss.margin(np.array([0.0, -3000.0, 0.0, 0, 0, 0]), 0.0) == pytest.approx(500.0)
-    assert iss.margin(surface * 0.5, 599.0) < 0.0
-    assert iss.margin(surface * 0.5, 600.0) == np.inf
+    assert iss.margin(surface * 0.5, 600.0) < 0.0
+    assert iss.margin(surface * 0.5, 600.001) == np.inf
 
 
 @pytest.mark.parametrize("seed", range(8))
