@@ -223,6 +223,41 @@ The rocket equation, the minimum range of Clohessy-Wiltshire flybys and the Gaus
 covariances are checked against closed forms and independent integrations rather than printed
 examples; the pages above give the numbers.
 
+## Published examples behind the metrics
+
+The tests of the constraint types and the metrics ([constraints.md](constraints.md),
+[metrics.md](metrics.md)) reproduce the values below, recomputed at 400 km with this package's
+Earth constants and converted from Fehse's ISS-style axes.
+
+**Fehse, *Automated Rendezvous and Docking of Spacecraft***
+
+- Eq. 3.28 and fig. 3.13: thrust stopped at 0.1 m/s on the V-bar coasts forward 0.47755 v / n,
+  42.21 m, the basis of the V-bar passive-speed envelope 2.094 n (gap).
+- Eq. 3.22 and sec. 5.7.2: the R-bar passive-speed envelope $n\sqrt{(4h - d)^2 - 9h^2}$ gives
+  0.1225, 0.0612 and 0.0283 m/s at 50, 30 and 20 m with 15 m of structure; the book's approach
+  flies 0.1, 0.05 and 0.02 m/s there.
+- Figs. 4.16 to 4.20: collision-avoidance impulses. Radially away from 20, 50 and 100 m below, the
+  chaser is $12\pi d$ ahead after an orbit whatever the impulse; 0.5 m/s away with 0.10 m/s
+  retrograde from 15 m below ends 2231.6 m ahead; 0.3 m/s further back from 20 m behind passes
+  under the target at $x$ = -396.220 m and ends 4978.3 m ahead.
+- Appendix A.1.5: the travelling ellipse. Eq. A.69 is printed with $+2b$; with $-2b$ it matches
+  propagation to 1e-9 m on the appendix's case, where the printed form is 176 m off after 300 s.
+- Eqs. 4.12 and 4.13: the Gaussian plume normalized to the thrust over a unit sphere, 13 deg
+  one-sigma.
+- Secs. 7.1.1, 8.3.5 and appendix C: the docking contact ranges behind the default contact limits
+  (lateral 0.1 m and 0.03 m/s, probe-drogue axial window 0.05 to 0.10 m/s).
+
+**Dunlap et al., "Comparing Run Time Assurance Approaches for Safe Spacecraft Docking"** (2021)
+
+- Eq. 14: the distance-dependent speed limit $0.2 + 4n\rho$ m/s used in the speed tests.
+
+**Boyd and Vandenberghe, *Convex Optimization*** (Cambridge, 2004)
+
+- Exercise 8.3: past $\varphi = \theta + \pi/2$ the nearest point of a cone is its apex; the cone
+  margin equals a direct search for the signed distance on 12 random cones.
+- Secs. 5.1, 5.5 and 3.1.8: lower bounds need the dual norm of the cost (the optimality gap rejects
+  bounds in the wrong norm), and zero-mean dither cannot lower expected fuel (the dither mutants).
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -257,3 +292,6 @@ examples; the pages above give the numbers.
   signal temporal logic.
 - Van Loan, "Computing integrals involving the matrix exponential" (*IEEE Transactions on
   Automatic Control* 23, 1978): the added covariance of the `:nav2` error between observations.
+- Desplats (1988), as given by Fehse (eqs 4.12 and 4.13): the Gaussian plume pressure model.
+- Agarwal et al., "Deep Reinforcement Learning at the Edge of the Statistical Precipice"
+  (NeurIPS 2021): the interquartile mean.

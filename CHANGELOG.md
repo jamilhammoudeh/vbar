@@ -19,9 +19,15 @@ release may change the public API, and every such change is listed under Changed
   takes a lower bound on the range, `rho_min`.
 - `FilterResult` with a status, slack, conflicting constraints and compute time; `FilteredAgent`
   keeps the last command and result.
-- `vbar.metrics`: `record_episode` returns an `Episode` with every step record; `Trace` rebuilds
-  the true trajectory between samples; `minimum` and `negative_intervals` evaluate signals in
-  continuous time. Scenarios name their `soft_constraints`.
+- `vbar.metrics`: `record_episode` returns an `Episode` with every step record, and
+  `evaluate(episode, settings, bounds, report)` returns every metric keyed by the names in
+  `METRICS`: mission metrics with docking contact and hold dwell, efficiency, the optimality gap
+  against oracle bounds, constraint margins with violation depth and duration in continuous time,
+  passive safety, stuck thrusters and collision-avoidance availability, thruster plume, safety
+  filter and agent metrics, a composite score with its breakdown and a failure label. `Trace`
+  rebuilds the true trajectory between samples; `minimum` and `negative_intervals` evaluate
+  signals in continuous time. A card per metric is in `src/vbar/metrics/cards/`. Scenarios name
+  their `soft_constraints`.
 
 ## [0.2.0] - 2026-10-16
 
