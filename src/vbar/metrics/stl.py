@@ -240,34 +240,43 @@ def negative_intervals(signal: Constraint, trace: Trace) -> list[tuple[float, fl
     """
     found: list[tuple[float, float]] = []
     for seg in trace.segments:
-        if len(seg.times) < 2:
-            continue
-
-        def f(t: float, seg: Segment = seg) -> float:
-            return float(signal.margin(trace.state_in(seg, t), t))
-
-        t = seg.times
-        m = np.asarray(signal.margin(seg.states, t), dtype=float)
-        h, rates = _rates(signal, seg, trace.n)
-        for i in range(len(t) - 1):
-            a, b = m[i], m[i + 1]
-            if a < 0.0 and b < 0.0:
-                if 0.5 * (a + b + rates[i] * h) > 0.0:
-                    t_peak, minus_peak = _extremum(lambda s: -f(s), t[i], t[i + 1])
-                    if minus_peak <= 0.0:
-                        first = (t[i], _root(f, t[i], t_peak))
-                        found += [first, (_root(f, t_peak, t[i + 1]), t[i + 1])]
-                        continue
-                found.append((t[i], t[i + 1]))
-            elif a < 0.0:
-                found.append((t[i], _root(f, t[i], t[i + 1])))
-            elif b < 0.0:
-                found.append((_root(f, t[i], t[i + 1]), t[i + 1]))
-            elif 0.5 * (a + b - rates[i] * h) < 0.0:
-                t_min, low = _extremum(f, t[i], t[i + 1])
-                if low < 0.0:
-                    found.append((_root(f, t[i], t_min), _root(f, t_min, t[i + 1])))
+        found += segment_negative_intervals(signal, trace, seg)
     return merge(found)
+
+
+def segment_negative_intervals(
+    signal: Constraint, trace: Trace, seg: Segment
+) -> list[tuple[float, float]]:
+    """`negative_intervals` within one segment, unmerged."""
+    if len(seg.times) < 2:
+        return []
+
+    def f(t: float) -> float:
+        return float(signal.margin(trace.state_in(seg, t), t))
+
+    found: list[tuple[float, float]] = []
+    t = seg.times
+    m = np.asarray(signal.margin(seg.states, t), dtype=float)
+    h, rates = _rates(signal, seg, trace.n)
+    for i in range(len(t) - 1):
+        a, b = m[i], m[i + 1]
+        if a < 0.0 and b < 0.0:
+            if 0.5 * (a + b + rates[i] * h) > 0.0:
+                t_peak, minus_peak = _extremum(lambda s: -f(s), t[i], t[i + 1])
+                if minus_peak <= 0.0:
+                    first = (t[i], _root(f, t[i], t_peak))
+                    found += [first, (_root(f, t_peak, t[i + 1]), t[i + 1])]
+                    continue
+            found.append((t[i], t[i + 1]))
+        elif a < 0.0:
+            found.append((t[i], _root(f, t[i], t[i + 1])))
+        elif b < 0.0:
+            found.append((_root(f, t[i], t[i + 1]), t[i + 1]))
+        elif 0.5 * (a + b - rates[i] * h) < 0.0:
+            t_min, low = _extremum(f, t[i], t[i + 1])
+            if low < 0.0:
+                found.append((_root(f, t[i], t_min), _root(f, t_min, t[i + 1])))
+    return found
 
 
 def merge(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -279,6 +288,17 @@ def merge(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
         else:
             merged.append((lo, hi))
     return merged
+
+
+def intersect(a: list[tuple[float, float]], b: list[tuple[float, float]]):
+    """Intersection of two interval lists."""
+    out = []
+    for lo1, hi1 in a:
+        for lo2, hi2 in b:
+            lo, hi = max(lo1, lo2), min(hi1, hi2)
+            if hi > lo:
+                out.append((lo, hi))
+    return merge(out)
 
 
 def complement(intervals: list[tuple[float, float]], start: float, end: float):

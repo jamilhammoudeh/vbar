@@ -11,6 +11,7 @@ from .passive import (
     passive_forever,
     passive_metrics,
 )
+from .plume import exhausts, plume_metrics, plume_normalization
 from .registry import METRICS, MetricInfo
 from .safety import safety_metrics
 from .settings import MetricSettings
@@ -32,6 +33,7 @@ __all__ = [
     "efficiency_metrics",
     "escape_arc",
     "evaluate",
+    "exhausts",
     "merge",
     "minimum",
     "mission_metrics",
@@ -39,6 +41,8 @@ __all__ = [
     "optimality_gap",
     "passive_forever",
     "passive_metrics",
+    "plume_metrics",
+    "plume_normalization",
     "record_episode",
     "safety_metrics",
     "success",

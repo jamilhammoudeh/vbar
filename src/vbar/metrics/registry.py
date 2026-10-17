@@ -43,6 +43,9 @@ CATALOGUE = (
     MetricInfo("S6", "min_time_to_keep_out", "s"),
     MetricInfo("S8", "cam_margin", "m"),
     MetricInfo("S9", "unprotected_time", "s"),
+    MetricInfo("S10", "plume_impulse", "N s"),
+    MetricInfo("S10t", "plume_time", "s"),
+    MetricInfo("S10m", "plume_margin", "rad"),
 )
 
 METRICS = {info.name: info for info in CATALOGUE}

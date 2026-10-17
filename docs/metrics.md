@@ -193,6 +193,35 @@ than $2b + R$. Otherwise it samples the passage of the centre past the target wh
 most 10 orbits; a longer passage, as from a near-hold with a tiny radial offset, is not certified,
 and its start is the threat time S4t.
 
+## Thruster plume (plume margin, S10)
+
+Braking burns toward the target are avoided close in, because the plume loads the target
+(Fehse 2.4.2 and 4.2.4). Each firing thruster's exhaust direction is $-\hat{\mathbf a}$ for a ball
+engine, and $-\operatorname{sign}(a_i)\,\hat{\mathbf e}_i$ for each nonzero axis of a box layout
+(`exhausts`). With $\theta$ the angle between the exhaust and the line of sight to the target
+$-\mathbf r$, the plume pressure is the Gaussian model Fehse cites from Desplats (eqs. 4.12, 4.13):
+
+$$
+P(r, \theta) = \frac{\varphi_0}{r^2}\, e^{-\theta^2 / (2\theta_0^2)}, \qquad
+\varphi_0 = \frac{F}{2\pi\int_0^\pi e^{-\theta^2/(2\theta_0^2)}\sin\theta\,d\theta},
+$$
+
+so the pressure over a unit sphere integrates to the thrust $F$; $\theta_0$ = 13 deg
+(`plume_sigma`). Only thrust within `plume_range` $R_p$ counts (no plume metrics when it is not
+declared).
+
+| ID | Name | Units | Definition |
+|---|---|---|---|
+| S10m | `plume_margin` | rad | least $\theta - \theta_p$ over thrust inside $R_p$, $\theta_p$ = 39 deg = 3 $\theta_0$ (`plume_half_angle`); the soft plume constraint |
+| S10t | `plume_time` | s | time with some exhaust within $\theta_p$ of the target inside $R_p$ |
+| S10 | `plume_impulse` | N s | $\int P\,A\,dt$ over thrust inside $R_p$, on a declared area $A$ facing the plume (`plume_target_area`, 1 m^2) |
+
+The entry and exit of $R_p$ and of the plume cone are found by `negative_intervals` within each
+segment; the impulse is integrated with adaptive quadrature on the rebuilt trajectory, with the
+thrust $F = m|\mathbf a|$ from the mass at the start of the step (the mass falls by 1e-4 of itself
+over a 10 s step at 0.02 m/s^2). The force model assumes a flat target area facing the plume and
+full momentum transfer; it is a load indicator, not a surface force model.
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -243,6 +272,13 @@ and its start is the threat time S4t.
   to 1 mm, and a stuck full-thrust command for 30 s matches its closed form. All seven metrics are
   the same at 50 and 800 samples per orbit to 1 mm, unchanged by mirroring across the orbit plane,
   and on the two-body model they agree with Clohessy-Wiltshire to 1 cm at 150 m.
+- Plume (`tests/test_metrics_plume.py`): the pressure normalization matches a midpoint rule
+  over the sphere to 1e-6 and tends to $2\pi\theta_0^2$ for a narrow plume. Braking at full thrust
+  30 m behind the target gives the impulse of an independent quadrature on the closed-form
+  trajectory to 1e-8, 10 s on target and a margin of -39 deg; thrusting toward the target leaves
+  the exhaust behind (margin $\pi - 39$ deg less the small tilt from Clohessy-Wiltshire coupling,
+  force about 1e-43 N s). Thrust outside $R_p$ counts nothing; entering $R_p$ mid-step counts only
+  the time inside; the impulse changes by less than 1e-4 between 10 and 2.5 s steps.
 
 ## Example
 

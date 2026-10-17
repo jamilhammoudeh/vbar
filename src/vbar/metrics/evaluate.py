@@ -8,6 +8,7 @@ from .efficiency import FuelBounds, efficiency_metrics, optimality_gap
 from .episode import Episode
 from .mission import mission_metrics
 from .passive import passive_metrics
+from .plume import plume_metrics
 from .safety import safety_metrics
 from .settings import MetricSettings
 
@@ -26,4 +27,5 @@ def evaluate(
         **optimality_gap(ep, bounds),
         **safety_metrics(ep),
         **passive_metrics(ep, settings),
+        **plume_metrics(ep, settings),
     }
