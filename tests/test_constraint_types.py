@@ -139,9 +139,17 @@ def test_shuttle_rbar_gates_sit_three_to_eleven_times_below_the_afrl_law():
 
 
 def test_gate_table_rejects_a_single_gate_repeated_ranges_and_negative_speeds():
-    for gates in (((10.0, 0.1),), ((10.0, 0.1), (10.0, 0.2)), ((10.0, -0.1), (20.0, 0.1))):
+    for gates in (
+        ((10.0, 0.1),),
+        ((10.0, 0.1), (10.0, 0.2)),
+        ((10.0, -0.1), (20.0, 0.1)),
+        ((-10.0, 0.1), (20.0, 0.1)),
+        ((float("nan"), 0.1), (20.0, 0.1)),
+    ):
         with pytest.raises(ValueError):
             GateTable(gates)
+    listed = GateTable([[10.0, 0.1], [20.0, 0.2]])
+    assert hash(listed) == hash(GateTable(((10.0, 0.1), (20.0, 0.2))))
 
 
 def test_shuttle_vbar_gates_sit_inside_the_vbar_passive_speed_envelope():

@@ -150,13 +150,14 @@ class GateTable:
     resolution: ClassVar[float] = 1e-5
 
     def __post_init__(self):
-        ranges = [r for r, _ in self.gates]
-        if len(ranges) < 2 or any(
-            b <= a for a, b in zip(sorted(ranges), sorted(ranges)[1:], strict=False)
-        ):
+        # Stored as float pairs so a table given as lists is still hashable.
+        gates = tuple((float(r), float(v)) for r, v in self.gates)
+        object.__setattr__(self, "gates", gates)
+        ranges = sorted(r for r, _ in gates)
+        if len(ranges) < 2 or any(b <= a for a, b in zip(ranges, ranges[1:], strict=False)):
             raise ValueError("gates need at least two distinct ranges")
-        if any(v < 0.0 for _, v in self.gates):
-            raise ValueError("gate speeds must not be negative")
+        if not all(0.0 <= r < np.inf and 0.0 <= v < np.inf for r, v in gates):
+            raise ValueError("gate ranges and speeds must be finite and not negative")
 
     def _table(self) -> tuple[np.ndarray, np.ndarray]:
         table = np.array(sorted(self.gates), dtype=float)
