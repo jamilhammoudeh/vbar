@@ -200,7 +200,7 @@ class ToolServer:
             return _result(ident, {"tools": tools})
         if method == "tools/call":
             name, arguments = params.get("name"), params.get("arguments", {})
-            if name not in self.tools:
+            if not isinstance(name, str) or name not in self.tools:
                 return _error(ident, INVALID_PARAMS, f"unknown tool {name!r}")
             if not isinstance(arguments, dict):
                 return _error(ident, INVALID_PARAMS, "arguments must be an object")
@@ -221,27 +221,35 @@ class ToolServer:
     def serve(self, stdin: IO[str] | None = None, stdout: IO[str] | None = None) -> None:
         """Answer messages from `stdin` on `stdout`, one per line, until the input ends.
 
-        A message that fails inside the server gets an internal error, and the loop goes on; at
-        the end of the input, unfinished episodes are recorded (`finish`).
+        A message that fails inside the server gets an internal error, and the loop goes on.
+        The session ends when the input ends or the output can no longer be written; then
+        unfinished episodes are recorded (`finish`), however the session ended.
         """
         source, sink = stdin or sys.stdin, stdout or sys.stdout
-        for line in source:
-            if not line.strip():
-                continue
-            try:
-                message = json.loads(line)
-            except json.JSONDecodeError:
-                response: dict | None = _error(None, PARSE_ERROR, "invalid JSON")
-            else:
+        try:
+            for line in source:
+                if not line.strip():
+                    continue
                 try:
-                    response = self.handle(message)
-                except Exception as error:  # one bad request must not end the scored session
-                    ident = message.get("id") if isinstance(message, dict) else None
-                    response = _error(ident, INTERNAL_ERROR, f"{type(error).__name__}: {error}")
-            if response is not None:
-                sink.write(json.dumps(response) + "\n")
-                sink.flush()
-        self.finish()
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    response: dict | None = _error(None, PARSE_ERROR, "invalid JSON")
+                else:
+                    try:
+                        response = self.handle(message)
+                    except Exception as error:  # one bad request must not end the scored session
+                        ident = message.get("id") if isinstance(message, dict) else None
+                        reason = f"{type(error).__name__}: {error}"
+                        response = _error(ident, INTERNAL_ERROR, reason)
+                if response is not None:
+                    try:
+                        sink.write(json.dumps(response) + "\n")
+                        sink.flush()
+                    except OSError:
+                        # The client stopped reading: the session is over.
+                        break
+        finally:
+            self.finish()
 
 
 def _text(text: str) -> dict[str, str]:

@@ -97,9 +97,9 @@ order of the seeds and cannot be abandoned, so a client cannot restart until it 
 Each command's wall time since the previous observation is the decision latency. Results stay
 on the server: `ToolServer.results` holds `run_episode`'s result for each finished episode (with
 `agent_seed` 0, since the client has no stream of ours), and the command line writes them to the
-`--out` file as they finish. When the input ends, an episode still running and every seed not
-yet flown are recorded too, with `completed` false, so closing the connection does not remove a
-bad episode from the results. The client never sees the true state, the reward or the outcome.
+`--out` file as they finish. When the session ends, because the input ends, the client stops
+reading the output or the server fails, an episode still running and every seed not yet flown are
+recorded too, with `completed` false, so leaving does not remove a bad episode from the results. The client never sees the true state, the reward or the outcome.
 
 ## How it is tested
 
@@ -129,8 +129,9 @@ bad episode from the results. The client never sees the true state, the reward o
   starting past the last seed are tool errors.
 - `predict_coast` through the server equals the tool on the current observation.
 - `params` given as a list, `arguments` given as a list or a string, and `initialize` with list
-  params get -32602, and the next request is still answered; a session that ends after one
-  command of three episodes records all three, unfinished.
+  params get -32602, as does a tool name that is not a string, and the next request is still
+  answered; a tool that fails inside gets -32603; a session that ends after one command of three
+  episodes records all three, unfinished, and so does a client that stops reading its replies.
 - `python -m vbar.agents.mcp` in a subprocess answers five requests on stdio and writes the
   episode's result.
 

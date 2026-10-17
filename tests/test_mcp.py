@@ -8,7 +8,13 @@ import pytest
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import PDAgent
-from vbar.agents.mcp import INVALID_PARAMS, METHOD_NOT_FOUND, PARSE_ERROR, ToolServer
+from vbar.agents.mcp import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    METHOD_NOT_FOUND,
+    PARSE_ERROR,
+    ToolServer,
+)
 from vbar.agents.tools import predict_coast
 
 
@@ -188,3 +194,46 @@ def test_an_abandoned_session_still_records_every_episode():
     assert [r["completed"] for r in results] == [False, False, False]
     assert [len(r["actions"]) for r in results] == [1, 0, 0]
     assert not any(r["captured"] for r in results)
+
+
+class Hangup(io.StringIO):
+    """Output whose reader has gone after the first reply."""
+
+    def write(self, text):
+        if self.getvalue():
+            raise BrokenPipeError("reader closed")
+        return super().write(text)
+
+
+def test_a_client_that_stops_reading_still_leaves_every_episode_recorded():
+    results = []
+    server = ToolServer(ApproachEnv(), [0, 1], on_result=results.append)
+    lines = [
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "start_episode"}},
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "command", "arguments": {"ax": 0, "ay": 0, "az": 0}},
+        },
+    ]
+    server.serve(io.StringIO("".join(json.dumps(m) + "\n" for m in lines)), Hangup())
+    assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
+        (0, False, 1),
+        (1, False, 0),
+    ]
+
+
+def test_a_tool_name_that_is_not_a_string_and_a_failing_tool_get_errors():
+    server = ToolServer(ApproachEnv(), [0])
+    assert request(server, "tools/call", name=["command"])["error"]["code"] == INVALID_PARAMS
+
+    def broken(arguments):
+        raise RuntimeError("tool failed")
+
+    server.tools["observe"] = ("broken", {"type": "object"}, broken)
+    out = io.StringIO()
+    message = {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "observe"}}
+    server.serve(io.StringIO(json.dumps(message) + "\n"), out)
+    error = json.loads(out.getvalue())["error"]
+    assert error["code"] == INTERNAL_ERROR and "tool failed" in error["message"]
