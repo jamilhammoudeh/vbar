@@ -38,7 +38,8 @@ def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str,
     if worse == "low":
         q = float(np.quantile(x, level, method="inverted_cdf"))
         return {"worst": float(x.min()), "quantile": q, "tail_mean": float(x[x <= q].mean())}
-    q = float(np.quantile(x, 1.0 - level, method="inverted_cdf"))
+    # Mirrored, so the upper tail holds as many episodes as the lower one would.
+    q = -float(np.quantile(-x, level, method="inverted_cdf"))
     return {"worst": float(x.max()), "quantile": q, "tail_mean": float(x[x >= q].mean())}
 
 

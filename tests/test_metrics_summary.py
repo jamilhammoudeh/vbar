@@ -39,6 +39,14 @@ def test_per_constraint_margins_are_summarised_constraint_by_constraint():
     assert found["approach_cone"] == {"worst": 5.0, "quantile": 5.0, "tail_mean": 5.0}
 
 
+def test_both_tails_hold_the_same_number_of_episodes():
+    x = np.arange(100.0)
+    low, high = unsafe_tail(x, "low"), unsafe_tail(x, "high")
+    # Five of 100 on each side: 0 to 4 and 95 to 99.
+    assert (low["quantile"], low["tail_mean"]) == (4.0, 2.0)
+    assert (high["quantile"], high["tail_mean"]) == (95.0, 97.0)
+
+
 def test_infinite_values_stay_episode_values_in_the_tail():
     # S5 is infinite through a hold gate, S6 when never closing, S4t when every drift is certified.
     ratios = summarize("closing_speed_ratio", [0.5] * 20 + [np.inf] * 2)
