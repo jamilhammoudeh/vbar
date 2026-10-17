@@ -114,7 +114,7 @@ earlier results and is not aligned with the metrics.
 - The success bonus needs both a terminal step and success.
 - The quadratic cost matches adaptive quadrature of the cost rate along the closed-form CW
   trajectory to 1e-10 relative, with and without discounting.
-- It stays at 1e-10 on segments 100, 2000 and 5000 times longer than $	au$, where one block
+- It stays at 1e-10 on segments 100, 2000 and 5000 times longer than $\tau$, where one block
   exponential lost five digits or overflowed.
 - A batch of transitions gives each row its own reward; invalid time constants and weights are
   rejected.
