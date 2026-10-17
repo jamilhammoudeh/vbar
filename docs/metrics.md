@@ -434,7 +434,8 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   over 120001 closed-form samples to 1e-7, for the linear law and for a gate table, and is
   infinite when closing at a hold gate. The STS-130 +V-bar gates (Goodman fig. 25.22: 0.20, 0.15,
   0.10 and 0.07 ft/s at 320, 110, 75 and 30 ft) sit inside the V-bar passive-speed envelope at
-  185 n.mi. by 3.84, 1.76, 1.80 and 1.03 times. S6 is 500 s for 250 m at 0.5 m/s straight in, and
+  185 n.mi. by 3.84, 1.76, 1.80 and 1.03 times, and the +R-bar gates from ORBT (table 24.3) sit 3.2
+  to 11.0 times below the 0.2 + 4n rho law at 500 km. S6 is 500 s for 250 m at 0.5 m/s straight in, and
   infinite at rest on the V-bar. S1, S3 and S5 for four constraint types are the same at 4, 10 and
   25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane. An entry into an
   approach zone in the last sample interval before its GO event is found, with its duration to

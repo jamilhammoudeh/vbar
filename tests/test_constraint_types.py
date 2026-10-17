@@ -128,6 +128,16 @@ def test_gate_table_bound_holds_across_a_steep_gate():
     assert found.margin == pytest.approx(dense, abs=1e-5)
 
 
+def test_shuttle_rbar_gates_sit_three_to_eleven_times_below_the_afrl_law():
+    # Goodman, table 24.3, +R-bar from ORBT (ft, ft/s), against 0.2 + 4 n rho at 500 km
+    # (Dunlap et al. 2021, eq. 14).
+    orbt = ((2000, 3.0), (1000, 1.5), (600, 0.8), (500, 0.5), (200, 0.2), (100, 0.1))
+    rho = np.array([r for r, _ in orbt]) * FT
+    gates = GateTable(tuple((r * FT, v * FT) for r, v in orbt))
+    ratio = CLOSING.allowed_speed(rho) / gates.allowed_speed(rho)
+    assert ratio == pytest.approx([3.2, 3.4, 4.1, 5.7, 7.7, 11.0], abs=0.05)
+
+
 def test_gate_table_rejects_a_single_gate_repeated_ranges_and_negative_speeds():
     for gates in (((10.0, 0.1),), ((10.0, 0.1), (10.0, 0.2)), ((10.0, -0.1), (20.0, 0.1))):
         with pytest.raises(ValueError):
