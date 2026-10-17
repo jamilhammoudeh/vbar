@@ -32,8 +32,10 @@ or the noise. Nothing else crosses: no true state, no reward, no metrics.
 Floats are written in Python's shortest round-trip form and read back to the same double, so a
 client computes on exactly the numbers an in-process agent would, and a deterministic agent flies
 the same trajectory bit for bit. NaN and infinity are refused. The server waits `timeout`
-seconds (60 by default) for each message and raises `RemoteAgentError` if the client is silent,
-disconnects or answers out of turn.
+seconds (60 by default) for each whole message, however slowly its bytes arrive, refuses lines
+longer than 1 MiB, and raises `RemoteAgentError` if the client is silent, disconnects or answers
+out of turn. The Python client sends a one-number action as a number and reports a non-finite
+action as an error.
 
 ## Server
 
@@ -49,7 +51,8 @@ approach scenario for one client and writes one JSON line per episode with the r
 `run_episode` (arrays as lists). However the session fails (a bad hello, a disconnect or reset,
 a line that is not JSON, not UTF-8 or too deeply nested to parse, an action the server cannot use),
 the episode being flown is written with `completed` false and the error, and so is every seed not
-yet flown; a failed hello records every seed unflown. Real-time runs ([agents.md](agents.md)) work
+yet flown; a failed hello records every seed unflown. The records are also written when the
+host itself is interrupted (Ctrl+C) before the interrupt goes on. Real-time runs ([agents.md](agents.md)) work
 through the server too; the measured latency then includes the network.
 
 ## Clients
@@ -119,7 +122,11 @@ never sees the true state, the reward or the outcome.
   unfinished record of the seed it never flew; so does an action of two numbers, a string, a
   missing action or NaN (the trajectory stays finite), an abortive close, a send that fails
   mid-episode, a 401-digit integer, 200 000 levels of nesting and bytes that are not UTF-8; a
-  hello with the wrong protocol records both seeds unflown.
+  hello with the wrong protocol records both seeds unflown; a message sent a byte every 0.25 s
+  times out after the 1 s timeout, a line over 1 MiB is refused, and an interrupt of the host
+  mid-episode still writes both records before it propagates.
+- An agent returning `array([13])` in the discrete mode flies the in-process trajectory through
+  the server; a NaN action is reported by the client as an error.
 - Burn-and-coast actions cross the server exactly; an action of the wrong length for its mode,
   or a discrete index out of range or fractional, is refused, while 13.0 is index 13 as in
   process.
@@ -136,7 +143,7 @@ never sees the true state, the reward or the outcome.
   left and episode number.
 - Starting before the episode ends, observing with none running, a non-numeric command and
   starting past the last seed are tool errors; 200 000 levels of nesting are a parse error and
-  the next request is answered.
+  the next request is answered; a NaN request id gets an error in strict JSON.
 - `predict_coast` through the server equals the tool on the current observation.
 - `params` given as a list, `arguments` given as a list or a string, and `initialize` with list
   params get -32602, as does a tool name that is not a string, and the next request is still

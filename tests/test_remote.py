@@ -6,6 +6,7 @@ import socket
 import struct
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -231,13 +232,13 @@ def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
     assert "error" in results[0]
 
 
-def host_with(client, tmp_path):
+def host_with(client, tmp_path, timeout=10.0):
     """Run the command-line host for seeds 1 and 2 against `client(stream, sock)`."""
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
-    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", "10"]
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(timeout)]
     host = threading.Thread(target=main, args=(argv,))
     host.start()
     for _ in range(100):
@@ -417,3 +418,96 @@ def test_remote_discrete_indices_follow_the_environment_rule():
     for action in (13.5, -1):
         with pytest.raises(RemoteAgentError, match="expected"):
             remote_run(Wrong(action), cfg)
+
+
+def test_a_message_sent_byte_by_byte_still_times_out_as_one_message(tmp_path):
+    # The timeout bounds the whole message, not each byte, so trickling cannot stall the host.
+    took = []
+
+    def client(stream, sock):
+        start = time.perf_counter()
+        try:
+            for byte in b'{"type": "action", "action": [0.0, 0.0, 0.0]}':
+                sock.sendall(bytes([byte]))
+                time.sleep(0.25)
+        except OSError:
+            pass
+        took.append(time.perf_counter() - start)
+        stream.close()
+        sock.close()
+
+    results = host_with(client, tmp_path, timeout=1.0)
+    assert [(r["seed"], r["completed"]) for r in results] == [(1, False), (2, False)]
+    assert "in time" in results[0]["error"]
+
+
+def test_a_line_longer_than_the_limit_is_refused(tmp_path):
+    def client(stream, sock):
+        try:
+            stream.write(
+                b'{"type": "action", "action": "' + b"x" * (remote.MAX_LINE + 10) + b'"}\n'
+            )
+            stream.flush()
+        except OSError:
+            pass
+        stream.close()
+        sock.close()
+
+    results = host_with(client, tmp_path)
+    assert [(r["seed"], r["completed"]) for r in results] == [(1, False), (2, False)]
+    assert "longer than" in results[0]["error"]
+
+
+def test_an_interrupt_mid_episode_still_leaves_every_episode_recorded(tmp_path, monkeypatch):
+    # An operator's Ctrl+C is not an Exception; the session is recorded on the way out anyway.
+    original = remote.RemoteAgent.act
+    calls = []
+
+    def interrupted(self, obs, info):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return original(self, obs, info)
+
+    monkeypatch.setattr(remote.RemoteAgent, "act", interrupted)
+    raised = []
+
+    def run_main(argv):
+        try:
+            main(argv)
+        except KeyboardInterrupt:
+            raised.append(True)
+
+    monkeypatch.setattr(remote, "main", main)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    out = tmp_path / "results.jsonl"
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out)]
+    host = threading.Thread(target=run_main, args=(argv,))
+    host.start()
+    for _ in range(100):
+        try:
+            serve_agent(PDAgent(), "127.0.0.1", port)
+            break
+        except ConnectionRefusedError:
+            threading.Event().wait(0.05)
+        except RemoteAgentError:
+            break
+    host.join(30.0)
+    results = [json.loads(line) for line in out.read_text().splitlines()]
+    assert raised == [True]
+    assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
+        (1, False, 1),
+        (2, False, 0),
+    ]
+
+
+def test_one_number_actions_cross_the_server_in_any_shape():
+    # A policy batched to shape (1,) returns array([13]); in process that is index 13.
+    cfg = ApproachConfig(start_state=CLEAR, max_steps=3, action_mode="disc27")
+    local = run_episode(ApproachEnv(cfg), Wrong(np.array([13])), seed=0, agent_seed=1)
+    served, _ = remote_run(Wrong(np.array([13])), cfg, seed=0, agent_seed=1)
+    assert np.array_equal(local["states"], served["states"])
+    with pytest.raises(RemoteAgentError, match="non-finite"):
+        remote_run(Wrong(np.array([np.nan, 0.0, 0.0])), ApproachConfig(max_steps=2))

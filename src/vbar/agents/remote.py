@@ -25,6 +25,7 @@ import argparse
 import contextlib
 import json
 import socket
+import time
 from collections.abc import Mapping
 from dataclasses import fields
 from typing import Any
@@ -34,6 +35,8 @@ import numpy as np
 from .base import Agent, AgentView
 
 PROTOCOL = 1
+# Longest message line accepted, in bytes; a view or an observation is a few kilobytes.
+MAX_LINE = 1 << 20
 
 
 class RemoteAgentError(RuntimeError):
@@ -69,26 +72,50 @@ def view_from_dict(data: Mapping[str, Any]) -> AgentView:
 
 
 class _Line:
-    """One JSON object per line over a socket."""
+    """One JSON object per line over a socket.
+
+    The socket's timeout bounds each whole message, not each read, so a peer that sends a byte at
+    a time cannot hold the session open; lines longer than `MAX_LINE` bytes are refused.
+    """
 
     def __init__(self, sock: socket.socket):
         self.sock = sock
-        self.file = sock.makefile("rwb")
+        self.timeout = sock.gettimeout()
+        self.buffer = b""
 
     def send(self, message: Mapping[str, Any]) -> None:
         text = json.dumps(message, allow_nan=False, separators=(",", ":"))
-        self.file.write(text.encode("utf-8") + b"\n")
-        self.file.flush()
+        self.sock.settimeout(self.timeout)
+        self.sock.sendall(text.encode("utf-8") + b"\n")
+
+    def _line(self) -> bytes:
+        deadline = None if self.timeout is None else time.monotonic() + self.timeout
+        while b"\n" not in self.buffer:
+            if len(self.buffer) > MAX_LINE:
+                raise RemoteAgentError(f"the remote agent sent a line longer than {MAX_LINE} bytes")
+            if deadline is not None:
+                left = deadline - time.monotonic()
+                if left <= 0.0:
+                    raise RemoteAgentError("the remote agent did not answer in time")
+                self.sock.settimeout(left)
+            try:
+                chunk = self.sock.recv(65536)
+            except TimeoutError as error:
+                raise RemoteAgentError("the remote agent did not answer in time") from error
+            except OSError as error:
+                raise RemoteAgentError(
+                    f"the connection to the remote agent failed: {error}"
+                ) from error
+            if not chunk:
+                raise RemoteAgentError("the remote agent closed the connection")
+            self.buffer += chunk
+        line, _, self.buffer = self.buffer.partition(b"\n")
+        if len(line) > MAX_LINE:
+            raise RemoteAgentError(f"the remote agent sent a line longer than {MAX_LINE} bytes")
+        return line
 
     def receive(self) -> dict[str, Any]:
-        try:
-            line = self.file.readline()
-        except TimeoutError as error:
-            raise RemoteAgentError("the remote agent did not answer in time") from error
-        except OSError as error:
-            raise RemoteAgentError(f"the connection to the remote agent failed: {error}") from error
-        if not line:
-            raise RemoteAgentError("the remote agent closed the connection")
+        line = self._line()
         try:
             message = json.loads(line)
         except (ValueError, RecursionError) as error:
@@ -101,9 +128,6 @@ class _Line:
         return message
 
     def close(self) -> None:
-        # Closing flushes; a peer that reset the connection cannot take the last bytes.
-        with contextlib.suppress(OSError):
-            self.file.close()
         self.sock.close()
 
 
@@ -184,8 +208,13 @@ class AgentServer:
             raise RemoteAgentError("no agent connected in time") from error
         conn.settimeout(self.timeout)
         line = _Line(conn)
-        hello = line.receive()
-        if hello.get("type") != "hello" or hello.get("protocol") != PROTOCOL:
+        try:
+            hello = line.receive()
+        except RemoteAgentError:
+            line.close()
+            raise
+        version = hello.get("protocol")
+        if hello.get("type") != "hello" or type(version) is not int or version != PROTOCOL:
             line.close()
             raise RemoteAgentError(f"expected a protocol {PROTOCOL} hello, got {hello}")
         return RemoteAgent(line, str(hello.get("name", "remote")))
@@ -207,12 +236,18 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
                 agent.reset(view_from_dict(message["view"]), np.random.default_rng(seq))
                 line.send({"type": "ready"})
             elif kind == "act":
-                action = agent.act(np.array(message["obs"], dtype=float), message["info"])
-                if isinstance(action, int | np.integer):
-                    reply: Any = int(action)
-                else:
-                    reply = np.asarray(action, dtype=float).tolist()
-                line.send({"type": "action", "action": reply})
+                action = np.asarray(
+                    agent.act(np.array(message["obs"], dtype=float), message["info"])
+                )
+                # One number (a discrete index, in any type or shape) goes as a number.
+                reply: Any = action.item() if action.size == 1 else action.astype(float).tolist()
+                try:
+                    line.send({"type": "action", "action": reply})
+                except ValueError:
+                    line.send(
+                        {"type": "error", "message": "the agent returned a non-finite action"}
+                    )
+                    return
             elif kind == "close":
                 return
             else:
@@ -249,34 +284,36 @@ def main(argv: list[str] | None = None) -> None:
         out.flush()
 
     agent: RemoteAgent | None = None
+    episode: Episode | None = None
+    written, reason = 0, "the session ended"
     with open(args.out, "w", encoding="utf-8") as out:
         try:
             agent = server.accept()
-        except Exception as error:  # nothing was flown; every seed is recorded unflown
             for seed in args.seeds:
-                write(out, {**Episode(env, seed).result("unknown"), "error": str(error)})
-            print(f"no session: {error}", flush=True)
-            server.close()
-            return
-        try:
-            for k, seed in enumerate(args.seeds):
                 episode = Episode(env, seed)
-                try:
-                    agent.reset(env.agent_view(), episode.agent_rng())
-                    while not episode.done:
-                        t0 = time.perf_counter()
-                        action = agent.act(episode.obs, env.agent_info())
-                        episode.step(action, time.perf_counter() - t0)
-                except Exception as error:  # whatever the client did, the episode is recorded
-                    write(out, {**episode.result(agent.name), "error": str(error)})
-                    for left in args.seeds[k + 1 :]:
-                        write(out, Episode(env, left).result(agent.name))
-                    print(f"seed {seed}: {error}", flush=True)
-                    return
-                write(out, episode.result(agent.name))
-                print(f"seed {seed}: captured {episode.info['captured']}", flush=True)
+                agent.reset(env.agent_view(), episode.agent_rng())
+                while not episode.done:
+                    t0 = time.perf_counter()
+                    action = agent.act(episode.obs, env.agent_info())
+                    episode.step(action, time.perf_counter() - t0)
+                result = episode.result(agent.name)
+                write(out, result)
+                written, episode = written + 1, None
+                print(f"seed {seed}: captured {result['captured']}", flush=True)
+        except Exception as error:  # whatever the client did, the session is recorded below
+            reason = str(error)
+            print(f"session ended: {ascii(reason)}", flush=True)
+        except BaseException as error:
+            reason = f"interrupted ({type(error).__name__})"
+            raise
         finally:
-            agent.close()
+            # Also on an interrupt: the episode being flown and every seed left are written.
+            name = agent.name if agent is not None else "unknown"
+            for k, seed in enumerate(args.seeds[written:]):
+                flown = episode if k == 0 and episode is not None else Episode(env, seed)
+                write(out, {**flown.result(name), "error": reason})
+            if agent is not None:
+                agent.close()
             server.close()
 
 
