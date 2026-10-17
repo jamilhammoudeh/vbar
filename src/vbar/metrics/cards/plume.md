@@ -1,7 +1,7 @@
 # Plume metric cards
 
 Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests: `tests/test_metrics_plume.py`.
-All need a declared plume range; without one they are NaN.
+All need a plume range, the scenario's or one in the settings; without one they are NaN.
 
 ## S10 plume_impulse (v1)
 - Definition: time integral of the Gaussian plume pressure on a declared target area from thrust inside the plume range (N s), thrust from the mass at the start of the step (Fehse 4.2.4, eqs. 4.12 to 4.13).

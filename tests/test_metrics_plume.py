@@ -79,6 +79,20 @@ def test_thrust_outside_the_plume_range_does_not_count_and_no_range_means_no_met
     assert math.isnan(plume_metrics(far)["plume_impulse"])
 
 
+def test_the_scenarios_plume_range_is_used_unless_the_settings_give_one():
+    start = (0.0, -30.0, 0.0, 0.0, 0.0, 0.0)
+    declared = episode(
+        ConstantAgent([0.0, -1.0, 0.0]), start_state=start, max_steps=1, goal={"plume_range": 50.0}
+    )
+    plain = episode(ConstantAgent([0.0, -1.0, 0.0]), start_state=start, max_steps=1)
+    no_samples = MetricSettings(partial_burn_samples=0)
+    assert plume_metrics(declared, no_samples)["plume_impulse"] == pytest.approx(
+        plume_metrics(plain, PLUME)["plume_impulse"], rel=1e-12
+    )
+    overridden = MetricSettings(plume_range=10.0, partial_burn_samples=0)
+    assert plume_metrics(declared, overridden)["plume_impulse"] == 0.0
+
+
 def test_entering_the_plume_range_mid_step_counts_only_the_time_inside():
     # Closing at 1 m/s from 55 m while braking: inside 50 m after about 5 s.
     start = (0.0, -55.0, 0.0, 0.0, 1.0, 0.0)

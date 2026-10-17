@@ -69,16 +69,20 @@ def plume_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict[s
     Only thrust inside `plume_range` counts. The margin is the least angle between a firing
     thruster's exhaust and the line of sight to the target, minus `plume_half_angle`; the time
     is when that is negative; the impulse integrates the plume force on `plume_target_area`,
-    with the thrust from the mass at the start of the step. All NaN when no range is declared.
+    with the thrust from the mass at the start of the step. The range is the scenario's
+    (`plume_range` in its goal) unless the settings give one. All NaN when neither does.
     """
     settings = settings or MetricSettings()
     out = {"plume_margin": math.nan, "plume_time": math.nan, "plume_impulse": math.nan}
-    if settings.plume_range is None:
+    plume_range = settings.plume_range
+    if plume_range is None:
+        plume_range = ep.view.goal.get("plume_range")
+    if plume_range is None:
         return out
     trace = Trace(ep)
     sigma, cone = settings.plume_sigma, settings.plume_half_angle
     scale = settings.plume_target_area / plume_normalization(sigma)
-    near = KeepOut(settings.plume_range)
+    near = KeepOut(plume_range)
     margin, seconds, impulse = math.inf, 0.0, 0.0
     segments = iter(trace.segments)
     for rec, mass in zip(ep.records, _masses(ep), strict=True):

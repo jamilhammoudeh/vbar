@@ -21,7 +21,7 @@ class MetricSettings:
     `cam_dv` opposite the approach), executed after `cam_delay` s and checked for `cam_horizon`
     s (default the drift horizon). Drift is sampled `drift_samples_per_orbit` times per orbit.
 
-    Thrust within `plume_range` (m, None for no plume metrics) is scored with the Gaussian plume
+    Thrust within `plume_range` (m, None for the scenario's own) is scored with the Gaussian plume
     of 1-sigma angle `plume_sigma` (rad); exhaust within `plume_half_angle` of the line of sight
     to the target violates the plume constraint; forces act on `plume_target_area` (m^2).
     `composite_weights` replace the composite score's draft infraction weights, and a failed run

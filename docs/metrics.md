@@ -238,8 +238,10 @@ P(r, \theta) = \frac{\varphi_0}{r^2}\, e^{-\theta^2 / (2\theta_0^2)}, \qquad
 $$
 
 so the pressure over a unit sphere integrates to the thrust $F$; $\theta_0$ = 13 deg
-(`plume_sigma`). Only thrust within `plume_range` $R_p$ counts (no plume metrics when it is not
-declared).
+(`plume_sigma`). Only thrust within the plume range $R_p$ counts: the scenario's `plume_range`
+(in its goal), unless `MetricSettings.plume_range` gives one; no plume metrics when neither does.
+Flown values range from 60 to 457 m by mission (Goodman, *History of Space Shuttle Rendezvous*,
+2011), so the scenario declares it.
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
@@ -441,7 +443,8 @@ at that rate needs about 385 episodes.
   trajectory to 1e-8, 10 s on target and a margin of -39 deg; thrusting toward the target leaves
   the exhaust behind (margin $\pi - 39$ deg less the small tilt from Clohessy-Wiltshire coupling,
   force about 1e-43 N s). Thrust outside $R_p$ counts nothing; entering $R_p$ mid-step counts only
-  the time inside; the impulse changes by less than 1e-4 between 10 and 2.5 s steps.
+  the time inside; the impulse changes by less than 1e-4 between 10 and 2.5 s steps. A range
+  declared by the scenario is used when the settings give none.
 - Filter (`tests/test_metrics_filter.py`): a filter that halves every command gives F1 = 1 and
   F2 the mean half-command size in m/s^2, in normalized, acceleration and thrust action modes,
   with F2n over the box or ball widest change; a filter that only clips gives F1 = 0 and F1c = 1,

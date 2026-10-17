@@ -16,7 +16,8 @@ release may change the public API, and every such change is listed under Changed
 - Filter metric F1 counts decisions with an active safety row, not every change; clipping is
   counted apart (F1c). F2 is in m/s^2 rather than fractions of a full command over sqrt(3), and
   F2n normalises it by the actuator's widest change.
-- S5 divides by the speed the scenario's closing-rate law allows, so it also scores gate tables.
+- S5 divides by the speed the scenario's closing-rate law allows, so it also scores gate tables;
+  the plume range is the scenario's unless the settings give one.
 
 ### Added
 
