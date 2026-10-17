@@ -276,7 +276,7 @@ filter defect counted apart. Inside the commit zone (`commit_radius`) the filter
 | F5b | `solver_failures` | count | decisions outside the commit zone with status `solver_failed` |
 | F6, F6p | `filter_compute_median`, `filter_compute_p95` | s | median and 95th percentile of the filter's compute time |
 | F7 | `filter_conservatism` | fraction | share of a declared region's viable states (a reference set) that the filter's safe set leaves out; from `filter_conservatism`, not per episode |
-| F8 | `unnecessary_intervention_rate` | fraction | share of active decisions whose own command, held for the step then left to drift over the drift horizon, stays clear of the collision radius |
+| F8 | `unnecessary_intervention_rate` | fraction | share of active decisions whose own command, held for the step then left to drift over the drift horizon, stays clear of the collision radius; only the collision sphere is judged, so an intervention for the cone, a speed law or the plume counts as unnecessary |
 | F9 | `reentry_time` | s | mean length of the stretches where the filter reported `recovering`, infinite if the episode ends inside one |
 | F10 | `stall_time` | s | time with an active row while the chaser moves slower than `stall_speed` (0.01 m/s, ours) |
 | F5f, F5l | `fallback_count`, `fallback_level_max` | count, level | decisions answered by a fallback (`fallback_level` > 0), and the deepest level used |

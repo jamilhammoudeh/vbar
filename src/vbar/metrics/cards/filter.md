@@ -159,7 +159,7 @@ power figures need real filters and are not given.
 - Changelog: v1, first version.
 
 ## F8 unnecessary_intervention_rate (v1)
-- Definition: share of decisions with an active safety row whose own command, held for the step and then left to free drift over the drift horizon, stays clear of the collision radius.
+- Definition: share of decisions with an active safety row whose own command, held for the step and then left to free drift over the drift horizon, stays clear of the collision radius. Only the collision sphere is judged: an intervention made for the approach cone, a speed law or the plume counts as unnecessary.
 - Summary: interquartile mean across episodes.
 - Why it matters: a filter that intervenes when the agent was safe costs fuel and progress for nothing.
 - Known-answer tests: 0 when zeroing full thrust 100 m behind the target (the held command coasts to 45 m, inside 50 m), equal to closed-form escape arcs at every decision; 1 for a tenth of that from 400 m.
