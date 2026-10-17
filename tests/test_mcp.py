@@ -8,7 +8,7 @@ import pytest
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import PDAgent
-from vbar.agents.mcp import METHOD_NOT_FOUND, PARSE_ERROR, ToolServer
+from vbar.agents.mcp import INVALID_PARAMS, METHOD_NOT_FOUND, PARSE_ERROR, ToolServer
 from vbar.agents.tools import predict_coast
 
 
@@ -135,3 +135,56 @@ def test_command_line_server_speaks_json_rpc_on_stdio(tmp_path):
     (result,) = [json.loads(line) for line in out.read_text().splitlines()]
     assert result["seed"] == 4 and len(result["actions"]) == 3
     assert result["dv_used_mps"] == pytest.approx(0.06, rel=1e-3)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": ["command"]},
+        {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "command", "arguments": [1]},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "command", "arguments": "abc"},
+        },
+        {"jsonrpc": "2.0", "id": 9, "method": "initialize", "params": [1, 2]},
+    ],
+)
+def test_malformed_requests_get_errors_and_the_server_keeps_answering(message):
+    server = ToolServer(ApproachEnv(), [0])
+    call(server, "start_episode")
+    out = io.StringIO()
+    ping = {"jsonrpc": "2.0", "id": 10, "method": "ping"}
+    server.serve(io.StringIO(json.dumps(message) + "\n" + json.dumps(ping) + "\n"), out)
+    first, second = (json.loads(line) for line in out.getvalue().splitlines())
+    assert first["error"]["code"] == INVALID_PARAMS and second == {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "result": {},
+    }
+
+
+def test_an_abandoned_session_still_records_every_episode():
+    # A client cannot drop an episode that is going badly by closing the connection.
+    results = []
+    server = ToolServer(ApproachEnv(), [0, 1, 2], on_result=results.append)
+    lines = [
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "start_episode"}},
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "command", "arguments": {"ax": 0, "ay": 0, "az": 0}},
+        },
+    ]
+    server.serve(io.StringIO("".join(json.dumps(m) + "\n" for m in lines)), io.StringIO())
+    assert [r["seed"] for r in results] == [0, 1, 2]
+    assert [r["completed"] for r in results] == [False, False, False]
+    assert [len(r["actions"]) for r in results] == [1, 0, 0]
+    assert not any(r["captured"] for r in results)

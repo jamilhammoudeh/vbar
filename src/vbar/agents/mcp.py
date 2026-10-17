@@ -5,7 +5,9 @@ JSON-RPC 2.0 messages, one per line on stdin and stdout, with the methods `initi
 list of seeds, return the observation, apply a command, and offer the coast and transfer
 predictions of `vbar.agents.tools`. Like any scored agent, the client sees only the public
 view, the observations and the time: never the true state, the reward or the result, which the
-server keeps (`ToolServer.results`, or a JSON-lines file from the command line).
+server keeps (`ToolServer.results`, or a JSON-lines file from the command line). When the
+input ends, an episode still running and every seed not yet flown are recorded as unfinished,
+so a client cannot drop an episode by disconnecting.
 """
 
 from __future__ import annotations
@@ -28,7 +30,8 @@ from .tools import CW_TOOLS, call_tool
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 # JSON-RPC error codes.
-PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
+PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND = -32700, -32600, -32601
+INVALID_PARAMS, INTERNAL_ERROR = -32602, -32603
 
 FRAME = (
     "Hill frame centered on the target: x radial (up, away from Earth), y along-track (direction "
@@ -140,14 +143,26 @@ class ToolServer:
         wall = time.perf_counter() - self.since
         episode.step(np.clip(fraction, -1.0, 1.0) * self.scale, wall)
         if episode.done:
-            result = episode.result(self.agent_name)
-            self.results.append(result)
-            if self.on_result is not None:
-                self.on_result(result)
+            self._record(episode)
             self.episode = None
             return {"episode_over": True, "episodes_left": len(self.seeds) - self.next_seed}
         self.since = time.perf_counter()
         return {"episode_over": False, **self._snapshot()}
+
+    def _record(self, episode: Episode) -> None:
+        result = episode.result(self.agent_name)
+        self.results.append(result)
+        if self.on_result is not None:
+            self.on_result(result)
+
+    def finish(self) -> None:
+        """Record the running episode and every seed not yet flown as unfinished."""
+        if self.episode is not None:
+            self._record(self.episode)
+            self.episode = None
+        while self.next_seed < len(self.seeds):
+            self._record(Episode(self.env, self.seeds[self.next_seed], agent_seed=0))
+            self.next_seed += 1
 
     def _predict(self, name: str, args: dict) -> dict:
         found = call_tool({t.name: t for t in CW_TOOLS}, name, self._running().obs, self.view, args)
@@ -161,7 +176,9 @@ class ToolServer:
             return _error(None, INVALID_REQUEST, "not a JSON-RPC 2.0 message")
         if "id" not in message:
             return None
-        ident, method, params = message["id"], message.get("method"), message.get("params") or {}
+        ident, method, params = message["id"], message.get("method"), message.get("params", {})
+        if not isinstance(params, dict):
+            return _error(ident, INVALID_PARAMS, "params must be an object")
         if method == "initialize":
             asked = params.get("protocolVersion")
             version = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
@@ -182,11 +199,13 @@ class ToolServer:
             ]
             return _result(ident, {"tools": tools})
         if method == "tools/call":
-            name = params.get("name")
+            name, arguments = params.get("name"), params.get("arguments", {})
             if name not in self.tools:
                 return _error(ident, INVALID_PARAMS, f"unknown tool {name!r}")
+            if not isinstance(arguments, dict):
+                return _error(ident, INVALID_PARAMS, "arguments must be an object")
             try:
-                payload = self.tools[name][2](dict(params.get("arguments") or {}))
+                payload = self.tools[name][2](arguments)
             except ToolError as error:
                 return _result(ident, {"content": [_text(str(error))], "isError": True})
             return _result(
@@ -200,7 +219,11 @@ class ToolServer:
         return _error(ident, METHOD_NOT_FOUND, f"unknown method {method!r}")
 
     def serve(self, stdin: IO[str] | None = None, stdout: IO[str] | None = None) -> None:
-        """Answer messages from `stdin` on `stdout`, one per line, until the input ends."""
+        """Answer messages from `stdin` on `stdout`, one per line, until the input ends.
+
+        A message that fails inside the server gets an internal error, and the loop goes on; at
+        the end of the input, unfinished episodes are recorded (`finish`).
+        """
         source, sink = stdin or sys.stdin, stdout or sys.stdout
         for line in source:
             if not line.strip():
@@ -210,10 +233,15 @@ class ToolServer:
             except json.JSONDecodeError:
                 response: dict | None = _error(None, PARSE_ERROR, "invalid JSON")
             else:
-                response = self.handle(message)
+                try:
+                    response = self.handle(message)
+                except Exception as error:  # one bad request must not end the scored session
+                    ident = message.get("id") if isinstance(message, dict) else None
+                    response = _error(ident, INTERNAL_ERROR, f"{type(error).__name__}: {error}")
             if response is not None:
                 sink.write(json.dumps(response) + "\n")
                 sink.flush()
+        self.finish()
 
 
 def _text(text: str) -> dict[str, str]:

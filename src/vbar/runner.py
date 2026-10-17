@@ -86,6 +86,7 @@ class Episode:
             "final_dist_to_hold_m": info["dist_to_hold_m"],
             "dv_used_mps": info["dv_used_mps"],
             "time_s": info["time_s"],
+            "completed": self.done,
             "wall_time_s": time.perf_counter() - self.started,
             "latencies_s": np.array(self.latencies),
             "states": np.array(self.states),

@@ -77,7 +77,8 @@ tool server. `ToolServer(env, seeds)` is the same server in Python; its `handle(
 one message and `serve(stdin, stdout)` runs the loop. It answers `initialize` (protocol versions
 2025-06-18, 2025-03-26 and 2024-11-05; the client's choice when supported), `ping`, `tools/list`
 and `tools/call`, ignores notifications, and returns JSON-RPC errors for unknown methods (-32601),
-unknown tools (-32602) and lines that are not JSON (-32700).
+unknown tools and `params` or `arguments` that are not objects (-32602), lines that are not JSON
+(-32700) and failures inside the server (-32603); after an error it goes on answering.
 
 | Tool | Arguments | Returns |
 |---|---|---|
@@ -94,7 +95,9 @@ order of the seeds and cannot be abandoned, so a client cannot restart until it 
 Each command's wall time since the previous observation is the decision latency. Results stay
 on the server: `ToolServer.results` holds `run_episode`'s result for each finished episode (with
 `agent_seed` 0, since the client has no stream of ours), and the command line writes them to the
-`--out` file as they finish. The client never sees the true state, the reward or the outcome.
+`--out` file as they finish. When the input ends, an episode still running and every seed not
+yet flown are recorded too, with `completed` false, so closing the connection does not remove a
+bad episode from the results. The client never sees the true state, the reward or the outcome.
 
 ## How it is tested
 
@@ -121,6 +124,9 @@ on the server: `ToolServer.results` holds `run_episode`'s result for each finish
 - Starting before the episode ends, observing with none running, a non-numeric command and
   starting past the last seed are tool errors.
 - `predict_coast` through the server equals the tool on the current observation.
+- `params` given as a list, `arguments` given as a list or a string, and `initialize` with list
+  params get -32602, and the next request is still answered; a session that ends after one
+  command of three episodes records all three, unfinished.
 - `python -m vbar.agents.mcp` in a subprocess answers five requests on stdio and writes the
   episode's result.
 
