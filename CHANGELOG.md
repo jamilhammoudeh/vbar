@@ -17,8 +17,9 @@ release may change the public API, and every such change is listed under Changed
   acceleration, not every change; clipping to the thrust limit is counted apart (F1c). F2 is the
   change in flown acceleration in m/s^2 rather than fractions of a full command over sqrt(3), and
   F2n normalises it by the actuator's widest change.
-- S5 divides by the speed the scenario's closing-rate law allows, so it also scores gate tables;
-  the plume range is the scenario's unless the settings give one.
+- S5 divides by the speed the scenario's closing-rate law allows, so it also scores range-rate
+  tables, and no longer raises for a limit with v0 <= 0; the plume range is the scenario's unless
+  the settings give one.
 
 ### Added
 
@@ -49,6 +50,14 @@ release may change the public API, and every such change is listed under Changed
   latency, solver labels, tolerances and status counts, iterations, warm starts and fallbacks.
 - Agent metric A5b, the stated range's error from a reference navigation posterior, when one
   is passed to `evaluate`.
+- `FuelBounds(lower, upper, norm, rung)` names the dynamics rung (the `Episode.dynamics` name,
+  for example "cw") its bounds are certified for; on other rungs the ratio is reported as
+  `optimality_gap_model`, with `bound_certified` and `bound_rung`, and the bug flag is not set.
+- Summaries across episodes: `MetricInfo.summary` says how each metric ranks, `summarize` applies
+  it (per constraint for S1 to S3), `unsafe_tail` gives the worst value, quantile and tail mean of
+  safety metrics, and `clopper_pearson` the exact interval of a rate. The card template has a
+  Summary field and a table of rate resolution against episode count.
+- `allowed_speed(rho)` on `ClosingSpeedLimit` and `GateTable`, and `MetricSettings.stall_speed`.
 
 ## [0.2.0] - 2026-10-16
 
