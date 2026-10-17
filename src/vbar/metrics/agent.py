@@ -97,22 +97,27 @@ def belief_consistency(ep: Episode, posterior: Posterior | None) -> float:
     (m, Hill) and covariance (m^2) of the position, from those observations alone. The range's
     standard deviation is the first-order sqrt(u' P u), u the unit mean. Over the decisions with a
     stated belief; 0 when every stated range is the posterior's; NaN without a posterior, a log or
-    a belief. An agent that restates each noisy fix scores A5 = 1 and a large A5b.
+    a belief. An agent that restates each noisy fix scores A5 = 1 and a large A5b; one that states
+    few beliefs is judged on those few, so A5b is read with A5, which counts the missing ones.
     """
     if posterior is None or not ep.agent_log:
         return math.nan
     observations = np.array(_decision_observations(ep))
     errors = []
-    for k, entry in enumerate(ep.agent_log):
+    for k, (entry, _) in enumerate(zip(ep.agent_log, observations, strict=True)):
         belief = parse_belief(str(entry.get("reply", "")))
         if belief is None:
             continue
         mean, cov = posterior(observations[: k + 1])
         mean = np.asarray(mean, dtype=float)[:3]
         rho = float(np.linalg.norm(mean))
+        if rho == 0.0:
+            raise ValueError("the posterior mean is at the target, so it has no range direction")
         u = mean / rho
-        sigma = math.sqrt(float(u @ np.asarray(cov, dtype=float)[:3, :3] @ u))
-        errors.append((belief["range_m"] - rho) / sigma)
+        variance = float(u @ np.asarray(cov, dtype=float)[:3, :3] @ u)
+        if not variance > 0.0:
+            raise ValueError("the posterior range variance must be positive")
+        errors.append((belief["range_m"] - rho) / math.sqrt(variance))
     return float(np.sqrt(np.mean(np.square(errors)))) if errors else math.nan
 
 

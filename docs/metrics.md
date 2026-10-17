@@ -315,7 +315,8 @@ A belief is the first JSON object in a reply with a numeric `range_m` and a bool
 observations up to a decision to the mean (m) and covariance (m^2) of the position, from those
 observations alone. Under navigation noise the rational belief is that posterior, not the latest
 fix (Kochenderfer et al., *Algorithms for Decision Making*, 2022, sections 19.3 and 20.1), so an
-agent that restates each fix scores A5 = 1 and a large A5b.
+agent that restates each fix scores A5 = 1 and a large A5b. Only decisions with a stated belief
+count, so A5b is read with A5, which counts the missing ones.
 
 A model-based agent may add solver fields to its log entries: `solver`, `tolerance`, `status`,
 `iterations`, `warm_start`, `fallback`, `prep_s` and `feedback_s`. Each A1r to A9f metric is over
@@ -494,7 +495,9 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   a warm-start rate of 0.75 and one fallback, each over the entries that report it; a log without
   them gives NaN. Stated ranges 2, -2, 6 and -6 m off a posterior with a 2 m sigma give
   A5b = $\sqrt5$; at rest on the V-bar with 50 m fixes, restating them scores A5 = 1 and A5b above 1,
-  stating the mean of the fixes below 1e-3.
+  stating the mean of the fixes below 1e-3; the range sigma is the covariance along the line of
+  sight (10 m of along-track sigma at rest on the V-bar gives A5b = 1 for a 10 m error), and a
+  posterior with no range variance or a mean at the target is rejected.
 - Composite (`tests/test_metrics_composite.py`): a clean success scores 1; the flyby scores its
   progress over 2.1 (one entry, one timeout); a relative orbit centred on the target counts each
   entry into the sphere as the closed form does; the PD baseline, PD through the target and free

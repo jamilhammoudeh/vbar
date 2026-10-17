@@ -116,6 +116,29 @@ def test_belief_consistency_is_the_rms_error_in_posterior_sigmas():
     assert math.isnan(agent_metrics(ep)["belief_consistency"])
 
 
+def test_the_range_sigma_is_the_posterior_covariance_along_the_line_of_sight():
+    # At rest on the V-bar the line of sight is the y axis, where this posterior has 10 m sigma.
+    ep = stated_ranges(
+        episode(start_state=(0.0, -300.0, 0.0, 0.0, 0.0, 0.0), max_steps=4), [10.0] * 4
+    )
+
+    def along_track(observations):
+        return observations[-1][:3], np.diag([4.0, 100.0, 9.0])
+
+    assert belief_consistency(ep, along_track) == pytest.approx(1.0, abs=1e-12)
+
+
+def test_a_posterior_without_a_range_spread_or_direction_is_rejected():
+    ep = stated_ranges(pd_episode(max_steps=2), [1.0, 1.0])
+    with pytest.raises(ValueError, match="variance"):
+        belief_consistency(ep, lambda obs: (obs[-1][:3], np.zeros((3, 3))))
+    with pytest.raises(ValueError, match="at the target"):
+        belief_consistency(ep, lambda obs: (np.zeros(3), np.eye(3)))
+    longer = dataclasses.replace(ep, agent_log=ep.agent_log * 3)
+    with pytest.raises(ValueError):
+        belief_consistency(longer, latest_fix)
+
+
 def test_restating_noisy_fixes_is_faithful_but_not_consistent_with_the_posterior():
     # At rest on the V-bar the truth stays put, so with 50 m fixes the posterior is their mean
     # with covariance 50^2 / k per axis.
