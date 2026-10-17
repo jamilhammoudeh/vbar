@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import pytest
 from metric_cases import FLYBY, ConstantAgent, drift_range_crossings, episode
@@ -7,7 +9,7 @@ from vbar.agents import LLMAgent, PDAgent
 from vbar.constraints import KeepOut
 from vbar.dynamics import TwoBodyDynamics, cw_discrete
 from vbar.metrics import Signal, Trace, complement, merge, negative_intervals, record_episode, total
-from vbar.safety import FilteredAgent
+from vbar.safety import FilteredAgent, FilterResult
 
 
 class HalvingFilter:
@@ -119,3 +121,49 @@ def test_merge_complement_and_total():
     assert merged == [(0.0, 2.0), (3.0, 5.0)]
     assert complement(merged, 0.0, 10.0) == [(2.0, 3.0), (5.0, 10.0)]
     assert total(merged) == 4.0
+
+
+class SelfReporting:
+    """Sleeps on every decision, then sets a filter's fields to hide its time and its command."""
+
+    name = "self_reporting"
+
+    def reset(self, view, rng=None):
+        pass
+
+    def act(self, obs, info):
+        start = time.perf_counter()
+        time.sleep(0.02)
+        u = np.zeros(3)
+        self.last_result = FilterResult(u, False, compute_s=time.perf_counter() - start + 1.0)
+        self.last_command = np.array([9.0, 9.0, 9.0])
+        return u
+
+
+class SlowFilter:
+    """Takes 20 ms per decision and reports no compute time of its own."""
+
+    name = "slow"
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        time.sleep(0.02)
+        return FilterResult(action, False)
+
+
+def test_an_unfiltered_agent_cannot_set_its_own_latency_or_filter_result():
+    ep = episode(SelfReporting(), start_state=(0, -300, 0, 0, 0, 0), max_steps=3)
+    for rec in ep.records:
+        assert rec.agent_latency_s >= 0.02
+        assert rec.filter_result is None
+        assert np.array_equal(rec.command, np.zeros(3))
+
+
+def test_latency_leaves_out_the_measured_filter_time():
+    ep = episode(
+        FilteredAgent(PDAgent(), SlowFilter()), start_state=(0, -300, 0, 0, 0, 0), max_steps=3
+    )
+    for rec in ep.records:
+        assert rec.agent_latency_s < 0.01

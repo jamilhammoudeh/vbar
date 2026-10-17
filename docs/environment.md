@@ -147,7 +147,7 @@ action in the view's action mode. Provided:
   `solver_failed` when it found neither), the accepted slack, the conflicting constraints and its
   wall time. A bare action is wrapped as `feasible`, intervened when a component moved by more
   than `tol` (1e-6), with the measured time. After each decision `last_command` and `last_result`
-  hold the agent's command and the result, for the step record ([metrics.md](metrics.md)). Only
+  hold the agent's command and the result, and `last_filter_s` the filter's measured time, for the step record ([metrics.md](metrics.md)). Only
   the pass-through filter exists so far.
 
 `vbar.agents.action_scale(view)` gives the action units per fraction of a full command.

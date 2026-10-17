@@ -54,9 +54,10 @@ class PassThroughFilter:
 class FilteredAgent:
     """Agent + safety filter, presented as a single agent.
 
-    After each `act`, `last_command` is the agent's own command and `last_result` the filter's
-    `FilterResult`; a filter that returns a bare action gets a result with status "feasible",
-    `intervened` when any component moved by more than `tol`, and its measured wall time.
+    After each `act`, `last_command` is the agent's own command, `last_result` the filter's
+    `FilterResult` and `last_filter_s` the filter's measured wall time (s). A filter that returns
+    a bare action gets a result with status "feasible", `intervened` when any component moved by
+    more than `tol`, and its measured wall time.
     """
 
     def __init__(self, agent, safety_filter, tol: float = 1e-6):
@@ -72,6 +73,7 @@ class FilteredAgent:
         self.decisions = 0
         self.last_command: np.ndarray | None = None
         self.last_result: FilterResult | None = None
+        self.last_filter_s = 0.0
 
     def act(self, obs, info):
         raw = np.asarray(self.agent.act(obs, info), dtype=float)
@@ -88,6 +90,7 @@ class FilteredAgent:
         self.interventions += int(result.intervened)
         self.last_command = raw
         self.last_result = result
+        self.last_filter_s = elapsed
         return np.asarray(result.action, dtype=float)
 
 

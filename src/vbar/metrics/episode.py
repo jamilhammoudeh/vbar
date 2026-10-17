@@ -17,6 +17,7 @@ import numpy as np
 
 from ..agents.base import AgentView
 from ..constraints import Constraint
+from ..safety import FilteredAgent
 from ..scenarios.base import StepRecord
 
 
@@ -80,8 +81,9 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
 
     The agent sees what `vbar.run_episode` gives it: the view, its own random stream seeded by
     `agent_seed` (drawn from the operating system when not given), the observations and the
-    agent-safe info. A filtered agent's raw command and `FilterResult` go into each record, and
-    the agent's latency there excludes the filter's own compute time.
+    agent-safe info. A `FilteredAgent`'s raw command and `FilterResult` go into each record, and
+    the agent's latency there excludes the filter's measured wall time; other agents' attributes
+    are not read.
     """
     if agent_seed is None:
         agent_seed = secrets.randbits(128)
@@ -95,15 +97,18 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         t0 = time.perf_counter()
         action = np.asarray(agent.act(obs, env.agent_info()), dtype=float)
         latency = time.perf_counter() - t0
-        result = getattr(agent, "last_result", None)
-        command = getattr(agent, "last_command", None)
+        # Only a FilteredAgent's own bookkeeping is trusted; any agent could set these names.
+        filtered = isinstance(agent, FilteredAgent)
+        verdict = agent.last_result if filtered else None
+        command = agent.last_command if filtered else action
+        filter_time = agent.last_filter_s if filtered else 0.0
         obs, _, terminated, truncated, info = env.step(action)
         records.append(
             replace(
                 env.record,
-                command=action if command is None else np.array(command, dtype=float),
-                filter_result=result,
-                agent_latency_s=latency - (result.compute_s if result is not None else 0.0),
+                command=np.array(command, dtype=float),
+                filter_result=verdict,
+                agent_latency_s=latency - filter_time,
             )
         )
     cfg = env.cfg
