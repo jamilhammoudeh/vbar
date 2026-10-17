@@ -292,7 +292,7 @@ A belief is the first JSON object in a reply with a numeric `range_m` and a bool
 ## Composite score (C1)
 
 $$
-\text{C1} = c \cdot \frac{1}{1 + \sum_j w_j n_j}, \qquad c = \begin{cases} 1 & \text{M1} \ \text{M5} & \text{otherwise} \end{cases}
+\text{C1} = c \cdot \frac{1}{1 + \sum_j w_j n_j}, \qquad c = \begin{cases} 1 & \text{if M1} \\ \text{M5} & \text{otherwise} \end{cases}
 $$
 
 $n_j$ counts infractions of type $j$: one per contiguous interval, in continuous time, with a
@@ -393,6 +393,10 @@ needed to detect a stated change on the baselines, evidence of validity, and its
   to 1 mm, and a stuck full-thrust command for 30 s matches its closed form. All seven metrics are
   the same at 50 and 800 samples per orbit to 1 mm, unchanged by mirroring across the orbit plane,
   and on the two-body model they agree with Clohessy-Wiltshire to 1 cm at 150 m.
+  With only 8 drift samples per orbit a 4 m/s pass through the target is still found, since
+  arcs whose sign the samples cannot settle are refined; an ellipse whose centre recedes but sits
+  between $b + R$ and $2b + R$ along-track is not certified, and comes within 16 m; a burn whose
+  ends both drift clear by 196 m is caught by a cut midway.
 - Plume (`tests/test_metrics_plume.py`): the pressure normalization matches a midpoint rule
   over the sphere to 1e-6 and tends to $2\pi\theta_0^2$ for a narrow plume. Braking at full thrust
   30 m behind the target gives the impulse of an independent quadrature on the closed-form
