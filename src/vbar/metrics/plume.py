@@ -18,7 +18,7 @@ from scipy.optimize import minimize_scalar
 from ..constraints import KeepOut
 from .episode import Episode
 from .settings import MetricSettings
-from .stl import Segment, Signal, Trace, intersect, segment_negative_intervals, total
+from .stl import Segment, Signal, Trace, intersect, merge, segment_negative_intervals, total
 
 
 def exhausts(accel: np.ndarray, layout: str) -> list[tuple[np.ndarray, float]]:
@@ -46,6 +46,11 @@ def plume_normalization(sigma: float) -> float:
 def _angle(direction: np.ndarray, state: np.ndarray) -> np.ndarray:
     """Angle (rad) between `direction` and the line of sight from the chaser to the target, -r."""
     look = -np.asarray(state)[..., :3]
+    if look.ndim == 1:
+        # One state, as in the refinement searches: plain arithmetic is about 20 times faster.
+        (a, b, c), (x, y, z) = direction, look
+        across = math.hypot(b * z - c * y, c * x - a * z, a * y - b * x)
+        return np.asarray(math.atan2(across, a * x + b * y + c * z))
     cross = np.linalg.norm(np.cross(direction, look), axis=-1)
     return np.arctan2(cross, look @ direction)
 
@@ -80,7 +85,7 @@ def plume_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict[s
         for _ in rec.segment.segments:
             seg = next(segments)
             for direction, size in exhausts(seg.accel, ep.view.thrust_limit):
-                inside = segment_negative_intervals(near, trace, seg)
+                inside = merge(segment_negative_intervals(near, trace, seg))
                 if not inside:
                     continue
                 low, on = _thruster(trace, seg, direction, cone, inside)
@@ -105,7 +110,10 @@ def _thruster(trace: Trace, seg: Segment, direction, cone, inside) -> tuple[floa
     low = math.inf
     for lo, hi in inside:
         found = minimize_scalar(
-            lambda t: float(margin(trace.state_in(seg, t))), bounds=(lo, hi), method="bounded"
+            lambda t: float(margin(trace.state_in(seg, t))),
+            bounds=(lo, hi),
+            method="bounded",
+            options={"xatol": 1e-9},
         )
         ends = min(float(margin(trace.state_in(seg, lo))), float(margin(trace.state_in(seg, hi))))
         low = min(low, float(found.fun), ends)
