@@ -66,6 +66,8 @@ def assert_same(actual, expected, key=""):
             assert_same(actual[name], expected[name], key)
     elif isinstance(expected, bool) or expected is None or isinstance(expected, str):
         assert actual == expected, key
+    elif isinstance(expected, list | tuple):
+        assert list(actual) == list(expected), key
     elif isinstance(expected, int) and isinstance(actual, int):
         assert actual == expected, key
     elif math.isnan(expected):

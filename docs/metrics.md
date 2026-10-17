@@ -273,8 +273,16 @@ filter defect counted apart. Inside the commit zone (`commit_radius`) the filter
 | F5 | `infeasible_steps` | count | decisions outside the commit zone with status `infeasible_certified` |
 | F5b | `solver_failures` | count | decisions outside the commit zone with status `solver_failed` |
 | F6, F6p | `filter_compute_median`, `filter_compute_p95` | s | median and 95th percentile of the filter's compute time |
+| F7 | `filter_conservatism` | fraction | share of a declared region's viable states (a reference set) that the filter's safe set leaves out; from `filter_conservatism`, not per episode |
+| F8 | `unnecessary_intervention_rate` | fraction | share of active decisions whose own command, held for the step then left to drift over the drift horizon, stays clear of the collision radius |
+| F9 | `reentry_time` | s | mean length of the stretches where the filter reported `recovering` |
+| F10 | `stall_time` | s | time with an active row while the chaser moves slower than `stall_speed` (0.01 m/s, ours) |
+| F5f, F5l | `fallback_count`, `fallback_level_max` | count, level | decisions answered by a fallback (`fallback_level` > 0), and the deepest level used |
+| F11, F11h | `filter_certificates`, `certificate_horizon_min` | labels, s | the kinds of guarantee reported, and the shortest certificate horizon (infinite for an invariant set) |
 
-`filter_metrics(episode, settings)` gives F1, F2, F5, F5b and F6; `paired_filter_metrics(on, off)`
+`filter_metrics(episode, settings)` gives F1, F1c, F2, F2n, F5, F5b and F6, and
+`filter_behaviour(episode, settings)` F8 to F10 and the fallback and certificate columns, from the
+optional `FilterResult` fields (NaN where the filter does not report them); `paired_filter_metrics(on, off)`
 gives F3 and F4 from runs over the same seeds and rejects runs that do not pair.
 `iqm(values)` is the interquartile mean, the mean of the middle half (Agarwal et al., "Deep
 Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
@@ -437,6 +445,12 @@ at that rate needs about 385 episodes.
   are counted inside a commit zone; F6 is the median and 95th percentile of scripted compute times.
   F3 equals the trimmed mean of the per-seed delta-v differences over 5 seeds, in any order of the
   runs, and unpaired runs are rejected.
+- Filter behaviour: zeroing full thrust 100 m behind the target was needed (its held command
+  coasts to 45 m, inside the 50 m sphere; F8 = 0, equal to closed-form escape arcs) and a tenth of
+  it from 400 m was not (F8 = 1); recovering stretches of 3 and 1 decisions give F9 = 20 s; a filter
+  that zeroes every command from rest gives 60 s of stall time over six steps; scripted fallbacks
+  and certificates are counted as given; conservatism is 40/101 for a filter keeping 0.6 m of a
+  viable 1 m.
 - Agent (`tests/test_metrics_agent.py`): A1 and A2 from set latencies; alternating unreadable
   replies give A4 = 0.5; token counts and a price table give the cost; an agent that restates the
   range and closing sign from its prompt scores A5 = 1, one that doubles the range scores 0, and

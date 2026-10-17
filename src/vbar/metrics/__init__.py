@@ -5,7 +5,13 @@ from .composite import WEIGHTS, composite_metrics, composite_score, infractions,
 from .efficiency import FuelBounds, Oracle, efficiency_metrics, optimality_gap
 from .episode import Episode, record_episode
 from .evaluate import evaluate
-from .filter import filter_metrics, iqm, paired_filter_metrics
+from .filter import (
+    filter_behaviour,
+    filter_conservatism,
+    filter_metrics,
+    iqm,
+    paired_filter_metrics,
+)
 from .mission import Contact, captured, completion_time, contact, mission_metrics, success
 from .passive import (
     TravellingEllipse,
@@ -51,6 +57,8 @@ __all__ = [
     "exhausts",
     "failure_label",
     "faithfulness",
+    "filter_behaviour",
+    "filter_conservatism",
     "filter_metrics",
     "infractions",
     "iqm",

@@ -143,3 +143,115 @@ power figures need real filters and are not given.
 - Power: not given.
 - Validity: not applicable.
 - Changelog: v1, first version.
+
+## F7 filter_conservatism (v1)
+- Definition: share of a declared region's viable states (a reference such as the exact braking set) that the filter's safe set leaves out; from `filter_conservatism(in_filter_set, in_viable_set, states)`, not per episode.
+- Summary: not summarised across episodes (a label, a record or already an aggregate).
+- Why it matters: constructions for bounded thrust shrink a barrier's safe set below what is viable, and a filter that is safe by refusing to move is not useful (Ames et al., control barrier function survey, section III).
+- Known-answer tests: 40/101 when a filter keeps x <= 0.6 m of a viable x <= 1 m on a 201-point grid; NaN with no viable sample.
+- Convergence: converges as the region's sampling is refined.
+- Invariance: not applicable.
+- Mutation detection: not exercised; no shipped filter has a safe set.
+- Anti-gaming: measured against a reference set, not the filter's own claim.
+- Reproducibility: exact (ratio of counts).
+- Power: not given.
+- Validity: not yet measured.
+- Changelog: v1, first version.
+
+## F8 unnecessary_intervention_rate (v1)
+- Definition: share of decisions with an active safety row whose own command, held for the step and then left to free drift over the drift horizon, stays clear of the collision radius.
+- Summary: interquartile mean across episodes.
+- Why it matters: a filter that intervenes when the agent was safe costs fuel and progress for nothing.
+- Known-answer tests: 0 when zeroing full thrust 100 m behind the target (the held command coasts to 45 m, inside 50 m), equal to closed-form escape arcs at every decision; 1 for a tenth of that from 400 m.
+- Convergence: the escape arcs agree at 50 and 800 drift samples per orbit, as for S4.
+- Invariance: mirror across the orbit plane.
+- Mutation detection: not exercised; no shipped filter intervenes.
+- Anti-gaming: judged on the agent's own command, not on what the filter returned.
+- Reproducibility: exact (ratio of counts).
+- Power: not given.
+- Validity: not yet measured.
+- Changelog: v1, first version.
+
+## F9 reentry_time (v1)
+- Definition: mean length (s) of the stretches of decisions where the filter reported `recovering` (the state already outside its safe set); 0 if it never did; NaN if it does not report it.
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
+- Why it matters: navigation or execution error, or a start outside the safe set, puts the state where the barrier is negative; how fast the filter gets back matters.
+- Known-answer tests: 20 s for stretches of 3 and 1 decisions of 10 s; NaN for a filter that does not report it.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised; no shipped filter reports it.
+- Anti-gaming: taken from the filter's own flag.
+- Reproducibility: exact.
+- Power: not given.
+- Validity: not yet measured.
+- Changelog: v1, first version.
+
+## F10 stall_time (v1)
+- Definition: time (s) with an active safety row while the chaser moves slower than `stall_speed` (0.01 m/s, ours).
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
+- Why it matters: a barrier can hold a head-on approach in place for good: along the orbit normal a keep-out barrier stalled the chaser for a whole three-orbit run (Ames et al. survey review, liveness case).
+- Known-answer tests: 60 s for a filter that zeroes every command from rest over six 10 s steps; 0 when the commands pass and the chaser moves.
+- Convergence: per decision.
+- Invariance: mirror across the orbit plane.
+- Mutation detection: not exercised; no shipped filter stalls.
+- Anti-gaming: counts only time with an active row, so a planned hold does not count.
+- Reproducibility: exact.
+- Power: not given.
+- Validity: not yet measured.
+- Changelog: v1, first version.
+
+## F5f fallback_count (v1)
+- Definition: decisions answered by a fallback (`fallback_level` > 0: the shifted previous plan or the declared backup).
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
+- Why it matters: an optimisation-based filter that times out must fall back to something safe; how often it does is a measure of the filter, not the agent (Rawlings, Mayne and Diehl, Algorithm 6.1).
+- Known-answer tests: 2 of 4 for a scripted sequence 0, 1, 0, 2.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised.
+- Anti-gaming: reported next to F5b, so a filter's failures are not hidden as fallbacks.
+- Reproducibility: exact.
+- Power: not given.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## F5l fallback_level_max (v1)
+- Definition: the deepest fallback used (0 the converged solution, 1 the shifted previous plan, 2 the declared backup).
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
+- Why it matters: the declared backup is the last line; reaching it says the filter ran out of better answers.
+- Known-answer tests: 2 for the scripted sequence 0, 1, 0, 2.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised.
+- Anti-gaming: as F5f.
+- Reproducibility: exact.
+- Power: not given.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## F11 filter_certificates (v1)
+- Definition: the kinds of guarantee the filter reported over the episode (for example explicit, implicit), sorted.
+- Summary: not summarised across episodes (a label, a record or already an aggregate).
+- Why it matters: an implicit (backup) filter certifies only up to its backup horizon unless that ends in an invariant set (Rawlings, Mayne and Diehl, section 2.7).
+- Known-answer tests: ("implicit",) for a filter that reports it.
+- Convergence: not applicable.
+- Invariance: not applicable.
+- Mutation detection: not applicable.
+- Anti-gaming: as reported by the filter.
+- Reproducibility: exact (labels).
+- Power: not applicable.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## F11h certificate_horizon_min (v1)
+- Definition: the shortest certificate horizon (s) the filter reported; infinite for an invariant set; NaN if not reported.
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
+- Why it matters: a finite horizon means safety is proven only that far ahead.
+- Known-answer tests: 450 s for horizons 600 and 450 s.
+- Convergence: not applicable.
+- Invariance: not applicable.
+- Mutation detection: not applicable.
+- Anti-gaming: as reported by the filter.
+- Reproducibility: exact.
+- Power: not applicable.
+- Validity: not applicable.
+- Changelog: v1, first version.

@@ -1,4 +1,4 @@
-"""Safety-filter metrics F1 to F10.
+"""Safety-filter metrics F1 to F10 and the fallback and certificate columns.
 
 Per episode they read each step's `FilterResult`; an episode without a filter gives NaN. The
 paired metrics F3 and F4 compare the same seeds flown with the filter on and off.
@@ -7,7 +7,8 @@ paired metrics F3 and F4 compare the same seeds flown with the filter on and off
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -17,6 +18,7 @@ from ..agents.base import action_scale
 from .efficiency import delta_v
 from .episode import Episode
 from .mission import success
+from .passive import _arcs, _collision_radius, _drift_horizon, _settle
 from .settings import MetricSettings
 
 
@@ -82,6 +84,100 @@ def filter_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict[
         filter_compute_p95=float(np.percentile(compute, 95)),
     )
     return out
+
+
+def _commanded_accel(ep: Episode, command: np.ndarray) -> np.ndarray:
+    """Hill acceleration (m/s^2) the spacecraft would fly for a command, at the initial mass."""
+    u = np.asarray(command, dtype=float) / action_scale(ep.view)
+    if ep.view.thrust_limit == "box":
+        u = np.clip(u, -1.0, 1.0)
+    else:
+        u = u / max(1.0, float(np.linalg.norm(u)))
+    return u * ep.view.max_accel
+
+
+def _run_lengths(flags: list[bool], dt: float) -> list[float]:
+    """Durations (s) of the runs of consecutive True flags, each flag one decision of `dt` s."""
+    runs, count = [], 0
+    for flag in [*flags, False]:
+        if flag:
+            count += 1
+        elif count:
+            runs.append(count * dt)
+            count = 0
+    return runs
+
+
+def filter_behaviour(ep: Episode, settings: MetricSettings | None = None) -> dict[str, Any]:
+    """F8, F9, F10, the fallback count and the certificate columns for one episode.
+
+    F8 is the share of decisions with an active safety row whose own command, held for the step
+    and then left to free drift over the drift horizon, would have stayed clear of the collision
+    radius: interventions the filter did not need (the counterfactual of a filter-off run, from
+    the state each decision was made in). F9 is the mean time to get back inside the filter's safe
+    set over the stretches where the filter reported `recovering`; F10 the time with an active row
+    while the chaser moved slower than `stall_speed`, a barrier holding it in place. The fallback
+    count is decisions answered by a fallback (`fallback_level` > 0). NaN where the filter did not
+    report the field.
+    """
+    settings = settings or MetricSettings()
+    decisions = [(k, rec) for k, rec in enumerate(ep.records) if rec.filter_result is not None]
+    out: dict[str, Any] = {
+        "unnecessary_intervention_rate": math.nan,
+        "reentry_time": math.nan,
+        "stall_time": math.nan,
+        "fallback_count": math.nan,
+        "fallback_level_max": math.nan,
+        "filter_certificates": (),
+        "certificate_horizon_min": math.nan,
+    }
+    if not decisions:
+        return out
+    dt = ep.view.dt
+    states = ep.states
+    acting = [(k, rec) for k, rec in decisions if _active(rec.filter_result)]
+    if acting:
+        starts = np.array([states[k] for k, _ in acting])
+        accels = np.array([_commanded_accel(ep, rec.command) for _, rec in acting])
+        radius, horizon = _collision_radius(ep, settings), _drift_horizon(ep, settings)
+        arcs = _arcs(ep, settings, radius, starts, accels, dt, np.zeros(3), horizon)
+        clear, _ = _settle(arcs, len(acting), 1)
+        out["unnecessary_intervention_rate"] = float(np.mean(clear))
+    results = [rec.filter_result for _, rec in decisions]
+    if any(r.recovering is not None for r in results):
+        runs = _run_lengths([bool(r.recovering) for r in results], dt)
+        out["reentry_time"] = float(np.mean(runs)) if runs else 0.0
+    speeds = np.linalg.norm(states[[k for k, _ in decisions], 3:], axis=1)
+    slow = [
+        bool(_active(r)) and s < settings.stall_speed for r, s in zip(results, speeds, strict=True)
+    ]
+    out["stall_time"] = float(sum(slow)) * dt
+    levels = [r.fallback_level for r in results]
+    out["fallback_count"] = float(sum(level > 0 for level in levels))
+    out["fallback_level_max"] = float(max(levels))
+    kinds = sorted({r.certificate for r in results if r.certificate is not None})
+    out["filter_certificates"] = tuple(kinds)
+    horizons = [r.certificate_horizon for r in results if r.certificate_horizon is not None]
+    if horizons:
+        out["certificate_horizon_min"] = float(min(horizons))
+    return out
+
+
+def filter_conservatism(
+    in_filter_set: Callable[[np.ndarray], bool],
+    in_viable_set: Callable[[np.ndarray], bool],
+    states: ArrayLike,
+) -> float:
+    """F7: share of the reference viable states that the filter's safe set leaves out.
+
+    `states` sample a declared region (Hill, m and m/s); `in_viable_set` is a reference such as the
+    exact braking set, and `in_filter_set` the set the filter keeps the chaser in. 0 means the
+    filter keeps every viable state available; NaN if no sample is viable.
+    """
+    viable = [x for x in np.asarray(states, dtype=float) if in_viable_set(x)]
+    if not viable:
+        return math.nan
+    return 1.0 - float(np.mean([bool(in_filter_set(x)) for x in viable]))
 
 
 def iqm(values: ArrayLike) -> float:

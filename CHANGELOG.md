@@ -38,6 +38,10 @@ release may change the public API, and every such change is listed under Changed
   rebuilds the true trajectory between samples; `minimum` and `negative_intervals` evaluate
   signals in continuous time. A card per metric is in `src/vbar/metrics/cards/`. Scenarios name
   their `soft_constraints`.
+- Filter metrics F7 conservatism, F8 unnecessary interventions, F9 time to re-enter the safe set,
+  F10 stall time, the fallback count and the certificate columns, read from new optional
+  `FilterResult` fields (`active`, `clipped`, `recovering`, `fallback_level`, `certificate`,
+  `certificate_horizon`, `iterations`).
 
 ## [0.2.0] - 2026-10-16
 

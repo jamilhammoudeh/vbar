@@ -2,11 +2,19 @@ import math
 
 import numpy as np
 import pytest
-from metric_cases import episode, pd_episode
+from metric_cases import ConstantAgent, episode, pd_episode
 from scipy.stats import trim_mean
 
 from vbar.agents import PDAgent
-from vbar.metrics import MetricSettings, filter_metrics, iqm, paired_filter_metrics
+from vbar.metrics import (
+    MetricSettings,
+    escape_arc,
+    filter_behaviour,
+    filter_conservatism,
+    filter_metrics,
+    iqm,
+    paired_filter_metrics,
+)
 from vbar.metrics.efficiency import delta_v
 from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter
 
@@ -135,3 +143,96 @@ def test_intervention_size_is_in_metres_per_second_squared_in_every_action_mode(
     sizes = [np.linalg.norm(0.5 * rec.command) * to_accel for rec in ep.records]
     assert m["intervention_size"] == pytest.approx(np.mean(sizes), rel=1e-12)
     assert m["intervention_size_normalized"] == pytest.approx(np.mean(sizes) / widest, rel=1e-12)
+
+
+class SequenceFilter:
+    """Passes commands through (or zeroes them) and reports a given field value per decision."""
+
+    name = "sequence"
+
+    def __init__(self, zero=False, **sequences):
+        self.zero, self.sequences = zero, sequences
+
+    def reset(self, view):
+        self.k = 0
+
+    def filter(self, obs, action):
+        fields = {key: values[self.k % len(values)] for key, values in self.sequences.items()}
+        self.k += 1
+        out = np.zeros(3) if self.zero else action
+        return FilterResult(out, bool(self.zero), **fields)
+
+
+def test_unnecessary_interventions_are_those_whose_own_command_would_have_stayed_clear():
+    # Full thrust toward the target for one step from rest 100 m behind coasts to 45 m from it,
+    # inside the 50 m sphere, so zeroing it was needed; a tenth of it from 400 m was not.
+    ep = episode(
+        FilteredAgent(ConstantAgent([0.0, 1.0, 0.0]), SequenceFilter(zero=True)),
+        start_state=(0.0, -100.0, 0.0, 0.0, 0.0, 0.0),
+        max_steps=3,
+    )
+    n = ep.view.n
+    times = np.linspace(0.0, 10.0 + 4 * np.pi / n, 40001)
+    clear = [
+        np.linalg.norm(
+            escape_arc(n, x, np.array([0.0, 0.02, 0.0]), 10.0, np.zeros(3), times)[:, :3], axis=1
+        ).min()
+        >= 50.0
+        for x in ep.states[:-1]
+    ]
+    m = filter_behaviour(ep)
+    assert m["unnecessary_intervention_rate"] == pytest.approx(np.mean(clear))
+    far = episode(
+        FilteredAgent(ConstantAgent([0.0, 0.1, 0.0]), SequenceFilter(zero=True)),
+        start_state=(0.0, -400.0, 0.0, 0.0, 0.0, 0.0),
+        max_steps=3,
+    )
+    assert filter_behaviour(far)["unnecessary_intervention_rate"] == 1.0
+    assert m["unnecessary_intervention_rate"] == 0.0
+
+
+def test_reentry_time_is_the_mean_length_of_the_recovering_stretches():
+    flags = (False, True, True, True, False, False, True, False)
+    agent = FilteredAgent(PDAgent(), SequenceFilter(recovering=flags))
+    m = filter_behaviour(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=8))
+    # Stretches of 3 and 1 decisions, 10 s each.
+    assert m["reentry_time"] == pytest.approx(20.0)
+    assert np.isnan(
+        filter_behaviour(episode(FilteredAgent(PDAgent(), SequenceFilter()), max_steps=3))[
+            "reentry_time"
+        ]
+    )
+
+
+def test_a_barrier_that_holds_the_chaser_still_counts_as_stall_time():
+    # Every command zeroed with the safety row active, from rest: the chaser never moves.
+    agent = FilteredAgent(PDAgent(), SequenceFilter(zero=True, active=(True,)))
+    m = filter_behaviour(episode(agent, start_state=(0.0, -300.0, 0.0, 0, 0, 0), max_steps=6))
+    assert m["stall_time"] == pytest.approx(60.0)
+    moving = filter_behaviour(
+        episode(FilteredAgent(PDAgent(), SequenceFilter(active=(True,))), max_steps=6)
+    )
+    assert moving["stall_time"] == 0.0
+
+
+def test_fallbacks_and_certificates_are_reported_as_given():
+    agent = FilteredAgent(
+        PDAgent(),
+        SequenceFilter(
+            fallback_level=(0, 1, 0, 2),
+            certificate=("implicit",),
+            certificate_horizon=(600.0, 450.0),
+        ),
+    )
+    m = filter_behaviour(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=4))
+    assert m["fallback_count"] == 2.0 and m["fallback_level_max"] == 2.0
+    assert m["filter_certificates"] == ("implicit",) and m["certificate_horizon_min"] == 450.0
+
+
+def test_conservatism_is_the_share_of_viable_states_the_filter_leaves_out():
+    states = np.zeros((201, 6))
+    states[:, 0] = np.linspace(0.0, 2.0, 201)
+    found = filter_conservatism(lambda x: x[0] <= 0.6, lambda x: x[0] <= 1.0, states)
+    # 101 viable samples from 0 to 1 m, of which 61 are inside the filter's set.
+    assert found == pytest.approx(40 / 101)
+    assert np.isnan(filter_conservatism(lambda x: True, lambda x: False, states))

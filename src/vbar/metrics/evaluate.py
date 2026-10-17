@@ -8,7 +8,7 @@ from .agent import AgentReport, agent_metrics
 from .composite import WEIGHTS, composite_metrics
 from .efficiency import FuelBounds, efficiency_metrics, optimality_gap
 from .episode import Episode
-from .filter import filter_metrics
+from .filter import filter_behaviour, filter_metrics
 from .mission import mission_metrics
 from .passive import passive_metrics
 from .plume import plume_metrics
@@ -39,6 +39,7 @@ def evaluate(
         **passive_metrics(ep, settings),
         **plume_metrics(ep, settings),
         **filter_metrics(ep, settings),
+        **filter_behaviour(ep, settings),
         **agent_metrics(ep, report),
         **composite_metrics(ep, settings.composite_weights or WEIGHTS, mission),
     }
