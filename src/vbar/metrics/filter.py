@@ -137,9 +137,9 @@ def filter_behaviour(ep: Episode, settings: MetricSettings | None = None) -> dic
     and then left to free drift over the drift horizon, would have stayed clear of the collision
     radius: interventions the filter did not need (the counterfactual of a filter-off run, from
     the state each decision was made in). Only the collision sphere is judged, so an intervention
-    for another constraint counts as unnecessary. F9 is the mean time to get back inside the filter's safe
-    set over the stretches where the filter reported `recovering`, infinite if the episode ends
-    inside one; F10 the time with an active row
+    for another constraint counts as unnecessary. F9 is the mean time to get back inside the
+    filter's safe set over the stretches where the filter reported `recovering`, infinite if the
+    episode ends inside one; F10 the time with an active row
     while the chaser moved slower than `stall_speed`, a barrier holding it in place. The fallback
     count is decisions answered by a fallback (`fallback_level` > 0). NaN where the filter did not
     report the field.
