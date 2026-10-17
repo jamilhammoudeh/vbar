@@ -55,7 +55,7 @@ def test_radial_cam_advance_after_one_orbit_is_twelve_pi_times_the_depth(depth, 
 
 def test_minus_vbar_cam_passes_below_the_target():
     # Fehse 4.5, fig 4.16: from 20 m behind, 0.3 m/s further back. It passes under the target at
-    # x = -396.220 m, the root of y = 0; the last sample before it on a 5.5 s grid is at -395.2 m.
+    # x = -396.220 m, the root of y = 0 at 400 km; with Fehse's r = 6766 km it is -395.209 m.
     def at(t):
         return escape_arc(N400, [0, -20.0, 0, 0, 0, 0], np.zeros(3), 0.0, [0, -0.3, 0], [t])[0]
 
