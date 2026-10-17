@@ -29,4 +29,5 @@ and how it is tested.
 | [vector-env.md](vector-env.md) | the vectorized approach environment: batched propulsion, propagation and keep-out checks, same-step autoreset, supported options, speed |
 | [training.md](training.md) | interfaces for reinforcement learning: the discrete bang-off-bang action mode, burn-and-coast decisions, training-only starts, a safety filter in the training loop |
 | [rewards.md](rewards.md) | training rewards: per-second discounting, terms aligned with the metrics, potential-based progress shaping, the integrated quadratic cost |
+| [policy-export.md](policy-export.md) | neural policies with normalization and squashing, ONNX export, the ONNX agent, latency profiles |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |

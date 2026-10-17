@@ -41,6 +41,7 @@ Issues = "https://github.com/jamilhammoudeh/vbar/issues"
 
 [project.optional-dependencies]
 plot = ["matplotlib>=3.8"]
+onnx = ["onnx>=1.16", "onnxruntime>=1.18"]
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
@@ -74,7 +75,7 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-module = ["scipy.*"]
+module = ["scipy.*", "onnx.*", "onnxruntime.*"]
 ignore_missing_imports = true
 
 [tool.mutmut]

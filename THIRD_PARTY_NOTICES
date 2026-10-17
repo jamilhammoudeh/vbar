@@ -21,3 +21,6 @@ At the time of writing:
   scipy       BSD-3-Clause
   gymnasium   MIT
   matplotlib  Matplotlib License (PSF-based), optional "plot" extra
+  onnx        Apache-2.0, optional "onnx" extra
+  onnxruntime MIT, optional "onnx" extra (with protobuf, BSD-3-Clause, and flatbuffers,
+              Apache-2.0)
