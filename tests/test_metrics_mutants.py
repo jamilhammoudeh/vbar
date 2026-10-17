@@ -83,6 +83,10 @@ def test_a_more_aggressive_approach_lowers_passive_safety():
     exposed = [m["unprotected_time"] for m in found]
     assert increasing(margins[::-1]) and increasing(stuck[::-1])
     assert all(a <= b for a, b in zip(exposed, exposed[1:], strict=False)) and exposed[-1] > 0.0
+    for name in ("passive_safe_fraction", "passive_forever_fraction"):
+        shares = [m[name] for m in found]
+        assert all(a >= b for a, b in zip(shares, shares[1:], strict=False)) and shares[-1] < 1.0
+    assert found[0]["passive_threat_time"] == np.inf and found[-1]["passive_threat_time"] < np.inf
 
 
 def test_a_filter_that_changes_every_command_is_seen_by_the_intervention_metrics():
