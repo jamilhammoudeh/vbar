@@ -89,7 +89,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E3f below_lower_bound (v1)
 - Definition: a successful run spent less than the certified lower bound by more than 1e-9 relative.
-- Summary: a rate across episodes, with its Clopper-Pearson interval.
+- Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: a theorem says this cannot happen, so it exposes simulator or accounting bugs.
 - Known-answer tests: flagged 1% below the bound; not flagged at the bound within rounding; never flagged for a failure or for a bound certified for another rung.
 - Convergence: not applicable.
@@ -103,7 +103,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E3c bound_certified (v1)
 - Definition: whether the oracle's lower bound is certified for the episode's dynamics rung.
-- Summary: a rate across episodes, with its Clopper-Pearson interval.
+- Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: says whether E3 >= 1 is a theorem for this run.
 - Known-answer tests: False for a CW bound on a two-body run, True for a two-body bound there and for a CW bound on CW.
 - Convergence: not applicable.

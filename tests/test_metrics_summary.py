@@ -1,7 +1,12 @@
+import re
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from vbar.metrics import METRICS, summarize, unsafe_tail
+from vbar.metrics import METRICS, clopper_pearson, summarize, unsafe_tail
+
+CARDS = Path(__file__).parents[1] / "src" / "vbar" / "metrics" / "cards"
 
 # 40 margins: 38 comfortable ones and two near misses.
 MARGINS = [20.0 + k for k in range(38)] + [0.5, -2.0]
@@ -30,7 +35,7 @@ def test_ratios_where_higher_is_worse_take_the_upper_tail():
 
 def test_rates_count_successes_and_nan_is_left_out():
     found = summarize("success", [1.0, 0.0, 1.0, np.nan, 1.0])
-    assert found == {"rate": 0.75, "count": 3.0, "n": 4}
+    assert (found["rate"], found["count"], found["n"]) == (0.75, 3.0, 4)
     assert np.isnan(unsafe_tail([np.nan], "low")["worst"])
 
 
@@ -55,3 +60,29 @@ def test_every_safety_metric_ranks_by_its_tail_and_performance_by_the_iqm():
         assert METRICS[name].summary == "iqm", name
     with pytest.raises(ValueError, match="not summarised"):
         summarize("failure_label", [1.0])
+
+
+def test_clopper_pearson_matches_the_published_validation_intervals():
+    # Kochenderfer et al. KAT-13 (14.1, example 14.5): 90 of 100, 95 of 100, 3 failures in 1e4.
+    assert clopper_pearson(90, 100) == pytest.approx((0.8238, 0.9510), abs=1e-4)
+    assert clopper_pearson(95, 100) == pytest.approx((0.887, 0.984), abs=1e-3)
+    assert clopper_pearson(3, 10000) == pytest.approx((6.187e-5, 8.765e-4), rel=1e-3)
+    assert clopper_pearson(0, 10)[0] == 0.0 and clopper_pearson(10, 10)[1] == 1.0
+    with pytest.raises(ValueError):
+        clopper_pearson(3, 2)
+
+
+def test_the_resolution_table_on_the_cards_matches_the_intervals():
+    text = (CARDS / "README.md").read_text(encoding="utf-8")
+    rows = re.findall(r"^\| (\d+) \| ([\d.]+) \| ([\d.]+) \| ([\d.]+) \| ([\d.]+) \|$", text, re.M)
+    assert len(rows) == 5
+    for n, *widths in rows:
+        for p, width in zip((0.5, 0.9, 0.95, 0.99), widths, strict=True):
+            lower, upper = clopper_pearson(round(p * int(n)), int(n))
+            assert round((upper - lower) / 2, 3) == float(width)
+
+
+def test_a_rate_summary_carries_its_interval():
+    found = summarize("success", [1.0] * 90 + [0.0] * 10)
+    assert found["rate"] == 0.9
+    assert (found["lower"], found["upper"]) == pytest.approx((0.8238, 0.9510), abs=1e-4)

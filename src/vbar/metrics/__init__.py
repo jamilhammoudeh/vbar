@@ -19,7 +19,7 @@ from .registry import METRICS, MetricInfo
 from .safety import safety_metrics
 from .settings import MetricSettings
 from .stl import Signal, Trace, complement, merge, minimum, negative_intervals, total
-from .summary import summarize, unsafe_tail
+from .summary import clopper_pearson, summarize, unsafe_tail
 from .taxonomy import LABELS, failure_label
 
 __all__ = [
@@ -39,6 +39,7 @@ __all__ = [
     "cam_impulses",
     "agent_metrics",
     "captured",
+    "clopper_pearson",
     "complement",
     "completion_time",
     "composite_metrics",

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.stats import beta
 
 from .filter import iqm
 from .registry import METRICS
@@ -36,6 +37,18 @@ def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str,
     return {"worst": float(x.max()), "quantile": q, "tail_mean": float(x[x >= q].mean())}
 
 
+def clopper_pearson(successes: int, trials: int, confidence: float = 0.95) -> tuple[float, float]:
+    """Exact (Clopper-Pearson) interval for a success rate from `successes` of `trials`."""
+    if not 0 <= successes <= trials or trials == 0:
+        raise ValueError("need 0 <= successes <= trials and trials > 0")
+    alpha = 1.0 - confidence
+    lower = 0.0 if successes == 0 else beta.ppf(0.5 * alpha, successes, trials - successes + 1)
+    upper = (
+        1.0 if successes == trials else beta.ppf(1 - 0.5 * alpha, successes + 1, trials - successes)
+    )
+    return float(lower), float(upper)
+
+
 def summarize(name: str, values: ArrayLike) -> dict[str, float]:
     """The ranking summary of metric `name` over episode values, as its catalogue entry says."""
     kind = METRICS[name].summary
@@ -46,7 +59,17 @@ def summarize(name: str, values: ArrayLike) -> dict[str, float]:
     if kind == "upper_tail":
         return unsafe_tail(x, "high")
     if kind == "rate":
-        return {"rate": float(x.mean()) if len(x) else np.nan, "count": float(x.sum()), "n": len(x)}
+        if len(x) == 0:
+            return {"rate": np.nan, "count": 0.0, "n": 0, "lower": np.nan, "upper": np.nan}
+        count = int(round(float(x.sum())))
+        lower, upper = clopper_pearson(count, len(x))
+        return {
+            "rate": float(x.mean()),
+            "count": float(count),
+            "n": len(x),
+            "lower": lower,
+            "upper": upper,
+        }
     if kind == "iqm":
         return {"iqm": iqm(x) if len(x) else np.nan}
     raise ValueError(f"{name} is not summarised across episodes")

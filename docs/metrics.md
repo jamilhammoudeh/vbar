@@ -343,7 +343,8 @@ value at risk). The interquartile mean drops the worst quarter of episodes, whic
 keep-out and abort failures are, so two agents with the same interquartile margin can differ
 entirely in how often they nearly collide (Kochenderfer et al., *Algorithms for Decision Making*,
 2022, section 14.1). Margins, safe fractions and times (S1, S4, S4b, S4o, S6, S8) take the lower
-tail; ratios, durations and impulses (S5, S3, S9, S10) the upper. Booleans are rates.
+tail; ratios, durations and impulses (S5, S3, S9, S10) the upper. Booleans are rates, with the
+exact Clopper-Pearson interval (`clopper_pearson(successes, trials)`).
 
 ## Metric cards
 
@@ -351,7 +352,10 @@ Each metric has a card in `src/vbar/metrics/cards/` (one file per family): its d
 matters, known-answer tests, convergence as the step and sampling shrink, invariances, the
 mutations it detects and how it ranks them, exploits tried, cross-platform tolerance, the episodes
 needed to detect a stated change on the baselines, evidence of validity, and its version history.
-`tests/test_metric_cards.py` checks that every metric in `METRICS` has a complete card.
+`tests/test_metric_cards.py` checks that every metric in `METRICS` has a complete card. The
+template, `cards/README.md`, also holds the resolution of a success rate: a 100-episode cell
+resolves a 90% rate to about 6 points (90 of 100 gives 0.824 to 0.951), and a half-width of 0.03
+at that rate needs about 385 episodes.
 
 ## How it is tested
 
@@ -469,7 +473,9 @@ needed to detect a stated change on the baselines, evidence of validity, and its
   tail reports the worst value, numpy's 5th percentile and the mean of the values at or below it,
   while the interquartile mean of the same values stays above 25; a ratio where higher is worse
   takes the upper tail; rates count successes and leave out NaN; every safety metric in the list
-  above ranks by its tail and every performance metric by the interquartile mean.
+  above ranks by its tail and every performance metric by the interquartile mean. Clopper-Pearson
+  intervals match Kochenderfer et al.'s validation examples (90 of 100: 0.8238 to 0.9510; 3 failures
+  in 1e4: 6.187e-5 to 8.765e-4), and the resolution table on the cards is recomputed from them.
 
 ## Example
 

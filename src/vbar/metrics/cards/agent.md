@@ -117,7 +117,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A6 sign_check_pass (v1)
 - Definition: the result of the convention self-check, as reported.
-- Summary: a rate across episodes, with its Clopper-Pearson interval.
+- Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: frame and sign mistakes waste a full evaluation.
 - Known-answer tests: passed through; False drives the sign_error label.
 - Convergence: not applicable.
