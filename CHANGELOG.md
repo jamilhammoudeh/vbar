@@ -13,8 +13,9 @@ release may change the public API, and every such change is listed under Changed
   raises `TypeError`. Add the `rho_min` parameter (it may be ignored).
 - `Constraint.resolution` is a read-only property in the protocol rather than a class variable;
   a class attribute still satisfies it.
-- Filter metric F1 counts decisions with an active safety row, not every change; clipping is
-  counted apart (F1c). F2 is in m/s^2 rather than fractions of a full command over sqrt(3), and
+- Filter metric F1 counts decisions with an active safety row or a change in the flown
+  acceleration, not every change; clipping to the thrust limit is counted apart (F1c). F2 is the
+  change in flown acceleration in m/s^2 rather than fractions of a full command over sqrt(3), and
   F2n normalises it by the actuator's widest change.
 - S5 divides by the speed the scenario's closing-rate law allows, so it also scores gate tables;
   the plume range is the scenario's unless the settings give one.
@@ -42,7 +43,7 @@ release may change the public API, and every such change is listed under Changed
   their `soft_constraints`.
 - Filter metrics F7 conservatism, F8 unnecessary interventions, F9 time to re-enter the safe set,
   F10 stall time, the fallback count and the certificate columns, read from new optional
-  `FilterResult` fields (`active`, `clipped`, `recovering`, `fallback_level`, `certificate`,
+  `FilterResult` fields (`active`, `recovering`, `fallback_level`, `certificate`,
   `certificate_horizon`, `iterations`).
 - Agent solver metrics from optional log fields: the preparation and feedback split of the
   latency, solver labels, tolerances and status counts, iterations, warm starts and fallbacks.

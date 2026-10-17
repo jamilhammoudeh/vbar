@@ -266,9 +266,9 @@ filter defect counted apart. Inside the commit zone (`commit_radius`) the filter
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
-| F1 | `intervention_rate` | fraction | decisions with an active safety row over decisions: as the filter reports it (`active`), or a change that was not only actuator clipping (`clipped`) |
-| F1c | `clip_rate` | fraction | decisions whose change was only clipping |
-| F2 | `intervention_size` | m/s^2 | mean of $\lvert\mathbf u_{\text{filtered}} - \mathbf u\rvert_2$ over decisions with an active row, at the initial mass |
+| F1 | `intervention_rate` | fraction | decisions with an active safety row over decisions: the filter reports one (`active`), or the acceleration the actuator flies changed, with command and action both projected onto the thrust limit |
+| F1c | `clip_rate` | fraction | decisions whose action changed but whose flown acceleration did not: clipping to the thrust limit only |
+| F2 | `intervention_size` | m/s^2 | mean of $\lvert\mathbf a(\mathbf u_{\text{filtered}}) - \mathbf a(\mathbf u)\rvert_2$ over decisions with an active row, $\mathbf a$ the acceleration flown at the initial mass after the thrust limit |
 | F2n | `intervention_size_normalized` | fraction | F2 over the widest change the actuator allows, $2\sqrt3\,a_{\max}$ for box limits and $2a_{\max}$ for a ball, in [0, 1] |
 | F3 | `safety_dv_cost` | m/s | paired by seed: E1 with the filter minus E1 without; interquartile mean, with the per-seed values in `safety_dv_cost_by_seed` |
 | F4 | `filter_dependence` | difference of rates | paired by seed: success rate with the filter minus without |
@@ -464,12 +464,13 @@ at that rate needs about 385 episodes.
   force about 1e-43 N s). Thrust outside $R_p$ counts nothing; entering $R_p$ mid-step counts only
   the time inside; the impulse changes by less than 1e-4 between 10 and 2.5 s steps. A range
   declared by the scenario is used when the settings give none.
-- Filter (`tests/test_metrics_filter.py`): a filter that halves every command gives F1 = 1 and
-  F2 the mean half-command size in m/s^2, in normalized, acceleration and thrust action modes,
-  with F2n over the box or ball widest change; a filter that only clips gives F1 = 0 and F1c = 1,
-  and one that reports an active row without moving the action gives F1 = 1; a pass-through
-  filter gives F1 = 0 and F2 NaN, and no filter gives
-  NaN throughout. Scripted statuses are counted apart (4 certified, 2 solver failures in 8), and none
+- Filter (`tests/test_metrics_filter.py`): a filter that halves a command inside the limit gives
+  F1 = 1 and F2 half the command in m/s^2, in acceleration and thrust action modes, with F2n over
+  the box or ball widest change; reversing ten times the box limit on every axis gives F2n = 1, and
+  halving 1.5 times the limit counts only the flown 0.25 of it; clipping a command of 3 to the limit
+  gives F1 = 0 and F1c = 1; zeroing every command while reporting no active row still gives F1 = 1
+  and 50 s of stall time; one that reports an active row without moving the action gives F1 = 1;
+  a pass-through filter gives F1 = 0 and F2 NaN, and no filter gives NaN throughout. Scripted statuses are counted apart (4 certified, 2 solver failures in 8), and none
   are counted inside a commit zone; F6 is the median and 95th percentile of scripted compute times.
   F3 equals the trimmed mean of the per-seed delta-v differences over 5 seeds, in any order of the
   runs, and unpaired runs are rejected.

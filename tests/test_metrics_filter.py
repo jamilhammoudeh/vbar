@@ -98,11 +98,51 @@ def test_interquartile_mean_drops_the_outer_quarters():
     assert iqm([1.0, 2.0, 3.0, 4.0, 100.0, -50.0, 5.0, 6.0]) == pytest.approx(3.5)
 
 
-def test_clipping_is_counted_apart_from_safety_activity():
-    agent = FilteredAgent(PDAgent(), ScriptedFilter(clipped=True))
+class Rewriting:
+    """Returns `rewrite(action)` as a bare action, or as a result with the given fields."""
+
+    name = "rewriting"
+
+    def __init__(self, rewrite, **fields):
+        self.rewrite, self.fields = rewrite, fields
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        if not self.fields:
+            return self.rewrite(action)
+        return FilterResult(self.rewrite(action), True, **self.fields)
+
+
+def test_clipping_to_the_thrust_limit_is_counted_apart_from_safety_activity():
+    over = ConstantAgent([0.0, 3.0, 0.0])
+    agent = FilteredAgent(over, Rewriting(lambda a: np.clip(a, -1.0, 1.0)))
     m = filter_metrics(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=5))
     assert m["intervention_rate"] == 0.0 and m["clip_rate"] == 1.0
     assert np.isnan(m["intervention_size"])
+
+
+def test_a_filter_cannot_hide_a_change_by_reporting_no_active_row():
+    agent = FilteredAgent(PDAgent(), Rewriting(lambda a: 0.0 * a, active=False))
+    ep = episode(agent, start_state=(0, -400, 30, 0, 0, 0), max_steps=5)
+    m, behaviour = filter_metrics(ep), filter_behaviour(ep)
+    assert m["intervention_rate"] == 1.0 and m["clip_rate"] == 0.0
+    assert m["intervention_size"] > 0.0
+    # Zeroing PD's commands from rest keeps the chaser below the 0.01 m/s stall speed.
+    assert behaviour["stall_time"] == 50.0
+
+
+def test_only_the_flown_change_counts_so_intervention_size_stays_within_the_actuator():
+    # Reversing a command ten times the box limit on every axis flies the widest change, F2n = 1.
+    agent = FilteredAgent(ConstantAgent([10.0, 10.0, 10.0]), Rewriting(lambda a: -a))
+    m = filter_metrics(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=3))
+    assert m["intervention_size"] == pytest.approx(2 * math.sqrt(3) * 0.02, rel=1e-12)
+    assert m["intervention_size_normalized"] == pytest.approx(1.0, rel=1e-12)
+    # Halving 1.5 of the limit flies 0.75 instead of 1.
+    agent = FilteredAgent(ConstantAgent([0.0, 1.5, 0.0]), Rewriting(lambda a: 0.5 * a))
+    m = filter_metrics(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=3))
+    assert m["intervention_size"] == pytest.approx(0.25 * 0.02, rel=1e-12)
 
 
 def test_a_reported_safety_row_counts_even_when_the_action_did_not_move():
@@ -130,7 +170,10 @@ def test_a_reported_safety_row_counts_even_when_the_action_did_not_move():
 def test_intervention_size_is_in_metres_per_second_squared_in_every_action_mode(
     mode, layout, widest
 ):
-    agent = FilteredAgent(PDAgent(), ScriptedFilter())
+    # The same command inside the thrust limit in each mode's units: N at 500 kg, or m/s^2.
+    u = np.array([0.3, 0.4, 0.2])
+    scale = {"thrust": 0.02 * 500.0, "accel": 0.02}[mode]
+    agent = FilteredAgent(ConstantAgent(u * scale), ScriptedFilter())
     ep = episode(
         agent,
         start_state=(0, -400, 30, 0, 0, 0),
@@ -139,10 +182,9 @@ def test_intervention_size_is_in_metres_per_second_squared_in_every_action_mode(
         thrust_limit=layout,
     )
     m = filter_metrics(ep)
-    to_accel = 0.02 / {"thrust": 0.02 * 500.0, "accel": 0.02}[mode]
-    sizes = [np.linalg.norm(0.5 * rec.command) * to_accel for rec in ep.records]
-    assert m["intervention_size"] == pytest.approx(np.mean(sizes), rel=1e-12)
-    assert m["intervention_size_normalized"] == pytest.approx(np.mean(sizes) / widest, rel=1e-12)
+    size = 0.5 * np.linalg.norm(u) * 0.02
+    assert m["intervention_size"] == pytest.approx(size, rel=1e-12)
+    assert m["intervention_size_normalized"] == pytest.approx(size / widest, rel=1e-12)
 
 
 class SequenceFilter:

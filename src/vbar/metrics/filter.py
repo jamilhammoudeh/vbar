@@ -21,6 +21,9 @@ from .mission import success
 from .passive import _arcs, _collision_radius, _drift_horizon, _settle
 from .settings import MetricSettings
 
+# Changes below this fraction of a full command are rounding, not intervention.
+_MOVED = 1e-6
+
 
 def _decisions(ep: Episode, settings: MetricSettings):
     """Records with a filter result, and whether each decision was made outside the commit zone."""
@@ -33,19 +36,35 @@ def _decisions(ep: Episode, settings: MetricSettings):
     ]
 
 
-def _active(result) -> bool:
-    """Whether a safety row acted: as reported, or a change that was not only clipping."""
-    if result.active is not None:
-        return bool(result.active)
-    return bool(result.intervened and not result.clipped)
+def _flown_change(ep: Episode, rec) -> float:
+    """|flown(filtered) - flown(command)|_2 (m/s^2): the change the actuator would carry out."""
+    return float(
+        np.linalg.norm(_commanded_accel(ep, rec.filtered) - _commanded_accel(ep, rec.command))
+    )
+
+
+def _active(ep: Episode, rec) -> bool:
+    """Whether a safety row acted: the filter says so, or the flown acceleration changed.
+
+    Judged from the record, so a filter cannot hide a change by calling it clipping; a reported
+    row only adds a decision whose action did not move.
+    """
+    return bool(rec.filter_result.active) or _flown_change(ep, rec) > _MOVED * ep.view.max_accel
+
+
+def _clip_only(ep: Episode, rec) -> bool:
+    """The action changed but the actuator flies the same acceleration: clipping only."""
+    moved = float(np.max(np.abs(rec.filtered - rec.command))) > _MOVED * action_scale(ep.view)
+    return moved and _flown_change(ep, rec) <= _MOVED * ep.view.max_accel
 
 
 def filter_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict[str, float]:
     """F1, F1c, F2, F2n, F5, F5b and F6 for one episode.
 
-    F1 counts decisions where a safety row was active, apart from changes that were only actuator
-    clipping (F1c). F2 is the mean |filtered - command|_2 over those decisions in m/s^2 at the
-    initial mass, and F2n the same over the largest command change the actuator allows, the
+    F1 counts decisions where a safety row was active: the filter reports one, or the acceleration
+    the actuator flies changed. Changes the actuator would make anyway, clipping to the thrust
+    limit, are F1c. F2 is the mean change in flown acceleration over the active decisions, in
+    m/s^2 at the initial mass, and F2n the same over the largest change the actuator allows, the
     distance from a full command to its opposite (2 sqrt(3) a_max for box limits, 2 a_max for a
     ball), so it lies in [0, 1]. F5 and F5b count decisions outside `commit_radius`, where the
     filter is expected to act.
@@ -64,12 +83,10 @@ def filter_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict[
     }
     if not decisions:
         return out
-    # Action units to m/s^2: a full command asks for max_accel at the initial mass.
-    to_accel = ep.view.max_accel / action_scale(ep.view)
     widest = 2.0 * ep.view.max_accel * (math.sqrt(3.0) if ep.view.thrust_limit == "box" else 1.0)
-    acting = [rec for rec, _ in decisions if _active(rec.filter_result)]
-    sizes = [np.linalg.norm(rec.filtered - rec.command) * to_accel for rec in acting]
-    clipped = sum(bool(rec.filter_result.clipped) for rec, _ in decisions)
+    acting = [rec for rec, _ in decisions if _active(ep, rec)]
+    sizes = [_flown_change(ep, rec) for rec in acting]
+    clipped = sum(_clip_only(ep, rec) for rec, _ in decisions)
     compute = [rec.filter_result.compute_s for rec, _ in decisions]
     statuses = [rec.filter_result.status for rec, outside in decisions if outside]
     size = float(np.mean(sizes)) if sizes else math.nan
@@ -135,7 +152,7 @@ def filter_behaviour(ep: Episode, settings: MetricSettings | None = None) -> dic
         return out
     dt = ep.view.dt
     states = ep.states
-    acting = [(k, rec) for k, rec in decisions if _active(rec.filter_result)]
+    acting = [(k, rec) for k, rec in decisions if _active(ep, rec)]
     if acting:
         starts = np.array([states[k] for k, _ in acting])
         accels = np.array([_commanded_accel(ep, rec.command) for _, rec in acting])
@@ -149,7 +166,8 @@ def filter_behaviour(ep: Episode, settings: MetricSettings | None = None) -> dic
         out["reentry_time"] = float(np.mean(runs)) if runs else 0.0
     speeds = np.linalg.norm(states[[k for k, _ in decisions], 3:], axis=1)
     slow = [
-        bool(_active(r)) and s < settings.stall_speed for r, s in zip(results, speeds, strict=True)
+        _active(ep, rec) and s < settings.stall_speed
+        for (_, rec), s in zip(decisions, speeds, strict=True)
     ]
     out["stall_time"] = float(sum(slow)) * dt
     levels = [r.fallback_level for r in results]

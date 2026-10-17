@@ -5,24 +5,24 @@ An episode without a filter gives NaN. The only built-in filter so far is the pa
 power figures need real filters and are not given.
 
 ## F1 intervention_rate (v2)
-- Definition: decisions where a safety row was active (as the filter reports it, or a change that was not only actuator clipping) over decisions.
+- Definition: decisions where a safety row was active over decisions: the filter reports an active row, or the acceleration the actuator flies changed (command and filtered action both projected onto the thrust limit).
 - Summary: interquartile mean across episodes.
 - Why it matters: how often the agent needed correcting.
-- Known-answer tests: 1 for a filter that halves every command; 0 for the pass-through; 0 for a filter that only clips; 1 for a filter that reports an active row without moving the action.
+- Known-answer tests: 1 for a filter that halves every command; 0 for the pass-through; 0 for a filter that clips a command of 3 to the box limit; 1 for a filter that reports an active row without moving the action; 1 for a filter that zeroes every command while reporting no active row.
 - Convergence: per decision, so it depends on the step by definition.
 - Invariance: not applicable.
 - Mutation detection: 0 against 1 for pass-through against halving (`tests/test_metrics_mutants.py`).
-- Anti-gaming: actuator clipping does not count, since the spacecraft clips anyway (Ames et al., control barrier function survey); a bare action is judged by whether any component moved by more than 1e-6.
+- Anti-gaming: judged from the recorded command and action, not from the filter's own flags, so a filter cannot hide a change by reporting no active row; clipping does not count, since the actuator clips anyway (Ames et al., control barrier function survey); a reported row only adds decisions; changes below 1e-6 of a full command are rounding.
 - Reproducibility: exact (ratio of counts).
 - Power: not given.
 - Validity: not yet measured.
-- Changelog: v1, any change above 1e-6; v2, safety-row activity, with clipping counted in F1c.
+- Changelog: v1, any change above 1e-6; v2, a reported row or a change in flown acceleration, with clipping counted in F1c.
 
 ## F1c clip_rate (v1)
-- Definition: decisions whose change was only actuator clipping, over decisions.
+- Definition: decisions whose action changed but whose flown acceleration did not (clipping to the thrust limit only), over decisions.
 - Summary: interquartile mean across episodes.
 - Why it matters: keeps clipping visible without counting it as a safety intervention.
-- Known-answer tests: 1 for a filter that reports every change as clipping.
+- Known-answer tests: 1 for a filter that clips a command of 3 to the box limit.
 - Convergence: per decision.
 - Invariance: not applicable.
 - Mutation detection: not applicable.
@@ -33,24 +33,24 @@ power figures need real filters and are not given.
 - Changelog: v1, first version.
 
 ## F2 intervention_size (v2)
-- Definition: mean of |filtered - command|_2 over decisions with an active safety row, in m/s^2 at the initial mass.
+- Definition: mean change in flown acceleration, |a(filtered) - a(command)|_2 with both projected onto the thrust limit, over decisions with an active safety row, in m/s^2 at the initial mass.
 - Summary: interquartile mean across episodes.
 - Why it matters: a filter that nudges and one that overrides can have the same F1.
-- Known-answer tests: the mean half-command size in m/s^2 for the halving filter, in normalized, acceleration and thrust action modes; NaN with no interventions.
+- Known-answer tests: half of a constant command inside the limit, in m/s^2, in acceleration and thrust action modes and for box and ball limits; 0.25 x 0.02 m/s^2 for halving 1.5 times the box limit, which flies 0.75 instead of 1; NaN with no interventions.
 - Convergence: per decision.
 - Invariance: in m/s^2, so it is the same in every action mode.
 - Mutation detection: positive for halving, NaN for the pass-through.
-- Anti-gaming: averaged over decisions with an active row only, so many tiny changes cannot dilute a few large ones.
+- Anti-gaming: averaged over decisions with an active row only, so many tiny changes cannot dilute a few large ones; the part of a command beyond the thrust limit is never counted, since it is never flown.
 - Reproducibility: 1e-9 relative.
 - Power: not given.
 - Validity: not yet measured.
-- Changelog: v1, fractions of a full command over sqrt(3); v2, m/s^2, with the normalised form in F2n.
+- Changelog: v1, fractions of a full command over sqrt(3); v2, change in flown acceleration in m/s^2, with the normalised form in F2n.
 
 ## F2n intervention_size_normalized (v1)
 - Definition: F2 over the widest command change the actuator allows, from a full command to its opposite: 2 sqrt(3) a_max for box limits, 2 a_max for a ball; in [0, 1].
 - Summary: interquartile mean across episodes.
 - Why it matters: compares filters across actuators; sqrt(3) alone under-states a box change, which can reach 2 sqrt(3) a_max, and over-states a ball's.
-- Known-answer tests: F2 over 2 sqrt(3) x 0.02 m/s^2 for box limits and over 2 x 0.02 m/s^2 for a ball.
+- Known-answer tests: F2 over 2 sqrt(3) x 0.02 m/s^2 for box limits and over 2 x 0.02 m/s^2 for a ball; exactly 1 for reversing a command ten times the box limit on every axis.
 - Convergence: per decision.
 - Invariance: the same in every action mode.
 - Mutation detection: as F2.
