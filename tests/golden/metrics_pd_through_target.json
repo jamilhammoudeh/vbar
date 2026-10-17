@@ -1,5 +1,7 @@
 {
  "below_lower_bound": false,
+ "bound_certified": false,
+ "bound_rung": "",
  "burn_count": 1,
  "cam_margin": -49.976828174386426,
  "capture_margin": NaN,
@@ -43,6 +45,7 @@
  },
  "min_time_to_keep_out": 0.0,
  "optimality_gap": NaN,
+ "optimality_gap_model": NaN,
  "optimality_gap_upper": NaN,
  "output_tokens": NaN,
  "parse_failure_rate": NaN,

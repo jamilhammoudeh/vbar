@@ -127,7 +127,7 @@ with propellant run-out, the actuator stops at the dry mass and later burns add 
 
 A numerical oracle returns a feasible trajectory, which is only an upper bound on the least fuel;
 a lower bound needs a dual-feasible point (Boyd and Vandenberghe, *Convex Optimization*, sections
-4.1.1, 5.1 and 5.5). An `Oracle` gives `FuelBounds(lower, upper, norm)` for a start state: a
+4.1.1, 5.1 and 5.5). An `Oracle` gives `FuelBounds(lower, upper, norm, rung)` for a start state: a
 certified lower bound and the best known cost to reach the scenario's success set (the capture
 balls, not the exact hold point, with the episode's time window), in the actuator's norm (`"l1"`
 for box thrusters, `"l2"` for a ball). With $\Delta v$ = E1b for box and E1 for ball:
@@ -136,9 +136,15 @@ for box thrusters, `"l2"` for a ball). With $\Delta v$ = E1b for box and E1 for 
 |---|---|---|
 | E3 | `optimality_gap` | $\Delta v / \text{lower}$, at least 1 by theorem |
 | E3u | `optimality_gap_upper` | $\Delta v / \text{upper}$ |
-| E3f | `below_lower_bound` | a successful run spent less than the lower bound, by more than 1e-9 relative: a simulator, actuator-accounting or metric bug |
+| E3m | `optimality_gap_model` | $\Delta v / \text{lower}$ when the bound is certified for another dynamics rung; may fall below 1 |
+| E3f | `below_lower_bound` | a successful run on the bound's own rung spent less than the lower bound, by more than 1e-9 relative: a simulator, actuator-accounting or metric bug |
+| E3c, E3r | `bound_certified`, `bound_rung` | whether the bound is certified for the episode's dynamics, and the rung it is for |
 
-Both ratios are NaN for failed runs and when no bounds are given (`evaluate(episode, bounds)`).
+A bound is a theorem only for the model it is computed on (`rung`): on two-body truth the optimum
+can lie on either side of a Clohessy-Wiltshire bound (Rawlings, Mayne and Diehl, *Model Predictive
+Control*, sections 8.1.2 and 8.10), so E3 and its bug flag apply only when the rung matches the
+episode's dynamics, and E3m carries the ratio otherwise. Ratios are NaN for failed runs and when no
+bounds are given (`evaluate(episode, settings, bounds)`).
 Bounds in the wrong norm are rejected, since a 2-norm bound under-counts a box actuator's cost by
 up to $\sqrt3$.
 

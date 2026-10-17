@@ -81,12 +81,15 @@ class FuelBounds:
 
     `lower` must be certified (a dual-feasible bound), `upper` the best known feasible cost, both
     for the same success set, time window and actuator norm: "l1" for box thrusters, "l2" for a
-    ball (Boyd and Vandenberghe, Convex Optimization, sections 5.1 and 5.5).
+    ball (Boyd and Vandenberghe, Convex Optimization, sections 5.1 and 5.5). `rung` names the
+    dynamics model the lower bound is a theorem for; on any other model it is only a model bound,
+    since the true optimum there can lie on either side of it.
     """
 
     lower: float
     upper: float
     norm: str
+    rung: str
 
     def __post_init__(self):
         if self.norm not in ("l1", "l2"):
@@ -101,28 +104,35 @@ class Oracle(Protocol):
     def bounds(self, view: AgentView, start: np.ndarray) -> FuelBounds: ...
 
 
-def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | bool]:
-    """E3: delta-v in the actuator's norm over the certified lower bound, and over the upper.
+def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | bool | str]:
+    """E3: delta-v in the actuator's norm over the lower bound, and over the upper.
 
-    The ratio to the lower bound is at least 1 by theorem when the bound matches the success set,
-    time window and norm; a successful run below it means a simulator or metric bug and is
-    flagged. Both ratios are NaN for failed runs and when no bounds are given.
+    When the bound is certified for the episode's dynamics model (its `rung`), the ratio is at
+    least 1 by theorem, and a successful run below it means a simulator or metric bug and is
+    flagged. On another model the same ratio is reported apart, as a model ratio that may fall
+    below 1, and never flagged. Ratios are NaN for failed runs and when no bounds are given.
     """
-    gap: dict[str, float | bool] = {
+    gap: dict[str, float | bool | str] = {
         "optimality_gap": math.nan,
+        "optimality_gap_model": math.nan,
         "optimality_gap_upper": math.nan,
         "below_lower_bound": False,
+        "bound_certified": False,
+        "bound_rung": "",
     }
     if bounds is None:
         return gap
     expected = "l1" if ep.view.thrust_limit == "box" else "l2"
     if bounds.norm != expected:
         raise ValueError(f"{ep.view.thrust_limit} thrusters need {expected} bounds")
+    certified = bounds.rung == ep.dynamics
+    gap.update(bound_certified=certified, bound_rung=bounds.rung)
     if not success(ep):
         return gap
     dv = layout_delta_v(ep)
-    gap["below_lower_bound"] = bool(dv < bounds.lower * (1.0 - _BOUND_TOL))
-    gap["optimality_gap"] = dv / bounds.lower if bounds.lower > 0.0 else math.inf
+    ratio = dv / bounds.lower if bounds.lower > 0.0 else math.inf
+    gap["optimality_gap" if certified else "optimality_gap_model"] = ratio
+    gap["below_lower_bound"] = certified and bool(dv < bounds.lower * (1.0 - _BOUND_TOL))
     gap["optimality_gap_upper"] = dv / bounds.upper if bounds.upper > 0.0 else math.inf
     return gap
 

@@ -96,7 +96,7 @@ def test_pd_spends_less_than_its_box_cost_on_the_two_norm():
 def test_optimality_gap_is_delta_v_over_each_bound_for_a_success():
     ep = pd_episode()
     dv = efficiency_metrics(ep)["delta_v_axes"]
-    gap = optimality_gap(ep, FuelBounds(0.5 * dv, 0.8 * dv, "l1"))
+    gap = optimality_gap(ep, FuelBounds(0.5 * dv, 0.8 * dv, "l1", "cw"))
     assert gap["optimality_gap"] == pytest.approx(2.0)
     assert gap["optimality_gap_upper"] == pytest.approx(1.25)
     assert not gap["below_lower_bound"]
@@ -105,15 +105,17 @@ def test_optimality_gap_is_delta_v_over_each_bound_for_a_success():
 def test_a_run_below_its_certified_lower_bound_is_flagged():
     ep = pd_episode()
     dv = efficiency_metrics(ep)["delta_v_axes"]
-    gap = optimality_gap(ep, FuelBounds(1.01 * dv, 2.0 * dv, "l1"))
+    gap = optimality_gap(ep, FuelBounds(1.01 * dv, 2.0 * dv, "l1", "cw"))
     assert gap["below_lower_bound"] and gap["optimality_gap"] < 1.0
     # Rounding at the bound is not a bug.
-    assert not optimality_gap(ep, FuelBounds(dv * (1 + 1e-12), 2 * dv, "l1"))["below_lower_bound"]
+    assert not optimality_gap(ep, FuelBounds(dv * (1 + 1e-12), 2 * dv, "l1", "cw"))[
+        "below_lower_bound"
+    ]
 
 
 def test_optimality_gap_is_nan_for_a_failure_or_without_bounds():
     # The bounds are for reaching the success set, so a failure below them is not flagged.
-    failed = optimality_gap(episode(), FuelBounds(0.1, 0.2, "l1"))
+    failed = optimality_gap(episode(), FuelBounds(0.1, 0.2, "l1", "cw"))
     assert np.isnan(failed["optimality_gap"]) and np.isnan(failed["optimality_gap_upper"])
     assert not failed["below_lower_bound"]
     assert np.isnan(evaluate(pd_episode())["optimality_gap"])
@@ -123,6 +125,20 @@ def test_bounds_must_use_the_actuator_norm():
     # A bound is valid only in the cost's own norm (Boyd and Vandenberghe, eqs. 5.11 to 5.12);
     # box thrusters are scored on the 1-norm.
     with pytest.raises(ValueError, match="l1"):
-        optimality_gap(pd_episode(), FuelBounds(0.1, 0.2, "l2"))
+        optimality_gap(pd_episode(), FuelBounds(0.1, 0.2, "l2", "cw"))
     with pytest.raises(ValueError, match="lower <= upper"):
-        FuelBounds(0.3, 0.2, "l1")
+        FuelBounds(0.3, 0.2, "l1", "cw")
+
+
+def test_a_bound_for_another_dynamics_rung_is_a_model_ratio_and_never_flagged():
+    # A CW bound on two-body truth: the two-body optimum can lie on either side of it, so a run
+    # below it is no bug (Rawlings, Mayne and Diehl, 8.1.2 and 8.10).
+    ep = pd_episode(dynamics="twobody")
+    dv = efficiency_metrics(ep)["delta_v_axes"]
+    gap = optimality_gap(ep, FuelBounds(1.01 * dv, 2.0 * dv, "l1", "cw"))
+    assert not gap["bound_certified"] and gap["bound_rung"] == "cw"
+    assert np.isnan(gap["optimality_gap"]) and not gap["below_lower_bound"]
+    assert gap["optimality_gap_model"] == pytest.approx(1 / 1.01)
+    certified = optimality_gap(ep, FuelBounds(0.5 * dv, 2.0 * dv, "l1", "twobody"))
+    assert certified["bound_certified"] and certified["optimality_gap"] == pytest.approx(2.0)
+    assert np.isnan(certified["optimality_gap_model"])

@@ -43,7 +43,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Changelog: v1, first version.
 
 ## E3 optimality_gap (v1)
-- Definition: layout delta-v over a certified lower bound for the same success set, time window and norm; NaN for failures or without bounds.
+- Definition: layout delta-v over a lower bound certified for the episode's dynamics rung, the same success set, time window and norm; NaN for failures, without bounds, or when the bound is for another rung (then see E3m).
 - Why it matters: fuel against what physics allows, at least 1 by theorem.
 - Known-answer tests: 2 with a lower bound at half the delta-v.
 - Convergence: inherits E1's.
@@ -53,6 +53,19 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Reproducibility: 1e-9 relative.
 - Power: oracle bounds not yet available.
 - Validity: E3f flags any run below its bound.
+- Changelog: v1, first version; the bound now names its rung and E3 is reported only on it.
+
+## E3m optimality_gap_model (v1)
+- Definition: layout delta-v over a lower bound certified for a different dynamics rung than the episode's; NaN otherwise.
+- Why it matters: a CW bound is a theorem for CW only; on two-body truth the optimum can lie on either side of it, so the ratio can fall below 1 with no bug (Rawlings, Mayne and Diehl, sections 8.1.2 and 8.10).
+- Known-answer tests: 1/1.01 for a CW bound 1% above the delta-v of a two-body run, which is not flagged.
+- Convergence: inherits E1's.
+- Invariance: as E3.
+- Mutation detection: not exercised; no oracle bounds are in the suite.
+- Anti-gaming: kept apart from E3 so a model ratio below 1 is never read as a certified gap.
+- Reproducibility: 1e-9 relative.
+- Power: oracle bounds not yet available.
+- Validity: not applicable.
 - Changelog: v1, first version.
 
 ## E3u optimality_gap_upper (v1)
@@ -71,12 +84,38 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 ## E3f below_lower_bound (v1)
 - Definition: a successful run spent less than the certified lower bound by more than 1e-9 relative.
 - Why it matters: a theorem says this cannot happen, so it exposes simulator or accounting bugs.
-- Known-answer tests: flagged 1% below the bound; not flagged at the bound within rounding; never flagged for a failure.
+- Known-answer tests: flagged 1% below the bound; not flagged at the bound within rounding; never flagged for a failure or for a bound certified for another rung.
 - Convergence: not applicable.
 - Invariance: not applicable.
 - Mutation detection: a bug that under-counts delta-v would raise it.
 - Anti-gaming: failures are excluded, since the bound is for reaching the success set.
 - Reproducibility: exact (boolean).
+- Power: not applicable.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## E3c bound_certified (v1)
+- Definition: whether the oracle's lower bound is certified for the episode's dynamics rung.
+- Why it matters: says whether E3 >= 1 is a theorem for this run.
+- Known-answer tests: False for a CW bound on a two-body run, True for a two-body bound there and for a CW bound on CW.
+- Convergence: not applicable.
+- Invariance: not applicable.
+- Mutation detection: not applicable.
+- Anti-gaming: a bound must name its rung; there is no default.
+- Reproducibility: exact (boolean).
+- Power: not applicable.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## E3r bound_rung (v1)
+- Definition: the dynamics rung the oracle's lower bound is certified for, empty without bounds.
+- Why it matters: carried with the result so a later reader can tell a certified gap from a model ratio.
+- Known-answer tests: "cw" for a CW bound.
+- Convergence: not applicable.
+- Invariance: not applicable.
+- Mutation detection: not applicable.
+- Anti-gaming: as E3c.
+- Reproducibility: exact (label).
 - Power: not applicable.
 - Validity: not applicable.
 - Changelog: v1, first version.
