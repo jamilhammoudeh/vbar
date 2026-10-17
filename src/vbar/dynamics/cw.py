@@ -147,6 +147,38 @@ def cw_discrete(n: float, dt: float | np.ndarray) -> tuple[np.ndarray, np.ndarra
     return np.moveaxis(phi, (0, 1), (-2, -1)), np.moveaxis(gamma, (0, 1), (-2, -1))
 
 
+def cw_states(n: float, dt: np.ndarray, state: np.ndarray, accel: np.ndarray) -> np.ndarray:
+    """phi(dt) state + gamma(dt) accel row by row, without forming the matrices.
+
+    `dt` is (A,), `state` (A, 6) and `accel` (A, 3); returns (A, 6). The same closed form as
+    `cw_discrete`, for many different durations at once.
+    """
+    t = np.asarray(dt, dtype=float)
+    nt = n * t
+    s, c = np.sin(nt), np.cos(nt)
+    k = 2.0 * np.sin(0.5 * nt) ** 2
+    d = _x_minus_sin(nt)
+    x, y, z, vx, vy, vz = np.moveaxis(state, -1, 0)
+    ax, ay, az = np.moveaxis(accel, -1, 0)
+    n2 = n * n
+    return np.stack(
+        [
+            (1 + 3 * k) * x + s / n * vx + 2 * k / n * vy + k / n2 * ax + 2 * d / n2 * ay,
+            -6 * d * x
+            + y
+            - 2 * k / n * vx
+            + (nt - 4 * d) / n * vy
+            - 2 * d / n2 * ax
+            + (4 * k / n2 - 1.5 * t * t) * ay,
+            c * z + s / n * vz + k / n2 * az,
+            3 * n * s * x + c * vx + 2 * s * vy + s / n * ax + 2 * k / n * ay,
+            -6 * n * k * x - 2 * s * vx + (1 - 4 * k) * vy - 2 * k / n * ax + (nt - 4 * d) / n * ay,
+            -n * s * z + c * vz + s / n * az,
+        ],
+        axis=-1,
+    )
+
+
 class CWDiscretizer:
     """Caches exact CW transition matrices by duration, keyed to the nanosecond."""
 

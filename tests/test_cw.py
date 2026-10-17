@@ -9,6 +9,7 @@ from vbar.dynamics import (
     R_EARTH,
     CWDiscretizer,
     cw_discrete,
+    cw_states,
     cw_stm,
     cw_system,
     mean_motion,
@@ -182,3 +183,17 @@ def test_sample_matrices_span_the_step():
     phi_mid, gamma_mid = cw_discrete(N, 5.0)
     assert np.allclose(phis[2], phi_mid, rtol=1e-15, atol=0.0)
     assert np.allclose(gammas[2], gamma_mid, rtol=1e-15, atol=0.0)
+
+
+def test_states_without_matrices_equal_the_discretized_transition():
+    rng = np.random.default_rng(3)
+    n = N
+    dt = np.r_[rng.uniform(1e-6, 1e4, 200), 0.0, 1e-9]
+    state = rng.normal(size=(len(dt), 6)) * np.repeat([300.0, 0.3], 3)
+    accel = rng.uniform(-0.02, 0.02, (len(dt), 3))
+    phi, gamma = cw_discrete(n, dt)
+    expected = np.einsum("aij,aj->ai", phi, state) + np.einsum("aij,aj->ai", gamma, accel)
+    found = cw_states(n, dt, state, accel)
+    # Same closed form summed in a different order: relative to the largest term.
+    scale = np.max(np.abs(expected), axis=1, keepdims=True)
+    assert np.all(np.abs(found - expected) <= 1e-13 * scale)

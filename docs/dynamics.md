@@ -71,7 +71,11 @@ The textbook form subtracts nearly equal numbers on short steps and loses about 
 $n\Delta t = 10^{-2}$; this form keeps full precision at any step length. A numerical matrix
 exponential (`scipy.linalg.expm`) is less accurate, about 4e-9 m off over one orbit on some
 supported SciPy versions, and is used only as a cross-check in the tests. `CWDiscretizer` caches
-the matrices by step length.
+the matrices by step length. `cw_states(n, dt, state, accel)` evaluates
+$\Phi(\Delta t)\mathbf x + \Gamma(\Delta t)\mathbf a$ row by row for many different durations,
+states and accelerations at once without forming the matrices, as the vectorized environment's
+refinement needs; it agrees with the matrix product to 1e-13 of the largest term (tested in
+`tests/test_cw.py` for 200 random steps from 1e-6 s to 1e4 s and for zero length).
 
 **Accuracy.** The model error against nonlinear two-body motion grows with the square of the
 separation. For a chaser held at along-track offset $D$ from a target with semi-major axis $a$,
