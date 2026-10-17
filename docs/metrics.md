@@ -161,7 +161,7 @@ any others passed in (for example a soft passive-speed envelope the scenario doe
 | S1b | `min_margin_bound[c]` | constraint's | the certified lower bound on S1 |
 | S2 | `violation_depth[c]` | constraint's | $\max(0, -\text{S1})$ |
 | S3 | `violation_duration[c]` | s | total time with $m_c < 0$, from `negative_intervals` |
-| S5 | `closing_speed_ratio` | ratio | highest $\max(0,-\dot\rho)/(v_0 + v_1\rho)$ with the scenario's closing-speed limit; refined around the highest sample without a certificate (S1 of the closing-speed limit is the certified quantity); NaN without that limit |
+| S5 | `closing_speed_ratio` | ratio | highest $\max(0,-\dot\rho)/v_{\text{allowed}}(\rho)$ with the scenario's closing-rate law, $v_0 + v_1\rho$ (`ClosingSpeedLimit`) or a gate table (`GateTable`); closing at a hold gate is infinite; refined around the highest sample without a certificate (S1 of the law is the certified quantity); NaN without one |
 | S6 | `min_time_to_keep_out` | s | least $(\rho - R)/\max(0,-\dot\rho)$ over the step boundaries while closing (faster than 1e-9 m/s), zero inside the sphere, $\infty$ if never closing; NaN without a keep-out sphere |
 
 ## Passive safety and aborts (S4, S4b, S4i, S4t, S4o, S8, S9)
@@ -408,7 +408,10 @@ at that rate needs about 385 episodes.
   match the closed-form closest approach (Brent on the root of $\mathbf r\cdot\mathbf v$) to 1 mm
   and the entry-to-exit time to 1e-6 s, with S1b below S1. Speed and closing-speed margins searched
   on the rebuilt trajectory equal the environment's own search to 1e-9 m/s. S5 matches the maximum
-  over 120001 closed-form samples to 1e-7. S6 is 500 s for 250 m at 0.5 m/s straight in, and
+  over 120001 closed-form samples to 1e-7, for the linear law and for a gate table, and is
+  infinite when closing at a hold gate. The STS-130 +V-bar gates (Goodman fig. 25.22: 0.20, 0.15,
+  0.10 and 0.07 ft/s at 320, 110, 75 and 30 ft) sit inside the V-bar passive-speed envelope at
+  185 n.mi. by 3.84, 1.76, 1.80 and 1.03 times. S6 is 500 s for 250 m at 0.5 m/s straight in, and
   infinite at rest on the V-bar. S1, S3 and S5 for four constraint types are the same at 4, 10 and
   25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane. An entry into an
   approach zone in the last sample interval before its GO event is found, with its duration to
@@ -428,7 +431,10 @@ at that rate needs about 385 episodes.
   With only 8 drift samples per orbit a 4 m/s pass through the target is still found, since
   arcs whose sign the samples cannot settle are refined; an ellipse whose centre recedes but sits
   between $b + R$ and $2b + R$ along-track is not certified, and comes within 16 m; a burn whose
-  ends both drift clear by 196 m is caught by a cut midway.
+  ends both drift clear by 196 m is caught by a cut midway. On the twice-orbital-rate circle of
+  radius $R$ flown clockwise (Goodman, p. 137), a thrust loss after 90, 120, 150 or 180 deg leaves
+  a drift-free ellipse whose range stays between $R$ and 7.00, 6.20, 4.15 and $2R$, and free drift
+  is certified clear of a sphere just inside $R$.
 - Plume (`tests/test_metrics_plume.py`): the pressure normalization matches a midpoint rule
   over the sphere to 1e-6 and tends to $2\pi\theta_0^2$ for a narrow plume. Braking at full thrust
   30 m behind the target gives the impulse of an independent quadrature on the closed-form

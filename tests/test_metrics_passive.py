@@ -250,3 +250,25 @@ def test_a_burn_cut_short_midway_can_be_the_worst_case():
     lowest = min(dense_drift_minimum(x, N, 4 * np.pi / N, 50.0) for x in cuts)
     assert with_points < without - 100.0
     assert with_points >= lowest - 1e-3
+
+
+@pytest.mark.parametrize(("swept", "widest"), [(90, 7.00), (120, 6.20), (150, 4.15), (180, 2.00)])
+def test_thrust_loss_on_the_twice_orbital_rate_circle_never_comes_closer_than_its_radius(
+    swept, widest
+):
+    # Goodman p. 137: the circle of radius R flown clockwise at 2n from below the target needs only
+    # the radial hover thrust, and lies on the no-drift manifold vy + 2 n x = 0.
+    n, radius = mean_motion(EARTH.radius + 185.0 * 1852.0), 100.0
+    phi = np.pi - np.radians(swept)
+    start = radius * np.array(
+        [np.cos(phi), np.sin(phi), 0.0, 2 * n * np.sin(phi), -2 * n * np.cos(phi), 0.0]
+    )
+    assert start[4] + 2 * n * start[0] == pytest.approx(0.0, abs=1e-15)
+    states = escape_arc(
+        n, start, np.zeros(3), 0.0, np.zeros(3), np.linspace(0, 2 * np.pi / n, 20001)
+    )
+    ranges = np.linalg.norm(states[:, :3], axis=1) / radius
+    assert ranges.min() == pytest.approx(1.0, abs=1e-3)
+    assert ranges.max() == pytest.approx(widest, abs=1e-2)
+    assert passive_forever(start, n, 0.999 * radius).safe
+    assert not passive_forever(start, n, 1.001 * radius).safe

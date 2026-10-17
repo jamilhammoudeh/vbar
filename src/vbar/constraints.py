@@ -122,13 +122,60 @@ class ClosingSpeedLimit:
     name: str = "closing_speed_limit"
     resolution: ClassVar[float] = 1e-5
 
+    def allowed_speed(self, rho: np.ndarray) -> np.ndarray:
+        """Highest allowed closing speed (m/s) at range `rho` (m)."""
+        return self.v0 + self.v1 * np.asarray(rho, dtype=float)
+
     def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
         state = np.asarray(state)
         rho = np.linalg.norm(state[..., :3], axis=-1)
-        return self.v0 + self.v1 * rho - closing_speed(state)
+        return self.allowed_speed(rho) - closing_speed(state)
 
     def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
         return abs(self.v1) * speed + _closing_rate_bound(speed, accel, rho_min)
+
+
+@dataclass(frozen=True)
+class GateTable:
+    """Closing speed below a table of range-rate gates; margin allowed - max(0, -rho_dot) (m/s).
+
+    `gates` are (range m, closing speed m/s) pairs, the form the Shuttle flew (Goodman, History of
+    Space Shuttle Rendezvous, 2011, table 24.3 and figs 14.12, 25.17, 25.22). The allowed speed is
+    linearly interpolated between gates and held at the nearest gate beyond the table; a speed of
+    0 is a hold.
+    """
+
+    gates: tuple[tuple[float, float], ...]
+    name: str = "gate_table"
+    resolution: ClassVar[float] = 1e-5
+
+    def __post_init__(self):
+        ranges = [r for r, _ in self.gates]
+        if len(ranges) < 2 or any(
+            b <= a for a, b in zip(sorted(ranges), sorted(ranges)[1:], strict=False)
+        ):
+            raise ValueError("gates need at least two distinct ranges")
+        if any(v < 0.0 for _, v in self.gates):
+            raise ValueError("gate speeds must not be negative")
+
+    def _table(self) -> tuple[np.ndarray, np.ndarray]:
+        table = np.array(sorted(self.gates), dtype=float)
+        return table[:, 0], table[:, 1]
+
+    def allowed_speed(self, rho: np.ndarray) -> np.ndarray:
+        """Highest allowed closing speed (m/s) at range `rho` (m)."""
+        ranges, speeds = self._table()
+        return np.interp(np.asarray(rho, dtype=float), ranges, speeds)
+
+    def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
+        state = np.asarray(state)
+        rho = np.linalg.norm(state[..., :3], axis=-1)
+        return self.allowed_speed(rho) - closing_speed(state)
+
+    def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
+        ranges, speeds = self._table()
+        slope = float(np.max(np.abs(np.diff(speeds) / np.diff(ranges))))
+        return slope * speed + _closing_rate_bound(speed, accel, rho_min)
 
 
 @dataclass(frozen=True)

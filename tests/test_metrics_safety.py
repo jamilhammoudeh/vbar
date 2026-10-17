@@ -6,6 +6,7 @@ from vbar.agents import PDAgent
 from vbar.constraints import (
     ApproachCone,
     ClosingSpeedLimit,
+    GateTable,
     KeepOut,
     SpeedLimit,
     ZoneEntry,
@@ -61,6 +62,37 @@ def test_closing_speed_ratio_matches_a_dense_closed_form_maximum():
     rho = np.linalg.norm(states[:, :3], axis=1)
     dense = np.max(closing_speed(states) / (0.2 + 4 * N * rho))
     assert safety_metrics(ep)["closing_speed_ratio"] == pytest.approx(dense, abs=1e-7)
+
+
+def test_closing_speed_ratio_with_a_gate_table_matches_a_dense_closed_form_maximum():
+    gates = GateTable(((50.0, 0.1), (200.0, 0.4), (400.0, 0.6)))
+    start = np.array([0.0, 300.0, 20.0, 0.05, -0.8, 0.0])
+    ep = episode(extra=(gates,), start_state=tuple(start), max_steps=12)
+    phi, _ = cw_discrete(N, np.linspace(0.0, 120.0, 120001))
+    states = phi @ start
+    rho = np.linalg.norm(states[:, :3], axis=1)
+    dense = np.max(closing_speed(states) / gates.allowed_speed(rho))
+    assert safety_metrics(ep)["closing_speed_ratio"] == pytest.approx(dense, abs=1e-7)
+
+
+def test_closing_through_a_hold_gate_is_an_infinite_ratio():
+    hold = GateTable(((30.0, 0.0), (100.0, 0.2)))
+    closing = episode(
+        extra=(hold,),
+        soft=("gate_table",),
+        start_state=(0.0, -25.0, 0.0, 0.0, 0.05, 0.0),
+        max_steps=2,
+        keep_out_radius=1.0,
+    )
+    at_rest = episode(
+        extra=(hold,),
+        start_state=(0.0, -25.0, 0.0, 0.0, 0.0, 0.0),
+        max_steps=2,
+        keep_out_radius=1.0,
+    )
+    assert safety_metrics(closing)["closing_speed_ratio"] == np.inf
+    # Rest on the V-bar is an equilibrium, so nothing closes.
+    assert safety_metrics(at_rest)["closing_speed_ratio"] == 0.0
 
 
 def test_time_to_keep_out_at_the_start_of_a_straight_closing():

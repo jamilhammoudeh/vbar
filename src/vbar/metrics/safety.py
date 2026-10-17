@@ -12,7 +12,7 @@ from collections.abc import Iterable
 
 import numpy as np
 
-from ..constraints import ClosingSpeedLimit, Constraint, KeepOut, closing_speed
+from ..constraints import ClosingSpeedLimit, Constraint, GateTable, KeepOut, closing_speed
 from .episode import Episode
 from .stl import Trace, minimum, negative_intervals, peak, total
 
@@ -39,18 +39,21 @@ def lowest_margin(ep: Episode, constraint: Constraint, trace: Trace | None = Non
     return min(low, at_start), min(bound, at_start)
 
 
-def closing_speed_ratio(ep: Episode, limit: ClosingSpeedLimit, trace: Trace) -> float:
-    """S5: highest closing speed over the allowed v0 + v1 rho.
+def closing_speed_ratio(ep: Episode, limit: ClosingSpeedLimit | GateTable, trace: Trace) -> float:
+    """S5: highest closing speed over the allowed speed of the scenario's closing-rate law.
 
-    Found at the samples and refined on the two sample intervals around the highest one, without
-    a certificate; the S1 margin of the closing-speed constraint carries the certified bound.
+    The law is the scenario's own: the linear v0 + v1 rho or a gate table. Closing at a hold gate
+    (allowed 0) is an infinite ratio. Found at the samples and refined on the two sample intervals
+    around the highest one, without a certificate; the S1 margin of the law carries the certified
+    bound.
     """
-    if not limit.v0 > 0.0:
-        raise ValueError("the closing-speed ratio needs v0 > 0")
 
     def ratio(state, t=0.0):
         rho = np.linalg.norm(np.asarray(state)[..., :3], axis=-1)
-        return closing_speed(state) / (limit.v0 + limit.v1 * rho)
+        allowed = np.asarray(limit.allowed_speed(rho), dtype=float)
+        closing = closing_speed(state)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where(allowed > 0.0, closing / allowed, np.where(closing > 0.0, np.inf, 0.0))
 
     # The first segment's first sample is the start state, so the peak covers it.
     return peak(ratio, trace)
@@ -84,7 +87,7 @@ def safety_metrics(ep: Episode, constraints: Iterable[Constraint] | None = None)
         low[c.name], bound[c.name] = lowest_margin(ep, c, trace)
         depth[c.name] = max(0.0, -low[c.name])
         duration[c.name] = total(negative_intervals(c, trace)) if ep.records else 0.0
-    closing = next((c for c in chosen if isinstance(c, ClosingSpeedLimit)), None)
+    closing = next((c for c in chosen if isinstance(c, ClosingSpeedLimit | GateTable)), None)
     keep_out = next((c for c in chosen if isinstance(c, KeepOut)), None)
     return {
         "min_margin": low,

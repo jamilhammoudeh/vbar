@@ -16,6 +16,7 @@ release may change the public API, and every such change is listed under Changed
 - Filter metric F1 counts decisions with an active safety row, not every change; clipping is
   counted apart (F1c). F2 is in m/s^2 rather than fractions of a full command over sqrt(3), and
   F2n normalises it by the actuator's widest change.
+- S5 divides by the speed the scenario's closing-rate law allows, so it also scores gate tables.
 
 ### Added
 
@@ -25,8 +26,8 @@ release may change the public API, and every such change is listed under Changed
 - A test that runs every python example in README.md and `docs/`, coverage reporting in CI, a
   throughput benchmark (`benchmarks/steps.py`) and weekly mutation testing of the core modules.
 - SECURITY.md.
-- Constraint types: speed and closing-speed limits, an approach cone with its apex at the port,
-  Sun exclusion, passive-speed envelopes and an approach-zone ellipsoid.
+- Constraint types: speed and closing-speed limits, range-rate gate tables, an approach cone with
+  its apex at the port, Sun exclusion, passive-speed envelopes and an approach-zone ellipsoid.
 - `FilterResult` with a status, slack, conflicting constraints and compute time; `FilteredAgent`
   keeps the last command, result and measured filter time.
 - `vbar.metrics`: `record_episode` returns an `Episode` with every step record, and

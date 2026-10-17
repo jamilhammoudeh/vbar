@@ -62,7 +62,7 @@ CATALOGUE = (
     MetricInfo("S4i", "passive_forever_fraction", "fraction", summary="lower_tail"),
     MetricInfo("S4t", "passive_threat_time", "s", summary="lower_tail"),
     MetricInfo("S4o", "stuck_thruster_margin", "m", summary="lower_tail"),
-    MetricInfo("S5", "closing_speed_ratio", "ratio", summary="upper_tail"),
+    MetricInfo("S5", "closing_speed_ratio", "ratio", version=2, summary="upper_tail"),
     MetricInfo("S6", "min_time_to_keep_out", "s", summary="lower_tail"),
     MetricInfo("S8", "cam_margin", "m", summary="lower_tail"),
     MetricInfo("S9", "unprotected_time", "s", summary="upper_tail"),

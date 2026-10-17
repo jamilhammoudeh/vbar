@@ -24,6 +24,12 @@ $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
   the speed toward the target only (`closing_speed`). Since $\ddot\rho = (|\mathbf v|^2 -
   \dot\rho^2)/\rho + \hat{\mathbf r}\cdot\dot{\mathbf v}$, the rate bound is $|v_1| V + V^2 /
   \rho_{\min} + A$, infinite when $\rho_{\min}$ = 0. Resolution 1e-5 m/s.
+- `GateTable(gates)`: the closing speed below a table of range-rate gates, given as (range m,
+  closing speed m/s) pairs, the form the Space Shuttle flew (Goodman, *History of Space Shuttle
+  Rendezvous*, JSC-63400, 2011, table 24.3 and figs. 14.12, 25.17 and 25.22). The allowed speed is
+  linearly interpolated between gates and held at the end gates beyond the table; a speed of 0 is
+  a hold. Margin allowed $- \max(0, -\dot\rho)$ (m/s); rate bound as `ClosingSpeedLimit` with
+  $|v_1|$ replaced by the steepest slope between gates. Resolution 1e-5 m/s.
 - `ApproachCone(half_angle, axis, apex, active_range)`: stay inside a cone whose apex is the mating
   point, since the corridor starts at the docking port or berthing box (Fehse, *Automated Rendezvous
   and Docking of Spacecraft*, 2003, sections 2.4.2 and 5.6; ISS corridors are 10 to 15 deg). With

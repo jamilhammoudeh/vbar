@@ -60,19 +60,19 @@ named. Power as in the mission cards.
 - Validity: not yet measured.
 - Changelog: v1, first version.
 
-## S5 closing_speed_ratio (v1)
-- Definition: highest closing speed over the allowed v0 + v1 rho, with the scenario's closing-speed limit; NaN without one.
+## S5 closing_speed_ratio (v2)
+- Definition: highest closing speed over the speed the scenario's closing-rate law allows at that range, the linear v0 + v1 rho or a gate table; infinite when closing at a hold gate; NaN without a law.
 - Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: how close the approach came to the speed rule, scale-free.
-- Known-answer tests: equals the maximum over 120001 closed-form samples to 1e-7.
+- Known-answer tests: equals the maximum over 120001 closed-form samples to 1e-7, for the linear law and for a gate table; infinite closing through a hold gate; the STS-130 +V-bar gates sit 3.84, 1.76, 1.80 and 1.03 times inside the V-bar passive-speed envelope at 185 n.mi. (Goodman, fig. 25.22).
 - Convergence: the same at 4, 10 and 25 s steps to 1e-7.
 - Invariance: mirror.
 - Mutation detection: not exercised by the PD mutants (the approach scenario has no closing-speed limit yet).
 - Anti-gaming: refined around the highest sample; the certified quantity is S1 of the closing-speed limit.
 - Reproducibility: 1e-6.
 - Power: no closing-speed limit in the baseline scenario yet.
-- Validity: not yet measured.
-- Changelog: v1, first version.
+- Validity: the Shuttle flew gate tables 3 to 11 times below the linear 0.2 + 4 n rho law (Goodman, table 24.3), so the law is the scenario's, not fixed.
+- Changelog: v1, the linear law only; v2, the scenario's law, linear or a gate table.
 
 ## S6 min_time_to_keep_out (v1)
 - Definition: least (rho - R) / closing speed over the step boundaries while closing; 0 inside; infinite if never closing.

@@ -5,6 +5,7 @@ from scipy.optimize import minimize
 from vbar.constraints import (
     ApproachCone,
     ClosingSpeedLimit,
+    GateTable,
     PassiveSpeed,
     SpeedLimit,
     SunExclusion,
@@ -22,6 +23,10 @@ CLOSING = ClosingSpeedLimit(0.2, 4 * N)
 CONE = ApproachCone(
     np.radians(10.0), axis=(0.0, -1.0, 0.0), apex=(0.0, -2.0, 0.0), active_range=50.0
 )
+FT = 0.3048
+# STS-130 +V-bar final approach gates, range ft and closing rate ft/s (Goodman, fig. 25.22).
+STS130_VBAR = ((320.0, 0.20), (110.0, 0.15), (75.0, 0.10), (30.0, 0.07))
+GATES = GateTable(tuple((r * FT, v * FT) for r, v in STS130_VBAR))
 
 
 def flyby(seed):
@@ -97,6 +102,29 @@ def cone_distance_by_search(point, cone):
     rho = np.linalg.norm(d)
     inside = rho == 0.0 or d @ axis / rho >= np.cos(theta)
     return best.fun if inside else -best.fun
+
+
+def test_gate_table_interpolates_between_gates_and_holds_beyond_them():
+    gates = GateTable(((100.0, 0.3), (10.0, 0.0), (300.0, 0.5)))
+    assert gates.allowed_speed([5.0, 10.0, 55.0, 200.0, 400.0]) == pytest.approx(
+        [0.0, 0.0, 0.15, 0.4, 0.5]
+    )
+    # Closing at 0.1 m/s from 55 m: allowed 0.15 there.
+    assert gates.margin(np.array([0.0, 55.0, 0.0, 0.0, -0.1, 0.0])) == pytest.approx(0.05)
+
+
+def test_gate_table_rejects_a_single_gate_repeated_ranges_and_negative_speeds():
+    for gates in (((10.0, 0.1),), ((10.0, 0.1), (10.0, 0.2)), ((10.0, -0.1), (20.0, 0.1))):
+        with pytest.raises(ValueError):
+            GateTable(gates)
+
+
+def test_shuttle_vbar_gates_sit_inside_the_vbar_passive_speed_envelope():
+    # Goodman, fig. 25.22: envelope n rho / 0.47755 = 2.094 n rho at 185 n.mi. over the flown gate.
+    n = mean_motion(EARTH.radius + 185.0 * 1852.0)
+    rho = np.array([r for r, _ in STS130_VBAR]) * FT
+    ratio = PassiveSpeed("vbar", 0.0, n).speed_envelope(rho) / GATES.allowed_speed(rho)
+    assert ratio == pytest.approx([3.84, 1.76, 1.80, 1.03], abs=0.01)
 
 
 @pytest.mark.parametrize("seed", range(12))
@@ -231,7 +259,7 @@ def test_zone_margin_lies_below_the_distance_to_the_ellipsoid(seed):
 
 @pytest.mark.parametrize(
     "constraint",
-    [SPEED, CLOSING, CONE, SUN, PASSIVE_VBAR, PASSIVE_RBAR, ZONE],
+    [SPEED, CLOSING, GATES, CONE, SUN, PASSIVE_VBAR, PASSIVE_RBAR, ZONE],
     ids=lambda c: f"{c.name}_{getattr(c, 'axis', '')}",
 )
 @pytest.mark.parametrize("seed", range(12))
