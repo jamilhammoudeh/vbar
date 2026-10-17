@@ -239,6 +239,10 @@ def test_reentry_time_is_the_mean_length_of_the_recovering_stretches():
     m = filter_behaviour(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=8))
     # Stretches of 3 and 1 decisions, 10 s each.
     assert m["reentry_time"] == pytest.approx(20.0)
+    # Recovering until the episode ends is never getting back.
+    unfinished = FilteredAgent(PDAgent(), SequenceFilter(recovering=(False, True, True)))
+    m = filter_behaviour(episode(unfinished, start_state=(0, -400, 0, 0, 0, 0), max_steps=3))
+    assert m["reentry_time"] == np.inf
     assert np.isnan(
         filter_behaviour(episode(FilteredAgent(PDAgent(), SequenceFilter()), max_steps=3))[
             "reentry_time"
@@ -269,6 +273,8 @@ def test_fallbacks_and_certificates_are_reported_as_given():
     m = filter_behaviour(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=4))
     assert m["fallback_count"] == 2.0 and m["fallback_level_max"] == 2.0
     assert m["filter_certificates"] == ("implicit",) and m["certificate_horizon_min"] == 450.0
+    silent = filter_behaviour(episode(FilteredAgent(PDAgent(), SequenceFilter()), max_steps=3))
+    assert np.isnan(silent["fallback_count"]) and np.isnan(silent["fallback_level_max"])
 
 
 def test_conservatism_is_the_share_of_viable_states_the_filter_leaves_out():

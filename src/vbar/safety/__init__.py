@@ -43,7 +43,7 @@ class FilterResult:
     compute_s: float = 0.0
     active: bool = False
     recovering: bool | None = None
-    fallback_level: int = 0
+    fallback_level: int | None = None
     certificate: str | None = None
     certificate_horizon: float | None = None
     iterations: int | None = None

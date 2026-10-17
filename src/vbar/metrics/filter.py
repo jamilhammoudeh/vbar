@@ -114,14 +114,19 @@ def _commanded_accel(ep: Episode, command: np.ndarray) -> np.ndarray:
 
 
 def _run_lengths(flags: list[bool], dt: float) -> list[float]:
-    """Durations (s) of the runs of consecutive True flags, each flag one decision of `dt` s."""
+    """Durations (s) of the runs of consecutive True flags, each flag one decision of `dt` s.
+
+    A run still open at the last flag never ended, so its duration is infinite.
+    """
     runs, count = [], 0
-    for flag in [*flags, False]:
+    for flag in flags:
         if flag:
             count += 1
         elif count:
             runs.append(count * dt)
             count = 0
+    if count:
+        runs.append(math.inf)
     return runs
 
 
@@ -132,7 +137,8 @@ def filter_behaviour(ep: Episode, settings: MetricSettings | None = None) -> dic
     and then left to free drift over the drift horizon, would have stayed clear of the collision
     radius: interventions the filter did not need (the counterfactual of a filter-off run, from
     the state each decision was made in). F9 is the mean time to get back inside the filter's safe
-    set over the stretches where the filter reported `recovering`; F10 the time with an active row
+    set over the stretches where the filter reported `recovering`, infinite if the episode ends
+    inside one; F10 the time with an active row
     while the chaser moved slower than `stall_speed`, a barrier holding it in place. The fallback
     count is decisions answered by a fallback (`fallback_level` > 0). NaN where the filter did not
     report the field.
@@ -170,9 +176,10 @@ def filter_behaviour(ep: Episode, settings: MetricSettings | None = None) -> dic
         for (_, rec), s in zip(decisions, speeds, strict=True)
     ]
     out["stall_time"] = float(sum(slow)) * dt
-    levels = [r.fallback_level for r in results]
-    out["fallback_count"] = float(sum(level > 0 for level in levels))
-    out["fallback_level_max"] = float(max(levels))
+    levels = [r.fallback_level for r in results if r.fallback_level is not None]
+    if levels:
+        out["fallback_count"] = float(sum(level > 0 for level in levels))
+        out["fallback_level_max"] = float(max(levels))
     kinds = sorted({r.certificate for r in results if r.certificate is not None})
     out["filter_certificates"] = tuple(kinds)
     horizons = [r.certificate_horizon for r in results if r.certificate_horizon is not None]

@@ -173,10 +173,10 @@ power figures need real filters and are not given.
 - Changelog: v1, first version.
 
 ## F9 reentry_time (v1)
-- Definition: mean length (s) of the stretches of decisions where the filter reported `recovering` (the state already outside its safe set); 0 if it never did; NaN if it does not report it.
+- Definition: mean length (s) of the stretches of decisions where the filter reported `recovering` (the state already outside its safe set); infinite if the episode ends inside one; 0 if it never did; NaN if it does not report it.
 - Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: navigation or execution error, or a start outside the safe set, puts the state where the barrier is negative; how fast the filter gets back matters.
-- Known-answer tests: 20 s for stretches of 3 and 1 decisions of 10 s; NaN for a filter that does not report it.
+- Known-answer tests: 20 s for stretches of 3 and 1 decisions of 10 s; infinite when still recovering at the end; NaN for a filter that does not report it.
 - Convergence: per decision.
 - Invariance: not applicable.
 - Mutation detection: not exercised; no shipped filter reports it.
@@ -201,7 +201,7 @@ power figures need real filters and are not given.
 - Changelog: v1, first version.
 
 ## F5f fallback_count (v1)
-- Definition: decisions answered by a fallback (`fallback_level` > 0: the shifted previous plan or the declared backup).
+- Definition: decisions answered by a fallback (`fallback_level` > 0: the shifted previous plan or the declared backup), over the decisions that report a level; NaN if none does.
 - Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: an optimisation-based filter that times out must fall back to something safe; how often it does is a measure of the filter, not the agent (Rawlings, Mayne and Diehl, Algorithm 6.1).
 - Known-answer tests: 2 of 4 for a scripted sequence 0, 1, 0, 2.
@@ -215,7 +215,7 @@ power figures need real filters and are not given.
 - Changelog: v1, first version.
 
 ## F5l fallback_level_max (v1)
-- Definition: the deepest fallback used (0 the converged solution, 1 the shifted previous plan, 2 the declared backup).
+- Definition: the deepest fallback used (0 the converged solution, 1 the shifted previous plan, 2 the declared backup); NaN if no decision reports a level.
 - Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: the declared backup is the last line; reaching it says the filter ran out of better answers.
 - Known-answer tests: 2 for the scripted sequence 0, 1, 0, 2.
