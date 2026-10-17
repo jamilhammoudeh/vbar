@@ -27,7 +27,7 @@ from scipy.optimize import minimize_scalar
 # Refinement stops when the bracket on the time of the minimum is this narrow (s); a margin
 # that falls at 10 m/s is then off by at most 0.1 mm.
 _BRACKET_TOL = 1e-5
-# Relative tolerance on a GO time; summed step times drift from the boundary by a few ulp.
+# Allowance past a GO time, relative above 1 s; summed step times drift from it by a few ulp.
 _GO_TOL = 1e-9
 # Safety factor on the CW gravity-gradient and Coriolis terms in the acceleration bound; it
 # covers the two-body nonlinearity and J2 at separations below 1% of the orbit radius.
