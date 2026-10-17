@@ -223,6 +223,16 @@ def test_solver_fields_and_the_latency_split_come_from_the_entries_that_report_t
     assert m["agent_fallback_count"] == 1.0
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [{"prep_s": "fast"}, {"feedback_s": -0.001}, {"iterations": np.inf}, {"fallback": "no"}],
+)
+def test_solver_fields_the_agent_wrote_wrongly_are_rejected(entry):
+    ep = dataclasses.replace(pd_episode(max_steps=1), agent_log=(entry,))
+    with pytest.raises(ValueError, match="log field"):
+        solver_metrics(ep)
+
+
 def test_an_agent_without_solver_fields_reports_none():
     m = agent_metrics(pd_episode(max_steps=2))
     assert math.isnan(m["feedback_median"]) and math.isnan(m["agent_fallback_count"])

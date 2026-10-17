@@ -320,7 +320,9 @@ count, so A5b is read with A5, which counts the missing ones.
 
 A model-based agent may add solver fields to its log entries: `solver`, `tolerance`, `status`,
 `iterations`, `warm_start`, `fallback`, `prep_s` and `feedback_s`. Each A1r to A9f metric is over
-the entries that report its field, and NaN (or empty) where none does. Latency depends on the
+the entries that report its field, and NaN (or empty) where none does. Times, tolerances and
+iteration counts must be finite numbers at least 0 and `warm_start` and `fallback` bools; other
+values raise `ValueError`. Latency depends on the
 solver, since active-set and SQP methods warm-start better than interior-point ones (Rawlings,
 Mayne and Diehl, *Model Predictive Control*, 2nd ed., 2017, sections 8.7 and 8.9), so results are
 compared with the solver named.
@@ -493,7 +495,7 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   Incomplete training figures are rejected. Solver fields of a scripted four-entry log give the
   preparation and feedback medians, the solver labels and status counts, a median of 10 iterations,
   a warm-start rate of 0.75 and one fallback, each over the entries that report it; a log without
-  them gives NaN. Stated ranges 2, -2, 6 and -6 m off a posterior with a 2 m sigma give
+  them gives NaN, and a text time, a negative time, an infinite count or a text flag is rejected. Stated ranges 2, -2, 6 and -6 m off a posterior with a 2 m sigma give
   A5b = $\sqrt5$; at rest on the V-bar with 50 m fixes, restating them scores A5 = 1 and A5b above 1,
   stating the mean of the fixes below 1e-3; the range sigma is the covariance along the line of
   sight (10 m of along-track sigma at rest on the V-bar gives A5b = 1 for a 10 m error), and a

@@ -126,18 +126,37 @@ def _reported(log: Sequence[Mapping[str, Any]], key: str) -> list[Any]:
     return [e[key] for e in log if e.get(key) is not None]
 
 
+def _amounts(log: Sequence[Mapping[str, Any]], key: str) -> list[float]:
+    """Reported values of `key`, each a finite number at least 0, since the agent writes them."""
+    values = _reported(log, key)
+    for v in values:
+        if isinstance(v, bool) or not isinstance(v, int | float) or not 0.0 <= v < math.inf:
+            raise ValueError(f"log field {key} must be a finite number >= 0, got {v!r}")
+    return [float(v) for v in values]
+
+
+def _flags(log: Sequence[Mapping[str, Any]], key: str) -> list[bool]:
+    """Reported values of `key`, each a bool."""
+    values = _reported(log, key)
+    for v in values:
+        if not isinstance(v, bool | np.bool_):
+            raise ValueError(f"log field {key} must be true or false, got {v!r}")
+    return [bool(v) for v in values]
+
+
 def solver_metrics(ep: Episode) -> dict[str, Any]:
     """A1r, A1f, A1fp and A9 to A9f from the solver fields of the agent's log.
 
     `prep_s` is the work done before the observation arrives and `feedback_s` the time from the
     observation to the command (s), the split of real-time iteration schemes (Rawlings, Mayne and
     Diehl, Model Predictive Control, 2nd ed., 2017, section 8.9). Each metric is over the entries
-    that report its field; NaN, or empty, where none does.
+    that report its field; NaN, or empty, where none does. Times, tolerances and iteration counts
+    must be finite numbers at least 0 and the warm-start and fallback flags bools.
     """
     log = ep.agent_log
-    prep, feedback = _reported(log, "prep_s"), _reported(log, "feedback_s")
-    iterations = _reported(log, "iterations")
-    warm, fallback = _reported(log, "warm_start"), _reported(log, "fallback")
+    prep, feedback = _amounts(log, "prep_s"), _amounts(log, "feedback_s")
+    iterations = _amounts(log, "iterations")
+    warm, fallback = _flags(log, "warm_start"), _flags(log, "fallback")
     statuses: dict[str, int] = {}
     for status in _reported(log, "status"):
         statuses[str(status)] = statuses.get(str(status), 0) + 1
@@ -147,12 +166,12 @@ def solver_metrics(ep: Episode) -> dict[str, Any]:
         "feedback_p95": float(np.percentile(feedback, 95)) if feedback else math.nan,
         "solver_metadata": {
             "solver": tuple(sorted({str(s) for s in _reported(log, "solver")})),
-            "tolerance": tuple(sorted({float(t) for t in _reported(log, "tolerance")})),
+            "tolerance": tuple(sorted(set(_amounts(log, "tolerance")))),
             "status": dict(sorted(statuses.items())),
         },
         "solver_iterations_median": float(np.median(iterations)) if iterations else math.nan,
-        "warm_start_rate": float(np.mean([bool(w) for w in warm])) if warm else math.nan,
-        "agent_fallback_count": float(sum(bool(f) for f in fallback)) if fallback else math.nan,
+        "warm_start_rate": float(np.mean(warm)) if warm else math.nan,
+        "agent_fallback_count": float(sum(fallback)) if fallback else math.nan,
     }
 
 
