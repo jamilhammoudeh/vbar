@@ -91,7 +91,7 @@ The goal is the scenario's public goal, of one of two kinds.
 | M7 | `contact_axial_speed` | m/s | $-\mathbf v\cdot\hat{\mathbf a}$ at contact |
 | M8 | `contact_lateral_speed` | m/s | $\lvert\mathbf v - (\mathbf v\cdot\hat{\mathbf a})\hat{\mathbf a}\rvert$ at contact |
 | M9 | `hold_dwell` | s | longest continuous time inside the capture predicate, in continuous time (NaN without one) |
-| M10 | `capture_margin` | ratio | $\min\big(\tfrac{l_{\max} - \text{M6}}{l_{\max}}, \tfrac{s_{\max} - \text{M8}}{s_{\max}}, \tfrac{v_{\max} - \text{M7}}{v_{\max}}, \tfrac{\text{M7} - v_{\min}}{v_{\min}}\big)$; negative means out of tolerance (Fehse part 2 review C1) |
+| M10 | `capture_margin` | ratio | $\min\big(\tfrac{l_{\max} - \text{M6}}{l_{\max}}, \tfrac{s_{\max} - \text{M8}}{s_{\max}}, \tfrac{v_{\max} - \text{M7}}{v_{\max}}, \tfrac{\text{M7} - v_{\min}}{v_{\min}}\big)$; negative means out of tolerance (Fehse 7.1.1, 8.3.5) |
 
 The hold predicate is the signal $\min\big((R_{\text{cap}} - |\mathbf r - \mathbf r_g|)/R_{\text{cap}},
 (v_{\text{cap}} - |\mathbf v - \mathbf v_g|)/v_{\text{cap}}\big)$ with rate bound
@@ -251,7 +251,7 @@ Each decision of a `FilteredAgent` leaves a `FilterResult` in its record
 infeasibility counts only when a certificate proves it (Boyd and Vandenberghe, *Convex
 Optimization*, sections 5.8 and 11.4): a solver that stalls proves nothing, so `solver_failed` is a
 filter defect counted apart. Inside the commit zone (`commit_radius`) the filter only monitors
-(Fehse part 2 review C3), so F5 and F5b leave those decisions out.
+(Fehse 4.4, 8.3.6), so F5 and F5b leave those decisions out.
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
@@ -370,10 +370,10 @@ success), the first that matches in this order (`LABELS`):
   25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane.
 - Passive safety (`tests/test_metrics_passive.py`): escape arcs reproduce Fehse's CAMs at
   400 km: an R-bar CAM 15 m below with 0.5 m/s away and 0.10 m/s retrograde is 2231.6 m ahead after
-  an orbit (review K24); a purely radial CAM advances $12\pi$ times its depth whatever its size
-  (K23); a -V-bar CAM of 0.3 m/s from 20 m behind passes under the target at $x$ = -396.220 m and
-  ends 4978.3 m ahead (K25). The travelling ellipse matches propagation to 1e-9 m on Fehse's
-  appendix case (K33), where his printed sign is 176 m off. A parallel orbit 10 m below drifting at
+  an orbit (figs. 4.19, 4.20); a purely radial CAM advances $12\pi$ times its depth whatever its
+  size (figs. 4.17, 4.18); a -V-bar CAM of 0.3 m/s from 20 m behind passes under the target at
+  $x$ = -396.220 m and ends 4978.3 m ahead (fig. 4.16). The travelling ellipse matches propagation
+  to 1e-9 m on Fehse's appendix A.1.5 case, where his printed sign is 176 m off. A parallel orbit 10 m below drifting at
   the target is not safe forever and its threat time is the closed-form entry time; drifting away
   it is; a relative orbit whose tube clears the target by 60 m is. Rest on the V-bar hold point gives
   S4 = 50 m everywhere. S4, S4b, S8 and S9 match closed-form references (20001 samples and Brent)

@@ -40,23 +40,22 @@ def dense_drift_minimum(start, n, horizon, radius, accel=(0, 0, 0), burn=0.0, ki
 
 
 def test_escape_arc_reproduces_fehse_rbar_cam_with_a_retrograde_part():
-    # Fehse figs 4.19 to 4.20 (review K24): 15 m below, 0.5 m/s away and 0.10 m/s retrograde.
+    # Fehse figs 4.19 to 4.20: 15 m below, 0.5 m/s away and 0.10 m/s retrograde.
     states = escape_arc(N400, [-15.0, 0, 0, 0, 0, 0], np.zeros(3), 0.0, [-0.5, -0.1, 0.0], [T400])
     assert states[0, 1] == pytest.approx(2231.6, abs=0.05)
 
 
 @pytest.mark.parametrize(("depth", "advance"), [(20.0, 753.98), (50.0, 1884.96), (100.0, 3769.91)])
 def test_radial_cam_advance_after_one_orbit_is_twelve_pi_times_the_depth(depth, advance):
-    # Fehse figs 4.17 to 4.18 (review K23): independent of the impulse size.
+    # Fehse figs 4.17 to 4.18: independent of the impulse size.
     for dv in (0.3, 0.7):
         states = escape_arc(N400, [-depth, 0, 0, 0, 0, 0], np.zeros(3), 0.0, [-dv, 0, 0], [T400])
         assert states[0, 1] == pytest.approx(advance, abs=0.01)
 
 
 def test_minus_vbar_cam_passes_below_the_target():
-    # Fehse 4.5, fig 4.16 (review K25): from 20 m behind, 0.3 m/s further back. It passes under
-    # the target at x = -396.220 m; the review's -395.2 m is the last sample before the crossing
-    # on a 5.5 s grid (ERRATA).
+    # Fehse 4.5, fig 4.16: from 20 m behind, 0.3 m/s further back. It passes under the target at
+    # x = -396.220 m, the root of y = 0; the last sample before it on a 5.5 s grid is at -395.2 m.
     def at(t):
         return escape_arc(N400, [0, -20.0, 0, 0, 0, 0], np.zeros(3), 0.0, [0, -0.3, 0], [t])[0]
 
@@ -66,7 +65,7 @@ def test_minus_vbar_cam_passes_below_the_target():
 
 
 def test_travelling_ellipse_matches_propagation_with_the_corrected_fehse_sign():
-    # Fehse appendix A.1.5 case (review K33) in Hill axes: x_F = 10, z_F = 20, xd_F = 0.03,
+    # Fehse appendix A.1.5 case in Hill axes: x_F = 10, z_F = 20, xd_F = 0.03,
     # zd_F = 0.05 is x = -20, y = 10, vx = -0.05, vy = 0.03.
     state = np.array([-20.0, 10.0, 0.0, -0.05, 0.03, 0.0])
     ellipse = TravellingEllipse.from_state(state, N400)

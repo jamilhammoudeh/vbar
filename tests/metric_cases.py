@@ -51,7 +51,8 @@ class GuardedApproach(ApproachEnv):
         return reward, terminated and self.goal is None, extra
 
 
-# Docking v2 defaults: port 2 m behind the target, probe-drogue window (SCENARIOS.md, D-030).
+# Docking defaults: port 2 m behind the target, ATV-class probe-drogue window 0.05 to 0.10 m/s
+# (Fehse appendix C), lateral 0.1 m and 0.03 m/s inside his 7.1.1 ranges.
 DOCKING_GOAL = {
     "port": (0.0, -2.0, 0.0),
     "port_axis": (0.0, -1.0, 0.0),

@@ -164,10 +164,10 @@ its minimum margin is negative.
   the apex; it is continuous across the active range.
 - The sun-exclusion margin is checked looking into the Sun and from above, and the Sun direction
   turns from +y to +x in a quarter orbit.
-- The R-bar envelope gives 0.1225, 0.0612 and 0.0283 m/s at 50, 30 and 20 m (Fehse review K26);
+- The R-bar envelope gives 0.1225, 0.0612 and 0.0283 m/s at 50, 30 and 20 m (Fehse 5.7.2, from eq. 3.22);
   free drift from the envelope at 20, 50 and 300 m comes within 15 m of the target to 1e-8
   relative over 200001 samples of one orbit. The V-bar coast at 0.1 m/s and 400 km is 42.21 m
-  (K5), and free drift from the V-bar envelope with gaps of 5, 50 and 500 m reaches the structure.
+  (eq. 3.28), and free drift from the V-bar envelope with gaps of 5, 50 and 500 m reaches the structure.
 - The zone margin is zero on the ISS ellipsoid, infinite after GO, below the distance to 8 random
   ellipsoids (200000 surface samples) and equal to it for a sphere.
 - A constant margin on the V-bar is not refined.

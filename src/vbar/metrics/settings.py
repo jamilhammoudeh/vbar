@@ -1,4 +1,4 @@
-"""Scenario-declared settings the metrics need beyond the episode (METRICS.md, per metric)."""
+"""Scenario-declared settings the metrics need beyond the episode (docs/metrics.md)."""
 
 from __future__ import annotations
 

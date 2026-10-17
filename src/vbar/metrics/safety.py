@@ -1,4 +1,4 @@
-"""Safety metrics from constraint margins in continuous time (METRICS S1 to S3, S5, S6).
+"""Safety metrics S1 to S3, S5 and S6 from constraint margins in continuous time.
 
 S1 is each constraint's lowest margin over the episode: the environment's in-step minima (from
 the dynamics model itself) for its own constraints, or the same search on the rebuilt trajectory

@@ -1,4 +1,4 @@
-"""Passive safety and abort availability (METRICS S4, S4b, S4i, S4o, S8, S9).
+"""Passive safety and abort availability: S4, S4b, S4i, S4t, S4o, S8 and S9.
 
 Fehse (Automated Rendezvous and Docking of Spacecraft, 2003, sections 4.4 and 4.5) asks of every
 point of an approach that a loss of thrust leaves a collision-free drift, or else that a

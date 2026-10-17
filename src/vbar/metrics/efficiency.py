@@ -1,4 +1,4 @@
-"""Efficiency metrics: delta-v, propellant, burns, duty cycle and chatter (METRICS E1 to E6).
+"""Efficiency metrics E1 to E6: delta-v, propellant, burns, duty cycle and chatter.
 
 All of them read the executed acceleration, the spacecraft's `Actuation` segments, so delays,
 the minimum impulse bit, run-out and safety filters are counted as flown, not as commanded.

@@ -1,4 +1,4 @@
-"""Identifiers, names, units and versions of the metrics (METRICS.md)."""
+"""Identifiers, names, units and versions of the metrics (docs/metrics.md)."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Agent metrics: latency, compute, tokens, parse failures, faithfulness (METRICS A1 to A8).
+"""Agent metrics A1 to A8: latency, compute, tokens, parse failures and faithfulness.
 
 Latency comes from the step records; LLM quantities from the agent's own per-decision log
 (`Episode.agent_log`), whose entries may carry `parse_failed`, `reply`, `input_tokens` and

@@ -1,4 +1,4 @@
-"""Mission metrics: success, terminal errors, time, progress, contact and hold (METRICS M1 to M10).
+"""Mission metrics M1 to M10: success, terminal errors, time, progress, contact and hold.
 
 The goal comes from the scenario's public goal. A hold goal has `hold_point` (m),
 `capture_radius` (m), `capture_speed` (m/s), optionally `goal_velocity` (m/s, default zero) and

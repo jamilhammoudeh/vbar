@@ -1,4 +1,4 @@
-"""Composite score C1 = completion x 1 / (1 + sum_j w_j n_j), with its breakdown (METRICS C1).
+"""Composite score C1 = completion x 1 / (1 + sum_j w_j n_j), with its breakdown.
 
 Completion is 1 on success and the progress M5 otherwise. n_j counts infractions of each type:
 one per contiguous interval in continuous time with a constraint margin below zero (keep-out
@@ -18,7 +18,7 @@ from .episode import Episode
 from .mission import mission_metrics
 from .stl import Trace, negative_intervals
 
-# Draft weights (METRICS.md); the speed weight applies to both speed constraints.
+# Draft weights; the speed weight applies to both speed constraints.
 WEIGHTS = {
     "keep_out": 0.7,
     "approach_cone": 0.5,

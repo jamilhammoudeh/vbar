@@ -1,4 +1,4 @@
-"""Safety-filter metrics (METRICS F1 to F6).
+"""Safety-filter metrics F1 to F6.
 
 Per episode they read each step's `FilterResult`; an episode without a filter gives NaN. The
 paired metrics F3 and F4 compare the same seeds flown with the filter on and off.

@@ -120,7 +120,8 @@ def test_optimality_gap_is_nan_for_a_failure_or_without_bounds():
 
 
 def test_bounds_must_use_the_actuator_norm():
-    # Boyd and Vandenberghe review C3: box thrusters are scored on the 1-norm.
+    # A bound is valid only in the cost's own norm (Boyd and Vandenberghe, eqs. 5.11 to 5.12);
+    # box thrusters are scored on the 1-norm.
     with pytest.raises(ValueError, match="l1"):
         optimality_gap(pd_episode(), FuelBounds(0.1, 0.2, "l2"))
     with pytest.raises(ValueError, match="lower <= upper"):

@@ -166,7 +166,7 @@ N400 = mean_motion(EARTH.radius + 400e3)
 
 @pytest.mark.parametrize(("height", "envelope"), [(50.0, 0.1225), (30.0, 0.0612), (20.0, 0.0283)])
 def test_rbar_passive_speed_envelope_matches_fehse_derived_values(height, envelope):
-    # Fehse review K26: 15 m of structure, 400 km; the book flies 0.1, 0.05, 0.02 m/s inside it.
+    # 15 m of structure at 400 km; Fehse 5.7.2 flies 0.1, 0.05, 0.02 m/s inside this envelope.
     rbar = PassiveSpeed("rbar", 15.0, N400)
     assert rbar.speed_envelope(height) == pytest.approx(envelope, abs=5e-5)
 
@@ -182,7 +182,7 @@ def test_free_drift_from_the_rbar_envelope_just_touches_the_structure(height):
 
 
 def test_vbar_coast_after_thrust_stops_is_0_47755_v_over_n():
-    # Fehse eq. 3.28, fig. 3.13 (review K5): 0.1 m/s at 400 km coasts forward 42.21 m.
+    # Fehse eq. 3.28, fig. 3.13: 0.1 m/s at 400 km coasts forward 42.21 m.
     phi, _ = cw_discrete(N400, np.linspace(0.0, 2 * np.pi / N400, 200001))
     coast = (phi @ np.array([0.0, 0.0, 0.0, 0.0, 0.1, 0.0]))[:, 1].max()
     assert coast == pytest.approx(42.21, abs=5e-3)

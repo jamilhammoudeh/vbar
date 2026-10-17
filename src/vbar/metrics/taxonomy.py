@@ -1,4 +1,4 @@
-"""Failure labels for failed runs, first match wins (METRICS failure taxonomy)."""
+"""Failure labels for failed runs, first match wins."""
 
 from __future__ import annotations
 

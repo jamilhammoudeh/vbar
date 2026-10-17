@@ -54,7 +54,7 @@ def test_certified_infeasibility_and_solver_failures_are_counted_apart():
 
 
 def test_decisions_inside_the_commit_zone_are_not_counted():
-    # Boyd C4 and Fehse part 2 C3: inside the commit zone the filter only monitors.
+    # Inside the commit zone, the last metre before contact, the filter only monitors (Fehse 4.4).
     agent = FilteredAgent(PDAgent(), ScriptedFilter(("solver_failed",)))
     ep = episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=4)
     assert filter_metrics(ep)["solver_failures"] == 4.0
