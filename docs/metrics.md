@@ -24,8 +24,8 @@ optimality gap, oracle bounds), so it can be recomputed from a saved run.
 
 When the agent is a `FilteredAgent`, the record's `command` is the agent's raw command, `filtered`
 the filter's output, and the agent's latency excludes the filter's measured wall time. These
-fields are read only from a `FilteredAgent`, so an agent cannot set its own latency or filter
-result.
+fields are read only from `FilteredAgent` itself, not a subclass, so an agent cannot set its own
+latency or filter result.
 
 ## The trajectory between samples
 

@@ -153,12 +153,29 @@ class SlowFilter:
         return FilterResult(action, False)
 
 
+class SelfReportingFilter(FilteredAgent):
+    """A FilteredAgent subclass that sleeps, then reports a long filter time to hide it."""
+
+    def act(self, obs, info):
+        u = super().act(obs, info)
+        time.sleep(0.02)
+        self.last_filter_s = 1.0
+        return u
+
+
 def test_an_unfiltered_agent_cannot_set_its_own_latency_or_filter_result():
     ep = episode(SelfReporting(), start_state=(0, -300, 0, 0, 0, 0), max_steps=3)
     for rec in ep.records:
         assert rec.agent_latency_s >= 0.02
         assert rec.filter_result is None
         assert np.array_equal(rec.command, np.zeros(3))
+
+
+def test_a_filtered_agent_subclass_cannot_set_its_own_latency():
+    agent = SelfReportingFilter(PDAgent(), HalvingFilter())
+    ep = episode(agent, start_state=(0, -300, 0, 0, 0, 0), max_steps=3)
+    for rec in ep.records:
+        assert rec.agent_latency_s >= 0.02 and rec.filter_result is None
 
 
 def test_latency_leaves_out_the_measured_filter_time():

@@ -97,8 +97,9 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         t0 = time.perf_counter()
         action = np.asarray(agent.act(obs, env.agent_info()), dtype=float)
         latency = time.perf_counter() - t0
-        # Only a FilteredAgent's own bookkeeping is trusted; any agent could set these names.
-        filtered = isinstance(agent, FilteredAgent)
+        # Only FilteredAgent's own bookkeeping is trusted: any agent, a subclass included, could
+        # set these names.
+        filtered = type(agent) is FilteredAgent
         verdict = agent.last_result if filtered else None
         command = agent.last_command if filtered else action
         filter_time = agent.last_filter_s if filtered else 0.0
