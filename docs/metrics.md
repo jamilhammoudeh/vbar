@@ -410,6 +410,15 @@ success), the first that matches in this order (`LABELS`):
   check; a command that flips every step; a 0.2 m/s contact; a hold shorter than its dwell; a pass
   through the capture ball at 0.5 m/s; rest 8 m and 200 m from the hold point; a capture inside a
   forbidden zone).
+- Mutation (`tests/test_metrics_mutants.py`, broken PD controllers in `tests/mutants.py`): position
+  biases of 2, 10 and 40 m and velocity biases of 0.01, 0.03 and 0.1 m/s raise the terminal error in
+  order of size and never raise C1; decision delays of 1, 3 and 6 steps raise delta-v in order;
+  dither at 0.05, 0.15 and 0.45 of one fixed noise sequence raises delta-v in order (zero-mean
+  dither cannot lower expected fuel, Boyd and Vandenberghe 3.1.8); alternating commands of 0.02,
+  0.1 and 0.4 raise chatter in order; a sign flip fails with zero progress; flying through the
+  target is caught by the keep-out margin and counted once in C1; PD gains of 0.005 to 0.04 rad/s
+  lower S4 and S4o in order and raise the unprotected time (the 0.02 rad/s approach still succeeds,
+  so only the passive metrics see it); a filter that changes every command gives F1 = 1.
 
 ## Example
 
