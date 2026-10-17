@@ -21,15 +21,15 @@ Each card has these fields:
 
 ## Resolution of a success rate
 
-Half-width of the 95% Clopper-Pearson interval (`vbar.metrics.clopper_pearson`) for a rate
-measured as a fraction p of n episodes, from the interval's beta quantiles at p n successes, which
-need not be a whole number (49.5 of 50 for p = 0.99). A 100-episode cell resolves a 90% success rate to about
-6 points (90 of 100 gives 0.824 to 0.951). The normal approximation, with the standard error
+Half-width of the 95% Clopper-Pearson interval (`vbar.metrics.clopper_pearson`) for a rate measured
+as a fraction p of n episodes, from the interval's beta quantiles at p n successes, which need not
+be a whole number (49.5 of 50 for p = 0.99). A 100-episode cell resolves a 90% success rate to
+about 6 points (90 of 100 gives 0.824 to 0.951). The normal approximation, with the standard error
 sqrt(p (1 - p) / n) of Kochenderfer et al. (*Algorithms for Decision Making*, 2022, section 14.1,
 eq. 14.5), asks for 385 episodes for a half-width of 0.03 at p = 0.9; the exact half-width there
-is 0.031. The book prints only the normal interval, which goes below 0 for rare failures. Two rates
-closer than these widths cannot be told apart at that n. The table applies to every card whose
-summary is a rate.
+is 0.031. The book prints only the normal interval, which goes below 0 for rare failures. Two
+rates closer than these widths cannot be told apart at that n. The table applies to every card
+whose summary is a rate.
 
 | n | p = 0.5 | p = 0.9 | p = 0.95 | p = 0.99 |
 |---|---|---|---|---|

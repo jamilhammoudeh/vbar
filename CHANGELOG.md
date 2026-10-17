@@ -34,14 +34,14 @@ release may change the public API, and every such change is listed under Changed
 - `FilterResult` with a status, slack, conflicting constraints and compute time; `FilteredAgent`
   keeps the last command, result and measured filter time.
 - `vbar.metrics`: `record_episode` returns an `Episode` with every step record, and
-  `evaluate(episode, settings, bounds, report, posterior)` returns every metric keyed by the names in
-  `METRICS`: mission metrics with docking contact and hold dwell, efficiency, the optimality gap
+  `evaluate(episode, settings, bounds, report, posterior)` returns every metric keyed by the names
+  in `METRICS`: mission metrics with docking contact and hold dwell, efficiency, the optimality gap
   against oracle bounds, constraint margins with violation depth and duration in continuous time,
   passive safety, stuck thrusters and collision-avoidance availability, thruster plume, safety
   filter and agent metrics, a composite score with its breakdown and a failure label. `Trace`
-  rebuilds the true trajectory between samples; `minimum` and `negative_intervals` evaluate
-  signals in continuous time. A card per metric is in `src/vbar/metrics/cards/`. Scenarios name
-  their `soft_constraints`.
+  rebuilds the true trajectory between samples; `minimum` and `negative_intervals` evaluate signals
+  in continuous time. A card per metric is in `src/vbar/metrics/cards/`. Scenarios name their
+  `soft_constraints`.
 - Filter metrics F7 conservatism, F8 unnecessary interventions, F9 time to re-enter the safe set,
   F10 stall time, the fallback count and the certificate columns, read from new optional
   `FilterResult` fields (`active`, `recovering`, `fallback_level`, `certificate`,

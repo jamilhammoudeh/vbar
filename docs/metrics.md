@@ -140,7 +140,8 @@ for box thrusters, `"l2"` for a ball). With $\Delta v$ = E1b for box and E1 for 
 | E3f | `below_lower_bound` | a successful run on the bound's own rung spent less than the lower bound, by more than 1e-9 relative: a simulator, actuator-accounting or metric bug |
 | E3c, E3r | `bound_certified`, `bound_rung` | whether the bound is certified for the episode's dynamics, and the rung it is for |
 
-A bound is a theorem only for the model it is computed on (`rung`): on two-body truth the optimum
+A bound is a theorem only for the model it is computed on, its rung: the `Episode.dynamics` name of
+that model (`"cw"`, `"twobody"`, ...), given as `FuelBounds.rung`. On two-body truth the optimum
 can lie on either side of a Clohessy-Wiltshire bound (Rawlings, Mayne and Diehl, *Model Predictive
 Control*, sections 8.1.2 and 8.10), so E3 and its bug flag apply only when the rung matches the
 episode's dynamics, and E3m carries the ratio otherwise. Ratios are NaN for failed runs and when no
@@ -240,8 +241,10 @@ $$
 so the pressure over a unit sphere integrates to the thrust $F$; $\theta_0$ = 13 deg
 (`plume_sigma`). Only thrust within the plume range $R_p$ counts: the scenario's `plume_range`
 (in its goal), unless `MetricSettings.plume_range` gives one; no plume metrics when neither does.
-Flown values range from 60 to 457 m by mission (Goodman, *History of Space Shuttle Rendezvous*,
-2011), so the scenario declares it.
+The Shuttle switched to its plume-reducing Low Z jets at ranges that differ by target and
+mission: 305 m (1000 ft) at the ISS, and 61, 122 and later 457 m (200, 400 and 1500 ft) at the
+Hubble Space Telescope (Goodman, *History of Space Shuttle Rendezvous*, 2011, pp. 207, 208 and
+240), so the scenario declares it.
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
@@ -438,8 +441,9 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   over 120001 closed-form samples to 1e-7, for the linear law and for a gate table, and is
   infinite when closing at a hold gate. The STS-130 +V-bar gates (Goodman fig. 25.22: 0.20, 0.15,
   0.10 and 0.07 ft/s at 320, 110, 75 and 30 ft) sit inside the V-bar passive-speed envelope at
-  185 n.mi. by 3.84, 1.76, 1.80 and 1.03 times, and the +R-bar gates from ORBT (table 24.3) sit 3.2
-  to 11.0 times below the 0.2 + 4n rho law at 500 km. S6 is 500 s for 250 m at 0.5 m/s straight in, and
+  185 n.mi. by 3.84, 1.76, 1.80 and 1.03 times, and the +R-bar gates from ORBT (table 24.3) sit
+  3.2 to 11.0 times below the $0.2 + 4n\rho$ law at 500 km. S6 is 500 s for 250 m at 0.5 m/s
+  straight in, and
   infinite at rest on the V-bar. S1, S3 and S5 for four constraint types are the same at 4, 10 and
   25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane. An entry into an
   approach zone in the last sample interval before its GO event is found, with its duration to
@@ -472,15 +476,16 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   the time inside; the impulse changes by less than 1e-4 between 10 and 2.5 s steps. A range
   declared by the scenario is used when the settings give none.
 - Filter (`tests/test_metrics_filter.py`): a filter that halves a command inside the limit gives
-  F1 = 1 and F2 half the command in m/s^2, in acceleration and thrust action modes, with F2n over
-  the box or ball widest change; reversing ten times the box limit on every axis gives F2n = 1, and
+  F1 = 1 and F2 half the command in m/s^2, in acceleration and thrust action modes, with F2n over the
+  box or ball widest change; reversing ten times the box limit on every axis gives F2n = 1, and
   halving 1.5 times the limit counts only the flown 0.25 of it; clipping a command of 3 to the limit
   gives F1 = 0 and F1c = 1; zeroing every command while reporting no active row still gives F1 = 1
-  and 50 s of stall time; one that reports an active row without moving the action gives F1 = 1;
-  a pass-through filter gives F1 = 0 and F2 NaN, and no filter gives NaN throughout. Scripted statuses are counted apart (4 certified, 2 solver failures in 8), and none
-  are counted inside a commit zone; F6 is the median and 95th percentile of scripted compute times.
-  F3 equals the trimmed mean of the per-seed delta-v differences over 5 seeds, in any order of the
-  runs, and unpaired runs are rejected.
+  and 50 s of stall time; one that reports an active row without moving the action gives F1 = 1; a
+  pass-through filter gives F1 = 0 and F2 NaN, and no filter gives NaN throughout. Scripted statuses
+  are counted apart (4 certified, 2 solver failures in 8), and none are counted inside a commit
+  zone; F6 is the median and 95th percentile of scripted compute times. F3 equals the trimmed mean
+  of the per-seed delta-v differences over 5 seeds, in any order of the runs, and unpaired runs are
+  rejected.
 - Filter behaviour: zeroing full thrust 100 m behind the target was needed (its held command
   coasts to 45 m, inside the 50 m sphere; F8 = 0, equal to closed-form escape arcs) and a tenth of
   it from 400 m was not (F8 = 1); recovering stretches of 3 and 1 decisions give F9 = 20 s,
@@ -494,15 +499,16 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
 - Agent (`tests/test_metrics_agent.py`): A1 and A2 from set latencies; alternating unreadable
   replies give A4 = 0.5; token counts and a price table give the cost; an agent that restates the
   range and closing sign from its prompt scores A5 = 1, one that doubles the range scores 0, and
-  under 50 m navigation noise the honest agent still scores 1 although its beliefs are off the truth.
-  Incomplete training figures are rejected. Solver fields of a scripted four-entry log give the
-  preparation and feedback medians, the solver labels and status counts, a median of 10 iterations,
-  a warm-start rate of 0.75 and one fallback, each over the entries that report it; a log without
-  them gives NaN, and a text time, a negative time, an infinite count or a text flag is rejected. Stated ranges 2, -2, 6 and -6 m off a posterior with a 2 m sigma give
-  A5b = $\sqrt5$; at rest on the V-bar with 50 m fixes, restating them scores A5 = 1 and A5b above 1,
-  stating the mean of the fixes below 1e-3; the range sigma is the covariance along the line of
-  sight (10 m of along-track sigma at rest on the V-bar gives A5b = 1 for a 10 m error), and a
-  posterior with no range variance or a mean at the target is rejected.
+  under 50 m navigation noise the honest agent still scores 1 although its beliefs are off the
+  truth. Incomplete training figures are rejected. Solver fields of a scripted four-entry log give
+  the preparation and feedback medians, the solver labels and status counts, a median of 10
+  iterations, a warm-start rate of 0.75 and one fallback, each over the entries that report it; a
+  log without them gives NaN, and a text time, a negative time, an infinite count or a text flag is
+  rejected. Stated ranges 2, -2, 6 and -6 m off a posterior with a 2 m sigma give A5b = $\sqrt5$; at
+  rest on the V-bar with 50 m fixes, restating them scores A5 = 1 and A5b above 1, stating the mean
+  of the fixes below 1e-3; the range sigma is the covariance along the line of sight (10 m of
+  along-track sigma at rest on the V-bar gives A5b = 1 for a 10 m error), and a posterior with no
+  range variance or a mean at the target is rejected.
 - Composite (`tests/test_metrics_composite.py`): a clean success scores 1; the flyby scores its
   progress over 2.1 (one entry, one timeout); a relative orbit centred on the target counts each
   entry into the sphere as the closed form does; the PD baseline, PD through the target and free
@@ -535,15 +541,16 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   must reproduce to 1e-9 relative on every platform, exactly for booleans, counts and labels, and
   to the stated resolution for refined minima (1 mm, or 1e-6 for angles and ratios), since which
   sample intervals get refined can change with the last bits of a sample.
-- Summaries (`tests/test_metrics_summary.py`): over 40 margins with two near misses, the unsafe
-  tail reports the worst value -2, the second lowest 0.5 as the 5th percentile and their mean,
-  while the interquartile mean of the same values stays above 25; infinite S5, S6 and S4t values
-  stay infinite in the tail, and a finite worst value of S4t stays its own percentile; a ratio where higher is worse
-  takes the upper tail; rates count successes and leave out NaN; every safety metric in the list
-  above ranks by its tail and every performance metric by the interquartile mean. The exact
+- Summaries (`tests/test_metrics_summary.py`): over 40 margins with two near misses, the unsafe tail
+  reports the worst value -2, the second lowest 0.5 as the 5th percentile and their mean, while the
+  interquartile mean of the same values stays above 25; infinite S5, S6 and S4t values stay infinite
+  in the tail, and a finite worst value of S4t stays its own percentile; a ratio where higher is
+  worse takes the upper tail; rates count successes and leave out NaN; every safety metric in the
+  list above ranks by its tail and every performance metric by the interquartile mean. The exact
   Clopper-Pearson intervals of the validation cases in Kochenderfer et al. (section 14.1, eq. 14.5;
-  the book prints the normal approximation, recomputed here exactly) are 0.8238 to 0.9510
-  for 90 of 100 and 6.187e-5 to 8.765e-4 for 3 failures in 1e4, and the resolution table on the cards is recomputed from them.
+  the book prints the normal approximation, recomputed here exactly) are 0.8238 to 0.9510 for 90 of
+  100 and 6.187e-5 to 8.765e-4 for 3 failures in 1e4, and the resolution table on the cards is
+  recomputed from them.
 
 ## Example
 
@@ -623,6 +630,6 @@ agent = FilteredAgent(PDAgent(), Halving())
 episode = record_episode(ApproachEnv(config), agent, seed=0, agent_seed=0)
 f = {**filter_metrics(episode), **filter_behaviour(episode)}
 print(f["intervention_rate"], round(f["intervention_size"], 5))  # 1.0 0.00486 (m/s^2)
-# Every halved command would have stayed clear; one decision at rest with a row active.
+# Every PD command on its own would have stayed clear; one decision at rest with a row active.
 print(f["unnecessary_intervention_rate"], f["stall_time"])  # 1.0 10.0
 ```
