@@ -7,6 +7,7 @@ import pytest
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import LLMAgent, PDAgent, action_scale
 from vbar.agents.base import AgentView
+from vbar.agents.llm import text_model
 from vbar.spacecraft import GaussianNav
 
 
@@ -113,7 +114,7 @@ def test_agent_seed_reproduces_the_run_and_is_recorded():
 def test_llm_prompt_is_built_from_the_observation_not_the_truth():
     cfg = ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=3, sensor=GaussianNav(5.0))
     env = ApproachEnv(cfg)
-    agent = LLMAgent(lambda prompt: '{"ax": 0, "ay": 0, "az": 0}')
+    agent = LLMAgent(text_model(lambda prompt: '{"ax": 0, "ay": 0, "az": 0}'))
     obs, _ = env.reset(seed=1)
     agent.reset(env.agent_view())
     agent.act(obs, env.agent_info())
@@ -152,7 +153,7 @@ def test_agents_read_only_the_navigated_state_when_channels_are_on():
     cfg = ApproachConfig(start_state=start, delay_s=5.0, observation_channels=channels)
     extended = run_episode(ApproachEnv(cfg), PDAgent())
     assert np.array_equal(plain["states"], extended["states"])
-    llm = LLMAgent(lambda prompt: '{"ax": 0, "ay": 0, "az": 0}')
+    llm = LLMAgent(text_model(lambda prompt: '{"ax": 0, "ay": 0, "az": 0}'))
     assert run_episode(ApproachEnv(cfg), llm)["dv_used_mps"] == 0.0
 
 
@@ -160,7 +161,7 @@ def test_agents_read_only_the_navigated_state_when_channels_are_on():
     ("mode", "scale"), [("normalized", 1.0), ("accel", 0.02), ("thrust", 10.0)]
 )
 def test_llm_fractions_are_converted_to_the_action_mode(mode, scale):
-    agent = LLMAgent(lambda prompt: '{"ax": 0.5, "ay": 0, "az": 0}')
+    agent = LLMAgent(text_model(lambda prompt: '{"ax": 0.5, "ay": 0, "az": 0}'))
     cfg = ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=3, action_mode=mode)
     result = run_episode(ApproachEnv(cfg), agent)
     assert np.array_equal(result["actions"][0], [0.5 * scale, 0.0, 0.0])

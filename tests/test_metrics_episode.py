@@ -6,6 +6,7 @@ from metric_cases import FLYBY, ConstantAgent, drift_range_crossings, episode
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import LLMAgent, PDAgent
+from vbar.agents.llm import text_model
 from vbar.constraints import KeepOut
 from vbar.dynamics import TwoBodyDynamics, cw_discrete
 from vbar.metrics import Signal, Trace, complement, merge, negative_intervals, record_episode, total
@@ -42,7 +43,7 @@ def test_records_keep_the_raw_command_and_the_filter_result():
 
 def test_an_llm_agent_log_is_kept():
     reply = '{"ax": 0.1, "ay": 0.0, "az": 0.0}'
-    ep = episode(LLMAgent(lambda prompt: reply), max_steps=3)
+    ep = episode(LLMAgent(text_model(lambda prompt: reply)), max_steps=3)
     assert len(ep.agent_log) == 3 and not ep.agent_log[0]["parse_failed"]
 
 

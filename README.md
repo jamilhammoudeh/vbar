@@ -141,20 +141,21 @@ result, so the run can be repeated.
 
 ### LLM agents
 
-`LLMAgent` wraps any model you can call as a function from a prompt string to a reply string:
+`LLMAgent` wraps any model through a function that takes the decision's messages and the tools
+offered and returns the reply; `text_model` adapts a plain prompt-to-text function:
 
 ```python
-from vbar.agents import LLMAgent
+from vbar.agents import LLMAgent, Price, Reply
 
 
-def complete(prompt: str) -> str:
-    """Call any hosted or local model and return its text reply."""
-    return '{"ax": 0.0, "ay": 0.0, "az": 0.0}'  # replace with the model call
+def complete(messages, tools):
+    """Send the conversation to any hosted or local model and return its reply."""
+    return Reply('{"ax": 0.0, "ay": 0.0, "az": 0.0}', input_tokens=900, output_tokens=20)
 
 
-agent = LLMAgent(complete, name="my-model")
+agent = LLMAgent(complete, name="my-model", price=Price(3.0, 15.0))
 result = run_episode(env, agent)
-agent.log  # every prompt, reply, parsed action, parse failure and latency
+print(agent.usage())  # decisions, model calls, tokens, cost and parse failures
 ```
 
 Each step's prompt gives the frame, the goal, the keep-out radius, the mean motion, the current

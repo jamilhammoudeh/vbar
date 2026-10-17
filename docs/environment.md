@@ -144,11 +144,11 @@ action in the view's action mode. Provided:
   and converted to the action mode (in thrust mode, the thrust at the initial mass). It ignores the
   keep-out zone, so it is the unfiltered baseline.
 - `DriftAgent`: no thrust.
-- `LLMAgent(complete, name)`: formats a prompt with the frame, goal, keep-out radius, mean motion,
-  observed state, step length and thrust limit, calls `complete(prompt)`, and parses a JSON reply
-  `{"ax": ..., "ay": ..., "az": ...}` of fractions, which it converts to the action mode. An
-  unparseable reply is logged as a parse failure and the spacecraft coasts. Every call's prompt,
-  reply, action, failure flag and latency go to `log`.
+- `LLMAgent(complete, name=...)`: formats a prompt with the frame, goal, keep-out radius, mean
+  motion, observed state, step length and thrust limit, calls `complete(messages, tools)`, and
+  parses a JSON reply `{"ax": ..., "ay": ..., "az": ...}` of fractions, which it converts to the
+  action mode. An unparseable reply is logged as a parse failure and the spacecraft coasts. Its
+  prompt, tokens, cost and the rest are on [llm-agents.md](llm-agents.md).
 - `FilteredAgent(agent, safety_filter)` (`vbar.safety`): wraps an agent with a filter that has
   `reset(view)` and `filter(obs, action)`, and counts the steps where the filter changed the
   command. The filter returns the action or a `FilterResult`: the action, whether it intervened,

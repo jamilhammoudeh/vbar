@@ -1,0 +1,83 @@
+# LLM agents
+
+Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `Price`, `text_model`, `parse_action`). An LLM
+agent asks a language model for each command. V-BAR has no model client of its own: the model
+is any function, so a hosted API, a local model or a test stand-in plugs in the same way.
+
+## The model function
+
+`LLMAgent(complete, ...)` calls `complete(messages, tools)` once per decision:
+
+- `messages` is the decision's conversation as provider-neutral dicts with a `"role"`
+  (`"user"`, `"assistant"` or `"tool"`) and a `"content"` string; it starts with one user
+  message holding the prompt.
+- `tools` lists the JSON-schema descriptions of the tools the agent offers (empty without tools).
+- The function returns a `Reply(text, input_tokens, output_tokens)`, or just the text.
+
+An adapter for a provider's client turns `messages` into its request and its response into a
+`Reply`, with the token counts the provider reports. `text_model(fn)` adapts a function from a
+prompt string to a reply string.
+
+## Prompt
+
+The default prompt (`PROMPT_TEMPLATE`) gives the frame and its axes, the goal and capture speed,
+the keep-out radius, the mean motion, the time, the observed position and velocity, the
+distances to the hold point and the target, the step length and the thrust limit, and ends with
+the reply format, a JSON object of fractions such as `{"ax": 0.1, "ay": -0.5, "az": 0.0}`.
+`prompt=` replaces it with any `str.format` template over the fields in `PROMPT_FIELDS`:
+
+| Field | Value |
+|---|---|
+| `hold`, `cap_speed`, `keep_out` | hold point (m), capture speed (m/s), keep-out radius (m) |
+| `n`, `dt`, `max_accel` | mean motion (rad/s), step (s), maximum acceleration (m/s^2) |
+| `t` | time since the start (s) |
+| `x`, `y`, `z`, `vx`, `vy`, `vz` | the observed state (m, m/s) |
+| `dist`, `rng` | observed distance to the hold point and to the target (m) |
+| `reply_format` | the instruction for the reply's JSON |
+
+Every value comes from the observation or the scenario's public description (`AgentView`),
+never from the true state. A template with an unknown field is refused when the agent is built.
+
+The first JSON object in the reply is read; each fraction is clipped to [-1, 1] and converted to
+the action mode. A reply without a valid object is a parse failure (metric A4) and the
+spacecraft coasts for that step. The agent rejects the discrete and burn-and-coast action modes.
+
+## Tokens, cost and the log
+
+`price=Price(input_per_mtok, output_per_mtok)` is the declared price table of metric A3, in USD
+per million tokens. Each decision's entry in `agent.log` holds the time, the prompt, the
+messages, the final reply, the action, the parse-failure flag, the number of model calls, the
+input and output tokens, the cost (or `None` without a price) and the wall-clock latency.
+`agent.usage()` totals decisions, model calls, tokens, cost and parse failures over the episode.
+The log restarts at every reset.
+
+## How it is tested
+
+`tests/test_llm.py` with stand-in models:
+
+- The model receives one user message per decision with the observed position and the time, and
+  an empty tool list.
+- Tokens and cost follow the declared price per decision and in total; without a price the cost
+  is `None`.
+- A custom template is filled from the observation; a template with an unknown field is refused.
+- Unparseable replies coast and are counted.
+
+`tests/test_agents.py` checks that the prompt is built from the noisy observation, not the
+truth, and that fractions are converted to each action mode.
+
+## Example
+
+```python
+from vbar import ApproachConfig, ApproachEnv, run_episode
+from vbar.agents import LLMAgent, Price, Reply
+
+
+def complete(messages, tools):
+    """Replace with a call to a model; this one always coasts."""
+    return Reply('{"ax": 0.0, "ay": 0.0, "az": 0.0}', input_tokens=850, output_tokens=25)
+
+
+agent = LLMAgent(complete, name="stand-in", price=Price(3.0, 15.0))
+run_episode(ApproachEnv(ApproachConfig(max_steps=10)), agent, seed=0)
+print(agent.usage()["input_tokens"], round(agent.usage()["cost_usd"], 6))  # 8500 0.02925
+```

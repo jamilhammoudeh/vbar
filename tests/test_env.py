@@ -4,6 +4,7 @@ from gymnasium.utils.env_checker import check_env
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DriftAgent, LLMAgent, PDAgent, parse_action
+from vbar.agents.llm import text_model
 from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter
 
 
@@ -64,7 +65,7 @@ def test_parse_action():
 
 def test_llm_agent_with_fake_model_logs_everything():
     env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=5))
-    agent = LLMAgent(lambda prompt: '{"ax": 0, "ay": -0.2, "az": 0}', name="fake-llm")
+    agent = LLMAgent(text_model(lambda prompt: '{"ax": 0, "ay": -0.2, "az": 0}'), name="fake-llm")
     r = run_episode(env, agent)
     assert len(agent.log) == 5
     assert not any(e["parse_failed"] for e in agent.log)

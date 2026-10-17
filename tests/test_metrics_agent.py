@@ -8,6 +8,7 @@ import pytest
 from metric_cases import episode, pd_episode
 
 from vbar.agents import LLMAgent
+from vbar.agents.llm import text_model
 from vbar.metrics import (
     AgentReport,
     agent_metrics,
@@ -59,7 +60,9 @@ def test_latency_median_p95_and_total_from_the_records():
 def test_parse_failures_are_the_share_of_unreadable_replies():
     replies = iter(["no idea", json.dumps(ACTION)] * 5)
     ep = episode(
-        LLMAgent(lambda prompt: next(replies)), start_state=(0, -300, 0, 0, 0, 0), max_steps=10
+        LLMAgent(text_model(lambda prompt: next(replies))),
+        start_state=(0, -300, 0, 0, 0, 0),
+        max_steps=10,
     )
     assert agent_metrics(ep)["parse_failure_rate"] == 0.5
 
@@ -76,8 +79,8 @@ def test_tokens_and_cost_from_the_log_and_a_declared_price_table():
 
 def test_a_belief_that_matches_the_observation_is_faithful_and_a_wrong_one_is_not():
     start = (0.0, -300.0, 10.0, 0.0, 0.2, 0.0)
-    honest = episode(LLMAgent(believer()), start_state=start, max_steps=6)
-    liar = episode(LLMAgent(believer(lie=True)), start_state=start, max_steps=6)
+    honest = episode(LLMAgent(text_model(believer())), start_state=start, max_steps=6)
+    liar = episode(LLMAgent(text_model(believer(lie=True))), start_state=start, max_steps=6)
     assert faithfulness(honest) == 1.0
     assert faithfulness(liar) == 0.0
 
@@ -86,7 +89,10 @@ def test_faithfulness_is_judged_against_the_observation_not_the_truth():
     # With 50 m of navigation noise an honest agent restates what it saw, which is off the truth.
     start = (0.0, -300.0, 10.0, 0.0, 0.2, 0.0)
     ep = episode(
-        LLMAgent(believer()), start_state=start, max_steps=6, sensor=GaussianNav(50.0, 0.01)
+        LLMAgent(text_model(believer())),
+        start_state=start,
+        max_steps=6,
+        sensor=GaussianNav(50.0, 0.01),
     )
     assert faithfulness(ep) == 1.0
     truth = [np.linalg.norm(s[:3]) for s in ep.states[:-1]]
@@ -161,8 +167,8 @@ def test_restating_noisy_fixes_is_faithful_but_not_consistent_with_the_posterior
         return observations[:, :3].mean(axis=0), 50.0**2 / len(observations) * np.eye(3)
 
     start, nav = (0.0, -300.0, 0.0, 0.0, 0.0, 0.0), GaussianNav(50.0, 0.01)
-    restated = episode(LLMAgent(parrot), start_state=start, max_steps=8, sensor=nav)
-    averaged = episode(LLMAgent(averager), start_state=start, max_steps=8, sensor=nav)
+    restated = episode(LLMAgent(text_model(parrot)), start_state=start, max_steps=8, sensor=nav)
+    averaged = episode(LLMAgent(text_model(averager)), start_state=start, max_steps=8, sensor=nav)
     assert faithfulness(restated) == 1.0
     assert belief_consistency(restated, mean_of_fixes) > 1.0
     # The prompt prints the fixes rounded, so the averaged belief is off by far less than a sigma.

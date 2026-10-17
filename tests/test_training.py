@@ -4,6 +4,7 @@ from gymnasium.utils.env_checker import check_env
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DISC27, DriftAgent, LLMAgent, PDAgent, command_fraction, zero_action
+from vbar.agents.llm import text_model
 from vbar.rewards import Reward
 from vbar.safety import PassThroughFilter
 from vbar.spacecraft import GaussianNav
@@ -42,7 +43,7 @@ def test_disc27_is_its_own_scenario_variant_and_follows_the_gymnasium_api():
 
 def test_continuous_agents_reject_the_discrete_mode_and_drift_coasts():
     cfg = ApproachConfig(start_state=START, action_mode="disc27", max_steps=5)
-    for agent in (PDAgent(), LLMAgent(lambda prompt: "{}")):
+    for agent in (PDAgent(), LLMAgent(text_model(lambda prompt: "{}"))):
         with pytest.raises(ValueError, match="disc27"):
             run_episode(ApproachEnv(cfg), agent)
     drift = run_episode(ApproachEnv(cfg), DriftAgent())

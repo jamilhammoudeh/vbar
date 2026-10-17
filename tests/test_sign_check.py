@@ -7,6 +7,7 @@ import pytest
 
 from vbar import ApproachConfig
 from vbar.agents import DISC27, DriftAgent, LLMAgent, PDAgent
+from vbar.agents.llm import text_model
 from vbar.agents.sign_check import DIRECTIONS, sign_check
 
 ALL = tuple(label for label, _, _ in DIRECTIONS)
@@ -83,6 +84,6 @@ def model_toward_goal(prompt):
 
 
 def test_llm_agent_passes_when_its_model_reads_the_prompt_correctly():
-    assert sign_check(LLMAgent(model_toward_goal)).passed
-    always_up = LLMAgent(lambda prompt: '{"ax": 1, "ay": 0, "az": 0}')
+    assert sign_check(LLMAgent(text_model(model_toward_goal))).passed
+    always_up = LLMAgent(text_model(lambda prompt: '{"ax": 1, "ay": 0, "az": 0}'))
     assert sign_check(always_up).failures == ("-x", "+y", "-y", "+z", "-z")

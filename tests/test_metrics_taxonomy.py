@@ -3,6 +3,7 @@ import pytest
 from metric_cases import DOCKING_GOAL, ConstantAgent, episode, pd_episode
 
 from vbar.agents import LLMAgent, PDAgent
+from vbar.agents.llm import text_model
 from vbar.constraints import ApproachCone, SpeedLimit, SunExclusion, ZoneEntry
 from vbar.dynamics import EARTH, mean_motion
 from vbar.metrics import (
@@ -91,7 +92,9 @@ def test_running_out_of_propellant():
 
 
 def test_unreadable_replies_and_a_failed_sign_check():
-    ep = episode(LLMAgent(lambda prompt: "thinking"), start_state=AT_REST_FAR, max_steps=5)
+    ep = episode(
+        LLMAgent(text_model(lambda prompt: "thinking")), start_state=AT_REST_FAR, max_steps=5
+    )
     assert label(ep) == "parse_failure"
     drift = episode(start_state=AT_REST_FAR, max_steps=5)
     assert label(drift, AgentReport(sign_check_pass=False)) == "sign_error"
