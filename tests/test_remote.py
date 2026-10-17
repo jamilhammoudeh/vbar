@@ -193,3 +193,38 @@ def test_matlab_pd_client_flies_the_python_pd_trajectories(tmp_path):
         remote.close()
         server.close()
         matlab.wait(120)
+
+
+def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    out = tmp_path / "results.jsonl"
+    host = threading.Thread(
+        target=main, args=(["--port", str(port), "--seeds", "1", "2", "--out", str(out)],)
+    )
+    host.start()
+    for _ in range(100):
+        try:
+            sock = socket.create_connection(("127.0.0.1", port))
+            break
+        except ConnectionRefusedError:
+            threading.Event().wait(0.05)
+    with sock:
+        stream = sock.makefile("rwb")
+        send(stream, {"type": "hello", "name": "quitter", "protocol": 1})
+        receive(stream)
+        send(stream, {"type": "ready"})
+        for _ in range(2):
+            receive(stream)
+            send(stream, {"type": "action", "action": [0.0, 0.0, 0.0]})
+        receive(stream)
+        stream.write(b"this is not json\n")
+        stream.flush()
+    host.join(30.0)
+    results = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
+        (1, False, 2),
+        (2, False, 0),
+    ]
+    assert "error" in results[0]

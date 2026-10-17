@@ -22,6 +22,7 @@ would.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import socket
 from collections.abc import Mapping
@@ -86,7 +87,12 @@ class _Line:
             raise RemoteAgentError("the remote agent did not answer in time") from error
         if not line:
             raise RemoteAgentError("the remote agent closed the connection")
-        message = json.loads(line)
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise RemoteAgentError("the remote agent sent a line that is not JSON") from error
+        if not isinstance(message, dict):
+            raise RemoteAgentError("the remote agent sent JSON that is not an object")
         if message.get("type") == "error":
             raise RemoteAgentError(f"remote agent error: {message.get('message', '')}")
         return message
@@ -129,10 +135,10 @@ class RemoteAgent:
         return action if isinstance(action, int) else np.array(action, dtype=float)
 
     def close(self) -> None:
-        try:
+        # A client that already disconnected cannot be told to close.
+        with contextlib.suppress(OSError):
             self.line.send({"type": "close"})
-        finally:
-            self.line.close()
+        self.line.close()
 
 
 class AgentServer:
@@ -196,8 +202,14 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Host the default approach scenario for one remote agent and write its results."""
-    from ..runner import run_episode
+    """Host the default approach scenario for one remote agent and write its results.
+
+    If the agent fails or disconnects, the episode it was flying is written unfinished, with
+    the error, and so is every seed not yet flown, so a session cannot drop a bad episode.
+    """
+    import time
+
+    from ..runner import Episode
     from ..scenarios import ApproachConfig, ApproachEnv
 
     parser = argparse.ArgumentParser(description=main.__doc__)
@@ -211,15 +223,30 @@ def main(argv: list[str] | None = None) -> None:
     print(f"waiting for an agent on {args.host}:{server.address[1]}", flush=True)
     agent = server.accept()
     env = ApproachEnv(ApproachConfig())
+
+    def write(out, result: dict) -> None:
+        plain = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in result.items()}
+        out.write(json.dumps(plain) + "\n")
+        out.flush()
+
     try:
         with open(args.out, "w", encoding="utf-8") as out:
-            for seed in args.seeds:
-                result = run_episode(env, agent, seed=seed)
-                plain = {
-                    k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in result.items()
-                }
-                out.write(json.dumps(plain) + "\n")
-                print(f"seed {seed}: captured {result['captured']}", flush=True)
+            for k, seed in enumerate(args.seeds):
+                episode = Episode(env, seed)
+                try:
+                    agent.reset(env.agent_view(), episode.agent_rng())
+                    while not episode.done:
+                        t0 = time.perf_counter()
+                        action = agent.act(episode.obs, env.agent_info())
+                        episode.step(action, time.perf_counter() - t0)
+                except RemoteAgentError as error:
+                    write(out, {**episode.result(agent.name), "error": str(error)})
+                    for left in args.seeds[k + 1 :]:
+                        write(out, Episode(env, left).result(agent.name))
+                    print(f"seed {seed}: {error}", flush=True)
+                    return
+                write(out, episode.result(agent.name))
+                print(f"seed {seed}: captured {episode.info['captured']}", flush=True)
     finally:
         agent.close()
         server.close()

@@ -45,7 +45,9 @@ agent.close()                        # sends close
 
 `python -m vbar.agents.remote --port 5555 --seeds 0 1 2 --out results.jsonl` hosts the default
 approach scenario for one client and writes one JSON line per episode with the result of
-`run_episode` (arrays as lists). Real-time runs ([agents.md](agents.md)) work through the server
+`run_episode` (arrays as lists). If the client fails, disconnects or sends something that is not
+a JSON object, the episode it was flying is written with `completed` false and the error, and so
+is every seed not yet flown. Real-time runs ([agents.md](agents.md)) work through the server
 too; the measured latency then includes the network.
 
 ## Clients
@@ -109,7 +111,9 @@ bad episode from the results. The client never sees the true state, the reward o
 - A hand-written client sees only the view, its seed (equal to the run's agent seed) and spawn
   key, the observation and the time, then the close.
 - An error message from the client, a wrong protocol version and a silent client are reported.
-- The command-line host writes one result per seed.
+- The command-line host writes one result per seed; a client that answers two steps and then
+  sends a line that is not JSON leaves an unfinished record of two steps, with the error, and an
+  unfinished record of the seed it never flew.
 - With MATLAB installed and `VBAR_TEST_MATLAB=1`, the MATLAB PD agent flies exactly the Python PD
   agent's trajectories over two default episodes (checked on R2025a; not on CI, which has no
   MATLAB).
