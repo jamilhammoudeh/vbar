@@ -177,5 +177,5 @@ def test_metrics_do_not_depend_on_evaluation_order_or_environment_reuse():
 if __name__ == "__main__":
     for name, make in cases().items():
         text = json.dumps(scored(make()), indent=1, sort_keys=True)
-        (GOLDEN / f"{name}.json").write_text(text + "\n", encoding="utf-8")
+        (GOLDEN / f"{name}.json").write_text(text + "\n", encoding="utf-8", newline="\n")
         print("wrote", name)
