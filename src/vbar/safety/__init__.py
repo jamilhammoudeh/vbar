@@ -45,3 +45,6 @@ class FilteredAgent:
         if np.max(np.abs(safe - raw)) > self.tol:
             self.interventions += 1
         return safe
+
+
+__all__ = ["FilteredAgent", "PassThroughFilter"]
