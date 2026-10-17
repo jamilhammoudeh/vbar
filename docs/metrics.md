@@ -475,27 +475,26 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   force about 1e-43 N s). Thrust outside $R_p$ counts nothing; entering $R_p$ mid-step counts only
   the time inside; the impulse changes by less than 1e-4 between 10 and 2.5 s steps. A range
   declared by the scenario is used when the settings give none.
-- Filter (`tests/test_metrics_filter.py`): a filter that halves a command inside the limit gives
-  F1 = 1 and F2 half the command in m/s^2, in acceleration and thrust action modes, with F2n over the
+- Filter (`tests/test_metrics_filter.py`): a filter that halves a command inside the limit gives F1
+  = 1 and F2 half the command in m/s^2, in acceleration and thrust action modes, with F2n over the
   box or ball widest change; reversing ten times the box limit on every axis gives F2n = 1, and
-  halving 1.5 times the limit counts only the flown 0.25 of it; clipping a command of 3 to the limit
-  gives F1 = 0 and F1c = 1; zeroing every command while reporting no active row still gives F1 = 1
-  and 50 s of stall time; one that reports an active row without moving the action gives F1 = 1; a
-  pass-through filter gives F1 = 0 and F2 NaN, and no filter gives NaN throughout. Scripted statuses
-  are counted apart (4 certified, 2 solver failures in 8), and none are counted inside a commit
-  zone; F6 is the median and 95th percentile of scripted compute times. F3 equals the trimmed mean
-  of the per-seed delta-v differences over 5 seeds, in any order of the runs, and unpaired runs are
-  rejected.
-- Filter behaviour: zeroing full thrust 100 m behind the target was needed (its held command
-  coasts to 45 m, inside the 50 m sphere; F8 = 0, equal to closed-form escape arcs) and a tenth of
-  it from 400 m was not (F8 = 1); recovering stretches of 3 and 1 decisions give F9 = 20 s,
-  and one still open at the end gives infinity; a filter
-  that zeroes every command from rest gives 60 s of stall time over six steps, 0.03 of a full
-  command from rest gives 20 s (60 s with a 0.1 m/s stall speed) and a hold with no active row
-  none; F8 is 2/12 for a chaser coasting in at 0.3 m/s whose full-thrust commands are zeroed, the
-  same at 50, 200 and 800 drift samples per orbit and mirrored; scripted fallbacks
-  and certificates are counted as given, and NaN when not reported; conservatism is 40/101 for a filter keeping 0.6 m of a
-  viable 1 m.
+  halving 1.5 times the limit counts only the flown 0.25 of it; clipping a command of 3 to the
+  limit gives F1 = 0 and F1c = 1; zeroing every command while reporting no active row still gives
+  F1 = 1 and 50 s of stall time; one that reports an active row without moving the action gives F1
+  = 1; a pass-through filter gives F1 = 0 and F2 NaN, and no filter gives NaN throughout. Scripted
+  statuses are counted apart (4 certified, 2 solver failures in 8), and none are counted inside a
+  commit zone; F6 is the median and 95th percentile of scripted compute times. F3 equals the
+  trimmed mean of the per-seed delta-v differences over 5 seeds, in any order of the runs, and
+  unpaired runs are rejected.
+- Filter behaviour: zeroing full thrust 100 m behind the target was needed (its held command coasts
+  to 45 m, inside the 50 m sphere; F8 = 0, equal to closed-form escape arcs) and a tenth of it from
+  400 m was not (F8 = 1); recovering stretches of 3 and 1 decisions give F9 = 20 s, and one still
+  open at the end gives infinity; a filter that zeroes every command from rest gives 60 s of stall
+  time over six steps, 0.03 of a full command from rest gives 20 s (60 s with a 0.1 m/s stall
+  speed) and a hold with no active row none; F8 is 2/12 for a chaser coasting in at 0.3 m/s whose
+  full-thrust commands are zeroed, the same at 50, 200 and 800 drift samples per orbit and
+  mirrored; scripted fallbacks and certificates are counted as given, and NaN when not reported;
+  conservatism is 40/101 for a filter keeping 0.6 m of a viable 1 m.
 - Agent (`tests/test_metrics_agent.py`): A1 and A2 from set latencies; alternating unreadable
   replies give A4 = 0.5; token counts and a price table give the cost; an agent that restates the
   range and closing sign from its prompt scores A5 = 1, one that doubles the range scores 0, and
