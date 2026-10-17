@@ -7,7 +7,9 @@ model works through a small adapter; `text_model` wraps a plain `prompt -> text`
 tools offered. A reply may call tools; the agent runs them on its own observation, adds the
 results to the conversation and asks again, at most `max_tool_rounds` times, then asks once more
 without tools. Each decision's messages, tool calls, reply, parsed action, parse failure, token
-counts, cost and wall-clock latency are stored in `self.log`. `RecordedModel` keeps a run's
+counts, cost and wall-clock latency are stored in `self.log`. With `belief=True` the model also
+reports its belief about the range and whether it is closing, which is checked against the
+observation it was given (metric A5). `RecordedModel` keeps a run's
 requests and replies and `ReplayModel` plays them back, so a run repeats exactly without the
 model.
 
@@ -53,6 +55,14 @@ Each command is held for {dt:.0f} s. Thrust per axis is a fraction of the maximu
 {reply_format}"""
 
 REPLY_FORMAT = 'Reply with ONLY a JSON object, for example: {"ax": 0.1, "ay": -0.5, "az": 0.0}'
+BELIEF_FORMAT = (
+    "Reply with ONLY a JSON object with the command and what you believe about the target: "
+    '"range_m", your distance to the target in meters, and "closing", true if that distance '
+    'is shrinking. For example: {"ax": 0.1, "ay": -0.5, "az": 0.0, "range_m": 350.0, '
+    '"closing": true}'
+)
+# A belief matches the observation when its range is within this fraction of the observed one.
+BELIEF_RANGE_TOL = 0.1
 
 # Fields a prompt template may use.
 PROMPT_FIELDS = (
@@ -190,6 +200,35 @@ class ReplayModel:
         return _reply_from_dict(entry["reply"])
 
 
+def parse_belief(text: str) -> dict[str, Any] | None:
+    """Extract "range_m" (number) and "closing" (true or false) from a reply's JSON, or None."""
+    match = re.search(r"\{.*?\}", text, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+        range_m, closing = float(data["range_m"]), data["closing"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not np.isfinite(range_m) or not isinstance(closing, bool):
+        return None
+    return {"range_m": range_m, "closing": closing}
+
+
+def belief_matches(belief: Mapping[str, Any] | None, obs: np.ndarray) -> bool:
+    """Whether a belief agrees with the observation it answered (metric A5).
+
+    The range must be within 10% of the observed range, and "closing" must equal r . v < 0 for
+    the observed position r and velocity v. It measures consistency with the agent's own
+    inputs, not with the truth. A missing belief does not match.
+    """
+    if belief is None:
+        return False
+    observed = float(np.linalg.norm(obs[:3]))
+    close_enough = abs(belief["range_m"] - observed) <= BELIEF_RANGE_TOL * observed
+    return close_enough and belief["closing"] == bool(obs[:3] @ obs[3:6] < 0.0)
+
+
 def parse_action(text: str) -> np.ndarray | None:
     """Extract {"ax":..,"ay":..,"az":..} from a model reply. Returns None on failure."""
     match = re.search(r"\{.*?\}", text, flags=re.DOTALL)
@@ -211,7 +250,8 @@ class LLMAgent:
 
     `prompt` is a `str.format` template over `PROMPT_FIELDS`; `price` turns the reported tokens
     into dollars; `tools` are offered to the model for at most `max_tool_rounds` rounds of calls
-    per decision. An unparseable reply is logged and the spacecraft coasts.
+    per decision; `belief` asks for the model's range and closing belief and checks it. An
+    unparseable reply is logged and the spacecraft coasts.
     """
 
     complete: Model
@@ -221,6 +261,7 @@ class LLMAgent:
     price: Price | None = None
     tools: Sequence[Tool] = ()
     max_tool_rounds: int = 4
+    belief: bool = False
     log: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
@@ -260,7 +301,7 @@ class LLMAgent:
         )
 
     def reply_format(self) -> str:
-        return REPLY_FORMAT
+        return BELIEF_FORMAT if self.belief else REPLY_FORMAT
 
     def act(self, obs, info):
         messages: list[dict[str, Any]] = [{"role": "user", "content": self.prompt_text(obs, info)}]
@@ -317,6 +358,7 @@ class LLMAgent:
         action = action * self.scale
         tokens_in = sum(r.input_tokens for r in replies)
         tokens_out = sum(r.output_tokens for r in replies)
+        belief = parse_belief(text) if self.belief else None
         self.log.append(
             {
                 "time_s": info["time_s"],
@@ -331,12 +373,15 @@ class LLMAgent:
                 "output_tokens": tokens_out,
                 "cost_usd": None if self.price is None else self.price.cost(tokens_in, tokens_out),
                 "latency_s": latency,
+                "belief": belief,
+                "faithful": belief_matches(belief, obs) if self.belief else None,
             }
         )
         return action
 
     def usage(self) -> dict[str, Any]:
-        """Totals over the episode: decisions, model calls, tokens, cost and parse failures."""
+        """Episode totals: decisions, model calls, tokens, cost, parse failures and the fraction
+        of beliefs that matched the observation (None without `belief`)."""
         tokens_in = sum(e["input_tokens"] for e in self.log)
         tokens_out = sum(e["output_tokens"] for e in self.log)
         return {
@@ -346,4 +391,9 @@ class LLMAgent:
             "output_tokens": tokens_out,
             "cost_usd": None if self.price is None else self.price.cost(tokens_in, tokens_out),
             "parse_failures": sum(e["parse_failed"] for e in self.log),
+            "faithful_fraction": (
+                float(np.mean([e["faithful"] for e in self.log]))
+                if self.belief and self.log
+                else None
+            ),
         }

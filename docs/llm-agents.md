@@ -80,6 +80,18 @@ arguments and results, and the wall-clock latency of the whole decision.
 `agent.usage()` totals decisions, model calls, tokens, cost and parse failures over the episode.
 The log restarts at every reset.
 
+## Reasoning faithfulness
+
+With `belief=True` the reply format asks the model to add what it believes about the target to
+its JSON: `"range_m"`, its distance to the target, and `"closing"`, whether that distance is
+shrinking. `belief_matches(belief, obs)` checks the belief against the observation the model was
+given (metric A5): the range within 10% of $\lVert\mathbf r\rVert$ and `closing` equal to
+$\mathbf r\cdot\mathbf v < 0$ for the observed position and velocity. It measures whether the
+model's stated reasoning is consistent with its own inputs, not whether the inputs are true; a
+missing or malformed belief (a non-number range, a closing flag that is not `true` or `false`)
+does not match. Each log entry holds `belief` and `faithful`, and `usage()["faithful_fraction"]`
+is the fraction over the episode (`None` without `belief`).
+
 ## Transcripts and replay
 
 `RecordedModel(model)` wraps a model and records, for each request, the SHA-256 digest of its
@@ -113,6 +125,10 @@ In real time the model's latency changes the trajectory; replay it with the reco
 - Applying `transfer_burn`'s first impulse to the observed state arrives at the target within
   the rounding (0.3 m over 1500 s) and the second impulse stops it; a half-orbit transfer is
   refused as singular.
+- Through 20 m of navigation noise, a model that reads its position and velocity from the prompt
+  and reports them as its belief is faithful at every step, and one that overstates the range by
+  half never is; the belief must have both fields and the right closing sign; without `belief`
+  the prompt does not ask for one and nothing is scored.
 - A 25-step run with navigation noise, a model with its own random stream and tool calls, saved
   to a file and replayed, gives identical states, actions, messages and token counts; replay of
   another seed fails at request 0 and a truncated transcript fails when it runs out; a real-time

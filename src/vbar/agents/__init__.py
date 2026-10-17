@@ -14,7 +14,9 @@ from .llm import (
     ReplayModel,
     Reply,
     ToolCall,
+    belief_matches,
     parse_action,
+    parse_belief,
     text_model,
 )
 from .pd import PDAgent
@@ -32,8 +34,10 @@ __all__ = [
     "Reply",
     "ToolCall",
     "action_scale",
+    "belief_matches",
     "command_fraction",
     "parse_action",
+    "parse_belief",
     "text_model",
     "zero_action",
 ]

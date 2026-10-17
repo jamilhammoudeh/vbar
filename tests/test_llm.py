@@ -1,4 +1,5 @@
 import json
+import re
 
 import numpy as np
 import pytest
@@ -12,6 +13,8 @@ from vbar.agents import (
     ReplayModel,
     Reply,
     ToolCall,
+    belief_matches,
+    parse_belief,
     text_model,
 )
 from vbar.agents.tools import CW_TOOLS
@@ -22,7 +25,8 @@ START = (0.0, 400.0, 0.0, 0.0, 0.0, 0.0)
 
 
 def env(steps=4, **fields):
-    return ApproachEnv(ApproachConfig(start_state=START, max_steps=steps, **fields))
+    fields.setdefault("start_state", START)
+    return ApproachEnv(ApproachConfig(max_steps=steps, **fields))
 
 
 class Counting:
@@ -199,3 +203,44 @@ def test_real_time_runs_replay_with_their_recorded_latencies():
     repeat = RealTime(time_scale=500.0, latencies=tuple(recorded["latencies_s"]))
     replayed, _ = noisy_run(ReplayModel(recorder.entries), real_time=repeat)
     assert np.array_equal(recorded["states"], replayed["states"])
+
+
+def reader(range_scale=1.0):
+    """A stand-in model that reads its observed state from the prompt and reports a belief."""
+
+    def complete(prompt):
+        position = np.array(json.loads(re.search(r"position = (\[.*?\])", prompt).group(1)))
+        velocity = np.array(json.loads(re.search(r"velocity = (\[.*?\])", prompt).group(1)))
+        belief = {
+            "range_m": range_scale * float(np.linalg.norm(position)),
+            "closing": bool(position @ velocity < 0.0),
+        }
+        return json.dumps({"ax": 0.0, "ay": -0.3, "az": 0.0, **belief})
+
+    return text_model(complete)
+
+
+def test_a_model_that_reads_its_inputs_is_faithful_through_navigation_noise():
+    # 20 m of noise on a 400 m range: a model that reads its inputs is faithful to them.
+    cfg = dict(start_state=(30.0, 400.0, 0.0, 0.0, -0.5, 0.0), sensor=GaussianNav(20.0, 0.02))
+    agent = LLMAgent(reader(), belief=True)
+    run_episode(env(steps=20, **cfg), agent, seed=3)
+    assert agent.usage()["faithful_fraction"] == 1.0
+    assert "closing" in agent.log[0]["prompt"]
+    off = LLMAgent(reader(range_scale=1.5), belief=True)
+    run_episode(env(steps=20, **cfg), off, seed=3)
+    assert off.usage()["faithful_fraction"] == 0.0
+
+
+def test_beliefs_need_both_fields_and_the_right_closing_sign():
+    obs = np.array([0.0, 400.0, 0.0, 0.0, -0.5, 0.0])
+    assert belief_matches({"range_m": 380.0, "closing": True}, obs)
+    assert not belief_matches({"range_m": 380.0, "closing": False}, obs)
+    assert not belief_matches({"range_m": 350.0, "closing": True}, obs)
+    assert not belief_matches(None, obs)
+    assert parse_belief('{"ax": 0, "ay": 0, "az": 0, "range_m": 10, "closing": "yes"}') is None
+    assert parse_belief('{"ax": 0, "ay": 0, "az": 0}') is None
+    plain = LLMAgent(text_model(lambda prompt: '{"ax": 0, "ay": 0, "az": 0}'))
+    run_episode(env(steps=2), plain)
+    assert plain.log[0]["faithful"] is None and plain.usage()["faithful_fraction"] is None
+    assert "range_m" not in plain.log[0]["prompt"]
