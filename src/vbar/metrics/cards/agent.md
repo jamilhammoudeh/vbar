@@ -156,3 +156,101 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 - Power: not applicable.
 - Validity: as reported.
 - Changelog: v1, first version.
+
+## A1r preparation_median (v1)
+- Definition: median of the log's `prep_s` (s), the work done before the observation arrives, over the entries that report it; NaN if none does.
+- Summary: interquartile mean across episodes.
+- Why it matters: real-time iteration schemes split each decision so that only the feedback part delays the command (Rawlings, Mayne and Diehl, Model Predictive Control, 2nd ed., 2017, section 8.9); A1 alone mixes the two.
+- Known-answer tests: 0.02 s for 0.02, 0.03 and 0.01 s.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised; no shipped agent reports it.
+- Anti-gaming: as reported by the agent; A1 still measures the whole decision.
+- Reproducibility: machine dependent.
+- Power: not given.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## A1f feedback_median (v1)
+- Definition: median of the log's `feedback_s` (s), the time from the observation to the command, over the entries that report it; NaN if none does.
+- Summary: interquartile mean across episodes.
+- Why it matters: the feedback delay is what the loop sees; real-time iteration schemes split each decision so that only the feedback part delays the command (Rawlings, Mayne and Diehl, Model Predictive Control, 2nd ed., 2017, section 8.9).
+- Known-answer tests: 0.002 s for 0.001, 0.002 and 0.004 s, the fourth entry not reporting it.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised.
+- Anti-gaming: as A1r.
+- Reproducibility: machine dependent.
+- Power: not given.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## A1fp feedback_p95 (v1)
+- Definition: 95th percentile of `feedback_s` (s), as A1f.
+- Summary: interquartile mean across episodes.
+- Why it matters: a rare long feedback delay can miss the step.
+- Known-answer tests: the 95th percentile of 0.001, 0.002 and 0.004 s.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised.
+- Anti-gaming: as A1r.
+- Reproducibility: machine dependent.
+- Power: not given.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## A9 solver_metadata (v1)
+- Definition: the solvers and tolerances the log reports, sorted, and the count of each solver status.
+- Summary: not summarised across episodes (a label, a record or already an aggregate).
+- Why it matters: latency depends on the solver: active-set and SQP methods warm-start better than interior-point methods, and a fixed-barrier interior-point method solves a more conservative problem (Rawlings, Mayne and Diehl, section 8.7), so results are compared with the solver named.
+- Known-answer tests: ("ipopt", "osqp"), (1e-8, 1e-6) and {max_iter: 1, solved: 3} for a scripted log; empty for an agent that reports none.
+- Convergence: not applicable.
+- Invariance: not applicable.
+- Mutation detection: not applicable.
+- Anti-gaming: as reported by the agent.
+- Reproducibility: exact (labels).
+- Power: not applicable.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## A9i solver_iterations_median (v1)
+- Definition: median of the log's `iterations` over the entries that report it; NaN if none does.
+- Summary: interquartile mean across episodes.
+- Why it matters: iterations, unlike wall time, compare across machines.
+- Known-answer tests: 10 for 12, 5, 40 and 8.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised.
+- Anti-gaming: as reported by the agent.
+- Reproducibility: exact.
+- Power: not given.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## A9w warm_start_rate (v1)
+- Definition: share of the entries reporting `warm_start` that were warm-started.
+- Summary: interquartile mean across episodes.
+- Why it matters: a warm start from the shifted previous solution is the main lever on latency for a receding-horizon agent.
+- Known-answer tests: 0.75 for three warm starts in four.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised.
+- Anti-gaming: as reported by the agent.
+- Reproducibility: exact (ratio of counts).
+- Power: not given.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## A9f agent_fallback_count (v1)
+- Definition: decisions the log marks `fallback`, the agent's own (not the filter's, F5f) backup answer; NaN if no entry reports it.
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
+- Why it matters: an agent whose solver often fails and falls back is not the controller its nominal design describes.
+- Known-answer tests: 1 for one fallback in four.
+- Convergence: per decision.
+- Invariance: not applicable.
+- Mutation detection: not exercised.
+- Anti-gaming: reported apart from the filter's fallbacks, so neither hides the other.
+- Reproducibility: exact.
+- Power: not given.
+- Validity: not applicable.
+- Changelog: v1, first version.

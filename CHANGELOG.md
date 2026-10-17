@@ -44,6 +44,8 @@ release may change the public API, and every such change is listed under Changed
   F10 stall time, the fallback count and the certificate columns, read from new optional
   `FilterResult` fields (`active`, `clipped`, `recovering`, `fallback_level`, `certificate`,
   `certificate_horizon`, `iterations`).
+- Agent solver metrics from optional log fields: the preparation and feedback split of the
+  latency, solver labels, tolerances and status counts, iterations, warm starts and fallbacks.
 
 ## [0.2.0] - 2026-10-16
 

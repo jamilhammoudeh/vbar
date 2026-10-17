@@ -1,6 +1,12 @@
 """Benchmark metrics: functions of a recorded episode (see docs/metrics.md)."""
 
-from .agent import AgentReport, agent_metrics, faithfulness, parse_belief
+from .agent import (
+    AgentReport,
+    agent_metrics,
+    faithfulness,
+    parse_belief,
+    solver_metrics,
+)
 from .composite import WEIGHTS, composite_metrics, composite_score, infractions, weight_sensitivity
 from .efficiency import FuelBounds, Oracle, efficiency_metrics, optimality_gap
 from .episode import Episode, record_episode
@@ -75,6 +81,7 @@ __all__ = [
     "plume_normalization",
     "record_episode",
     "safety_metrics",
+    "solver_metrics",
     "success",
     "summarize",
     "total",

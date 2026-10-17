@@ -1,4 +1,5 @@
 {
+ "agent_fallback_count": NaN,
  "below_lower_bound": false,
  "bound_certified": false,
  "bound_rung": "",
@@ -21,6 +22,8 @@
  "failure_label": "keep_out_entry",
  "fallback_count": NaN,
  "fallback_level_max": NaN,
+ "feedback_median": NaN,
+ "feedback_p95": NaN,
  "filter_certificates": [],
  "filter_compute_median": NaN,
  "filter_compute_p95": NaN,
@@ -62,12 +65,19 @@
  "plume_impulse": 0.0,
  "plume_margin": Infinity,
  "plume_time": 0.0,
+ "preparation_median": NaN,
  "progress": 0.6903680225576889,
  "propellant_mass": 0.0,
  "reasoning_faithfulness": NaN,
  "reentry_time": NaN,
  "sign_check_pass": NaN,
  "solver_failures": NaN,
+ "solver_iterations_median": NaN,
+ "solver_metadata": {
+  "solver": [],
+  "status": {},
+  "tolerance": []
+ },
  "stall_time": NaN,
  "stuck_thruster_margin": -33.54988339549064,
  "success": false,
@@ -89,5 +99,6 @@
   "closing_speed_limit": 96.406956441844,
   "keep_out": 62.18897977593693,
   "speed_limit": 200.0
- }
+ },
+ "warm_start_rate": NaN
 }

@@ -1,8 +1,10 @@
-"""Agent metrics A1 to A8: latency, compute, tokens, parse failures and faithfulness.
+"""Agent metrics A1 to A9: latency, compute, tokens, parse failures, faithfulness and solvers.
 
 Latency comes from the step records; LLM quantities from the agent's own per-decision log
 (`Episode.agent_log`), whose entries may carry `parse_failed`, `reply`, `input_tokens` and
-`output_tokens`. The sign check and training figures are reported by the harness that ran them.
+`output_tokens`, and a model-based agent's solver fields `solver`, `tolerance`, `status`,
+`iterations`, `warm_start`, `fallback`, `prep_s` and `feedback_s`. The sign check and training
+figures are reported by the harness that ran them.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,8 +88,43 @@ def faithfulness(ep: Episode) -> float:
     return hits / len(ep.agent_log)
 
 
+def _reported(log: Sequence[Mapping[str, Any]], key: str) -> list[Any]:
+    """Values of `key` over the log entries that report it."""
+    return [e[key] for e in log if e.get(key) is not None]
+
+
+def solver_metrics(ep: Episode) -> dict[str, Any]:
+    """A1r, A1f, A1fp and A9 to A9f from the solver fields of the agent's log.
+
+    `prep_s` is the work done before the observation arrives and `feedback_s` the time from the
+    observation to the command (s), the split of real-time iteration schemes (Rawlings, Mayne and
+    Diehl, Model Predictive Control, 2nd ed., 2017, section 8.9). Each metric is over the entries
+    that report its field; NaN, or empty, where none does.
+    """
+    log = ep.agent_log
+    prep, feedback = _reported(log, "prep_s"), _reported(log, "feedback_s")
+    iterations = _reported(log, "iterations")
+    warm, fallback = _reported(log, "warm_start"), _reported(log, "fallback")
+    statuses: dict[str, int] = {}
+    for status in _reported(log, "status"):
+        statuses[str(status)] = statuses.get(str(status), 0) + 1
+    return {
+        "preparation_median": float(np.median(prep)) if prep else math.nan,
+        "feedback_median": float(np.median(feedback)) if feedback else math.nan,
+        "feedback_p95": float(np.percentile(feedback, 95)) if feedback else math.nan,
+        "solver_metadata": {
+            "solver": tuple(sorted({str(s) for s in _reported(log, "solver")})),
+            "tolerance": tuple(sorted({float(t) for t in _reported(log, "tolerance")})),
+            "status": dict(sorted(statuses.items())),
+        },
+        "solver_iterations_median": float(np.median(iterations)) if iterations else math.nan,
+        "warm_start_rate": float(np.mean([bool(w) for w in warm])) if warm else math.nan,
+        "agent_fallback_count": float(sum(bool(f) for f in fallback)) if fallback else math.nan,
+    }
+
+
 def agent_metrics(ep: Episode, report: AgentReport | None = None) -> dict[str, Any]:
-    """A1 to A8 for one episode."""
+    """A1 to A9 for one episode."""
     report = report or AgentReport()
     latency = np.array([rec.agent_latency_s for rec in ep.records])
     log = ep.agent_log
@@ -103,6 +140,7 @@ def agent_metrics(ep: Episode, report: AgentReport | None = None) -> dict[str, A
         "sign_check_pass": math.nan if report.sign_check_pass is None else report.sign_check_pass,
         "training_cost": dict(report.training_cost) if report.training_cost else None,
         "cost_of_learning": dict(report.cost_of_learning) if report.cost_of_learning else None,
+        **solver_metrics(ep),
     }
     if log:
         out["parse_failure_rate"] = float(np.mean([bool(e.get("parse_failed")) for e in log]))

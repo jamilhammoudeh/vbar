@@ -8,7 +8,13 @@ import pytest
 from metric_cases import episode, pd_episode
 
 from vbar.agents import LLMAgent
-from vbar.metrics import AgentReport, agent_metrics, faithfulness, parse_belief
+from vbar.metrics import (
+    AgentReport,
+    agent_metrics,
+    faithfulness,
+    parse_belief,
+    solver_metrics,
+)
 from vbar.spacecraft import GaussianNav
 
 ACTION = {"ax": 0.0, "ay": 0.1, "az": 0.0}
@@ -85,6 +91,68 @@ def test_faithfulness_is_judged_against_the_observation_not_the_truth():
     truth = [np.linalg.norm(s[:3]) for s in ep.states[:-1]]
     seen = [np.linalg.norm(o[:3]) for o in (ep.first_obs, *(r.obs for r in ep.records[:-1]))]
     assert max(abs(a - b) for a, b in zip(truth, seen, strict=True)) > 1.0
+
+
+def test_solver_fields_and_the_latency_split_come_from_the_entries_that_report_them():
+    ep = pd_episode(max_steps=4)
+    log = (
+        {
+            "solver": "osqp",
+            "tolerance": 1e-6,
+            "status": "solved",
+            "iterations": 12,
+            "warm_start": False,
+            "fallback": False,
+            "prep_s": 0.02,
+            "feedback_s": 0.001,
+        },
+        {
+            "solver": "osqp",
+            "tolerance": 1e-6,
+            "status": "solved",
+            "iterations": 5,
+            "warm_start": True,
+            "fallback": False,
+            "prep_s": 0.03,
+            "feedback_s": 0.002,
+        },
+        {
+            "solver": "osqp",
+            "tolerance": 1e-6,
+            "status": "max_iter",
+            "iterations": 40,
+            "warm_start": True,
+            "fallback": True,
+            "prep_s": 0.01,
+            "feedback_s": 0.004,
+        },
+        {
+            "solver": "ipopt",
+            "tolerance": 1e-8,
+            "status": "solved",
+            "iterations": 8,
+            "warm_start": True,
+            "fallback": False,
+        },
+    )
+    m = solver_metrics(dataclasses.replace(ep, agent_log=log))
+    assert m["preparation_median"] == pytest.approx(0.02)
+    assert m["feedback_median"] == pytest.approx(0.002)
+    assert m["feedback_p95"] == pytest.approx(np.percentile([0.001, 0.002, 0.004], 95))
+    assert m["solver_metadata"] == {
+        "solver": ("ipopt", "osqp"),
+        "tolerance": (1e-8, 1e-6),
+        "status": {"max_iter": 1, "solved": 3},
+    }
+    assert m["solver_iterations_median"] == 10.0
+    assert m["warm_start_rate"] == 0.75
+    assert m["agent_fallback_count"] == 1.0
+
+
+def test_an_agent_without_solver_fields_reports_none():
+    m = agent_metrics(pd_episode(max_steps=2))
+    assert math.isnan(m["feedback_median"]) and math.isnan(m["agent_fallback_count"])
+    assert m["solver_metadata"] == {"solver": (), "tolerance": (), "status": {}}
 
 
 def test_a_belief_is_the_first_json_object_with_range_and_closing():

@@ -289,11 +289,12 @@ gives F3 and F4 from runs over the same seeds and rejects runs that do not pair.
 `iqm(values)` is the interquartile mean, the mean of the middle half (Agarwal et al., "Deep
 Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
 
-## Agent (A1 to A8)
+## Agent (A1 to A9)
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
 | A1, A1p | `latency_median`, `latency_p95` | s | median and 95th percentile of the agent's decision wall time (filter time excluded) |
+| A1r, A1f, A1fp | `preparation_median`, `feedback_median`, `feedback_p95` | s | median of the log's `prep_s` (work before the observation arrives), and median and 95th percentile of its `feedback_s` (observation to command), the split of real-time iteration schemes |
 | A2 | `compute` | s | total agent wall time over the episode |
 | A3i, A3o, A3 | `input_tokens`, `output_tokens`, `token_cost` | tokens, USD | sums over the agent's log entries (`input_tokens`, `output_tokens`), and the cost at the declared price per million tokens; NaN when the log has no token counts or no price is declared |
 | A4 | `parse_failure_rate` | fraction | share of log entries with `parse_failed` |
@@ -301,11 +302,22 @@ Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
 | A6 | `sign_check_pass` | bool | the convention self-check result, as reported |
 | A7 | `training_cost` | dict | env steps, simulated time, wall clock and compute of training, as reported |
 | A8 | `cost_of_learning` | dict | constraint violations and propellant during training and the area under the learning curve, as reported |
+| A9 | `solver_metadata` | dict | the solvers and tolerances the log reports, and the count of each solver status |
+| A9i | `solver_iterations_median` | count | median of the log's `iterations` |
+| A9w | `warm_start_rate` | fraction | share of decisions reporting `warm_start` that were warm-started |
+| A9f | `agent_fallback_count` | count | decisions the log marks `fallback`, the agent's own backup answer (the filter's are F5f) |
 
 A belief is the first JSON object in a reply with a numeric `range_m` and a boolean `closing`
 (`parse_belief`); the log holds one entry per decision. Facts from outside the episode come in an
 `AgentReport` (sign check, training figures with their required keys, token prices), passed as
 `evaluate(episode, settings, bounds, report)`.
+
+A model-based agent may add solver fields to its log entries: `solver`, `tolerance`, `status`,
+`iterations`, `warm_start`, `fallback`, `prep_s` and `feedback_s`. Each A1r to A9f metric is over
+the entries that report its field, and NaN (or empty) where none does. Latency depends on the
+solver, since active-set and SQP methods warm-start better than interior-point ones (Rawlings,
+Mayne and Diehl, *Model Predictive Control*, 2nd ed., 2017, sections 8.7 and 8.9), so results are
+compared with the solver named.
 
 ## Composite score (C1)
 
@@ -466,7 +478,10 @@ at that rate needs about 385 episodes.
   replies give A4 = 0.5; token counts and a price table give the cost; an agent that restates the
   range and closing sign from its prompt scores A5 = 1, one that doubles the range scores 0, and
   under 50 m navigation noise the honest agent still scores 1 although its beliefs are off the truth.
-  Incomplete training figures are rejected.
+  Incomplete training figures are rejected. Solver fields of a scripted four-entry log give the
+  preparation and feedback medians, the solver labels and status counts, a median of 10 iterations,
+  a warm-start rate of 0.75 and one fallback, each over the entries that report it; a log without
+  them gives NaN.
 - Composite (`tests/test_metrics_composite.py`): a clean success scores 1; the flyby scores its
   progress over 2.1 (one entry, one timeout); a relative orbit centred on the target counts each
   entry into the sphere as the closed form does; the PD baseline, PD through the target and free
