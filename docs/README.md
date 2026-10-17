@@ -21,6 +21,7 @@ and how it is tested.
 | [training.md](training.md) | interfaces for reinforcement learning: the discrete bang-off-bang action mode, burn-and-coast decisions, training-only starts |
 | [agents.md](agents.md) | tools around agents: the sign-convention check |
 | [llm-agents.md](llm-agents.md) | LLM agents: the model function, the prompt and its fields, parsing, tokens and cost |
+| [llm-agents.md](llm-agents.md) | LLM agents: the model function, the prompt and its fields, parsing, tool calling and the built-in tools, tokens and cost |
 | [agents.md](agents.md) | tools around agents: the sign-convention check, real-time runs |
 | [vector-env.md](vector-env.md) | the vectorized approach environment: batched propulsion, propagation and keep-out checks, same-step autoreset, supported options, speed |
 | [training.md](training.md) | interfaces for reinforcement learning: the discrete bang-off-bang action mode, burn-and-coast decisions, training-only starts, a safety filter in the training loop |

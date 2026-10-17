@@ -4,8 +4,10 @@ The model is passed in as `complete(messages, tools) -> Reply | str`, so any hos
 model works through a small adapter; `text_model` wraps a plain `prompt -> text` function.
 `messages` is the decision's conversation as provider-neutral dicts with a "role" ("user",
 "assistant" or "tool") and a "content" string; `tools` lists the JSON-schema descriptions of the
-tools offered. Each decision's messages, reply, parsed action, parse failure, token counts, cost
-and wall-clock latency are stored in `self.log`.
+tools offered. A reply may call tools; the agent runs them on its own observation, adds the
+results to the conversation and asks again, at most `max_tool_rounds` times, then asks once more
+without tools. Each decision's messages, tool calls, reply, parsed action, parse failure, token
+counts, cost and wall-clock latency are stored in `self.log`.
 
 The simulation clock is paused during the model call unless the run is in real time. Every
 number in the prompt comes from the observation or the scenario's public description, never
@@ -25,6 +27,7 @@ from typing import Any
 import numpy as np
 
 from .base import AgentView, action_scale
+from .tools import Tool, call_tool
 
 PROMPT_TEMPLATE = """You are the guidance system of a chaser spacecraft near a target spacecraft.
 
@@ -69,12 +72,22 @@ PROMPT_FIELDS = (
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    """One tool call in a reply; `id` pairs it with its result message."""
+
+    name: str
+    arguments: Mapping[str, Any]
+    id: str = ""
+
+
+@dataclass(frozen=True)
 class Reply:
-    """A model's answer: its text and the tokens it counted (0 when the adapter has none)."""
+    """A model's answer: its text, any tool calls, and the tokens it counted (0 if unknown)."""
 
     text: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -124,7 +137,8 @@ class LLMAgent:
     """Agent that asks `complete(messages, tools)` for each command.
 
     `prompt` is a `str.format` template over `PROMPT_FIELDS`; `price` turns the reported tokens
-    into dollars. An unparseable reply is logged and the spacecraft coasts.
+    into dollars; `tools` are offered to the model for at most `max_tool_rounds` rounds of calls
+    per decision. An unparseable reply is logged and the spacecraft coasts.
     """
 
     complete: Model
@@ -132,6 +146,8 @@ class LLMAgent:
     name: str = "llm"
     prompt: str = PROMPT_TEMPLATE
     price: Price | None = None
+    tools: Sequence[Tool] = ()
+    max_tool_rounds: int = 4
     log: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
@@ -175,10 +191,40 @@ class LLMAgent:
 
     def act(self, obs, info):
         messages: list[dict[str, Any]] = [{"role": "user", "content": self.prompt_text(obs, info)}]
+        offered = {tool.name: tool for tool in self.tools}
+        specs = [tool.spec() for tool in self.tools]
+        replies, calls = [], []
         t0 = time.perf_counter()
-        reply = as_reply(self.complete(messages, []))
+        for round_ in range(self.max_tool_rounds + 1):
+            # The last call offers no tools, so the model has to answer.
+            last = round_ == self.max_tool_rounds or not specs
+            reply = as_reply(self.complete(messages, [] if last else specs))
+            replies.append(reply)
+            if last or not reply.tool_calls:
+                break
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": reply.text,
+                    "tool_calls": [
+                        {"id": c.id, "name": c.name, "arguments": dict(c.arguments)}
+                        for c in reply.tool_calls
+                    ],
+                }
+            )
+            for c in reply.tool_calls:
+                result = call_tool(offered, c.name, obs, self.view, c.arguments)
+                calls.append({"name": c.name, "arguments": dict(c.arguments), "result": result})
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": c.id,
+                        "name": c.name,
+                        "content": json.dumps(result, sort_keys=True),
+                    }
+                )
         latency = time.perf_counter() - t0
-        return self._finish(obs, info, messages, [reply], latency)
+        return self._finish(obs, info, messages, replies, calls, latency)
 
     def _finish(
         self,
@@ -186,6 +232,7 @@ class LLMAgent:
         info: Mapping[str, Any],
         messages: list[dict[str, Any]],
         replies: Sequence[Reply],
+        calls: list[dict[str, Any]],
         latency: float,
     ) -> np.ndarray:
         """Parse the last reply, log the decision and return the action."""
@@ -202,6 +249,7 @@ class LLMAgent:
                 "time_s": info["time_s"],
                 "prompt": messages[0]["content"],
                 "messages": messages,
+                "tool_calls": calls,
                 "reply": text,
                 "action": action.tolist(),
                 "parse_failed": failed,

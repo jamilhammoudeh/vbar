@@ -1,6 +1,7 @@
 # LLM agents
 
-Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `Price`, `text_model`, `parse_action`). An LLM
+Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `ToolCall`, `Price`, `text_model`,
+`parse_action`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`, `TRANSFER_BURN`, `CW_TOOLS`). An LLM
 agent asks a language model for each command. V-BAR has no model client of its own: the model
 is any function, so a hosted API, a local model or a test stand-in plugs in the same way.
 
@@ -12,7 +13,8 @@ is any function, so a hosted API, a local model or a test stand-in plugs in the 
   (`"user"`, `"assistant"` or `"tool"`) and a `"content"` string; it starts with one user
   message holding the prompt.
 - `tools` lists the JSON-schema descriptions of the tools the agent offers (empty without tools).
-- The function returns a `Reply(text, input_tokens, output_tokens)`, or just the text.
+- The function returns a `Reply(text, input_tokens, output_tokens, tool_calls)`, or just the
+  text.
 
 An adapter for a provider's client turns `messages` into its request and its response into a
 `Reply`, with the token counts the provider reports. `text_model(fn)` adapts a function from a
@@ -42,12 +44,39 @@ The first JSON object in the reply is read; each fraction is clipped to [-1, 1] 
 the action mode. A reply without a valid object is a parse failure (metric A4) and the
 spacecraft coasts for that step. The agent rejects the discrete and burn-and-coast action modes.
 
+## Tool calling
+
+`LLMAgent(complete, tools=CW_TOOLS)` offers tools to the model. When a reply has tool calls
+(`ToolCall(name, arguments, id)`), the agent appends the assistant message with its calls,
+runs each tool, appends one `"tool"` message per call with the result as JSON (paired by
+`tool_call_id`), and calls the model again. After `max_tool_rounds` (4) rounds of calls it asks
+once more offering no tools, so every decision ends in an answer. Unknown tools and invalid
+arguments come back to the model as `{"error": ...}`.
+
+A tool's `run(obs, view, arguments)` sees only the observation the agent received and its
+`AgentView`: tools do arithmetic for the model and cannot reveal the truth. The built-in ones
+use the Clohessy-Wiltshire model with the view's mean motion:
+
+- `predict_coast(seconds)`: the position and velocity after coasting from the observed state,
+  and the closest range to the target on the way (found with the certified in-step minimum,
+  [constraints.md](constraints.md)), for up to three orbits.
+- `transfer_burn(x, y, z, seconds)`: the two impulses of a transfer from the observed state to
+  rest at a point, $\Delta\mathbf v_1 = \Phi_{rv}^{-1}(\mathbf r_f - \Phi_{rr}\mathbf r_0) -
+  \mathbf v_0$ and $\Delta\mathbf v_2 = -(\Phi_{vr}\mathbf r_0 + \Phi_{vv}\mathbf v_0^+)$, the
+  total, and how many steps of full thrust the first burn takes. Durations where the targeting
+  problem is singular, where $\sin nT = 0$ out of plane and at the roots of
+  $8(1 - \cos nT) = 3nT\sin nT$ in plane (Alfriend et al., *Spacecraft Formation Flying*,
+  p. 92), are refused. The impulses are ideal; a burn of several steps arrives off target.
+
+Results are rounded (positions to 1 cm, velocities to 0.1 mm/s) to keep transcripts short.
+
 ## Tokens, cost and the log
 
 `price=Price(input_per_mtok, output_per_mtok)` is the declared price table of metric A3, in USD
 per million tokens. Each decision's entry in `agent.log` holds the time, the prompt, the
 messages, the final reply, the action, the parse-failure flag, the number of model calls, the
-input and output tokens, the cost (or `None` without a price) and the wall-clock latency.
+input and output tokens, the cost (or `None` without a price), the tool calls with their
+arguments and results, and the wall-clock latency of the whole decision.
 `agent.usage()` totals decisions, model calls, tokens, cost and parse failures over the episode.
 The log restarts at every reset.
 
@@ -61,6 +90,15 @@ The log restarts at every reset.
   is `None`.
 - A custom template is filled from the observation; a template with an unknown field is refused.
 - Unparseable replies coast and are counted.
+- With 5 m navigation noise, `predict_coast` returns the closed-form prediction from the
+  observation (to its 1 cm rounding) and differs from the truth's by metres; the conversation
+  carries the assistant's call and the paired tool result; both tools are offered.
+- A model that calls tools forever is cut off after `max_tool_rounds` rounds and asked once more
+  without tools.
+- Unknown tools, missing or non-finite arguments and out-of-range durations return errors.
+- Applying `transfer_burn`'s first impulse to the observed state arrives at the target within
+  the rounding (0.3 m over 1500 s) and the second impulse stops it; a half-orbit transfer is
+  refused as singular.
 
 `tests/test_agents.py` checks that the prompt is built from the noisy observation, not the
 truth, and that fractions are converted to each action mode.

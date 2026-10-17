@@ -6,7 +6,7 @@ from .base import (
     command_fraction,
     zero_action,
 )
-from .llm import LLMAgent, Price, Reply, parse_action, text_model
+from .llm import LLMAgent, Price, Reply, ToolCall, parse_action, text_model
 from .pd import PDAgent
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     "PDAgent",
     "Price",
     "Reply",
+    "ToolCall",
     "action_scale",
     "command_fraction",
     "parse_action",
