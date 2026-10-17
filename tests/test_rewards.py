@@ -190,6 +190,12 @@ def test_invalid_reward_parameters_are_rejected(fields):
         Reward(**fields)
 
 
+@pytest.mark.parametrize("n", [0.0, -1e-3, float("nan")])
+def test_quadratic_cost_needs_a_positive_mean_motion(n):
+    with pytest.raises(ValueError, match="mean motion"):
+        QuadraticCost(n, np.eye(6), np.eye(3))
+
+
 @pytest.mark.parametrize(("tau", "duration"), [(30.0, 3000.0), (5.0, 1e4), (1.0, 5e3)])
 def test_quadratic_cost_stays_exact_on_segments_much_longer_than_tau(tau, duration):
     # Burn-and-coast decisions can last thousands of seconds; the discounted block exponential

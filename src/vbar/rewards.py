@@ -69,6 +69,8 @@ class QuadraticCost:
         r: np.ndarray,
         reference: np.ndarray | None = None,
     ):
+        if not (np.isfinite(n) and n > 0.0):
+            raise ValueError("n must be a positive mean motion (rad/s)")
         self.n = n
         self.q = np.array(q, dtype=float)
         self.r = np.array(r, dtype=float)

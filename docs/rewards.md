@@ -117,8 +117,9 @@ earlier results and is not aligned with the metrics.
 - The quadratic cost matches adaptive quadrature of the cost rate along the closed-form CW
   trajectory to 1e-10 relative, with and without discounting.
 - It stays at 1e-10 on segments 100, 2000 and 5000 times longer than $\tau$, where one block
-  exponential lost five digits or overflowed, and at 1e-11 on 1e4 s and 3e4 s segments without
-  discounting or with $\tau$ = 1e5 s, where one block was up to 1e-3 off with SciPy 1.11.
+  exponential lost five digits or overflowed, and to about 1e-11 on 1e4 s and 3e4 s segments
+  without discounting or with $\tau$ = 1e5 s, where one block was up to 1e-3 off with SciPy 1.11.
+  A mean motion that is not positive is refused.
 - A batch of transitions gives each row its own reward; invalid time constants and weights are
   rejected.
 
