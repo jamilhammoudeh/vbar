@@ -85,6 +85,8 @@ class _Line:
             line = self.file.readline()
         except TimeoutError as error:
             raise RemoteAgentError("the remote agent did not answer in time") from error
+        except OSError as error:
+            raise RemoteAgentError(f"the connection to the remote agent failed: {error}") from error
         if not line:
             raise RemoteAgentError("the remote agent closed the connection")
         try:
@@ -98,7 +100,9 @@ class _Line:
         return message
 
     def close(self) -> None:
-        self.file.close()
+        # Closing flushes; a peer that reset the connection cannot take the last bytes.
+        with contextlib.suppress(OSError):
+            self.file.close()
         self.sock.close()
 
 
@@ -116,6 +120,7 @@ class RemoteAgent:
         return message
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        self.discrete = view.action_mode == "disc27"
         seq = rng.bit_generator.seed_seq if rng is not None else np.random.SeedSequence()
         self.line.send(
             {
@@ -131,8 +136,18 @@ class RemoteAgent:
         self.line.send(
             {"type": "act", "obs": np.asarray(obs, dtype=float).tolist(), "info": dict(info)}
         )
-        action = self._expect("action")["action"]
-        return action if isinstance(action, int) else np.array(action, dtype=float)
+        action = self._expect("action").get("action")
+        if self.discrete:
+            if not isinstance(action, int) or isinstance(action, bool):
+                raise RemoteAgentError(f"expected an integer action, got {action!r}")
+            return action
+        try:
+            command = np.array(action, dtype=float)
+        except (TypeError, ValueError) as error:
+            raise RemoteAgentError(f"expected three numbers, got {action!r}") from error
+        if command.shape != (3,) or not np.all(np.isfinite(command)):
+            raise RemoteAgentError(f"expected three finite numbers, got {action!r}")
+        return command
 
     def close(self) -> None:
         # A client that already disconnected cannot be told to close.
@@ -239,7 +254,7 @@ def main(argv: list[str] | None = None) -> None:
                         t0 = time.perf_counter()
                         action = agent.act(episode.obs, env.agent_info())
                         episode.step(action, time.perf_counter() - t0)
-                except RemoteAgentError as error:
+                except (RemoteAgentError, OSError) as error:
                     write(out, {**episode.result(agent.name), "error": str(error)})
                     for left in args.seeds[k + 1 :]:
                         write(out, Episode(env, left).result(agent.name))
