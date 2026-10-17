@@ -15,11 +15,9 @@ MARGINS = [20.0 + k for k in range(38)] + [0.5, -2.0]
 def test_the_unsafe_tail_of_margins_keeps_the_near_misses_the_iqm_drops():
     tail = unsafe_tail(MARGINS, "low")
     assert tail["worst"] == -2.0
-    # The 5th percentile of 40 values falls between the two lowest, so the tail mean is the worst.
-    assert tail["quantile"] == pytest.approx(np.quantile(MARGINS, 0.05))
-    assert tail["tail_mean"] == pytest.approx(
-        np.mean([v for v in MARGINS if v <= tail["quantile"]])
-    )
+    # The 5th percentile of 40 values is the second lowest, so the tail averages both near misses.
+    assert tail["quantile"] == 0.5
+    assert tail["tail_mean"] == -0.75
     assert summarize("min_margin", MARGINS) == tail
     # The interquartile mean of the same values says nothing about the two near misses.
     iqm = summarize("delta_v", MARGINS)["iqm"]
@@ -31,6 +29,15 @@ def test_ratios_where_higher_is_worse_take_the_upper_tail():
     tail = unsafe_tail(ratios, "high")
     assert tail["worst"] == 1.4 and tail["tail_mean"] == pytest.approx(1.4)
     assert summarize("closing_speed_ratio", ratios) == tail
+
+
+def test_infinite_values_stay_episode_values_in_the_tail():
+    # S5 is infinite through a hold gate, S6 when never closing, S4t when every drift is certified.
+    ratios = summarize("closing_speed_ratio", [0.5] * 20 + [np.inf] * 2)
+    assert ratios == {"worst": np.inf, "quantile": np.inf, "tail_mean": np.inf}
+    assert summarize("min_time_to_keep_out", [np.inf] * 5)["quantile"] == np.inf
+    threat = summarize("passive_threat_time", [10.0, np.inf, np.inf, np.inf])
+    assert threat == {"worst": 10.0, "quantile": 10.0, "tail_mean": 10.0}
 
 
 def test_rates_count_successes_and_nan_is_left_out():

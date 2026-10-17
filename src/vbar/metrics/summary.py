@@ -21,8 +21,10 @@ def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str,
     """Worst value, the `level` quantile on the unsafe side, and the mean beyond it.
 
     `worse` is "low" when lower values are less safe (margins) and "high" when higher are (ratios,
-    durations). The tail mean averages the values at or beyond the quantile, a conditional value
-    at risk; it always holds at least the worst value. NaN values are left out.
+    durations). The quantile is an episode value (the inverse of the empirical distribution, no
+    interpolation), so infinite values, which S5, S6 and S4t give by design, are not mixed with
+    finite ones. The tail mean averages the values at or beyond it, a conditional value at risk;
+    it always holds at least the worst value. NaN values are left out.
     """
     if worse not in ("low", "high"):
         raise ValueError(f"unknown side {worse!r}, expected low or high")
@@ -31,9 +33,9 @@ def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str,
     if len(x) == 0:
         return {"worst": np.nan, "quantile": np.nan, "tail_mean": np.nan}
     if worse == "low":
-        q = float(np.quantile(x, level))
+        q = float(np.quantile(x, level, method="inverted_cdf"))
         return {"worst": float(x.min()), "quantile": q, "tail_mean": float(x[x <= q].mean())}
-    q = float(np.quantile(x, 1.0 - level))
+    q = float(np.quantile(x, 1.0 - level, method="inverted_cdf"))
     return {"worst": float(x.max()), "quantile": q, "tail_mean": float(x[x >= q].mean())}
 
 

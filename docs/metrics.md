@@ -368,7 +368,9 @@ Each metric's catalogue entry (`METRICS[name].summary`) says how it ranks across
 `summarize(name, values)` computes it. Performance metrics (delta-v, terminal errors, time) use
 the interquartile mean. Safety metrics use their unsafe tail, `unsafe_tail(values, worse)`: the
 worst value, the 5th percentile on the unsafe side and the mean at or beyond it (a conditional
-value at risk). The interquartile mean drops the worst quarter of episodes, which is where
+value at risk). The percentile is an episode value, the inverse of the empirical distribution
+without interpolation, so the infinite values S5, S6 and S4t take by design stay infinite rather
+than turning into NaN. The interquartile mean drops the worst quarter of episodes, which is where
 keep-out and abort failures are, so two agents with the same interquartile margin can differ
 entirely in how often they nearly collide (Kochenderfer et al., *Algorithms for Decision Making*,
 2022, section 14.1). Margins, safe fractions and times (S1, S4, S4b, S4o, S6, S8) take the lower
@@ -523,8 +525,9 @@ at that rate needs about 385 episodes.
   to the stated resolution for refined minima (1 mm, or 1e-6 for angles and ratios), since which
   sample intervals get refined can change with the last bits of a sample.
 - Summaries (`tests/test_metrics_summary.py`): over 40 margins with two near misses, the unsafe
-  tail reports the worst value, numpy's 5th percentile and the mean of the values at or below it,
-  while the interquartile mean of the same values stays above 25; a ratio where higher is worse
+  tail reports the worst value -2, the second lowest 0.5 as the 5th percentile and their mean,
+  while the interquartile mean of the same values stays above 25; infinite S5, S6 and S4t values
+  stay infinite in the tail, and a finite worst value of S4t stays its own percentile; a ratio where higher is worse
   takes the upper tail; rates count successes and leave out NaN; every safety metric in the list
   above ranks by its tail and every performance metric by the interquartile mean. Clopper-Pearson
   intervals match Kochenderfer et al.'s validation examples (90 of 100: 0.8238 to 0.9510; 3 failures
