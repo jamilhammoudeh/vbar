@@ -246,3 +246,11 @@ def test_deeply_nested_input_is_a_parse_error_and_the_server_goes_on():
     server.serve(io.StringIO("[" * 200_000 + "]" * 200_000 + "\n" + ping + "\n"), out)
     first, second = (json.loads(line) for line in out.getvalue().splitlines())
     assert first["error"]["code"] == PARSE_ERROR and second["id"] == 9
+
+
+def test_a_non_finite_request_id_gets_a_strict_json_error():
+    server = ToolServer(ApproachEnv(), [0])
+    out = io.StringIO()
+    server.serve(io.StringIO('{"jsonrpc": "2.0", "id": NaN, "method": "ping"}\n'), out)
+    reply = json.loads(out.getvalue(), parse_constant=lambda name: pytest.fail(name))
+    assert reply["error"]["code"] == -32600 and reply["id"] is None

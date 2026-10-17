@@ -243,7 +243,12 @@ class ToolServer:
                         response = _error(ident, INTERNAL_ERROR, reason)
                 if response is not None:
                     try:
-                        sink.write(json.dumps(response) + "\n")
+                        text = json.dumps(response, allow_nan=False)
+                    except ValueError:
+                        # Only a non-finite request id can do this; strict JSON has no NaN.
+                        text = json.dumps(_error(None, INVALID_REQUEST, "id must be finite"))
+                    try:
+                        sink.write(text + "\n")
                         sink.flush()
                     except OSError:
                         # The client stopped reading: the session is over.
