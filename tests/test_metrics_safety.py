@@ -3,7 +3,14 @@ import pytest
 from metric_cases import FLYBY, drift_closest_approach, drift_range_crossings, episode, pd_episode
 
 from vbar.agents import PDAgent
-from vbar.constraints import ApproachCone, ClosingSpeedLimit, SpeedLimit, ZoneEntry, closing_speed
+from vbar.constraints import (
+    ApproachCone,
+    ClosingSpeedLimit,
+    KeepOut,
+    SpeedLimit,
+    ZoneEntry,
+    closing_speed,
+)
 from vbar.dynamics import EARTH, cw_discrete, cw_stm, mean_motion
 from vbar.metrics import safety_metrics
 
@@ -107,3 +114,10 @@ def test_entering_a_zone_in_the_last_sample_interval_before_go_counts():
     assert m["min_margin"]["zone_entry"] == pytest.approx(at_go - 100.0, abs=1e-3)
     assert m["min_margin_bound"]["zone_entry"] <= m["min_margin"]["zone_entry"]
     assert m["violation_duration"]["zone_entry"] == pytest.approx(33.6 - entry, abs=1e-6)
+
+
+def test_a_constraint_sharing_the_scenarios_name_is_scored_with_its_own_parameters():
+    ep = episode()
+    closest = drift_closest_approach(FLYBY, ep.view.n, 200.0)
+    m = safety_metrics(ep, [KeepOut(10.0)])
+    assert m["min_margin"]["keep_out"] == pytest.approx(closest - 10.0, abs=1e-3)

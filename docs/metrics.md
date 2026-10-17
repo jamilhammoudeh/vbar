@@ -151,7 +151,7 @@ any others passed in (for example a soft passive-speed envelope the scenario doe
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
-| S1 | `min_margin[c]` | constraint's | lowest $m_c$ over the episode, start state included: the environment's in-step minima for its own constraints, the same certified search on the rebuilt trajectory for others |
+| S1 | `min_margin[c]` | constraint's | lowest $m_c$ over the episode, start state included: the environment's in-step minima for its own constraints, the same certified search on the rebuilt trajectory for any other, including one that shares a scenario constraint's name with different parameters |
 | S1b | `min_margin_bound[c]` | constraint's | the certified lower bound on S1 |
 | S2 | `violation_depth[c]` | constraint's | $\max(0, -\text{S1})$ |
 | S3 | `violation_duration[c]` | s | total time with $m_c < 0$, from `negative_intervals` |

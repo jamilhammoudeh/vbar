@@ -21,9 +21,14 @@ _CLOSING_FLOOR = 1e-9
 
 
 def lowest_margin(ep: Episode, constraint: Constraint, trace: Trace | None = None):
-    """Lowest margin and its certified lower bound over the episode, start state included."""
+    """Lowest margin and its certified lower bound over the episode, start state included.
+
+    The environment's own minima are used only for the very constraint it searched; a different
+    one, even with the same name, is searched on the rebuilt trajectory.
+    """
     at_start = float(constraint.margin(ep.start, 0.0))
-    found = [rec.segment.minima.get(constraint.name) for rec in ep.records]
+    own = ep.constraint(constraint.name) == constraint
+    found = [rec.segment.minima.get(constraint.name) if own else None for rec in ep.records]
     if not ep.records or any(f is None for f in found):
         whole = minimum(constraint, trace or Trace(ep)) if ep.records else None
         low = whole.margin if whole else math.inf
