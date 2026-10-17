@@ -149,3 +149,13 @@ def test_a_hold_that_lasted_but_broke_another_hard_constraint_is_not_called_unma
     }
     ep = episode(extra=(sun,), goal=goal, start_state=(0.0, -100.0, 0, 0, 0, 0), max_steps=12)
     assert label(ep) == "timeout_near"
+
+
+def test_a_speed_breach_comes_before_a_cone_violation():
+    both = (SpeedLimit(0.2, 4 * N), ApproachCone(np.radians(10.0), active_range=120.0))
+    assert label(episode(extra=both, keep_out_radius=5.0)) == "speed_limit_breach"
+
+
+def test_a_timeout_just_beyond_twice_the_capture_radius_is_far():
+    # 12 m from the hold point at rest on the V-bar, against a 10 m limit for near.
+    assert label(episode(start_state=(0.0, -112.0, 0, 0, 0, 0), max_steps=3)) == "timeout_far"

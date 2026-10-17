@@ -161,3 +161,10 @@ def test_a_window_open_at_zero_speed_has_no_lower_criterion():
             1.0 - event.lateral_speed / 0.03,
         )
     )
+
+
+def test_a_start_behind_the_port_plane_is_not_a_contact():
+    # Starting 0.5 m past the plane and backing away crosses it from the wrong side.
+    start = (0.0, -1.5, 0.0, 0.0, -0.1, 0.0)
+    ep = episode(goal=DOCKING_GOAL, start_state=start, max_steps=2, keep_out_radius=1.0)
+    assert contact(ep) is None

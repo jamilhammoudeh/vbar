@@ -210,3 +210,43 @@ def test_the_two_body_model_is_used_for_two_body_episodes():
         assert tb[name] == pytest.approx(cw[name], abs=1e-2)
         assert tb[name] != cw[name]
     assert math.isnan(tb["passive_forever_fraction"])
+
+
+def test_arcs_whose_sign_the_samples_cannot_settle_are_refined():
+    # 4 m/s through the target, with only 8 drift samples per orbit: the samples miss the pass.
+    start = (0.0, 400.0, 0.0, 0.0, -4.0, 0.0)
+    ep = episode(start_state=start, max_steps=1)
+    coarse = passive_metrics(ep, MetricSettings(drift_samples_per_orbit=8, partial_burn_samples=0))
+    horizon = 4 * np.pi / N
+    expected = min(dense_drift_minimum(x, N, horizon, 50.0) for x in ep.states)
+    assert coarse["passive_safety_margin"] == pytest.approx(expected, abs=1e-3)
+    assert coarse["passive_safe_fraction"] == 0.0
+
+
+def test_a_receding_ellipse_within_twice_its_semi_axis_can_still_pass_the_target():
+    # Its centre moves away and is farther than b + R along-track, but the along-track swing is
+    # 2 b, so the passage must still be checked; this one comes within 16 m.
+    state = np.array([17.5165, 343.5107, 0.0, 0.1038, -0.0409, 0.0])
+    ellipse = TravellingEllipse.from_state(state, N)
+    b = ellipse.semi_axis
+    assert ellipse.center_y * ellipse.drift_rate > 0.0
+    assert b + 50.0 < abs(ellipse.center_y) < 2 * b + 50.0
+    phi, _ = cw_discrete(N, np.linspace(0.0, 6 * np.pi / N, 30001))
+    assert np.linalg.norm((phi @ state)[:, :3], axis=1).min() < 20.0
+    assert not passive_forever(state, N, 50.0).safe
+
+
+def test_a_burn_cut_short_midway_can_be_the_worst_case():
+    # Both ends of this one-step burn drift clear by 196 m; a cut inside it does not.
+    start = (5.55, -258.95, 0.0, 0.1448, -0.0668, 0.0)
+    ep = episode(ConstantAgent([-0.239, 0.819, 0.0]), start_state=start, max_steps=1)
+    ends = MetricSettings(partial_burn_samples=0, stuck_time=0.0)
+    inside = MetricSettings(partial_burn_samples=8, stuck_time=0.0)
+    without = passive_metrics(ep, ends)["stuck_thruster_margin"]
+    with_points = passive_metrics(ep, inside)["stuck_thruster_margin"]
+    accel = np.array([-0.239, 0.819, 0.0]) * 0.02
+    times = np.linspace(0.0, 10.0, 201)
+    cuts = escape_arc(N, np.array(start), accel, 10.0, np.zeros(3), times)
+    lowest = min(dense_drift_minimum(x, N, 4 * np.pi / N, 50.0) for x in cuts)
+    assert with_points < without - 100.0
+    assert with_points >= lowest - 1e-3

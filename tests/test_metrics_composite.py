@@ -60,3 +60,13 @@ def test_sensitivity_reports_a_ranking_that_depends_on_a_weight(monkeypatch):
     found = weight_sensitivity({"a": ["a"], "b": ["b"]})
     assert found["ranking"] == ("a", "b") and not found["stable"]
     assert found["varied"][("keep_out", 0.5)] == ("b", "a")
+
+
+def test_a_success_that_runs_to_the_step_limit_is_not_a_timeout():
+    goal = {"hold_point": (0.0, -100.0, 0.0), "capture_radius": 5.0, "capture_speed": 0.05}
+    ep = episode(
+        goal={**goal, "hold_time": 30.0}, start_state=(0.0, -100.0, 0, 0, 0, 0), max_steps=6
+    )
+    m = composite_metrics(ep)
+    assert ep.truncated and m["completion"] == 1.0
+    assert m["infractions"]["timeout"] == 0 and m["composite_score"] == 1.0
