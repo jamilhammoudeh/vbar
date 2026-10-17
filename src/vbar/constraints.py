@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import ClassVar, Protocol
+from typing import Any, ClassVar, Protocol, cast
 
 import numpy as np
 from scipy.optimize import brentq, minimize_scalar
@@ -31,6 +31,10 @@ _BRACKET_TOL = 1e-5
 _GO_TOL = 1e-9
 # Violation boundaries are located to this many seconds.
 _ROOT_TOL = 1e-9
+# Batched refinement narrows its bracket to this many seconds; near a dip the margin's error is
+# second order in it, well below the 1e-5 s Brent search's.
+_GOLDEN_TOL = 1e-6
+_INVPHI = 0.5 * (np.sqrt(5.0) - 1.0)
 # Safety factor on the CW gravity-gradient and Coriolis terms in the acceleration bound; it
 # covers the two-body nonlinearity and J2 at separations below 1% of the orbit radius.
 _NATURAL_MARGIN = 2.0
@@ -441,6 +445,77 @@ def segment_minimum(
         if found.fun < best:
             best_t, best = float(found.x), float(found.fun)
     return SegmentMinimum(t0 + best_t, best, min(float(bounds.min()), best))
+
+
+def segment_minima(
+    constraint: Constraint,
+    state_at: Callable[[np.ndarray, np.ndarray], np.ndarray],
+    times: np.ndarray,
+    states: np.ndarray,
+    thrust: np.ndarray,
+    n: float,
+    t0: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """`segment_minimum` for a batch of segments sampled at the same `times`.
+
+    `states` is (N, m, 6), `thrust` and `t0` are (N,), and `state_at(rows, tau)` returns the
+    states `tau` s into the segments `rows`, both (A,), as (A, 6). The constraint's `margin` and
+    `rate_bound` must accept arrays. Intervals are refined by the same rule, in order of their
+    bound until one is within `resolution` of the best value, but with a golden-section search
+    to 1e-6 s run on every segment at once instead of Brent's method; the minima then agree with
+    `segment_minimum` to the accuracy of the two searches. Returns the times (s from the
+    episode start), margins and lower bounds, each (N,).
+    """
+    rows = np.arange(len(states))
+    margins = constraint.margin(states, t0[:, None] + times)
+    k = np.argmin(margins, axis=1)
+    best_t, best = times[k].astype(float), margins[rows, k].astype(float)
+    h = float(times[1] - times[0])
+    speed, accel = interval_bounds(states, h, thrust[:, None], n)
+    # The protocol is written for floats; batched use needs a vectorized rate bound.
+    rate_bound = cast(Any, constraint.rate_bound)
+    rates = np.broadcast_to(np.asarray(rate_bound(speed, accel), dtype=np.float64), speed.shape)
+    bounds = 0.5 * (margins[:, :-1] + margins[:, 1:] - rates * h)
+    order = np.argsort(bounds, axis=1)
+    active = np.ones(len(states), dtype=bool)
+    for column in order.T:
+        active &= bounds[rows, column] < best - constraint.resolution
+        if not active.any():
+            break
+        sel = rows[active]
+        start, end = times[column[sel]], times[column[sel] + 1]
+
+        def margin_at(tau: np.ndarray, sel: np.ndarray = sel) -> np.ndarray:
+            return constraint.margin(state_at(sel, tau), t0[sel] + tau)
+
+        x, value = _golden(margin_at, start, end)
+        better = value < best[sel]
+        best[sel[better]], best_t[sel[better]] = value[better], x[better]
+    return t0 + best_t, best, np.minimum(bounds.min(axis=1), best)
+
+
+def _golden(
+    f: Callable[[np.ndarray], np.ndarray], a: np.ndarray, b: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Minimum of `f` on each [a, b] by golden-section search, all rows at once."""
+    c, d = b - _INVPHI * (b - a), a + _INVPHI * (b - a)
+    fc, fd = f(c), f(d)
+    best_x, best = np.where(fc < fd, c, d), np.minimum(fc, fd)
+    width = float(np.max(b - a))
+    for _ in range(max(0, int(np.ceil(np.log(_GOLDEN_TOL / width) / np.log(_INVPHI))))):
+        left = fc < fd
+        a, b = np.where(left, a, c), np.where(left, d, b)
+        x = np.where(left, b - _INVPHI * (b - a), a + _INVPHI * (b - a))
+        fx = f(x)
+        c, fc, d, fd = (
+            np.where(left, x, d),
+            np.where(left, fx, fd),
+            np.where(left, c, x),
+            np.where(left, fc, fx),
+        )
+        better = fx < best
+        best_x, best = np.where(better, x, best_x), np.where(better, fx, best)
+    return best_x, best
 
 
 def violation_intervals(

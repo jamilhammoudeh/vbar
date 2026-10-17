@@ -7,10 +7,19 @@ from vbar.constraints import (
     KeepOut,
     interval_bounds,
     range_lower_bounds,
+    segment_minima,
     segment_minimum,
     violation_intervals,
 )
-from vbar.dynamics import EARTH, CWDynamics, TwoBodyDynamics, cw_rhs, cw_stm, mean_motion
+from vbar.dynamics import (
+    EARTH,
+    CWDynamics,
+    TwoBodyDynamics,
+    cw_discrete,
+    cw_rhs,
+    cw_stm,
+    mean_motion,
+)
 
 N = mean_motion(EARTH.radius + 500e3)
 KEEP_OUT = KeepOut(50.0)
@@ -253,3 +262,34 @@ def test_violation_open_at_either_end_of_the_segment_runs_to_that_end():
     assert detected_violations(staying, 10.0) == ((100.0, 110.0),)
     clear = np.array([0.0, 300.0, 0.0, 0.0, -1.0, 0.0])
     assert detected_violations(clear, 10.0) == ()
+
+
+def batched(states, accels, duration, samples):
+    """The batched minimum over CW segments that all start at 100 s."""
+    phis, gammas = cw_discrete(N, np.linspace(0.0, duration, samples))
+    sampled = np.einsum("mij,nj->nmi", phis, states) + np.einsum("mij,nj->nmi", gammas, accels)
+
+    def state_at(rows, tau):
+        phi, gamma = cw_discrete(N, tau)
+        return np.einsum("aij,aj->ai", phi, states[rows]) + np.einsum(
+            "aij,aj->ai", gamma, accels[rows]
+        )
+
+    times = np.linspace(0.0, duration, samples)
+    thrust = np.linalg.norm(accels, axis=1)
+    t0 = np.full(len(states), 100.0)
+    return segment_minima(KEEP_OUT, state_at, times, sampled, thrust, N, t0)
+
+
+@pytest.mark.parametrize("samples", [2, 20])
+def test_batched_minimum_agrees_with_the_scalar_one(samples):
+    # The scalar minimum is checked against the exact trajectory above; this checks agreement.
+    flybys = [random_flyby(seed) for seed in range(40)]
+    states = np.array([f[0] for f in flybys])
+    accels = np.array([f[1] for f in flybys])
+    _, margin, bound = batched(states, accels, 10.0, samples)
+    for k, (state, accel, _) in enumerate(flybys):
+        found, _ = detected_minimum(state, accel, 10.0, samples)
+        # Golden section to 1e-6 s and Brent to 1e-5 s land within 1e-7 m of the same dip.
+        assert margin[k] == pytest.approx(found.margin, abs=1e-7)
+        assert bound[k] == pytest.approx(found.lower_bound, rel=1e-12, abs=1e-12)

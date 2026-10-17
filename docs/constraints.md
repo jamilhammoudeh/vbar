@@ -1,7 +1,7 @@
 # Constraints and the in-step minimum
 
 Code: `vbar.constraints` (`Constraint`, the constraint types below, `segment_minimum`,
-`interval_bounds`, `range_lower_bounds`, `violation_intervals`). A
+`segment_minima`, `interval_bounds`, `range_lower_bounds`, `violation_intervals`). A
 constraint's margin is $\ge 0$ where it holds and $< 0$ where it is violated, in the constraint's
 units, as in the quantitative semantics of signal temporal logic (Donzé and Maler, 2010). The
 environment finds each constraint's lowest margin over every constant-acceleration segment of a
@@ -127,6 +127,18 @@ whenever each refined interval holds a single dip. Refinement does not tighten t
 can stay up to $\tfrac12 L h$ below the reported minimum; over 200 coasting flybys at 0.5 to
 20 m/s sampled 20 times per 10 s the gap has a median of 1.7 m and a maximum of 5.1 m.
 
+## Batches of segments
+
+`segment_minima(constraint, state_at, times, states, thrust, n, t0)` does the same for $N$
+segments sampled at the same times, as the vectorized environment needs: `states` is
+$(N, m, 6)$, `thrust` and `t0` are $(N,)$, and `state_at(rows, tau)` evaluates the segments
+`rows` at the times `tau`. The bounds and the order in which intervals are refined are the same,
+including the stop at the first interval within `resolution` of the best value, but each round
+refines one interval of every segment still searching with a golden-section search to 1e-6 s
+run on all of them at once, instead of one Brent search per interval. Near a dip the margin's
+error is second order in the bracket, so the two agree to about 1e-7 m or better. The
+constraint's `margin` and `rate_bound` must accept arrays, as `KeepOut`'s do.
+
 ## Violation intervals
 
 `violation_intervals(constraint, state_at, times, states, minimum, t0)` returns the times inside a
@@ -192,6 +204,8 @@ its minimum margin is negative.
 - The zone margin is zero on the ISS ellipsoid, infinite after GO, below the distance to 8 random
   ellipsoids (200000 surface samples) and equal to it for a sphere.
 - A constant margin on the V-bar is not refined.
+- Over 40 random flybys sampled 20 times or only at their ends, the batched minimum agrees with
+  the scalar one to 1e-7 m and its bound to 1e-12.
 - Violation intervals of coasting passes match the entry and exit times of the closed-form
   transition matrix to 1e-8 s, including a pass seen only by the refinement between two samples
   and intervals open at a segment's start or end; a pass across an actuation-delay switch is one
