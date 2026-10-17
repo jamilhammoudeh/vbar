@@ -121,7 +121,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 - Why it matters: under navigation noise the rational belief is the filter posterior given the observations, not the latest fix (Kochenderfer et al., Algorithms for Decision Making, 2022, sections 19.3 and 20.1); an agent that restates each noisy fix scores A5 = 1 while being badly calibrated.
 - Known-answer tests: sqrt(5) for stated ranges 2, -2, 6 and -6 m off a posterior with 2 m sigma; at rest on the V-bar with 50 m fixes, an agent that restates them scores A5 = 1 and A5b above 1, one that states the mean of its fixes below 1e-3; 1 for a 10 m error where the covariance along the line of sight is 100 m^2 and 4 and 9 m^2 across it; a posterior with no range variance or with its mean at the target is rejected.
 - Convergence: per decision.
-- Invariance: mirror (range and covariance are unchanged).
+- Invariance: not exercised.
 - Mutation detection: the restating agent scores above 1.
 - Anti-gaming: judged against a posterior from the agent's own observations, so it neither rewards guessing the truth nor faults sensor noise; only decisions with a stated belief count, so an agent that states one belief and then none is judged on that one, and A5b is read with A5, which counts the missing beliefs; a log with more entries than decisions is rejected.
 - Reproducibility: exact for cached replies and a deterministic posterior.

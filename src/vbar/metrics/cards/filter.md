@@ -163,8 +163,8 @@ power figures need real filters and are not given.
 - Summary: interquartile mean across episodes.
 - Why it matters: a filter that intervenes when the agent was safe costs fuel and progress for nothing.
 - Known-answer tests: 0 when zeroing full thrust 100 m behind the target (the held command coasts to 45 m, inside 50 m), equal to closed-form escape arcs at every decision; 1 for a tenth of that from 400 m.
-- Convergence: the escape arcs agree at 50 and 800 drift samples per orbit, as for S4.
-- Invariance: mirror across the orbit plane.
+- Convergence: 2/12 at 50, 200 and 800 drift samples per orbit for a chaser coasting in at 0.3 m/s whose full-thrust commands are zeroed.
+- Invariance: the same 2/12 mirrored across the orbit plane.
 - Mutation detection: not exercised; no shipped filter intervenes.
 - Anti-gaming: judged on the agent's own command, not on what the filter returned.
 - Reproducibility: exact (ratio of counts).
@@ -190,9 +190,9 @@ power figures need real filters and are not given.
 - Definition: time (s) with an active safety row while the chaser moves slower than `stall_speed` (0.01 m/s, ours).
 - Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: with the target between the chaser and its goal, a barrier's push and the agent's pull can cancel and hold the chaser in place for good; a filter that is safe by never arriving is not useful.
-- Known-answer tests: 60 s for a filter that zeroes every command from rest over six 10 s steps; 0 when the commands pass and the chaser moves.
+- Known-answer tests: 60 s for a filter that zeroes every command from rest over six 10 s steps; 0 when the commands pass and the chaser moves; 20 s for 0.03 of a full command from rest with an active row, whose first two of six decisions are slower than 0.01 m/s, and 60 s with a 0.1 m/s stall speed; 0 for a hold at rest with no active row.
 - Convergence: per decision.
-- Invariance: mirror across the orbit plane.
+- Invariance: not exercised.
 - Mutation detection: not exercised; no shipped filter stalls.
 - Anti-gaming: counts only time with an active row, so a planned hold does not count.
 - Reproducibility: exact.

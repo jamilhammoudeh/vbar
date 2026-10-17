@@ -261,6 +261,42 @@ def test_a_barrier_that_holds_the_chaser_still_counts_as_stall_time():
     assert moving["stall_time"] == 0.0
 
 
+def test_stall_time_counts_only_decisions_slower_than_the_stall_speed():
+    # 0.03 of a full command from rest gains 0.006 m/s per 10 s step, so the first two of six
+    # decisions are slower than 0.01 m/s and all six are slower than 0.1 m/s.
+    agent = FilteredAgent(ConstantAgent([0.0, 0.03, 0.0]), SequenceFilter(active=(True,)))
+    ep = episode(agent, start_state=(0.0, -300.0, 0.0, 0, 0, 0), max_steps=6)
+    assert filter_behaviour(ep)["stall_time"] == pytest.approx(20.0)
+    assert filter_behaviour(ep, MetricSettings(stall_speed=0.1))["stall_time"] == pytest.approx(
+        60.0
+    )
+
+
+def test_a_planned_hold_without_an_active_row_is_not_stall_time():
+    agent = FilteredAgent(ConstantAgent([0.0, 0.0, 0.0]), SequenceFilter())
+    ep = episode(agent, start_state=(0.0, -300.0, 0.0, 0, 0, 0), max_steps=6)
+    assert filter_behaviour(ep)["stall_time"] == 0.0
+
+
+def test_unnecessary_interventions_do_not_depend_on_drift_sampling_or_mirroring():
+    start = np.array([5.0, -140.0, 8.0, 0.0, 0.3, 0.01])
+    mirrored = start * [1, 1, -1, 1, 1, -1]
+
+    def rate(state, samples):
+        agent = FilteredAgent(ConstantAgent([0.0, 1.0, 0.2]), SequenceFilter(zero=True))
+        ep = episode(agent, start_state=tuple(state), max_steps=12)
+        settings = MetricSettings(drift_samples_per_orbit=samples)
+        return filter_behaviour(ep, settings)["unnecessary_intervention_rate"]
+
+    # Coasting in at 0.3 m/s, the held full-thrust command clears from two of the twelve decisions.
+    reference = rate(start, 200)
+    assert reference == pytest.approx(2 / 12)
+    assert rate(start, 50) == rate(start, 800) == reference
+    agent = FilteredAgent(ConstantAgent([0.0, 1.0, -0.2]), SequenceFilter(zero=True))
+    ep = episode(agent, start_state=tuple(mirrored), max_steps=12)
+    assert filter_behaviour(ep)["unnecessary_intervention_rate"] == reference
+
+
 def test_fallbacks_and_certificates_are_reported_as_given():
     agent = FilteredAgent(
         PDAgent(),

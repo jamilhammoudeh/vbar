@@ -485,7 +485,10 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   coasts to 45 m, inside the 50 m sphere; F8 = 0, equal to closed-form escape arcs) and a tenth of
   it from 400 m was not (F8 = 1); recovering stretches of 3 and 1 decisions give F9 = 20 s,
   and one still open at the end gives infinity; a filter
-  that zeroes every command from rest gives 60 s of stall time over six steps; scripted fallbacks
+  that zeroes every command from rest gives 60 s of stall time over six steps, 0.03 of a full
+  command from rest gives 20 s (60 s with a 0.1 m/s stall speed) and a hold with no active row
+  none; F8 is 2/12 for a chaser coasting in at 0.3 m/s whose full-thrust commands are zeroed, the
+  same at 50, 200 and 800 drift samples per orbit and mirrored; scripted fallbacks
   and certificates are counted as given, and NaN when not reported; conservatism is 40/101 for a filter keeping 0.6 m of a
   viable 1 m.
 - Agent (`tests/test_metrics_agent.py`): A1 and A2 from set latencies; alternating unreadable
