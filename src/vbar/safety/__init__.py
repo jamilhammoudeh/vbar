@@ -51,6 +51,10 @@ class FilterResult:
     def __post_init__(self):
         if self.status not in FILTER_STATUSES:
             raise ValueError(f"unknown filter status {self.status!r}, expected {FILTER_STATUSES}")
+        if self.fallback_level not in (None, 0, 1, 2):
+            raise ValueError(f"fallback level {self.fallback_level!r} is not 0, 1 or 2")
+        if self.certificate_horizon is not None and not self.certificate_horizon > 0.0:
+            raise ValueError("a certificate horizon must be positive (inf for an invariant set)")
 
 
 class PassThroughFilter:
