@@ -63,9 +63,9 @@ $s$ is the time from the start of the step and $d$ the distance to the goal.
   $F = \begin{bmatrix} A & B & 0 \\ 0 & 0 & 0 \\ 0 & 0 & 0\end{bmatrix} - \tfrac{1}{2\tau} I$
   and $C$ the cost matrix of $\mathbf z$, $\exp\left(\begin{bmatrix} -F^T & C \\ 0 & F\end{bmatrix}
   d\right)$ has blocks $G_{12}$, $G_{22}$ and $W = G_{22}^T G_{12}$. The $\tfrac{1}{2\tau}$ shift
-  folds the discount into the state; since it makes the exponential grow as $e^{d/2	au}$, a
-  segment longer than $	au$ is integrated in $k$ pieces $h = d/k \le 	au$,
-  $W(d) = \sum_j e^{-jh/	au} (E^j)^T W(h) E^j$ with $E$ the undiscounted transition of
+  folds the discount into the state; since it makes the exponential grow as $e^{d/2\tau}$, a
+  segment longer than $\tau$ is integrated in $k$ pieces $h = d/k \le \tau$,
+  $W(d) = \sum_j e^{-jh/\tau} (E^j)^T W(h) E^j$ with $E$ the undiscounted transition of
   $\mathbf z$ over $h$. It is exact for the CW model only.
 
 ## Transitions
