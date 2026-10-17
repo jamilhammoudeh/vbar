@@ -95,6 +95,29 @@ def test_closing_through_a_hold_gate_is_an_infinite_ratio():
     assert safety_metrics(at_rest)["closing_speed_ratio"] == 0.0
 
 
+def test_a_law_allowing_less_than_zero_is_infinite_even_at_rest():
+    at_rest = episode(
+        extra=(ClosingSpeedLimit(-0.1, 0.0),),
+        soft=("closing_speed_limit",),
+        start_state=(0.0, -300.0, 0.0, 0.0, 0.0, 0.0),
+        max_steps=2,
+    )
+    m = safety_metrics(at_rest)
+    assert m["min_margin"]["closing_speed_limit"] == pytest.approx(-0.1)
+    assert m["closing_speed_ratio"] == np.inf
+
+
+def test_with_two_closing_rate_laws_the_ratio_is_the_higher_one():
+    start = np.array([0.0, 300.0, 20.0, 0.05, -0.8, 0.0])
+    gates = GateTable(((50.0, 0.1), (200.0, 0.4), (400.0, 0.6)))
+    both = episode(extra=(CLOSING, gates), start_state=tuple(start), max_steps=12)
+    linear = episode(extra=(CLOSING,), start_state=tuple(start), max_steps=12)
+    table = episode(extra=(gates,), start_state=tuple(start), max_steps=12)
+    ratios = [safety_metrics(ep)["closing_speed_ratio"] for ep in (linear, table)]
+    assert safety_metrics(both)["closing_speed_ratio"] == max(ratios)
+    assert ratios[0] != ratios[1]
+
+
 def test_time_to_keep_out_at_the_start_of_a_straight_closing():
     # 250 m from the 50 m sphere at 0.5 m/s straight in: 500 s.
     start = np.array([0.0, 300.0, 0.0, 0.0, -0.5, 0.0])

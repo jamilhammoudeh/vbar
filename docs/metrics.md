@@ -161,7 +161,7 @@ any others passed in (for example a soft passive-speed envelope the scenario doe
 | S1b | `min_margin_bound[c]` | constraint's | the certified lower bound on S1 |
 | S2 | `violation_depth[c]` | constraint's | $\max(0, -\text{S1})$ |
 | S3 | `violation_duration[c]` | s | total time with $m_c < 0$, from `negative_intervals` |
-| S5 | `closing_speed_ratio` | ratio | highest $\max(0,-\dot\rho)/v_{\text{allowed}}(\rho)$ with the scenario's closing-rate law, $v_0 + v_1\rho$ (`ClosingSpeedLimit`) or a gate table (`GateTable`); closing at a hold gate is infinite; refined around the highest sample without a certificate (S1 of the law is the certified quantity); NaN without one |
+| S5 | `closing_speed_ratio` | ratio | highest $\max(0,-\dot\rho)/v_{\text{allowed}}(\rho)$ with the scenario's closing-rate law, $v_0 + v_1\rho$ (`ClosingSpeedLimit`) or a gate table (`GateTable`); closing at a hold gate, or a law allowing less than 0, is infinite; with both laws declared, the higher ratio; refined around the highest sample without a certificate (S1 of the law is the certified quantity); NaN without one |
 | S6 | `min_time_to_keep_out` | s | least $(\rho - R)/\max(0,-\dot\rho)$ over the step boundaries while closing (faster than 1e-9 m/s), zero inside the sphere, $\infty$ if never closing; NaN without a keep-out sphere |
 
 ## Passive safety and aborts (S4, S4b, S4i, S4t, S4o, S8, S9)

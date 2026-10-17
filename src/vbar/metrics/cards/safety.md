@@ -61,7 +61,7 @@ named. Power as in the mission cards.
 - Changelog: v1, first version.
 
 ## S5 closing_speed_ratio (v2)
-- Definition: highest closing speed over the speed the scenario's closing-rate law allows at that range, the linear v0 + v1 rho or a gate table; infinite when closing at a hold gate; NaN without a law.
+- Definition: highest closing speed over the speed the scenario's closing-rate law allows at that range, the linear v0 + v1 rho or a gate table; infinite when closing at a hold gate or where the law allows less than 0; the higher ratio when both laws are declared; NaN without a law.
 - Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: how close the approach came to the speed rule, scale-free.
 - Known-answer tests: equals the maximum over 120001 closed-form samples to 1e-7, for the linear law and for a gate table; infinite closing through a hold gate; the STS-130 +V-bar gates sit 3.84, 1.76, 1.80 and 1.03 times inside the V-bar passive-speed envelope at 185 n.mi. (Goodman, fig. 25.22).

@@ -43,9 +43,9 @@ def closing_speed_ratio(ep: Episode, limit: ClosingSpeedLimit | GateTable, trace
     """S5: highest closing speed over the allowed speed of the scenario's closing-rate law.
 
     The law is the scenario's own: the linear v0 + v1 rho or a gate table. Closing at a hold gate
-    (allowed 0) is an infinite ratio. Found at the samples and refined on the two sample intervals
-    around the highest one, without a certificate; the S1 margin of the law carries the certified
-    bound.
+    (allowed 0), or any state where the law allows less than 0, is an infinite ratio. Found at the
+    samples and refined on the two sample intervals around the highest one, without a
+    certificate; the S1 margin of the law carries the certified bound.
     """
 
     def ratio(state, t=0.0):
@@ -53,7 +53,8 @@ def closing_speed_ratio(ep: Episode, limit: ClosingSpeedLimit | GateTable, trace
         allowed = np.asarray(limit.allowed_speed(rho), dtype=float)
         closing = closing_speed(state)
         with np.errstate(divide="ignore", invalid="ignore"):
-            return np.where(allowed > 0.0, closing / allowed, np.where(closing > 0.0, np.inf, 0.0))
+            violated = (closing > 0.0) | (allowed < 0.0)
+            return np.where(allowed > 0.0, closing / allowed, np.where(violated, np.inf, 0.0))
 
     # The first segment's first sample is the start state, so the peak covers it.
     return peak(ratio, trace)
@@ -87,15 +88,15 @@ def safety_metrics(ep: Episode, constraints: Iterable[Constraint] | None = None)
         low[c.name], bound[c.name] = lowest_margin(ep, c, trace)
         depth[c.name] = max(0.0, -low[c.name])
         duration[c.name] = total(negative_intervals(c, trace)) if ep.records else 0.0
-    closing = next((c for c in chosen if isinstance(c, ClosingSpeedLimit | GateTable)), None)
+    laws = [c for c in chosen if isinstance(c, ClosingSpeedLimit | GateTable)]
     keep_out = next((c for c in chosen if isinstance(c, KeepOut)), None)
     return {
         "min_margin": low,
         "min_margin_bound": bound,
         "violation_depth": depth,
         "violation_duration": duration,
-        "closing_speed_ratio": closing_speed_ratio(ep, closing, trace)
-        if closing is not None and ep.records
+        "closing_speed_ratio": max(closing_speed_ratio(ep, law, trace) for law in laws)
+        if laws and ep.records
         else math.nan,
         "min_time_to_keep_out": time_to_keep_out(ep, keep_out) if keep_out else math.nan,
     }
