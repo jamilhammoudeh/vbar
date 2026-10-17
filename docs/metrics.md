@@ -576,3 +576,53 @@ print(round(m["delta_v"], 3), round(m["min_margin"]["keep_out"], 2))  # 2.718 54
 print(round(m["passive_safety_margin"], 2), m["unprotected_time"])  # 33.76 0.0
 print(m["composite_score"], m["infractions"])  # 1.0 {'keep_out': 0, 'timeout': 0}
 ```
+
+Summaries over several runs, here the PD baseline from six radial offsets. S1 comes per
+constraint; success is a rate with its exact interval:
+
+```python
+from vbar.metrics import summarize
+
+runs = []
+for x0 in (-150.0, -100.0, -50.0, 0.0, 50.0, 100.0):
+    config = ApproachConfig(start_state=(x0, -400.0, 20.0, 0.0, 0.0, 0.0), max_steps=120)
+    runs.append(evaluate(record_episode(ApproachEnv(config), PDAgent(), seed=0, agent_seed=0)))
+keep_out = summarize("min_margin", [m["min_margin"] for m in runs])["keep_out"]
+print(round(keep_out["worst"], 2), round(keep_out["tail_mean"], 2))  # 54.26 54.26
+rate = summarize("success", [m["success"] for m in runs])
+print(rate["rate"], round(rate["lower"], 3), rate["upper"])  # 1.0 0.541 1.0
+```
+
+A range-rate gate table as the closing-rate law, and the filter metrics of a filter that halves
+every command:
+
+```python
+import numpy as np
+
+from vbar.constraints import GateTable
+from vbar.metrics import filter_behaviour, filter_metrics
+from vbar.safety import FilteredAgent, FilterResult
+
+# STS-130 +V-bar gates (Goodman, fig. 25.22), converted to m and m/s.
+gates = GateTable(((97.5, 0.061), (33.5, 0.046), (22.9, 0.030), (9.1, 0.021)))
+print(np.round(gates.allowed_speed([100.0, 50.0, 15.0, 5.0]), 4))  # [0.061 0.0499 0.0248 0.021]
+
+
+class Halving:
+    name = "halving"
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        return FilterResult(0.5 * action, True)
+
+
+config = ApproachConfig(start_state=(0.0, -400.0, 0.0, 0.0, 0.0, 0.0), max_steps=30)
+agent = FilteredAgent(PDAgent(), Halving())
+episode = record_episode(ApproachEnv(config), agent, seed=0, agent_seed=0)
+f = {**filter_metrics(episode), **filter_behaviour(episode)}
+print(f["intervention_rate"], round(f["intervention_size"], 5))  # 1.0 0.00486 (m/s^2)
+# Every halved command would have stayed clear; one decision at rest with a row active.
+print(f["unnecessary_intervention_rate"], f["stall_time"])  # 1.0 10.0
+```
