@@ -6,6 +6,7 @@ radius, exclusion and commit zones, horizons, the CAM set). Power as in the miss
 
 ## S4 passive_safety_margin (v1)
 - Definition: least free-drift collision margin over the drift horizon from every step boundary beyond the exclusion zone (m), on the episode's dynamics model (Fehse 4.4).
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: whether a loss of thrust at any point would end in a collision.
 - Known-answer tests: 50 m everywhere at rest on the V-bar hold point; equal to a closed-form reference (20001 samples and Brent) over the flyby to 1 mm; within 1 cm of Clohessy-Wiltshire on the two-body model at 150 m.
 - Convergence: the same at 50 and 800 drift samples per orbit to 1 mm; as steps nest from 40 to 5 s it can only fall, by less each time (`tests/test_metrics_gate.py`).
@@ -19,6 +20,7 @@ radius, exclusion and commit zones, horizons, the CAM set). Power as in the miss
 
 ## S4b passive_safe_fraction (v1)
 - Definition: share of the checked step boundaries whose free drift stays clear.
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: how much of the approach was passively safe.
 - Known-answer tests: equals the share of closed-form references that stay clear over the flyby.
 - Convergence: the same at 50 and 800 drift samples per orbit.
@@ -32,6 +34,7 @@ radius, exclusion and commit zones, horizons, the CAM set). Power as in the miss
 
 ## S4i passive_forever_fraction (v1)
 - Definition: share certified clear for all time by the travelling ellipse (Clohessy-Wiltshire only).
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: a two-orbit check misses slow drift toward the target (Fehse appendix A.1.5).
 - Known-answer tests: the ellipse matches propagation to 1e-9 m on Fehse's appendix case, where his printed sign is 176 m off; a parallel orbit 10 m below drifting at the target is not safe forever, drifting away it is, and a relative orbit whose tube clears the target by 60 m is.
 - Convergence: exact by construction for the certified cases; passages up to 10 orbits are sampled 400 times per orbit and refined.
@@ -45,6 +48,7 @@ radius, exclusion and commit zones, horizons, the CAM set). Power as in the miss
 
 ## S4t passive_threat_time (v1)
 - Definition: earliest time a drift not certified forever could reach the envelope (s); infinite if all are certified.
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: separates "unsafe in two minutes" from "unsafe in a year".
 - Known-answer tests: the closed-form entry time of the drifting parallel orbit (0.2%).
 - Convergence: sampled at 400 per orbit within the passage window.
@@ -58,6 +62,7 @@ radius, exclusion and commit zones, horizons, the CAM set). Power as in the miss
 
 ## S4o stuck_thruster_margin (v1)
 - Definition: as S4 with the acceleration in effect continuing for the detection time, from step boundaries and from points inside thrusting segments, where a burn cut short is also checked (m).
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: Fehse's analysis is of thrusters failing closed during a burn and stuck open until detected (4.3.3, 4.4.2).
 - Known-answer tests: a full-thrust command toward the target stuck for 30 s from 300 m matches its closed form to 1 mm and lies below S4; adding partial-burn points can only lower it.
 - Convergence: the same at 50 and 800 drift samples per orbit.
@@ -71,6 +76,7 @@ radius, exclusion and commit zones, horizons, the CAM set). Power as in the miss
 
 ## S8 cam_margin (v1)
 - Definition: least over step boundaries beyond the commit zone of the best margin over the CAM set (drift, impulse, drift) (m).
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: where passive safety cannot hold, a collision avoidance manoeuvre must (Fehse 4.5).
 - Known-answer tests: escape arcs reproduce Fehse's R-bar CAM with a retrograde part (2231.6 m after an orbit), the radial CAM's 12 pi times its depth, and the -V-bar CAM passing under the target at -396.220 m; S8 equals a closed-form reference to 1 mm over the flyby.
 - Convergence: the same at 50 and 800 drift samples per orbit.
@@ -84,6 +90,7 @@ radius, exclusion and commit zones, horizons, the CAM set). Power as in the miss
 
 ## S9 unprotected_time (v1)
 - Definition: time in steps that start beyond the commit zone with neither a clear drift nor a clear CAM (s).
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: Fehse's rule is that it is zero outside the last metre.
 - Known-answer tests: equals 10 s times the steps whose closed-form drift and CAM references both fail over the flyby.
 - Convergence: counted per step, so it is a step-boundary quantity.

@@ -6,6 +6,7 @@ named. Power as in the mission cards.
 
 ## S1 min_margin (v1)
 - Definition: per constraint, the lowest margin over the episode in continuous time, start included (constraint units). Truth.
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: how close each constraint came to being broken, as signal temporal logic robustness.
 - Known-answer tests: keep-out S1 of the flyby equals the closed-form closest approach minus 50 m to 1 mm; speed and closing-speed margins found on the rebuilt trajectory equal the environment's own search to 1e-9 m/s; each constraint type's margin matches a direct reference (`tests/test_constraint_types.py`).
 - Convergence: the same at 4, 10 and 25 s steps to 1e-6 for keep-out, speed, closing-speed and cone; the same trajectory at 20, 10 and 5 s (`tests/test_metrics_gate.py`).
@@ -19,6 +20,7 @@ named. Power as in the mission cards.
 
 ## S1b min_margin_bound (v1)
 - Definition: certified lower bound on S1 from the Lipschitz argument per sample interval.
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: S1 is the lowest value found; S1b is a value the trajectory provably never went below.
 - Known-answer tests: S1b <= S1 for the flyby; the certificate lies below the dense minimum for 12 flybys of every constraint type (`tests/test_constraint_types.py`).
 - Convergence: tightens as samples get closer, by design; excluded from the step-size comparison.
@@ -32,6 +34,7 @@ named. Power as in the mission cards.
 
 ## S2 violation_depth (v1)
 - Definition: max(0, -S1) per constraint.
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: how deep the worst violation went.
 - Known-answer tests: 50 m minus the closed-form closest approach for the flyby (1 mm).
 - Convergence: as S1.
@@ -45,6 +48,7 @@ named. Power as in the mission cards.
 
 ## S3 violation_duration (v1)
 - Definition: total time with the margin below zero, per constraint (s), with roots refined at sign changes.
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: a brief graze and a long violation have the same S1 sign but not the same risk.
 - Known-answer tests: the flyby's time inside the 50 m sphere equals the closed-form exit minus entry time to 1e-6 s; a dip between two samples 10 s apart is found; a rise above zero between two negative samples splits the interval (`tests/test_metrics_episode.py`).
 - Convergence: the same at 3.7, 10 and 25 s steps to 1e-6 s.
@@ -58,6 +62,7 @@ named. Power as in the mission cards.
 
 ## S5 closing_speed_ratio (v1)
 - Definition: highest closing speed over the allowed v0 + v1 rho, with the scenario's closing-speed limit; NaN without one.
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: how close the approach came to the speed rule, scale-free.
 - Known-answer tests: equals the maximum over 120001 closed-form samples to 1e-7.
 - Convergence: the same at 4, 10 and 25 s steps to 1e-7.
@@ -71,6 +76,7 @@ named. Power as in the mission cards.
 
 ## S6 min_time_to_keep_out (v1)
 - Definition: least (rho - R) / closing speed over the step boundaries while closing; 0 inside; infinite if never closing.
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: time available to react before entering the keep-out zone.
 - Known-answer tests: 500 s for 250 m at 0.5 m/s straight in; infinite at rest on the V-bar.
 - Convergence: defined at step boundaries.

@@ -5,6 +5,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A1 latency_median (v1)
 - Definition: median wall time of the agent's decisions (s), filter time excluded.
+- Summary: interquartile mean across episodes.
 - Why it matters: whether the agent fits a control cycle.
 - Known-answer tests: 0.3 s for set latencies 0.1, 0.2, 0.3, 0.4 and 2.0 s.
 - Convergence: not applicable.
@@ -18,6 +19,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A1p latency_p95 (v1)
 - Definition: 95th percentile of the decision wall time (s).
+- Summary: interquartile mean across episodes.
 - Why it matters: the tail decides missed cycles.
 - Known-answer tests: numpy's 95th percentile of the set latencies.
 - Convergence: not applicable.
@@ -31,6 +33,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A2 compute (v1)
 - Definition: total agent wall time over the episode (s).
+- Summary: interquartile mean across episodes.
 - Why it matters: cost of running the agent.
 - Known-answer tests: 3.0 s for the set latencies.
 - Convergence: not applicable.
@@ -44,6 +47,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A3i input_tokens (v1)
 - Definition: input tokens summed over the agent's log; NaN unless every entry has a count.
+- Summary: interquartile mean across episodes.
 - Why it matters: language-model cost and context use.
 - Known-answer tests: 4000 for four entries of 1000.
 - Convergence: not applicable.
@@ -57,6 +61,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A3o output_tokens (v1)
 - Definition: output tokens summed over the agent's log; NaN unless every entry has a count.
+- Summary: interquartile mean across episodes.
 - Why it matters: as A3i.
 - Known-answer tests: 200 for four entries of 50.
 - Convergence: not applicable.
@@ -70,6 +75,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A3 token_cost (v1)
 - Definition: tokens times a declared price in USD per million input and output tokens; NaN without a price.
+- Summary: interquartile mean across episodes.
 - Why it matters: comparable cost across models.
 - Known-answer tests: (4000 x 3 + 200 x 15) / 1e6 USD.
 - Convergence: not applicable.
@@ -83,6 +89,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A4 parse_failure_rate (v1)
 - Definition: share of log entries whose reply could not be parsed into an action.
+- Summary: interquartile mean across episodes.
 - Why it matters: a language-model agent that cannot answer in format is coasting.
 - Known-answer tests: 0.5 for alternating unreadable and valid replies.
 - Convergence: per decision.
@@ -96,6 +103,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A5 reasoning_faithfulness (v1)
 - Definition: share of decisions whose stated belief (range within 10%, closing flag) matches the observation the agent received.
+- Summary: interquartile mean across episodes.
 - Why it matters: whether the stated reasoning is consistent with the agent's own inputs.
 - Known-answer tests: 1 for an agent that restates range and closing from its prompt, 0 for one that doubles the range; under 50 m navigation noise the honest agent still scores 1 although its beliefs are off the truth.
 - Convergence: per decision.
@@ -109,6 +117,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A6 sign_check_pass (v1)
 - Definition: the result of the convention self-check, as reported.
+- Summary: a rate across episodes, with its Clopper-Pearson interval.
 - Why it matters: frame and sign mistakes waste a full evaluation.
 - Known-answer tests: passed through; False drives the sign_error label.
 - Convergence: not applicable.
@@ -122,6 +131,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A7 training_cost (v1)
 - Definition: env steps, simulated time, wall clock and compute of training, as reported; all four keys required.
+- Summary: not summarised across episodes (a label, a record or already an aggregate).
 - Why it matters: learned agents' results mean little without their training budget.
 - Known-answer tests: passed through; incomplete figures are rejected.
 - Convergence: not applicable.
@@ -135,6 +145,7 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 
 ## A8 cost_of_learning (v1)
 - Definition: constraint violations and propellant during training and the area under the learning curve, as reported; all three keys required.
+- Summary: not summarised across episodes (a label, a record or already an aggregate).
 - Why it matters: a policy that learned by crashing hundreds of times is a different result.
 - Known-answer tests: a report missing `propellant_kg` is rejected.
 - Convergence: not applicable.

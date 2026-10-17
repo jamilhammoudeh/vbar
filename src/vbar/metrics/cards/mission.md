@@ -9,6 +9,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M1 success (v1)
 - Definition: the goal is met (capture at a step boundary; a dwell of `hold_time`; contact with M10 >= 0) and no hard constraint's certified in-step minimum fell below zero. Truth.
+- Summary: a rate across episodes, with its Clopper-Pearson interval.
 - Why it matters: the headline completion rate.
 - Known-answer tests: PD from 400 m behind succeeds; rest on the V-bar hold point succeeds at 10 s; capture after flying through the keep-out zone fails; a hold that lasts 0.9 of the required dwell fails and 1.1 succeeds; contact at 0.08 m/s on axis succeeds, at 0.2 m/s fails.
 - Convergence: decided at step boundaries for capture, in continuous time for dwell and contact; contact found between samples 10 s apart (`test_a_contact_between_two_samples_ten_seconds_apart_is_found`).
@@ -22,6 +23,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M2 terminal_pos_error (v1)
 - Definition: |r - r_goal| at the end (m), r_goal the hold point or the port. Truth.
+- Summary: interquartile mean across episodes.
 - Why it matters: how far from the goal the run ended.
 - Known-answer tests: zero at the V-bar equilibrium; equal to the closed-form free-drift end point for the flyby (1e-12 relative).
 - Convergence: same at 5, 10 and 20 s steps (1e-9 relative).
@@ -35,6 +37,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M3 terminal_vel_error (v1)
 - Definition: |v - v_goal| at the end (m/s). Truth.
+- Summary: interquartile mean across episodes.
 - Why it matters: a run can end near the goal but moving fast.
 - Known-answer tests: zero at the V-bar equilibrium; under the capture speed for PD's captures.
 - Convergence: same at 5, 10 and 20 s steps (1e-9 relative).
@@ -48,6 +51,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M4 time_to_complete (v1)
 - Definition: when the goal is met (contact time, end of the first full dwell, first capturing step boundary), else T (s).
+- Summary: interquartile mean across episodes.
 - Why it matters: speed of completion.
 - Known-answer tests: 10 s at the V-bar equilibrium; the closed-form crossing time for contact (1e-6 s); the required dwell for a hold that succeeds.
 - Convergence: step-boundary resolution for capture; continuous for dwell and contact.
@@ -61,6 +65,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M5 progress (v1)
 - Definition: clip(1 - d_end / d_0, 0, 1), d the distance to the goal.
+- Summary: interquartile mean across episodes.
 - Why it matters: partial credit for failed runs; the composite score's completion.
 - Known-answer tests: 1 at the equilibrium; 0 when moving away; 1 - d_end / 250 for the flyby.
 - Convergence: same at 5, 10 and 20 s steps.
@@ -74,6 +79,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M6 contact_lateral_error (v1)
 - Definition: lateral offset from the docking axis at the first port-plane crossing (m). Truth, continuous time.
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: reception range of the mechanism (Fehse 7.1.1: 0.05 to 0.2 m).
 - Known-answer tests: equals the closed-form offset at the closed-form crossing time to 1e-9 m.
 - Convergence: the crossing is found between samples 10 s apart.
@@ -87,6 +93,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M7 contact_axial_speed (v1)
 - Definition: -v . a_hat at contact (m/s).
+- Summary: interquartile mean across episodes.
 - Why it matters: impact docking needs a minimum and a maximum contact speed (Fehse 8.3.5, appendix C).
 - Known-answer tests: equals the closed-form speed at the crossing to 1e-9 m/s.
 - Convergence: continuous-time event.
@@ -100,6 +107,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M8 contact_lateral_speed (v1)
 - Definition: |v - (v . a_hat) a_hat| at contact (m/s).
+- Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: lateral speed limits are 4 to 20 times tighter than total-speed limits (Fehse 7.1.1).
 - Known-answer tests: equals the closed-form lateral speed at the crossing to 1e-9 m/s.
 - Convergence: continuous-time event.
@@ -113,6 +121,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M9 hold_dwell (v1)
 - Definition: longest continuous time inside the capture predicate (s), NaN without one.
+- Summary: interquartile mean across episodes.
 - Why it matters: a state inside the capture box can leave it within a fraction of an orbit (Fehse 3.3.3).
 - Known-answer tests: from rest 2 m above the hold point, the closed-form time to leave a 10 m ball (1e-6 s).
 - Convergence: continuous time from the hold signal's negative intervals.
@@ -126,6 +135,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M10 capture_margin (v1)
 - Definition: least over the contact criteria of (limit - value) / limit, the window's lower end as (value - limit) / limit (left out when it is zero); negative is out of tolerance.
+- Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: a continuous margin next to the boolean contact verdict.
 - Known-answer tests: equals the formula on closed-form contact values to 1e-8; -1 for a 0.2 m/s impact against 0.10 m/s.
 - Convergence: continuous-time event.

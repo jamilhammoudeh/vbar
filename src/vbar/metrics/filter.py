@@ -10,6 +10,7 @@ import math
 from collections.abc import Sequence
 
 import numpy as np
+from numpy.typing import ArrayLike
 from scipy.stats import trim_mean
 
 from ..agents.base import action_scale
@@ -65,7 +66,7 @@ def filter_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict[
     return out
 
 
-def iqm(values: Sequence[float]) -> float:
+def iqm(values: ArrayLike) -> float:
     """Interquartile mean: the mean of the middle half (Agarwal et al., 2021)."""
     return float(trim_mean(np.asarray(values, dtype=float), 0.25))
 

@@ -333,6 +333,18 @@ success), the first that matches in this order (`LABELS`):
 | `timeout_far` | any other timeout |
 | `other` | none of the above, for example a capture inside a forbidden zone |
 
+## Summaries across episodes
+
+Each metric's catalogue entry (`METRICS[name].summary`) says how it ranks across episodes, and
+`summarize(name, values)` computes it. Performance metrics (delta-v, terminal errors, time) use
+the interquartile mean. Safety metrics use their unsafe tail, `unsafe_tail(values, worse)`: the
+worst value, the 5th percentile on the unsafe side and the mean at or beyond it (a conditional
+value at risk). The interquartile mean drops the worst quarter of episodes, which is where
+keep-out and abort failures are, so two agents with the same interquartile margin can differ
+entirely in how often they nearly collide (Kochenderfer et al., *Algorithms for Decision Making*,
+2022, section 14.1). Margins, safe fractions and times (S1, S4, S4b, S4o, S6, S8) take the lower
+tail; ratios, durations and impulses (S5, S3, S9, S10) the upper. Booleans are rates.
+
 ## Metric cards
 
 Each metric has a card in `src/vbar/metrics/cards/` (one file per family): its definition, why it
@@ -453,6 +465,11 @@ needed to detect a stated change on the baselines, evidence of validity, and its
   must reproduce to 1e-9 relative on every platform, exactly for booleans, counts and labels, and
   to the stated resolution for refined minima (1 mm, or 1e-6 for angles and ratios), since which
   sample intervals get refined can change with the last bits of a sample.
+- Summaries (`tests/test_metrics_summary.py`): over 40 margins with two near misses, the unsafe
+  tail reports the worst value, numpy's 5th percentile and the mean of the values at or below it,
+  while the interquartile mean of the same values stays above 25; a ratio where higher is worse
+  takes the upper tail; rates count successes and leave out NaN; every safety metric in the list
+  above ranks by its tail and every performance metric by the interquartile mean.
 
 ## Example
 

@@ -10,6 +10,7 @@ from vbar.metrics import METRICS
 CARDS = Path(__file__).parents[1] / "src" / "vbar" / "metrics" / "cards"
 FIELDS = (
     "Definition",
+    "Summary",
     "Why it matters",
     "Known-answer tests",
     "Convergence",

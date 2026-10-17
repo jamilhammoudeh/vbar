@@ -5,6 +5,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E1 delta_v (v1)
 - Definition: sum over executed segments of |a|_2 tau (m/s), as the actuator integrated it.
+- Summary: interquartile mean across episodes.
 - Why it matters: fuel for one steerable engine.
 - Known-answer tests: a half-command burn on two axes for 30 s gives 0.01 sqrt(2) 30 m/s; a constant-thrust burn gives Isp g0 ln(m0 / m1) (1e-12).
 - Convergence: the same at 10 and 2.5 s steps (1e-12); same trajectory at 20, 10 and 5 s (`tests/test_metrics_gate.py`).
@@ -18,6 +19,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E1b delta_v_axes (v1)
 - Definition: the same with |a|_1 (m/s), the cost of a thruster pair per axis.
+- Summary: interquartile mean across episodes.
 - Why it matters: with box limits the 2-norm under-counts fuel by up to sqrt(3).
 - Known-answer tests: 0.6 m/s for the half-command burn on two axes for 30 s.
 - Convergence: as E1.
@@ -31,6 +33,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E2 propellant_mass (v1)
 - Definition: m0 (1 - exp(-dv / (Isp g0))) with the layout's delta-v (kg).
+- Summary: interquartile mean across episodes.
 - Why it matters: what the tank actually loses.
 - Known-answer tests: 500 (1 - exp(-0.6 / (220 g0))) kg for the box burn; equals the actuator's per-burn sum to 1e-12; ball thrusters spend on the 2-norm.
 - Convergence: as E1.
@@ -44,6 +47,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E3 optimality_gap (v1)
 - Definition: layout delta-v over a lower bound certified for the episode's dynamics rung, the same success set, time window and norm; NaN for failures, without bounds, or when the bound is for another rung (then see E3m).
+- Summary: interquartile mean across episodes.
 - Why it matters: fuel against what physics allows, at least 1 by theorem.
 - Known-answer tests: 2 with a lower bound at half the delta-v.
 - Convergence: inherits E1's.
@@ -57,6 +61,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E3m optimality_gap_model (v1)
 - Definition: layout delta-v over a lower bound certified for a different dynamics rung than the episode's; NaN otherwise.
+- Summary: interquartile mean across episodes.
 - Why it matters: a CW bound is a theorem for CW only; on two-body truth the optimum can lie on either side of it, so the ratio can fall below 1 with no bug (Rawlings, Mayne and Diehl, sections 8.1.2 and 8.10).
 - Known-answer tests: 1/1.01 for a CW bound 1% above the delta-v of a two-body run, which is not flagged.
 - Convergence: inherits E1's.
@@ -70,6 +75,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E3u optimality_gap_upper (v1)
 - Definition: layout delta-v over the best known feasible cost.
+- Summary: interquartile mean across episodes.
 - Why it matters: progress against the best known solution, which can be below 1.
 - Known-answer tests: 1.25 with an upper bound at 0.8 of the delta-v.
 - Convergence: inherits E1's.
@@ -83,6 +89,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E3f below_lower_bound (v1)
 - Definition: a successful run spent less than the certified lower bound by more than 1e-9 relative.
+- Summary: a rate across episodes, with its Clopper-Pearson interval.
 - Why it matters: a theorem says this cannot happen, so it exposes simulator or accounting bugs.
 - Known-answer tests: flagged 1% below the bound; not flagged at the bound within rounding; never flagged for a failure or for a bound certified for another rung.
 - Convergence: not applicable.
@@ -96,6 +103,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E3c bound_certified (v1)
 - Definition: whether the oracle's lower bound is certified for the episode's dynamics rung.
+- Summary: a rate across episodes, with its Clopper-Pearson interval.
 - Why it matters: says whether E3 >= 1 is a theorem for this run.
 - Known-answer tests: False for a CW bound on a two-body run, True for a two-body bound there and for a CW bound on CW.
 - Convergence: not applicable.
@@ -109,6 +117,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E3r bound_rung (v1)
 - Definition: the dynamics rung the oracle's lower bound is certified for, empty without bounds.
+- Summary: not summarised across episodes (a label, a record or already an aggregate).
 - Why it matters: carried with the result so a later reader can tell a certified gap from a model ratio.
 - Known-answer tests: "cw" for a CW bound.
 - Convergence: not applicable.
@@ -122,6 +131,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E4 burn_count (v1)
 - Definition: maximal runs of consecutive steps with any executed thrust.
+- Summary: interquartile mean across episodes.
 - Why it matters: thruster cycling and operational complexity.
 - Known-answer tests: 3 burns in a scripted on, on, off, on, off, on pattern; a half-step delay keeps one burn one burn.
 - Convergence: defined per step, so it changes with the step length by definition.
@@ -135,6 +145,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E5 duty_cycle (v1)
 - Definition: time with any executed thrust over T.
+- Summary: interquartile mean across episodes.
 - Why it matters: share of the episode spent thrusting.
 - Known-answer tests: 1 for a constant burn; 1/2 for the scripted pattern.
 - Convergence: same at 10 and 2.5 s steps; same trajectory at 20, 10 and 5 s.
@@ -148,6 +159,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 
 ## E6 chatter (v1)
 - Definition: per axis, sign changes between consecutive nonzero executed accelerations, summed over axes, over T (1/s).
+- Summary: interquartile mean across episodes.
 - Why it matters: oscillating commands wear thrusters and waste fuel.
 - Known-answer tests: 3 changes in 80 s for the scripted pattern; 0 for a constant burn.
 - Convergence: same trajectory at 20, 10 and 5 s.

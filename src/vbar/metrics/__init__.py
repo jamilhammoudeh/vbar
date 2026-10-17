@@ -19,6 +19,7 @@ from .registry import METRICS, MetricInfo
 from .safety import safety_metrics
 from .settings import MetricSettings
 from .stl import Signal, Trace, complement, merge, minimum, negative_intervals, total
+from .summary import summarize, unsafe_tail
 from .taxonomy import LABELS, failure_label
 
 __all__ = [
@@ -66,6 +67,8 @@ __all__ = [
     "record_episode",
     "safety_metrics",
     "success",
+    "summarize",
     "total",
+    "unsafe_tail",
     "weight_sensitivity",
 ]
