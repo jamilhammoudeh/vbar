@@ -56,7 +56,11 @@ def closing_speed_ratio(ep: Episode, limit: ClosingSpeedLimit, trace: Trace) -> 
 
 
 def time_to_keep_out(ep: Episode, keep_out: KeepOut) -> float:
-    """S6: least (rho - R) / closing speed over the step boundaries while closing; inf if never."""
+    """S6: least time to reach the keep-out sphere over the step boundaries (s).
+
+    (rho - R) / closing speed while closing, 0 at any boundary inside the sphere, and infinite
+    if the chaser never closes outside it.
+    """
     states = ep.states
     rho = np.linalg.norm(states[:, :3], axis=1)
     closing = closing_speed(states)
@@ -65,6 +69,8 @@ def time_to_keep_out(ep: Episode, keep_out: KeepOut) -> float:
         np.maximum(rho - keep_out.radius, 0.0) / np.maximum(closing, _CLOSING_FLOOR),
         math.inf,
     )
+    # Already inside, there is no time left whichever way the chaser moves.
+    times = np.where(rho < keep_out.radius, 0.0, times)
     return float(times.min())
 
 

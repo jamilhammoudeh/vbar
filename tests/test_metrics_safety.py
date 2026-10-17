@@ -121,3 +121,10 @@ def test_a_constraint_sharing_the_scenarios_name_is_scored_with_its_own_paramete
     closest = drift_closest_approach(FLYBY, ep.view.n, 200.0)
     m = safety_metrics(ep, [KeepOut(10.0)])
     assert m["min_margin"]["keep_out"] == pytest.approx(closest - 10.0, abs=1e-3)
+
+
+def test_time_to_keep_out_is_zero_inside_the_sphere_even_when_not_closing():
+    at_rest = episode(start_state=(0.0, -20.0, 0.0, 0.0, 0.0, 0.0), max_steps=2)
+    opening = episode(start_state=(0.0, -20.0, 0.0, 0.0, -0.2, 0.0), max_steps=2)
+    assert safety_metrics(at_rest)["min_time_to_keep_out"] == 0.0
+    assert safety_metrics(opening)["min_time_to_keep_out"] == 0.0
