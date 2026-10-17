@@ -115,6 +115,20 @@ def test_a_contact_too_fast_for_the_mechanism_fails_with_a_negative_margin():
     assert m["capture_margin"] == pytest.approx(-1.0, abs=1e-3)
 
 
+def test_the_shuttle_iss_contact_speed_is_judged_by_the_scenarios_window():
+    # STS-130 contact at 0.113 ft/s = 0.0344 m/s (Goodman p. 244): inside an APDS-like window of
+    # 0.025 to 0.05 m/s (Fehse app. C upper bound), below the probe-drogue window of 0.05 to 0.10.
+    start = (0.0, -2.5, 0.0, 0.0, 0.113 * 0.3048, 0.0)
+    apds = {**DOCKING_GOAL, "axial_speed_window": (0.025, 0.05)}
+    accepted = episode(goal=apds, start_state=start, max_steps=2, keep_out_radius=1.0)
+    rejected = episode(goal=DOCKING_GOAL, start_state=start, max_steps=2, keep_out_radius=1.0)
+    assert contact(accepted).axial_speed == pytest.approx(0.0344, abs=1e-4)
+    assert mission_metrics(accepted)["success"]
+    m = mission_metrics(rejected)
+    assert not m["success"]
+    assert m["capture_margin"] == pytest.approx((0.0344 - 0.05) / 0.05, abs=2e-3)
+
+
 def test_a_contact_between_two_samples_ten_seconds_apart_is_found():
     start = (0.0, -2.5, 0.0, 0.0, 0.08, 0.0)
     ep = episode(

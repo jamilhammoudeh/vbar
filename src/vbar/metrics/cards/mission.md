@@ -11,7 +11,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 - Definition: the goal is met (capture at a step boundary; a dwell of `hold_time`; contact with M10 >= 0) and no hard constraint's certified in-step minimum fell below zero. Truth.
 - Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: the headline completion rate.
-- Known-answer tests: PD from 400 m behind succeeds; rest on the V-bar hold point succeeds at 10 s; capture after flying through the keep-out zone fails; a hold that lasts 0.9 of the required dwell fails and 1.1 succeeds; contact at 0.08 m/s on axis succeeds, at 0.2 m/s fails.
+- Known-answer tests: PD from 400 m behind succeeds; rest on the V-bar hold point succeeds at 10 s; capture after flying through the keep-out zone fails; a hold that lasts 0.9 of the required dwell fails and 1.1 succeeds; contact at 0.08 m/s on axis succeeds, at 0.2 m/s fails; the Shuttle-ISS contact at 0.0344 m/s (Goodman, p. 244) succeeds in a 0.025 to 0.05 m/s window and fails in the probe-drogue window.
 - Convergence: decided at step boundaries for capture, in continuous time for dwell and contact; contact found between samples 10 s apart (`test_a_contact_between_two_samples_ten_seconds_apart_is_found`).
 - Invariance: unchanged by mirroring across the orbit plane and by doubling all lengths and the thrust (`tests/test_metrics_gate.py`).
 - Mutation detection: sign flip fails; position biases of 10 and 40 m and velocity biases of 0.03 and 0.1 m/s fail (`tests/test_metrics_mutants.py`).
@@ -137,7 +137,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 - Definition: least over the contact criteria of (limit - value) / limit, the window's lower end as (value - limit) / limit (left out when it is zero); negative is out of tolerance.
 - Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: a continuous margin next to the boolean contact verdict.
-- Known-answer tests: equals the formula on closed-form contact values to 1e-8; -1 for a 0.2 m/s impact against 0.10 m/s.
+- Known-answer tests: equals the formula on closed-form contact values to 1e-8; -1 for a 0.2 m/s impact against 0.10 m/s; (0.0344 - 0.05) / 0.05 for the Shuttle-ISS contact against the probe-drogue window.
 - Convergence: continuous-time event.
 - Invariance: mirror.
 - Mutation detection: negative for the fast contact.

@@ -392,7 +392,9 @@ at that rate needs about 385 episodes.
   metrics are unchanged by mirroring the start across the orbit plane. A coast toward the port at
   0.08 m/s, 5 cm off the axis, makes contact at the closed-form crossing time (Brent on the exact
   transition matrix) to 1e-6 s with lateral offset, axial and lateral speeds to 1e-9 and the
-  capture margin to 1e-8; a 0.2 m/s impact fails with a margin of -1; a crossing between two
+  capture margin to 1e-8; a 0.2 m/s impact fails with a margin of -1; the Shuttle-ISS contact at
+  0.0344 m/s (Goodman, p. 244) succeeds in a 0.025 to 0.05 m/s window and fails in the 0.05 to
+  0.10 m/s probe-drogue window, so the scenario's window decides; a crossing between two
   samples 10 s apart is found; no crossing gives NaN. From rest 2 m above the hold point the dwell
   is the closed-form time the drift takes to leave a 10 m ball, and the run succeeds with a
   required dwell 10% shorter and fails with one 10% longer.
