@@ -63,10 +63,12 @@ $s$ is the time from the start of the step and $d$ the distance to the goal.
   $F = \begin{bmatrix} A & B & 0 \\ 0 & 0 & 0 \\ 0 & 0 & 0\end{bmatrix} - \tfrac{1}{2\tau} I$
   and $C$ the cost matrix of $\mathbf z$, $\exp\left(\begin{bmatrix} -F^T & C \\ 0 & F\end{bmatrix}
   d\right)$ has blocks $G_{12}$, $G_{22}$ and $W = G_{22}^T G_{12}$. The $\tfrac{1}{2\tau}$ shift
-  folds the discount into the state; since it makes the exponential grow as $e^{d/2\tau}$, a
-  segment longer than $\tau$ is integrated in $k$ pieces $h = d/k \le \tau$,
+  folds the discount into the state; since it makes the exponential grow as $e^{d/2\tau}$, and
+  a long segment spans many orbits of CW motion, a segment is integrated in $k$ pieces
+  $h = d/k \le \min(\tau, 1/n)$,
   $W(d) = \sum_j e^{-jh/\tau} (E^j)^T W(h) E^j$ with $E$ the undiscounted transition of
-  $\mathbf z$ over $h$. It is exact for the CW model only.
+  $\mathbf z$ over $h$; pieces whose discount is below $10^{-17}$ are skipped. It is exact for
+  the CW model only.
 
 ## Transitions
 
@@ -115,7 +117,8 @@ earlier results and is not aligned with the metrics.
 - The quadratic cost matches adaptive quadrature of the cost rate along the closed-form CW
   trajectory to 1e-10 relative, with and without discounting.
 - It stays at 1e-10 on segments 100, 2000 and 5000 times longer than $\tau$, where one block
-  exponential lost five digits or overflowed.
+  exponential lost five digits or overflowed, and at 1e-11 on 1e4 s and 3e4 s segments without
+  discounting or with $\tau$ = 1e5 s, where one block was up to 1e-3 off with SciPy 1.11.
 - A batch of transitions gives each row its own reward; invalid time constants and weights are
   rejected.
 

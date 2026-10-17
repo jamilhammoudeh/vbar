@@ -80,14 +80,16 @@ class QuadraticCost:
     def matrix(self, duration: float, tau: float | None) -> np.ndarray:
         """W (10x10) with int_0^d exp(-s / tau) cost(s) ds = z^T W z, z = (x_start, a, 1).
 
-        With discounting, the block exponential grows as exp(d / 2 tau), so a segment longer
-        than tau is integrated in pieces h <= tau: W(d) = sum_j exp(-j h / tau) (E^j)^T W(h) E^j
-        with E the undiscounted transition of z over h.
+        The block exponential grows as exp(d / 2 tau) and spans d n radians of CW motion, so a
+        long segment is integrated in pieces h <= min(tau, 1 / n):
+        W(d) = sum_j exp(-j h / tau) (E^j)^T W(h) E^j with E the undiscounted transition of z
+        over h. Pieces whose discount has fallen below 1e-17 add nothing and are skipped.
         """
         key = (round(float(duration), 9), tau)
         if key not in self._matrices:
             d = key[0]
-            pieces = 1 if tau is None else max(1, int(np.ceil(d / tau)))
+            longest = 1.0 / self.n if tau is None else min(tau, 1.0 / self.n)
+            pieces = max(1, int(np.ceil(d / longest)))
             h = d / pieces
             piece = self._piece(h, tau)
             if pieces == 1:
@@ -97,6 +99,8 @@ class QuadraticCost:
                 gamma = np.exp(-h / tau) if tau is not None else 1.0
                 total, power, weight = piece.copy(), step, gamma
                 for _ in range(1, pieces):
+                    if weight < 1e-17:
+                        break
                     total += weight * (power.T @ piece @ power)
                     power, weight = power @ step, weight * gamma
             self._matrices[key] = 0.5 * (total + total.T)

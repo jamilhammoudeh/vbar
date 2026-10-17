@@ -211,3 +211,27 @@ def test_quadratic_cost_stays_exact_on_segments_much_longer_than_tau(tau, durati
     expected += quad(rate, knots[-1], duration, limit=200)[0]
     found = QuadraticCost(N, q, r)(x0[None], a[None], np.array([duration]), tau)
     assert float(found[0]) == pytest.approx(expected, rel=1e-10)
+
+
+@pytest.mark.parametrize(("tau", "duration"), [(None, 1e4), (None, 3e4), (1e5, 3e4)])
+def test_quadratic_cost_stays_exact_on_long_segments_without_much_discount(tau, duration):
+    # Without discounting the CW part of the exponential still spans many orbits; one block
+    # was 3e-8 off at 1e4 s and 1e-3 off at 3e4 s with SciPy 1.11.
+    q, r = np.diag([1e-4, 2e-4, 3e-4, 1.0, 2.0, 3.0]), 100.0 * np.eye(3)
+    x0 = np.array([20.0, -150.0, 5.0, 0.05, -0.02, 0.01])
+    a = np.array([1e-4, -2e-4, 5e-5])
+
+    def rate(s):
+        phi, gamma = cw_discrete(N, s)
+        e = phi @ x0 + gamma @ a
+        weight = 1.0 if tau is None else np.exp(-s / tau)
+        return weight * (e @ q @ e + a @ r @ a)
+
+    # Knots every fiftieth of an orbit keep the quadrature itself at 1e-13.
+    knots = np.linspace(0.0, duration, int(np.ceil(duration * N * 50 / (2 * np.pi))) + 1)
+    expected = sum(
+        quad(rate, lo, hi, epsabs=0.0, epsrel=1e-13)[0]
+        for lo, hi in zip(knots[:-1], knots[1:], strict=True)
+    )
+    found = QuadraticCost(N, q, r)(x0[None], a[None], np.array([duration]), tau)
+    assert float(found[0]) == pytest.approx(expected, rel=1e-11)
