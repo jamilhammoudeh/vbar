@@ -441,10 +441,10 @@ class BaseEnv(gym.Env):
         return int(np.clip(round(float(command[3]) / self.cfg.dt), 0, left))
 
     def _index(self, action) -> int:
-        index = int(np.asarray(action).item())
-        if not 0 <= index < len(DISC27):
-            raise ValueError(f"disc27 actions are 0 to 26, got {index}")
-        return index
+        value = np.asarray(action).item()
+        if not (float(value).is_integer() and 0 <= value < len(DISC27)):
+            raise ValueError(f"disc27 actions are the integers 0 to 26, got {value}")
+        return int(value)
 
     def _action_scale(self) -> float:
         """Action-mode units per fraction of a full command."""

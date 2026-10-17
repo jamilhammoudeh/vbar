@@ -37,8 +37,10 @@ def test_disc27_is_its_own_scenario_variant_and_follows_the_gymnasium_api():
     assert env.action_space.n == 27
     check_env(env, skip_render_check=True)
     env.reset(seed=0)
-    with pytest.raises(ValueError, match="0 to 26"):
-        env.step(27)
+    for bad in (27, -1, 13.7):
+        with pytest.raises(ValueError, match="integers 0 to 26"):
+            env.step(bad)
+    env.step(13.0)
 
 
 def test_continuous_agents_reject_the_discrete_mode_and_drift_coasts():
@@ -182,8 +184,10 @@ def test_filtered_environment_flies_and_reports_the_executed_action():
     assert halving.view.scenario_id == env.unwrapped.scenario_id
 
 
-# Checking the wrapper itself is the point here.
+# Checking the wrapper itself is the point here; Gymnasium 0.29 also warns that the checker
+# reads `seed` through the wrapper.
 @pytest.mark.filterwarnings("ignore:.*different from the unwrapped")
+@pytest.mark.filterwarnings("ignore:.*env.seed to get variables")
 def test_pass_through_filter_never_intervenes_and_discrete_modes_are_refused():
     env = FilteredEnv(ApproachEnv(ApproachConfig(start_state=START)), PassThroughFilter())
     env.reset(seed=0)

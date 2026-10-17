@@ -187,10 +187,10 @@ class ApproachVectorEnv(vector.VectorEnv):
     def _commands(self, actions) -> np.ndarray:
         """Each row's action as fractions of a full command at the current mass, (N, 3)."""
         if self.cfg.action_mode == "disc27":
-            index = np.asarray(actions).astype(int).reshape(self.num_envs)
-            if np.any((index < 0) | (index >= len(DISC27))):
-                raise ValueError("disc27 actions are 0 to 26")
-            return DISC27[index]
+            values = np.asarray(actions, dtype=float).reshape(self.num_envs)
+            if np.any((values != np.round(values)) | (values < 0) | (values >= len(DISC27))):
+                raise ValueError("disc27 actions are the integers 0 to 26")
+            return DISC27[values.astype(int)]
         commands = np.array(actions, dtype=float).reshape(self.num_envs, 3)
         max_force = self.cfg.max_accel * self.mass
         if self.cfg.action_mode == "accel":

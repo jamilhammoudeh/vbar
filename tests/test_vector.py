@@ -136,6 +136,14 @@ def test_vector_env_matches_single_envs_with_discrete_actions():
     compare(cfg, num_envs=4, steps=35, discrete=True)
 
 
+def test_discrete_actions_must_be_whole_indices():
+    vec = ApproachVectorEnv(ApproachConfig(action_mode="disc27"), 2)
+    vec.reset(seed=0)
+    with pytest.raises(ValueError, match="integers 0 to 26"):
+        vec.step([13.7, 4])
+    vec.step([13.0, 4])
+
+
 def test_seeds_are_per_copy_and_a_list_gives_each_its_own():
     vec = ApproachVectorEnv(ApproachConfig(), 3)
     obs, _ = vec.reset(seed=5)
