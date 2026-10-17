@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from scipy.stats import beta
 
 from vbar.metrics import METRICS, clopper_pearson, summarize, unsafe_tail
 
@@ -94,8 +95,12 @@ def test_the_resolution_table_on_the_cards_matches_the_intervals():
     assert len(rows) == 5
     for n, *widths in rows:
         for p, width in zip((0.5, 0.9, 0.95, 0.99), widths, strict=True):
-            lower, upper = clopper_pearson(round(p * int(n)), int(n))
+            # At k = p n exactly; rounding k would score 49.5 of 50 as 50 of 50.
+            k, n = p * int(n), int(n)
+            lower, upper = beta.ppf(0.025, k, n - k + 1), beta.ppf(0.975, k + 1, n - k)
             assert round((upper - lower) / 2, 3) == float(width)
+            if k == int(k):
+                assert (lower, upper) == pytest.approx(clopper_pearson(int(k), n))
 
 
 def test_a_rate_summary_carries_its_interval():
