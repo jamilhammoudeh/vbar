@@ -1,5 +1,6 @@
 """Benchmark metrics: functions of a recorded episode (see docs/metrics.md)."""
 
+from .agent import AgentReport, agent_metrics, faithfulness, parse_belief
 from .efficiency import FuelBounds, Oracle, efficiency_metrics, optimality_gap
 from .episode import Episode, record_episode
 from .evaluate import evaluate
@@ -20,6 +21,7 @@ from .stl import Signal, Trace, complement, merge, minimum, negative_intervals, 
 
 __all__ = [
     "METRICS",
+    "AgentReport",
     "Contact",
     "Episode",
     "FuelBounds",
@@ -30,6 +32,7 @@ __all__ = [
     "Trace",
     "TravellingEllipse",
     "cam_impulses",
+    "agent_metrics",
     "captured",
     "complement",
     "completion_time",
@@ -38,6 +41,7 @@ __all__ = [
     "escape_arc",
     "evaluate",
     "exhausts",
+    "faithfulness",
     "filter_metrics",
     "iqm",
     "merge",
@@ -46,6 +50,7 @@ __all__ = [
     "negative_intervals",
     "optimality_gap",
     "paired_filter_metrics",
+    "parse_belief",
     "passive_forever",
     "passive_metrics",
     "plume_metrics",

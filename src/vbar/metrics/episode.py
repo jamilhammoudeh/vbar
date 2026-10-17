@@ -27,7 +27,8 @@ class Episode:
     `start` is the true state at t = 0 (m, m/s, Hill). `hard` names the constraints whose
     violation fails the run. `isp` (s) and the view's `mass_kg` and `thrust_limit` describe the
     actuator; `dynamics`, `body`, `altitude_m` and `inclination` (rad) the propagation model.
-    `agent_log` holds the agent's own per-decision log when it keeps one (LLM agents).
+    `agent_log` holds the agent's own per-decision log when it keeps one (LLM agents), and
+    `first_obs` the observation the first decision was made on.
     """
 
     view: AgentView
@@ -43,6 +44,7 @@ class Episode:
     altitude_m: float = 500e3
     inclination: float = 0.0
     agent_log: tuple[Mapping[str, Any], ...] = ()
+    first_obs: np.ndarray | None = None
     seed: int | None = None
     agent_seed: int | None = None
 
@@ -85,6 +87,7 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         agent_seed = secrets.randbits(128)
     obs, info = env.reset(seed=seed)
     start = np.array(info["true_state"], dtype=float)
+    first_obs = np.array(obs, dtype=float)
     agent.reset(env.agent_view(), np.random.default_rng(agent_seed))
     records = []
     terminated = truncated = False
@@ -119,6 +122,7 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         altitude_m=cfg.altitude_m,
         inclination=cfg.inclination,
         agent_log=_agent_log(agent),
+        first_obs=first_obs,
         seed=seed,
         agent_seed=agent_seed,
     )

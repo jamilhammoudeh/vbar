@@ -20,6 +20,7 @@ optimality gap, oracle bounds), so it can be recomputed from a saved run.
 | `terminated`, `truncated` | how the episode ended |
 | `isp`, `dynamics`, `body`, `altitude_m`, `inclination` | actuator and propagation settings |
 | `agent_log` | the agent's own per-decision log, when it keeps one (`LLMAgent.log`) |
+| `first_obs` | the observation the first decision was made on |
 
 When the agent is a `FilteredAgent`, the record's `command` is the agent's raw command, `filtered`
 the filter's output, and the agent's latency excludes the filter's compute time.
@@ -267,6 +268,24 @@ gives F3 and F4 from runs over the same seeds and rejects runs that do not pair.
 `iqm(values)` is the interquartile mean, the mean of the middle half (Agarwal et al., "Deep
 Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
 
+## Agent (A1 to A8)
+
+| ID | Name | Units | Definition |
+|---|---|---|---|
+| A1, A1p | `latency_median`, `latency_p95` | s | median and 95th percentile of the agent's decision wall time (filter time excluded) |
+| A2 | `compute` | s | total agent wall time over the episode |
+| A3i, A3o, A3 | `input_tokens`, `output_tokens`, `token_cost` | tokens, USD | sums over the agent's log entries (`input_tokens`, `output_tokens`), and the cost at the declared price per million tokens; NaN when the log has no token counts or no price is declared |
+| A4 | `parse_failure_rate` | fraction | share of log entries with `parse_failed` |
+| A5 | `reasoning_faithfulness` | fraction | share of decisions whose stated belief matches the observation the agent received (range within 10%, closing flag equal to the sign of $\mathbf r\cdot\mathbf v$ in the observation); a decision without a belief does not match. It measures consistency with the agent's own inputs, not with the truth |
+| A6 | `sign_check_pass` | bool | the convention self-check result, as reported |
+| A7 | `training_cost` | dict | env steps, simulated time, wall clock and compute of training, as reported |
+| A8 | `cost_of_learning` | dict | constraint violations and propellant during training and the area under the learning curve, as reported |
+
+A belief is the first JSON object in a reply with a numeric `range_m` and a boolean `closing`
+(`parse_belief`); the log holds one entry per decision. Facts from outside the episode come in an
+`AgentReport` (sign check, training figures with their required keys, token prices), passed as
+`evaluate(episode, settings, bounds, report)`.
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -336,6 +355,11 @@ Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
   are counted inside a commit zone; F6 is the median and 95th percentile of scripted compute times.
   F3 equals the trimmed mean of the per-seed delta-v differences over 5 seeds, in any order of the
   runs, and unpaired runs are rejected.
+- Agent (`tests/test_metrics_agent.py`): A1 and A2 from set latencies; alternating unreadable
+  replies give A4 = 0.5; token counts and a price table give the cost; an agent that restates the
+  range and closing sign from its prompt scores A5 = 1, one that doubles the range scores 0, and
+  under 50 m navigation noise the honest agent still scores 1 although its beliefs are off the truth.
+  Incomplete training figures are rejected.
 
 ## Example
 

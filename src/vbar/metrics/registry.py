@@ -59,6 +59,17 @@ CATALOGUE = (
     MetricInfo("F5b", "solver_failures", "count"),
     MetricInfo("F6", "filter_compute_median", "s"),
     MetricInfo("F6p", "filter_compute_p95", "s"),
+    MetricInfo("A1", "latency_median", "s"),
+    MetricInfo("A1p", "latency_p95", "s"),
+    MetricInfo("A2", "compute", "s"),
+    MetricInfo("A3i", "input_tokens", "tokens"),
+    MetricInfo("A3o", "output_tokens", "tokens"),
+    MetricInfo("A3", "token_cost", "USD"),
+    MetricInfo("A4", "parse_failure_rate", "fraction"),
+    MetricInfo("A5", "reasoning_faithfulness", "fraction"),
+    MetricInfo("A6", "sign_check_pass", "bool"),
+    MetricInfo("A7", "training_cost", "dict"),
+    MetricInfo("A8", "cost_of_learning", "dict"),
 )
 
 METRICS = {info.name: info for info in CATALOGUE}
