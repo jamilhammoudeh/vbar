@@ -181,6 +181,7 @@ action in the view's action mode. Provided:
 | `violation_samples` | 20 | constraint samples per full step |
 | `observation_channels` | none | optional observation channels |
 | `reward` | none | a `vbar.rewards.Reward`; none gives the scenario's legacy reward |
+| `training` | off | allow training-only reset options; `run_episode` refuses it ([training.md](training.md)) |
 
 `ApproachConfig` adds `keep_out_radius` (50 m), `hold_point` ((0, -100, 0) m), `capture_radius`
 (5 m), `capture_speed` (0.05 m/s), `start_state`, `start_pos_range`, `start_vel_range`,

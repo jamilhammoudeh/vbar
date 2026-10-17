@@ -125,3 +125,28 @@ def test_impulse_coast_follows_the_gymnasium_api_and_continuous_agents_reject_it
         run_episode(ApproachEnv(cfg), PDAgent())
     drift = run_episode(ApproachEnv(cfg), DriftAgent())
     assert drift["dv_used_mps"] == 0.0 and drift["actions"].shape == (50, 4)
+
+
+def test_reset_options_need_an_environment_built_for_training():
+    with pytest.raises(ValueError, match="training=True"):
+        ApproachEnv().reset(seed=0, options={"start_state": START})
+    env = ApproachEnv(ApproachConfig(training=True))
+    with pytest.raises(ValueError, match="unknown reset options"):
+        env.reset(seed=0, options={"start": START})
+
+
+def test_injected_and_widened_starts_last_one_episode():
+    env = ApproachEnv(ApproachConfig(training=True))
+    _, info = env.reset(seed=0, options={"start_state": START})
+    assert np.array_equal(info["true_state"], START)
+    wide = {"start_pos_range": ((-5e3, 5e3),) * 3, "start_vel_range": ((-1.0, 1.0),) * 3}
+    starts = np.array([env.reset(seed=s, options=wide)[1]["true_state"] for s in range(200)])
+    assert np.max(np.abs(starts[:, :3])) > 4e3 and np.max(np.abs(starts[:, 3:])) > 0.9
+    _, info = env.reset(seed=0)
+    assert np.array_equal(info["true_state"], ApproachEnv().reset(seed=0)[1]["true_state"])
+
+
+def test_scored_runs_refuse_an_environment_built_for_training():
+    with pytest.raises(ValueError, match="training=False"):
+        run_episode(ApproachEnv(ApproachConfig(training=True)), PDAgent(), seed=0)
+    check_env(ApproachEnv(ApproachConfig(training=True)), skip_render_check=True)

@@ -43,6 +43,20 @@ $[-1, 1]$ per entry can rescale it, for example with Gymnasium's `RescaleAction`
 
 `PDAgent` and `LLMAgent` reject the mode; `DriftAgent` returns zero thrust and no coast.
 
+## Training-only starts
+
+An environment built with `training=True` accepts `reset(seed=..., options=...)` with:
+
+- `"start_state"`: the start state itself (m, m/s), for exploring starts or replaying a state;
+- `"start_pos_range"` and `"start_vel_range"` (approach scenario): per-axis (low, high) ranges
+  that replace the configured ones, for wider starts or a curriculum.
+
+Options apply to that episode only; the next `reset` without them draws from the configuration
+again. Without `training=True`, any option raises a `ValueError`, and `run_episode`, the scored
+path, refuses an environment built for training, so these starts never reach a scored run
+(Sutton and Barto, sec. 5.3, exploring starts; sec. 15.5, shaping by a curriculum of easier
+tasks). Unknown option names are rejected.
+
 ## How it is tested
 
 `tests/test_training.py`:
@@ -60,6 +74,10 @@ $[-1, 1]$ per entry can rescale it, for example with Gymnasium's `RescaleAction`
 - A coast is rounded to whole steps and cut at the time limit, which truncates the episode; a
   non-finite coast is rejected. Gymnasium's environment checker passes; the PD agent rejects the
   mode and the drift agent coasts.
+- Reset options raise without `training=True` and for unknown names; an injected start is used
+  exactly, wider ranges reach beyond the default ones over 200 seeds, and the next plain reset
+  draws the same start as an environment never given options; `run_episode` refuses a training
+  environment.
 
 ## Examples
 

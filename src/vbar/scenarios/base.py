@@ -56,7 +56,8 @@ class EnvConfig:
     ceil(delay_s / dt) slots, zero-filled at the front before the first commands.
 
     `reward` replaces the scenario's legacy reward with a `vbar.rewards.Reward`; `info` then
-    holds each step's `discount`.
+    holds each step's `discount`. `training` allows the training-only options of `reset`
+    (start states injected or drawn from wider ranges); scored runs refuse such environments.
     """
 
     dt: float = 10.0
@@ -79,6 +80,7 @@ class EnvConfig:
     violation_samples: int = 20
     observation_channels: tuple[str, ...] = ()
     reward: Reward | None = None
+    training: bool = False
 
 
 @dataclass(frozen=True)
@@ -145,6 +147,8 @@ class BaseEnv(gym.Env):
     record: StepRecord | None = None
     # Constraints scored but not counted as failures; every other constraint is hard.
     soft_constraints: tuple[str, ...] = ()
+    # Keys `reset(options=...)` accepts when the environment is built for training.
+    reset_options: tuple[str, ...] = ("start_state",)
 
     def __init__(self, config: EnvConfig):
         super().__init__()
@@ -240,12 +244,29 @@ class BaseEnv(gym.Env):
         return {"time_s": self.t}
 
     def reset(self, *, seed=None, options=None):
+        """Start an episode; `options` are training-only and last for this episode alone.
+
+        "start_state" sets the start state; scenarios may accept more (`reset_options`).
+        """
+        self.options = dict(options or {})
+        if self.options and not self.cfg.training:
+            raise ValueError(
+                "reset options are for training; build the environment with training=True"
+            )
+        unknown = set(self.options) - set(self.reset_options)
+        if unknown:
+            raise ValueError(
+                f"unknown reset options {sorted(unknown)}, expected {self.reset_options}"
+            )
         super().reset(seed=seed)
         children = self.np_random.bit_generator.seed_seq.spawn(len(STREAMS))
         self.rngs = {
             name: np.random.default_rng(s) for name, s in zip(STREAMS, children, strict=True)
         }
-        self.state = np.asarray(self._sample_start(self.np_random), dtype=float)
+        if "start_state" in self.options:
+            self.state = np.array(self.options["start_state"], dtype=float).reshape(6)
+        else:
+            self.state = np.asarray(self._sample_start(self.np_random), dtype=float)
         self.dynamics.reset(self.state)
         self.spacecraft.reset(self.rngs["actuator"])
         self.sensor.reset(self.rngs["sensor"])

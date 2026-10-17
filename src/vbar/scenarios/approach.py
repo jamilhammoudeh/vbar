@@ -45,16 +45,20 @@ class ApproachConfig(EnvConfig):
 class ApproachEnv(BaseEnv):
     scenario_name = "approach-vbar"
     cfg: ApproachConfig
+    reset_options = ("start_state", "start_pos_range", "start_vel_range")
 
     def __init__(self, config: ApproachConfig | None = None):
         super().__init__(config or ApproachConfig())
         self.hold_point = np.array(self.cfg.hold_point, dtype=float)
 
     def _sample_start(self, rng: np.random.Generator) -> np.ndarray:
-        if self.cfg.start_state is not None:
+        options = getattr(self, "options", {})
+        if self.cfg.start_state is not None and not options:
             return np.array(self.cfg.start_state, dtype=float)
-        pos = [rng.uniform(lo, hi) for lo, hi in self.cfg.start_pos_range]
-        vel = [rng.uniform(lo, hi) for lo, hi in self.cfg.start_vel_range]
+        pos_range = options.get("start_pos_range", self.cfg.start_pos_range)
+        vel_range = options.get("start_vel_range", self.cfg.start_vel_range)
+        pos = [rng.uniform(lo, hi) for lo, hi in pos_range]
+        vel = [rng.uniform(lo, hi) for lo, hi in vel_range]
         return np.array(pos + vel, dtype=float)
 
     def _constraints(self) -> tuple[Constraint, ...]:

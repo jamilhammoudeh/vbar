@@ -15,7 +15,11 @@ def run_episode(env, agent, seed: int | None = None, agent_seed: int | None = No
     observations and the agent-safe info; the true states come from `info`. The agent's stream
     is independent of `seed`, so it carries nothing about the start state or the sensor noise.
     Without an `agent_seed` one is drawn from the operating system and returned in the result.
+    Environments built for training (`training=True`) are refused.
     """
+    config = getattr(getattr(env, "unwrapped", env), "cfg", None)
+    if getattr(config, "training", False):
+        raise ValueError("scored runs need an environment built with training=False")
     if agent_seed is None:
         agent_seed = secrets.randbits(128)
     obs, info = env.reset(seed=seed)
