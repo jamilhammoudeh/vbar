@@ -232,7 +232,7 @@ class ToolServer:
                     continue
                 try:
                     message = json.loads(line)
-                except json.JSONDecodeError:
+                except (ValueError, RecursionError):
                     response: dict | None = _error(None, PARSE_ERROR, "invalid JSON")
                 else:
                     try:

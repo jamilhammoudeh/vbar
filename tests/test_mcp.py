@@ -237,3 +237,12 @@ def test_a_tool_name_that_is_not_a_string_and_a_failing_tool_get_errors():
     server.serve(io.StringIO(json.dumps(message) + "\n"), out)
     error = json.loads(out.getvalue())["error"]
     assert error["code"] == INTERNAL_ERROR and "tool failed" in error["message"]
+
+
+def test_deeply_nested_input_is_a_parse_error_and_the_server_goes_on():
+    server = ToolServer(ApproachEnv(), [0])
+    out = io.StringIO()
+    ping = json.dumps({"jsonrpc": "2.0", "id": 9, "method": "ping"})
+    server.serve(io.StringIO("[" * 200_000 + "]" * 200_000 + "\n" + ping + "\n"), out)
+    first, second = (json.loads(line) for line in out.getvalue().splitlines())
+    assert first["error"]["code"] == PARSE_ERROR and second["id"] == 9

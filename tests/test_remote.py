@@ -362,3 +362,58 @@ def test_a_send_that_fails_mid_episode_still_leaves_every_episode_recorded(tmp_p
         (2, False, 0),
     ]
     assert "reset" in results[0]["error"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        b'{"type": "action", "action": [1' + b"0" * 400 + b", 0, 0]}",
+        b'{"type": "action", "action": ' + b"[" * 200_000 + b"]" * 200_000 + b"}",
+        b'{"type": "action", "action": [0, 0, 0], "x": "\xff\xfe"}',
+    ],
+    ids=["huge integer", "deep nesting", "invalid utf-8"],
+)
+def test_hostile_action_lines_still_leave_every_episode_recorded(line, tmp_path):
+    def client(stream, sock):
+        stream.write(line + b"\n")
+        stream.flush()
+        stream.close()
+        sock.close()
+
+    results = host_with(client, tmp_path)
+    assert [(r["seed"], r["completed"]) for r in results] == [(1, False), (2, False)]
+
+
+def test_a_failed_hello_records_every_seed_unflown(tmp_path):
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    out = tmp_path / "results.jsonl"
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", "10"]
+    host = threading.Thread(target=main, args=(argv,))
+    host.start()
+    for _ in range(100):
+        try:
+            sock = socket.create_connection(("127.0.0.1", port))
+            break
+        except ConnectionRefusedError:
+            threading.Event().wait(0.05)
+    with sock:
+        stream = sock.makefile("rwb")
+        send(stream, {"type": "hello", "name": "old", "protocol": 0})
+        stream.close()
+    host.join(30.0)
+    results = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
+        (1, False, 0),
+        (2, False, 0),
+    ]
+
+
+def test_remote_discrete_indices_follow_the_environment_rule():
+    # Whole numbers in any type are indices, as in process; fractions and -1 are refused.
+    cfg = ApproachConfig(max_steps=2, action_mode="disc27")
+    remote_run(Wrong(13.0), cfg)
+    for action in (13.5, -1):
+        with pytest.raises(RemoteAgentError, match="expected"):
+            remote_run(Wrong(action), cfg)

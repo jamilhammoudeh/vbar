@@ -22,7 +22,7 @@ Version 1 is a lockstep exchange over one TCP connection: UTF-8 JSON objects, on
 
 A client may answer any message with `{"type": "error", "message": ...}`, which the server raises as
 `RemoteAgentError`, as it does for an action of the wrong form: three finite numbers, four in the
-`impulse_coast` mode, and an integer from 0 to 26 in the discrete mode. The `view` carries every
+`impulse_coast` mode, and a whole number from 0 to 26 in the discrete mode. The `view` carries every
 `AgentView` field (`scenario_id`, `dt`, `max_steps`, `n`, `action_mode`, `max_accel`,
 `thrust_limit`, `mass_kg`, `goal`, `constraints`, `observation`, `frame`) with tuples as lists.
 `seed` and `spawn_key` are the agent's own random stream (`numpy.random.SeedSequence(seed,
@@ -46,9 +46,10 @@ agent.close()                        # sends close
 
 `python -m vbar.agents.remote --port 5555 --seeds 0 1 2 --out results.jsonl` hosts the default
 approach scenario for one client and writes one JSON line per episode with the result of
-`run_episode` (arrays as lists). If the client fails, disconnects, resets the connection or sends
-something that is not a valid message, the episode it was flying is written with `completed` false
-and the error, and so is every seed not yet flown. Real-time runs ([agents.md](agents.md)) work
+`run_episode` (arrays as lists). However the session fails (a bad hello, a disconnect or reset,
+a line that is not JSON, not UTF-8 or too deeply nested to parse, an action the server cannot use),
+the episode being flown is written with `completed` false and the error, and so is every seed not
+yet flown; a failed hello records every seed unflown. Real-time runs ([agents.md](agents.md)) work
 through the server too; the measured latency then includes the network.
 
 ## Clients
@@ -116,10 +117,12 @@ never sees the true state, the reward or the outcome.
 - The command-line host writes one result per seed; a client that answers two steps and then
   sends a line that is not JSON leaves an unfinished record of two steps, with the error, and an
   unfinished record of the seed it never flew; so does an action of two numbers, a string, a
-  missing action or NaN (the trajectory stays finite), an abortive close and a send that fails
-  mid-episode.
+  missing action or NaN (the trajectory stays finite), an abortive close, a send that fails
+  mid-episode, a 401-digit integer, 200 000 levels of nesting and bytes that are not UTF-8; a
+  hello with the wrong protocol records both seeds unflown.
 - Burn-and-coast actions cross the server exactly; an action of the wrong length for its mode,
-  or a discrete index out of range, is refused.
+  or a discrete index out of range or fractional, is refused, while 13.0 is index 13 as in
+  process.
 - With MATLAB installed and `VBAR_TEST_MATLAB=1`, the MATLAB PD agent flies exactly the Python PD
   agent's trajectories over two default episodes (checked on R2025a; not on CI, which has no
   MATLAB).
@@ -132,7 +135,8 @@ never sees the true state, the reward or the outcome.
   in-process run's states and actions; command replies hold only the observation, time, steps
   left and episode number.
 - Starting before the episode ends, observing with none running, a non-numeric command and
-  starting past the last seed are tool errors.
+  starting past the last seed are tool errors; 200 000 levels of nesting are a parse error and
+  the next request is answered.
 - `predict_coast` through the server equals the tool on the current observation.
 - `params` given as a list, `arguments` given as a list or a string, and `initialize` with list
   params get -32602, as does a tool name that is not a string, and the next request is still

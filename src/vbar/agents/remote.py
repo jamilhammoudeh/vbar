@@ -91,7 +91,8 @@ class _Line:
             raise RemoteAgentError("the remote agent closed the connection")
         try:
             message = json.loads(line)
-        except json.JSONDecodeError as error:
+        except (ValueError, RecursionError) as error:
+            # Covers malformed JSON, bytes that are not UTF-8, and nesting too deep to parse.
             raise RemoteAgentError("the remote agent sent a line that is not JSON") from error
         if not isinstance(message, dict):
             raise RemoteAgentError("the remote agent sent JSON that is not an object")
@@ -138,13 +139,15 @@ class RemoteAgent:
         )
         action = self._expect("action").get("action")
         if self.mode == "disc27":
-            if isinstance(action, bool) or not isinstance(action, int) or not 0 <= action < 27:
+            # Whole numbers of any type are indices, as `BaseEnv.step` reads them.
+            whole = isinstance(action, int | float) and not isinstance(action, bool)
+            if not (whole and float(action).is_integer() and 0 <= action < 27):
                 raise RemoteAgentError(f"expected an integer action from 0 to 26, got {action!r}")
-            return action
+            return int(action)
         size = 4 if self.mode == "impulse_coast" else 3
         try:
             command = np.array(action, dtype=float)
-        except (TypeError, ValueError) as error:
+        except (TypeError, ValueError, OverflowError) as error:
             raise RemoteAgentError(f"expected {size} numbers, got {action!r}") from error
         if command.shape != (size,) or not np.all(np.isfinite(command)):
             raise RemoteAgentError(f"expected {size} finite numbers, got {action!r}")
@@ -220,8 +223,9 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
 def main(argv: list[str] | None = None) -> None:
     """Host the default approach scenario for one remote agent and write its results.
 
-    If the agent fails or disconnects, the episode it was flying is written unfinished, with
-    the error, and so is every seed not yet flown, so a session cannot drop a bad episode.
+    However the session fails (at hello, during an episode, by a disconnect or a message the
+    server cannot use), the episode being flown is written unfinished with the error, and so is
+    every seed not yet flown, so a session cannot drop a bad episode.
     """
     import time
 
@@ -237,7 +241,6 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     server = AgentServer(args.host, args.port, args.timeout)
     print(f"waiting for an agent on {args.host}:{server.address[1]}", flush=True)
-    agent = server.accept()
     env = ApproachEnv(ApproachConfig())
 
     def write(out, result: dict) -> None:
@@ -245,8 +248,17 @@ def main(argv: list[str] | None = None) -> None:
         out.write(json.dumps(plain) + "\n")
         out.flush()
 
-    try:
-        with open(args.out, "w", encoding="utf-8") as out:
+    agent: RemoteAgent | None = None
+    with open(args.out, "w", encoding="utf-8") as out:
+        try:
+            agent = server.accept()
+        except Exception as error:  # nothing was flown; every seed is recorded unflown
+            for seed in args.seeds:
+                write(out, {**Episode(env, seed).result("unknown"), "error": str(error)})
+            print(f"no session: {error}", flush=True)
+            server.close()
+            return
+        try:
             for k, seed in enumerate(args.seeds):
                 episode = Episode(env, seed)
                 try:
@@ -255,7 +267,7 @@ def main(argv: list[str] | None = None) -> None:
                         t0 = time.perf_counter()
                         action = agent.act(episode.obs, env.agent_info())
                         episode.step(action, time.perf_counter() - t0)
-                except (RemoteAgentError, OSError) as error:
+                except Exception as error:  # whatever the client did, the episode is recorded
                     write(out, {**episode.result(agent.name), "error": str(error)})
                     for left in args.seeds[k + 1 :]:
                         write(out, Episode(env, left).result(agent.name))
@@ -263,9 +275,9 @@ def main(argv: list[str] | None = None) -> None:
                     return
                 write(out, episode.result(agent.name))
                 print(f"seed {seed}: captured {episode.info['captured']}", flush=True)
-    finally:
-        agent.close()
-        server.close()
+        finally:
+            agent.close()
+            server.close()
 
 
 if __name__ == "__main__":
