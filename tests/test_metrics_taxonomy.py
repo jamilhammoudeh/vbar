@@ -1,0 +1,137 @@
+import numpy as np
+import pytest
+from metric_cases import DOCKING_GOAL, ConstantAgent, episode, pd_episode
+
+from vbar.agents import LLMAgent, PDAgent
+from vbar.constraints import ApproachCone, SpeedLimit, ZoneEntry
+from vbar.dynamics import EARTH, mean_motion
+from vbar.metrics import (
+    LABELS,
+    AgentReport,
+    agent_metrics,
+    efficiency_metrics,
+    evaluate,
+    failure_label,
+    filter_metrics,
+    mission_metrics,
+    safety_metrics,
+)
+from vbar.safety import FilteredAgent, FilterResult
+
+N = mean_motion(EARTH.radius + 500e3)
+
+
+class StatusFilter:
+    name = "status"
+
+    def __init__(self, status):
+        self.status = status
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        return FilterResult(0.5 * action, True, self.status)
+
+
+class Alternating:
+    name = "alternating"
+
+    def reset(self, view, rng=None):
+        self.k = 0
+
+    def act(self, obs, info):
+        self.k += 1
+        return np.array([0.2 if self.k % 2 else -0.2, 0.0, 0.0])
+
+
+def label(ep, report=None):
+    metrics = {
+        **mission_metrics(ep),
+        **efficiency_metrics(ep),
+        **safety_metrics(ep),
+        **filter_metrics(ep),
+        **agent_metrics(ep, report),
+    }
+    return failure_label(ep, metrics)
+
+
+AT_REST_FAR = (0.0, -300.0, 0.0, 0.0, 0.0, 0.0)
+TARGET_IN_THE_WAY = (0.0, 400.0, 0.0, 0.0, 0.0, 0.0)
+
+
+def test_a_success_has_no_label_and_evaluate_reports_one_for_a_failure():
+    assert label(pd_episode()) is None
+    assert evaluate(episode())["failure_label"] == "keep_out_entry"
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [("solver_failed", "filter_defect"), ("infeasible_certified", "filter_infeasible")],
+)
+def test_a_filter_that_lets_a_hard_violation_through_is_blamed(status, expected):
+    agent = FilteredAgent(PDAgent(), StatusFilter(status))
+    assert label(episode(agent, start_state=TARGET_IN_THE_WAY, max_steps=300)) == expected
+
+
+def test_constraint_breaches_in_label_order():
+    # The flyby passes 16 m from the target at 1.5 m/s, from the +V-bar side.
+    assert label(episode()) == "keep_out_entry"
+    speed = SpeedLimit(0.2, 4 * N)
+    assert label(episode(extra=(speed,), keep_out_radius=5.0)) == "speed_limit_breach"
+    cone = ApproachCone(np.radians(10.0), active_range=120.0)
+    assert label(episode(extra=(cone,), keep_out_radius=5.0)) == "cone_violation"
+
+
+def test_running_out_of_propellant():
+    agent = ConstantAgent([1.0, 0.0, 0.0])
+    ep = episode(agent, start_state=AT_REST_FAR, max_steps=10, propellant_kg=0.2)
+    assert any(rec.actuation.empty for rec in ep.records)
+    assert label(ep) == "propellant_exhaustion"
+
+
+def test_unreadable_replies_and_a_failed_sign_check():
+    ep = episode(LLMAgent(lambda prompt: "thinking"), start_state=AT_REST_FAR, max_steps=5)
+    assert label(ep) == "parse_failure"
+    drift = episode(start_state=AT_REST_FAR, max_steps=5)
+    assert label(drift, AgentReport(sign_check_pass=False)) == "sign_error"
+
+
+def test_a_command_flipping_every_step_is_an_oscillation():
+    assert label(episode(Alternating(), start_state=AT_REST_FAR, max_steps=20)) == "oscillation"
+
+
+def test_a_contact_outside_the_mechanism_window():
+    # 0.2 m/s at the port, then stopped before the coast reaches the 1 m keep-out sphere.
+    start = (0.0, -2.5, 0.0, 0.0, 0.2, 0.0)
+    ep = episode(goal=DOCKING_GOAL, start_state=start, max_steps=1, dt=5.0, keep_out_radius=1.0)
+    assert label(ep) == "contact_out_of_tolerance"
+
+
+def test_a_hold_that_did_not_last():
+    goal = {"hold_point": (0.0, -100.0, 0.0), "capture_radius": 10.0, "capture_speed": 0.05}
+    ep = episode(
+        goal={**goal, "hold_time": 5000.0}, start_state=(2.0, -100.0, 0, 0, 0, 0), max_steps=200
+    )
+    assert label(ep) == "hold_not_maintained"
+
+
+def test_passing_through_the_capture_ball_too_fast_is_an_overshoot():
+    ep = episode(start_state=(0.0, -60.0, 0.0, 0.0, -0.5, 0.0), keep_out_radius=10.0)
+    assert label(ep) == "overshoot"
+
+
+def test_timeouts_near_and_far():
+    # 8 m from the hold point at rest on the V-bar, an equilibrium outside the 5 m ball.
+    assert label(episode(start_state=(0.0, -108.0, 0, 0, 0, 0), max_steps=3)) == "timeout_near"
+    assert label(episode(start_state=AT_REST_FAR, max_steps=3)) == "timeout_far"
+
+
+def test_a_capture_inside_a_forbidden_zone_ends_as_other():
+    zone = ZoneEntry((200.0, 200.0, 200.0))
+    ep = episode(extra=(zone,), start_state=(0.0, -100.0, 0, 0, 0, 0))
+    assert ep.terminated and label(ep) == "other"
+
+
+def test_labels_are_listed_in_order():
+    assert LABELS[0] == "filter_defect" and LABELS[-1] == "other" and len(LABELS) == 15

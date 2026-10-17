@@ -19,10 +19,12 @@ from .registry import METRICS, MetricInfo
 from .safety import safety_metrics
 from .settings import MetricSettings
 from .stl import Signal, Trace, complement, merge, minimum, negative_intervals, total
+from .taxonomy import LABELS, failure_label
 
 __all__ = [
     "METRICS",
     "AgentReport",
+    "LABELS",
     "Contact",
     "Episode",
     "FuelBounds",
@@ -45,6 +47,7 @@ __all__ = [
     "escape_arc",
     "evaluate",
     "exhausts",
+    "failure_label",
     "faithfulness",
     "filter_metrics",
     "infractions",

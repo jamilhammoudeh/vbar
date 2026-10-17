@@ -301,6 +301,29 @@ score. The weights are a convention, not a measurement, so C1 is reported only w
 (`completion`, `infractions`), and `weight_sensitivity(runs)` ranks agents by mean C1 at the
 weights and with each weight halved and raised by half, and says whether the ranking held.
 
+## Failure labels
+
+Every failed run gets one label (`failure_label`, also `evaluate(...)["failure_label"]`; None on
+success), the first that matches in this order (`LABELS`):
+
+| Label | Condition |
+|---|---|
+| `filter_defect` | a hard constraint was violated and the filter reported `solver_failed` (F5b > 0) |
+| `filter_infeasible` | a hard constraint was violated and the filter proved infeasibility (F5 > 0) |
+| `keep_out_entry` | S1 of the keep-out sphere below zero |
+| `speed_limit_breach` | S1 of a speed or closing-speed limit below zero |
+| `cone_violation` | S1 of the approach cone below zero |
+| `propellant_exhaustion` | the actuator ran out of propellant |
+| `parse_failure` | more than half of the LLM replies could not be parsed (A4 > 0.5) |
+| `sign_error` | the convention self-check failed (A6) |
+| `oscillation` | chatter E6 above `oscillation_threshold` (0.05 1/s, ours) |
+| `contact_out_of_tolerance` | contact happened with a negative capture margin (M10 < 0) |
+| `hold_not_maintained` | the capture predicate held at some time but never for the required dwell |
+| `overshoot` | the goal position came within the capture radius, in continuous time, but the capture predicate never held |
+| `timeout_near` | timeout ending within twice the capture radius (the lateral limit for docking) |
+| `timeout_far` | any other timeout |
+| `other` | none of the above, for example a capture inside a forbidden zone |
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -380,6 +403,13 @@ weights and with each weight halved and raised by half, and says whether the ran
   entry into the sphere as the closed form does; the PD baseline, PD through the target and free
   drift keep their ranking under all ten weight changes, while a pair of agents built to swap under
   a halved keep-out weight is reported as unstable.
+- Failure labels (`tests/test_metrics_taxonomy.py`): one constructed run per label, each
+  reaching its label through the order above (a filter reporting `solver_failed` or a certified
+  infeasibility while PD flies through the target; the flyby with only keep-out, then with a small
+  sphere and a speed limit, then with a cone; a 0.2 kg tank; unreadable replies; a failed sign
+  check; a command that flips every step; a 0.2 m/s contact; a hold shorter than its dwell; a pass
+  through the capture ball at 0.5 m/s; rest 8 m and 200 m from the hold point; a capture inside a
+  forbidden zone).
 
 ## Example
 

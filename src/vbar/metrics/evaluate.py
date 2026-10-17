@@ -14,6 +14,7 @@ from .passive import passive_metrics
 from .plume import plume_metrics
 from .safety import safety_metrics
 from .settings import MetricSettings
+from .taxonomy import failure_label
 
 
 def evaluate(
@@ -30,7 +31,7 @@ def evaluate(
     """
     settings = settings or MetricSettings()
     mission = mission_metrics(ep)
-    return {
+    out = {
         **mission,
         **efficiency_metrics(ep),
         **optimality_gap(ep, bounds),
@@ -41,3 +42,5 @@ def evaluate(
         **agent_metrics(ep, report),
         **composite_metrics(ep, settings.composite_weights or WEIGHTS, mission),
     }
+    out["failure_label"] = failure_label(ep, out, settings)
+    return out
