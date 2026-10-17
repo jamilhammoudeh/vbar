@@ -51,6 +51,14 @@ CATALOGUE = (
     MetricInfo("S10", "plume_impulse", "N s"),
     MetricInfo("S10t", "plume_time", "s"),
     MetricInfo("S10m", "plume_margin", "rad"),
+    MetricInfo("F1", "intervention_rate", "fraction"),
+    MetricInfo("F2", "intervention_size", "fraction of a full command"),
+    MetricInfo("F3", "safety_dv_cost", "m/s"),
+    MetricInfo("F4", "filter_dependence", "difference of rates"),
+    MetricInfo("F5", "infeasible_steps", "count"),
+    MetricInfo("F5b", "solver_failures", "count"),
+    MetricInfo("F6", "filter_compute_median", "s"),
+    MetricInfo("F6p", "filter_compute_p95", "s"),
 )
 
 METRICS = {info.name: info for info in CATALOGUE}

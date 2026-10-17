@@ -243,6 +243,30 @@ thrust $F = m|\mathbf a|$ from the mass at the start of the step (the mass falls
 over a 10 s step at 0.02 m/s^2). The force model assumes a flat target area facing the plume and
 full momentum transfer; it is a load indicator, not a surface force model.
 
+## Safety filter (F1 to F6)
+
+Each decision of a `FilteredAgent` leaves a `FilterResult` in its record
+([environment.md](environment.md)); an episode without a filter gives NaN. A filter's
+infeasibility counts only when a certificate proves it (Boyd and Vandenberghe, *Convex
+Optimization*, sections 5.8 and 11.4): a solver that stalls proves nothing, so `solver_failed` is a
+filter defect counted apart. Inside the commit zone (`commit_radius`) the filter only monitors
+(Fehse part 2 review C3), so F5 and F5b leave those decisions out.
+
+| ID | Name | Units | Definition |
+|---|---|---|---|
+| F1 | `intervention_rate` | fraction | decisions the filter changed over decisions |
+| F2 | `intervention_size` | fraction of a full command | mean of $\lvert\mathbf u_{\text{filtered}} - \mathbf u\rvert_2/\sqrt3$ over changed decisions, in fractions of a full command |
+| F3 | `safety_dv_cost` | m/s | paired by seed: E1 with the filter minus E1 without; interquartile mean, with the per-seed values in `safety_dv_cost_by_seed` |
+| F4 | `filter_dependence` | difference of rates | paired by seed: success rate with the filter minus without |
+| F5 | `infeasible_steps` | count | decisions outside the commit zone with status `infeasible_certified` |
+| F5b | `solver_failures` | count | decisions outside the commit zone with status `solver_failed` |
+| F6, F6p | `filter_compute_median`, `filter_compute_p95` | s | median and 95th percentile of the filter's compute time |
+
+`filter_metrics(episode, settings)` gives F1, F2, F5, F5b and F6; `paired_filter_metrics(on, off)`
+gives F3 and F4 from runs over the same seeds and rejects runs that do not pair.
+`iqm(values)` is the interquartile mean, the mean of the middle half (Agarwal et al., "Deep
+Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -306,6 +330,12 @@ full momentum transfer; it is a load indicator, not a surface force model.
   the exhaust behind (margin $\pi - 39$ deg less the small tilt from Clohessy-Wiltshire coupling,
   force about 1e-43 N s). Thrust outside $R_p$ counts nothing; entering $R_p$ mid-step counts only
   the time inside; the impulse changes by less than 1e-4 between 10 and 2.5 s steps.
+- Filter (`tests/test_metrics_filter.py`): a filter that halves every command gives F1 = 1 and
+  F2 the mean half-command size; a pass-through filter gives F1 = 0 and F2 NaN, and no filter gives
+  NaN throughout. Scripted statuses are counted apart (4 certified, 2 solver failures in 8), and none
+  are counted inside a commit zone; F6 is the median and 95th percentile of scripted compute times.
+  F3 equals the trimmed mean of the per-seed delta-v differences over 5 seeds, in any order of the
+  runs, and unpaired runs are rejected.
 
 ## Example
 
