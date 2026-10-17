@@ -7,7 +7,8 @@ function vbar_agent_client(host, port, agent)
 %     act    - function handle, [action, state] = act(state, obs, info), called every step
 %   VIEW is the scenario's public description as decoded by JSONDECODE (view.dt, view.n,
 %   view.max_accel, view.goal.hold_point, ...), OBS a column vector and INFO.time_s the time.
-%   ACTION is a 3-vector in the scenario's action mode, or an index for "disc27".
+%   ACTION is a vector in the scenario's action mode (three numbers, four for "impulse_coast"),
+%   or an index for "disc27".
 %
 %   Needs MATLAB R2020b or later (tcpclient with readline and writeline).
 

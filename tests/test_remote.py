@@ -72,12 +72,12 @@ def remote_run(agent, cfg, seed=0, agent_seed=7):
 def test_remote_runs_match_in_process_runs_exactly(make, fields):
     cfg = ApproachConfig(**fields)
     local = run_episode(ApproachEnv(cfg), make(), seed=3, agent_seed=7)
-    remote, agent = remote_run(make(), cfg, seed=3, agent_seed=7)
+    served, agent = remote_run(make(), cfg, seed=3, agent_seed=7)
     assert agent.name == make().name
     # JSON carries floats in their shortest round-trip form, so the runs are identical.
-    assert np.array_equal(local["states"], remote["states"])
-    assert np.array_equal(local["actions"], remote["actions"])
-    assert local["captured"] == remote["captured"]
+    assert np.array_equal(local["states"], served["states"])
+    assert np.array_equal(local["actions"], served["actions"])
+    assert local["captured"] == served["captured"]
 
 
 def raw_session(handle, timeout=20.0):
@@ -323,11 +323,11 @@ class Wrong:
         return self.action
 
 
-def test_every_action_mode_crosses_the_server_and_wrong_shapes_are_refused():
+def test_burn_and_coast_actions_cross_the_server_and_wrong_shapes_are_refused():
     cfg = ApproachConfig(start_state=CLEAR, max_steps=40, action_mode="impulse_coast")
     local = run_episode(ApproachEnv(cfg), Hops(), seed=0, agent_seed=1)
-    remote, _ = remote_run(Hops(), cfg, seed=0, agent_seed=1)
-    assert np.array_equal(local["states"], remote["states"])
+    served, _ = remote_run(Hops(), cfg, seed=0, agent_seed=1)
+    assert np.array_equal(local["states"], served["states"])
     for mode, action in (
         ("impulse_coast", [0.0, 0.0, 0.0]),
         ("normalized", [0.0] * 4),
