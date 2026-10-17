@@ -123,6 +123,21 @@ def test_clipping_to_the_thrust_limit_is_counted_apart_from_safety_activity():
     assert np.isnan(m["intervention_size"])
 
 
+def test_scaling_a_command_onto_the_ball_limit_is_clipping():
+    over = ConstantAgent([2.0, 2.0, 0.0])
+    agent = FilteredAgent(over, Rewriting(lambda a: a / np.linalg.norm(a)))
+    ep = episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=3, thrust_limit="ball")
+    m = filter_metrics(ep)
+    assert m["intervention_rate"] == 0.0 and m["clip_rate"] == 1.0
+
+
+def test_a_reported_row_on_a_clipped_command_is_activity_not_clipping():
+    over = ConstantAgent([0.0, 3.0, 0.0])
+    agent = FilteredAgent(over, Rewriting(lambda a: np.clip(a, -1.0, 1.0), active=True))
+    m = filter_metrics(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=3))
+    assert m["intervention_rate"] == 1.0 and m["clip_rate"] == 0.0
+
+
 def test_a_filter_cannot_hide_a_change_by_reporting_no_active_row():
     agent = FilteredAgent(PDAgent(), Rewriting(lambda a: 0.0 * a, active=False))
     ep = episode(agent, start_state=(0, -400, 30, 0, 0, 0), max_steps=5)

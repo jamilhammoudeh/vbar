@@ -86,7 +86,7 @@ def filter_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict[
     widest = 2.0 * ep.view.max_accel * (math.sqrt(3.0) if ep.view.thrust_limit == "box" else 1.0)
     acting = [rec for rec, _ in decisions if _active(ep, rec)]
     sizes = [_flown_change(ep, rec) for rec in acting]
-    clipped = sum(_clip_only(ep, rec) for rec, _ in decisions)
+    clipped = sum(_clip_only(ep, rec) and not rec.filter_result.active for rec, _ in decisions)
     compute = [rec.filter_result.compute_s for rec, _ in decisions]
     statuses = [rec.filter_result.status for rec, outside in decisions if outside]
     size = float(np.mean(sizes)) if sizes else math.nan
@@ -104,7 +104,11 @@ def filter_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict[
 
 
 def _commanded_accel(ep: Episode, command: np.ndarray) -> np.ndarray:
-    """Hill acceleration (m/s^2) the spacecraft would fly for a command, at the initial mass."""
+    """Hill acceleration (m/s^2) the spacecraft would fly for a command, at the initial mass.
+
+    The thrust limit is taken at the initial mass; with constant thrust it grows in m/s^2 as
+    propellant burns, so a change just above the initial limit late in a run counts as clipping.
+    """
     u = np.asarray(command, dtype=float) / action_scale(ep.view)
     if ep.view.thrust_limit == "box":
         u = np.clip(u, -1.0, 1.0)

@@ -19,7 +19,7 @@ power figures need real filters and are not given.
 - Changelog: v1, any change above 1e-6; v2, a reported row or a change in flown acceleration, with clipping counted in F1c.
 
 ## F1c clip_rate (v1)
-- Definition: decisions whose action changed but whose flown acceleration did not (clipping to the thrust limit only), over decisions.
+- Definition: decisions whose action changed but whose flown acceleration did not (clipping to the thrust limit only) and with no reported active row, over decisions. The limit is taken at the initial mass, so under constant thrust a change just above it late in a run counts as clipping.
 - Summary: interquartile mean across episodes.
 - Why it matters: keeps clipping visible without counting it as a safety intervention.
 - Known-answer tests: 1 for a filter that clips a command of 3 to the box limit.
