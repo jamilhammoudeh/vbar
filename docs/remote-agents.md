@@ -1,10 +1,10 @@
 # Remote agents
 
-Code: `vbar.agents.remote` (`AgentServer`, `RemoteAgent`, `serve_agent`, `main`),
-`clients/matlab/` (`vbar_agent_client.m`, `pd_agent.m`), `vbar.agents.mcp` (`ToolServer`). An agent can run in another process,
-on another machine or in another language: the agent server waits for it to connect and presents
-it to `run_episode` as an ordinary agent, so it is scored exactly like an in-process one. Running
-submitted agents out of process also keeps them away from the environment's memory.
+Code: `vbar.agents.remote` (`AgentServer`, `RemoteAgent`, `serve_agent`, `main`), `clients/matlab/`
+(`vbar_agent_client.m`, `pd_agent.m`), `vbar.agents.mcp` (`ToolServer`). An agent can run in another
+process, on another machine or in another language: the agent server waits for it to connect and
+presents it to `run_episode` as an ordinary agent, so it is scored exactly like an in-process one.
+Running submitted agents out of process also keeps them away from the environment's memory.
 
 ## Protocol
 
@@ -20,14 +20,14 @@ Version 1 is a lockstep exchange over one TCP connection: UTF-8 JSON objects, on
 | client | `{"type": "action", "action": [<float>, ...]}` or an integer for `"disc27"` | the answer |
 | server | `{"type": "close"}` | at the end of the session |
 
-A client may answer any message with `{"type": "error", "message": ...}`, which the server raises
-as `RemoteAgentError`, as it does for an action of the wrong form: three finite numbers, four
-in the `impulse_coast` mode, and an integer from 0 to 26 in the discrete mode. The `view` carries every `AgentView` field (`scenario_id`, `dt`,
-`max_steps`, `n`, `action_mode`, `max_accel`, `thrust_limit`, `mass_kg`, `goal`, `constraints`,
-`observation`, `frame`) with tuples as lists. `seed` and `spawn_key` are the agent's own random
-stream (`numpy.random.SeedSequence(seed, spawn_key=...)`), seeded independently of the episode,
-so they carry nothing about the start state or the noise. Nothing else crosses: no true state,
-no reward, no metrics.
+A client may answer any message with `{"type": "error", "message": ...}`, which the server raises as
+`RemoteAgentError`, as it does for an action of the wrong form: three finite numbers, four in the
+`impulse_coast` mode, and an integer from 0 to 26 in the discrete mode. The `view` carries every
+`AgentView` field (`scenario_id`, `dt`, `max_steps`, `n`, `action_mode`, `max_accel`,
+`thrust_limit`, `mass_kg`, `goal`, `constraints`, `observation`, `frame`) with tuples as lists.
+`seed` and `spawn_key` are the agent's own random stream (`numpy.random.SeedSequence(seed,
+spawn_key=...)`), seeded independently of the episode, so they carry nothing about the start state
+or the noise. Nothing else crosses: no true state, no reward, no metrics.
 
 Floats are written in Python's shortest round-trip form and read back to the same double, so a
 client computes on exactly the numbers an in-process agent would, and a deterministic agent flies
@@ -47,9 +47,9 @@ agent.close()                        # sends close
 `python -m vbar.agents.remote --port 5555 --seeds 0 1 2 --out results.jsonl` hosts the default
 approach scenario for one client and writes one JSON line per episode with the result of
 `run_episode` (arrays as lists). If the client fails, disconnects, resets the connection or sends
-something that is not a valid message, the episode it was flying is written with `completed`
-false and the error, and so is every seed not yet flown. Real-time runs ([agents.md](agents.md)) work through the server
-too; the measured latency then includes the network.
+something that is not a valid message, the episode it was flying is written with `completed` false
+and the error, and so is every seed not yet flown. Real-time runs ([agents.md](agents.md)) work
+through the server too; the measured latency then includes the network.
 
 ## Clients
 
@@ -94,13 +94,14 @@ unknown tools and `params` or `arguments` that are not objects (-32602), lines t
 Tool results come as JSON text and as `structuredContent`; a call that cannot be carried out (no
 episode running, a new episode before the current one ends, no episodes left, non-numeric or
 non-finite commands, invalid predictions) returns `isError` with the reason. Episodes run in the
-order of the seeds and cannot be abandoned, so a client cannot restart until it likes a start.
-Each command's wall time since the previous observation is the decision latency. Results stay
-on the server: `ToolServer.results` holds `run_episode`'s result for each finished episode (with
+order of the seeds and cannot be abandoned, so a client cannot restart until it likes a start. Each
+command's wall time since the previous observation is the decision latency. Results stay on the
+server: `ToolServer.results` holds `run_episode`'s result for each finished episode (with
 `agent_seed` 0, since the client has no stream of ours), and the command line writes them to the
-`--out` file as they finish. When the session ends, because the input ends, the client stops
-reading the output or the server fails, an episode still running and every seed not yet flown are
-recorded too, with `completed` false, so leaving does not remove a bad episode from the results. The client never sees the true state, the reward or the outcome.
+`--out` file as they finish. When the session ends, because the input ends, the client stops reading
+the output or the server fails, an episode still running and every seed not yet flown are recorded
+too, with `completed` false, so leaving does not remove a bad episode from the results. The client
+never sees the true state, the reward or the outcome.
 
 ## How it is tested
 

@@ -1,9 +1,10 @@
 # LLM agents
 
-Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `ToolCall`, `Price`, `text_model`,
-`parse_action`, `RecordedModel`, `ReplayModel`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`,
-`TRANSFER_BURN`, `CW_TOOLS`). An LLM agent asks a language model for each command. V-BAR has no model client of its own: the model
-is any function, so a hosted API, a local model or a test stand-in plugs in the same way.
+Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `ToolCall`, `Price`, `text_model`, `parse_action`,
+`RecordedModel`, `ReplayModel`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`, `TRANSFER_BURN`,
+`CW_TOOLS`). An LLM agent asks a language model for each command. V-BAR has no model client of its
+own: the model is any function, so a hosted API, a local model or a test stand-in plugs in the same
+way.
 
 ## The model function
 
