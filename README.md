@@ -102,6 +102,17 @@ certified bound on the keep-out margin are in `info`.
 The environment propagates with Clohessy-Wiltshire dynamics by default;
 `ApproachConfig(dynamics="twobody")` or `"twobody_j2"` selects one of the nonlinear models below.
 
+## Scoring
+
+`vbar.metrics.record_episode(env, agent, seed)` records a run and `vbar.metrics.evaluate(episode)`
+scores it from the true trajectory in continuous time: mission (success, terminal errors, time,
+progress, docking contact, hold dwell), efficiency (delta-v in both norms, propellant, burns, duty
+cycle, chatter, the optimality gap against oracle bounds), constraint margins with violation depth
+and duration, passive safety and collision-avoidance availability, thruster plume, safety-filter
+and agent metrics, a composite score with its breakdown, and a failure label for failed runs.
+Definitions, tests and one card per metric are in
+[docs/metrics.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/metrics.md).
+
 ## Writing a controller
 
 Any object with a `name`, a `reset(view, rng)` method and an `act(obs, info)` method that returns
@@ -168,7 +179,7 @@ obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
  Its reward is a shaped training signal (progress toward the hold point, minus delta-v,
 minus a penalty for each step in the keep-out zone, plus a bonus on capture) and is not the
-benchmark score; score agents on the metrics in `info`. The reward and `info` come from the true
+benchmark score; score agents with `vbar.metrics`. The reward and `info` come from the true
 state, so evaluate trained policies through `run_episode`, which passes them only the observation
 and the time.
 
@@ -214,7 +225,7 @@ KSPDG.
 How each part is built, with its equations, methods, assumptions and limits, is in
 [docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part:
 frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
-spacecraft, sensors, constraints, the environment, and validation.
+spacecraft, sensors, constraints, the environment, metrics, and validation.
 
 ## Tests
 

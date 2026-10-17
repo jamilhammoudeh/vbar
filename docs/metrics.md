@@ -324,6 +324,14 @@ success), the first that matches in this order (`LABELS`):
 | `timeout_far` | any other timeout |
 | `other` | none of the above, for example a capture inside a forbidden zone |
 
+## Metric cards
+
+Each metric has a card in `src/vbar/metrics/cards/` (one file per family): its definition, why it
+matters, known-answer tests, convergence as the step and sampling shrink, invariances, the
+mutations it detects and how it ranks them, exploits tried, cross-platform tolerance, the episodes
+needed to detect a stated change on the baselines, evidence of validity, and its version history.
+`tests/test_metric_cards.py` checks that every metric in `METRICS` has a complete card.
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -445,4 +453,20 @@ episode = record_episode(ApproachEnv(config), DriftAgent(), seed=0, agent_seed=0
 inside = negative_intervals(KeepOut(50.0), Trace(episode))
 print([(round(a, 2), round(b, 2)) for a, b in inside])  # [(67.29, 129.48)]
 print(round(total(inside), 2))  # 62.19 s inside the keep-out sphere
+```
+
+Every metric of one run, with the PD baseline from 400 m behind:
+
+```python
+from vbar import ApproachConfig, ApproachEnv
+from vbar.agents import PDAgent
+from vbar.metrics import MetricSettings, evaluate, record_episode
+
+config = ApproachConfig(start_state=(-150.0, -400.0, 20.0, 0.0, 0.0, 0.0), max_steps=120)
+episode = record_episode(ApproachEnv(config), PDAgent(), seed=0, agent_seed=0)
+m = evaluate(episode, MetricSettings(plume_range=60.0))
+print(m["success"], m["failure_label"], m["time_to_complete"])  # True None 630.0
+print(round(m["delta_v"], 3), round(m["min_margin"]["keep_out"], 2))  # 2.718 54.26
+print(round(m["passive_safety_margin"], 2), m["unprotected_time"])  # 33.76 0.0
+print(m["composite_score"], m["infractions"])  # 1.0 {'keep_out': 0, 'timeout': 0}
 ```
