@@ -1,7 +1,8 @@
 # Agents
 
 Code: `vbar.agents` (`Agent`, `AgentView`, `PDAgent`, `DriftAgent`, `LLMAgent`),
-`vbar.agents.sign_check`, `vbar.runner` (`RealTime`, `Episode`). The agent interface and the
+`vbar.agents.sign_check`, `vbar.agents.plan` (`PlanAgent`, `PlanVerifier`, `Verdict`,
+`LLMPlanner`), `vbar.runner` (`RealTime`, `Episode`). The agent interface and the
 built-in agents are described with the environment ([environment.md](environment.md)); this page
 covers the tools around them.
 
@@ -50,6 +51,39 @@ Limits: the pending-command observation channel has $\lceil$delay$/\Delta t\rcei
 for the configured delay, so a latency longer than that can push commands out of it; latency
 measured on a shared machine includes everything else the machine was doing.
 
+## Plan submission
+
+Instead of one command per step, a planner can submit a whole plan: rows of fractions of a full
+command, one per step. `PlanVerifier(view).verify(obs, plan, steps_left)` is the external check:
+it flies the plan from the observed state under the Clohessy-Wiltshire model with the view's mean
+motion, thrust layout and limit, checks each public constraint over every step with the
+certified in-step minimum ([constraints.md](constraints.md)), and stops at the first step whose
+end meets the goal. The `Verdict` holds the predicted lowest margin of each constraint, the
+capture step, the final distance and speed, the delta-v (2-norm) and a list of problems: an empty
+or non-finite plan, more steps than remain, a violated constraint (with the first step and the
+lowest margin), or the goal not reached. `ok` means no problems; `summary()` puts the verdict
+in words for a planner to revise from.
+
+The verifier knows what the agent knows and nothing more: it starts from the observation, so a
+noisy navigation fix makes its prediction wrong by that error, and it does not model the
+minimum impulse bit, delay, propellant limits or the nonlinear dynamics. With exact navigation
+and the CW model it predicts the flight exactly.
+
+`PlanAgent(planner, max_revisions=3)` calls `planner(obs, view, verdict, steps_left)` when it has
+no plan left, with `verdict` None at first and the last rejection after that, until a plan
+passes or `max_revisions` revisions are used. It then flies the accepted plan open loop, one row
+per step, converted to the action mode. A plan that never passes is not flown: the spacecraft
+coasts and the planner is asked again at the next decision. Each planning point's number of
+verifier calls and last verdict go to `log`, the data for plan quality against verifier calls.
+
+`LLMPlanner(complete, price)` is a planner backed by a model with the same `complete(messages,
+tools)` function as the LLM agent ([llm-agents.md](llm-agents.md)). Its prompt gives the frame,
+the goal, the keep-out radius, the observed state, the step, the thrust limit and the steps left,
+asks for a JSON list of segments `{"ax", "ay", "az", "steps"}`, and on a revision includes the
+verdict's summary. `parse_plan` expands the segments into rows; an unreadable reply is an empty
+plan, which the verifier rejects. Every call's prompt, reply, tokens, cost and latency go to its
+`log`.
+
 ## How it is tested
 
 `tests/test_sign_check.py`:
@@ -62,6 +96,20 @@ measured on a shared machine includes everything else the machine was doing.
 - A discrete agent that picks the bang-off-bang command toward the goal passes.
 - An LLM agent passes when its model reads the position and goal from the prompt and points at
   the goal, and fails five directions when the model always answers $+x$.
+
+`tests/test_plan.py`:
+
+- A PD plan predicted from exact navigation, flown open loop by the environment, captures at the
+  predicted step, with the predicted minimum range (1e-12 relative), final distance and delta-v.
+- A plan through the keep-out zone is rejected with the step and margin of the violation; the
+  same planner routed around the zone passes.
+- With 20 m of navigation noise the prediction starts from the observation, not the truth.
+- A planner that cuts through the zone first and goes around after the rejection is accepted on
+  the second call and the run captures without a violation; a planner whose plans never pass is
+  not flown, using every allowed call at each decision.
+- The LLM planner's revision prompt carries the verdict and the steps left; segments are expanded;
+  an unreadable reply is an empty plan.
+- The plan agent rejects the discrete mode, and the verifier unknown constraint types.
 
 `tests/test_real_time.py`:
 
