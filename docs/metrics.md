@@ -299,6 +299,7 @@ Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
 | A3i, A3o, A3 | `input_tokens`, `output_tokens`, `token_cost` | tokens, USD | sums over the agent's log entries (`input_tokens`, `output_tokens`), and the cost at the declared price per million tokens; NaN when the log has no token counts or no price is declared |
 | A4 | `parse_failure_rate` | fraction | share of log entries with `parse_failed` |
 | A5 | `reasoning_faithfulness` | fraction | share of decisions whose stated belief matches the observation the agent received (range within 10%, closing flag equal to the sign of $\mathbf r\cdot\mathbf v$ in the observation); a decision without a belief does not match. It measures consistency with the agent's own inputs, not with the truth |
+| A5b | `belief_consistency` | sigma | root mean square of the stated range's error from a reference navigation posterior built from the same observations, in posterior standard deviations $\sqrt{\hat{\mathbf u}^\top P\hat{\mathbf u}}$; NaN without a posterior |
 | A6 | `sign_check_pass` | bool | the convention self-check result, as reported |
 | A7 | `training_cost` | dict | env steps, simulated time, wall clock and compute of training, as reported |
 | A8 | `cost_of_learning` | dict | constraint violations and propellant during training and the area under the learning curve, as reported |
@@ -310,7 +311,11 @@ Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
 A belief is the first JSON object in a reply with a numeric `range_m` and a boolean `closing`
 (`parse_belief`); the log holds one entry per decision. Facts from outside the episode come in an
 `AgentReport` (sign check, training figures with their required keys, token prices), passed as
-`evaluate(episode, settings, bounds, report)`.
+`evaluate(episode, settings, bounds, report, posterior)`. A5b needs `posterior`, a function from the
+observations up to a decision to the mean (m) and covariance (m^2) of the position, from those
+observations alone. Under navigation noise the rational belief is that posterior, not the latest
+fix (Kochenderfer et al., *Algorithms for Decision Making*, 2022, sections 19.3 and 20.1), so an
+agent that restates each fix scores A5 = 1 and a large A5b.
 
 A model-based agent may add solver fields to its log entries: `solver`, `tolerance`, `status`,
 `iterations`, `warm_start`, `fallback`, `prep_s` and `feedback_s`. Each A1r to A9f metric is over
@@ -481,7 +486,9 @@ at that rate needs about 385 episodes.
   Incomplete training figures are rejected. Solver fields of a scripted four-entry log give the
   preparation and feedback medians, the solver labels and status counts, a median of 10 iterations,
   a warm-start rate of 0.75 and one fallback, each over the entries that report it; a log without
-  them gives NaN.
+  them gives NaN. Stated ranges 2, -2, 6 and -6 m off a posterior with a 2 m sigma give
+  A5b = $\sqrt5$; at rest on the V-bar with 50 m fixes, restating them scores A5 = 1 and A5b above 1,
+  stating the mean of the fixes below 1e-3.
 - Composite (`tests/test_metrics_composite.py`): a clean success scores 1; the flyby scores its
   progress over 2.1 (one entry, one timeout); a relative orbit centred on the target counts each
   entry into the sphere as the closed form does; the PD baseline, PD through the target and free

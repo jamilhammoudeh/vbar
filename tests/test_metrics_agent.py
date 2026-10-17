@@ -11,6 +11,7 @@ from vbar.agents import LLMAgent
 from vbar.metrics import (
     AgentReport,
     agent_metrics,
+    belief_consistency,
     faithfulness,
     parse_belief,
     solver_metrics,
@@ -91,6 +92,56 @@ def test_faithfulness_is_judged_against_the_observation_not_the_truth():
     truth = [np.linalg.norm(s[:3]) for s in ep.states[:-1]]
     seen = [np.linalg.norm(o[:3]) for o in (ep.first_obs, *(r.obs for r in ep.records[:-1]))]
     assert max(abs(a - b) for a, b in zip(truth, seen, strict=True)) > 1.0
+
+
+def stated_ranges(ep, offsets):
+    """The episode with a log whose beliefs state each observed range plus an offset (m)."""
+    observed = [ep.first_obs, *(r.obs for r in ep.records[:-1])]
+    log = tuple(
+        {"reply": json.dumps({"range_m": float(np.linalg.norm(o[:3])) + d, "closing": True})}
+        for o, d in zip(observed, offsets, strict=True)
+    )
+    return dataclasses.replace(ep, agent_log=log)
+
+
+def latest_fix(observations):
+    """A posterior that trusts the latest fix with a 2 m standard deviation per axis."""
+    return observations[-1][:3], 4.0 * np.eye(3)
+
+
+def test_belief_consistency_is_the_rms_error_in_posterior_sigmas():
+    ep = stated_ranges(pd_episode(max_steps=4), [2.0, -2.0, 6.0, -6.0])
+    assert belief_consistency(ep, latest_fix) == pytest.approx(np.sqrt(5.0), abs=1e-9)
+    assert math.isnan(belief_consistency(ep, None))
+    assert math.isnan(agent_metrics(ep)["belief_consistency"])
+
+
+def test_restating_noisy_fixes_is_faithful_but_not_consistent_with_the_posterior():
+    # At rest on the V-bar the truth stays put, so with 50 m fixes the posterior is their mean
+    # with covariance 50^2 / k per axis.
+    coast = json.dumps({"ax": 0.0, "ay": 0.0, "az": 0.0})
+    fixes = []
+
+    def parrot(prompt):
+        r, v = numbers(prompt, "position"), numbers(prompt, "velocity")
+        belief = {"range_m": float(np.linalg.norm(r)), "closing": bool(r @ v < 0)}
+        return coast + " " + json.dumps(belief)
+
+    def averager(prompt):
+        fixes.append(numbers(prompt, "position"))
+        mean = np.mean(fixes, axis=0)
+        return coast + " " + json.dumps({"range_m": float(np.linalg.norm(mean)), "closing": False})
+
+    def mean_of_fixes(observations):
+        return observations[:, :3].mean(axis=0), 50.0**2 / len(observations) * np.eye(3)
+
+    start, nav = (0.0, -300.0, 0.0, 0.0, 0.0, 0.0), GaussianNav(50.0, 0.01)
+    restated = episode(LLMAgent(parrot), start_state=start, max_steps=8, sensor=nav)
+    averaged = episode(LLMAgent(averager), start_state=start, max_steps=8, sensor=nav)
+    assert faithfulness(restated) == 1.0
+    assert belief_consistency(restated, mean_of_fixes) > 1.0
+    # The prompt prints the fixes rounded, so the averaged belief is off by far less than a sigma.
+    assert belief_consistency(averaged, mean_of_fixes) < 1e-3
 
 
 def test_solver_fields_and_the_latency_split_come_from_the_entries_that_report_them():

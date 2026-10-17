@@ -12,13 +12,15 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from .episode import Episode
+
+Posterior = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
 
 TRAINING_COST_KEYS = ("env_steps", "simulated_time_s", "wall_clock_s", "compute")
 LEARNING_COST_KEYS = ("constraint_violations", "propellant_kg", "learning_curve_area")
@@ -88,6 +90,32 @@ def faithfulness(ep: Episode) -> float:
     return hits / len(ep.agent_log)
 
 
+def belief_consistency(ep: Episode, posterior: Posterior | None) -> float:
+    """A5b: root mean square of the stated range's error from a reference posterior, in its sigmas.
+
+    `posterior` maps the observations up to and including a decision (rows, in order) to the mean
+    (m, Hill) and covariance (m^2) of the position, from those observations alone. The range's
+    standard deviation is the first-order sqrt(u' P u), u the unit mean. Over the decisions with a
+    stated belief; 0 when every stated range is the posterior's; NaN without a posterior, a log or
+    a belief. An agent that restates each noisy fix scores A5 = 1 and a large A5b.
+    """
+    if posterior is None or not ep.agent_log:
+        return math.nan
+    observations = np.array(_decision_observations(ep))
+    errors = []
+    for k, entry in enumerate(ep.agent_log):
+        belief = parse_belief(str(entry.get("reply", "")))
+        if belief is None:
+            continue
+        mean, cov = posterior(observations[: k + 1])
+        mean = np.asarray(mean, dtype=float)[:3]
+        rho = float(np.linalg.norm(mean))
+        u = mean / rho
+        sigma = math.sqrt(float(u @ np.asarray(cov, dtype=float)[:3, :3] @ u))
+        errors.append((belief["range_m"] - rho) / sigma)
+    return float(np.sqrt(np.mean(np.square(errors)))) if errors else math.nan
+
+
 def _reported(log: Sequence[Mapping[str, Any]], key: str) -> list[Any]:
     """Values of `key` over the log entries that report it."""
     return [e[key] for e in log if e.get(key) is not None]
@@ -123,8 +151,10 @@ def solver_metrics(ep: Episode) -> dict[str, Any]:
     }
 
 
-def agent_metrics(ep: Episode, report: AgentReport | None = None) -> dict[str, Any]:
-    """A1 to A9 for one episode."""
+def agent_metrics(
+    ep: Episode, report: AgentReport | None = None, posterior: Posterior | None = None
+) -> dict[str, Any]:
+    """A1 to A9 for one episode; A5b needs the reference `posterior` (see `belief_consistency`)."""
     report = report or AgentReport()
     latency = np.array([rec.agent_latency_s for rec in ep.records])
     log = ep.agent_log
@@ -137,6 +167,7 @@ def agent_metrics(ep: Episode, report: AgentReport | None = None) -> dict[str, A
         "token_cost": math.nan,
         "parse_failure_rate": math.nan,
         "reasoning_faithfulness": faithfulness(ep),
+        "belief_consistency": belief_consistency(ep, posterior),
         "sign_check_pass": math.nan if report.sign_check_pass is None else report.sign_check_pass,
         "training_cost": dict(report.training_cost) if report.training_cost else None,
         "cost_of_learning": dict(report.cost_of_learning) if report.cost_of_learning else None,

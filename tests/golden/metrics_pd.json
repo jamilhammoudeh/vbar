@@ -1,5 +1,6 @@
 {
  "agent_fallback_count": NaN,
+ "belief_consistency": NaN,
  "below_lower_bound": false,
  "bound_certified": false,
  "bound_rung": "",

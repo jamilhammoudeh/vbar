@@ -32,7 +32,7 @@ release may change the public API, and every such change is listed under Changed
 - `FilterResult` with a status, slack, conflicting constraints and compute time; `FilteredAgent`
   keeps the last command, result and measured filter time.
 - `vbar.metrics`: `record_episode` returns an `Episode` with every step record, and
-  `evaluate(episode, settings, bounds, report)` returns every metric keyed by the names in
+  `evaluate(episode, settings, bounds, report, posterior)` returns every metric keyed by the names in
   `METRICS`: mission metrics with docking contact and hold dwell, efficiency, the optimality gap
   against oracle bounds, constraint margins with violation depth and duration in continuous time,
   passive safety, stuck thrusters and collision-avoidance availability, thruster plume, safety
@@ -46,6 +46,8 @@ release may change the public API, and every such change is listed under Changed
   `certificate_horizon`, `iterations`).
 - Agent solver metrics from optional log fields: the preparation and feedback split of the
   latency, solver labels, tolerances and status counts, iterations, warm starts and fallbacks.
+- Agent metric A5b, the stated range's error from a reference navigation posterior, when one
+  is passed to `evaluate`.
 
 ## [0.2.0] - 2026-10-16
 

@@ -98,6 +98,7 @@ CATALOGUE = (
     MetricInfo("A3", "token_cost", "USD"),
     MetricInfo("A4", "parse_failure_rate", "fraction"),
     MetricInfo("A5", "reasoning_faithfulness", "fraction"),
+    MetricInfo("A5b", "belief_consistency", "sigma"),
     MetricInfo("A6", "sign_check_pass", "bool", summary="rate"),
     MetricInfo("A7", "training_cost", "dict", summary="none"),
     MetricInfo("A8", "cost_of_learning", "dict", summary="none"),
