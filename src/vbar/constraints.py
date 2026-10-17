@@ -461,10 +461,11 @@ def segment_minima(
     `states` is (N, m, 6), `thrust` and `t0` are (N,), and `state_at(rows, tau)` returns the
     states `tau` s into the segments `rows`, both (A,), as (A, 6). The constraint's `margin` and
     `rate_bound` must accept arrays. Intervals are refined by the same rule, in order of their
-    bound until one is within `resolution` of the best value, but with a golden-section search
-    to 1e-6 s run on every segment at once instead of Brent's method; the minima then agree with
-    `segment_minimum` to the accuracy of the two searches. Returns the times (s from the
-    episode start), margins and lower bounds, each (N,).
+    bound until one is within `resolution` of the best value. Every interval that rule could
+    refine is searched at once, with a golden-section search to 1e-6 s instead of Brent's
+    method, and the rule is then replayed on the results, so each minimum comes from the
+    intervals `segment_minimum` would refine and agrees with it to the accuracy of the two
+    searches. Returns the times (s from the episode start), margins and lower bounds, each (N,).
     """
     rows = np.arange(len(states))
     margins = constraint.margin(states, t0[:, None] + times)
@@ -476,21 +477,26 @@ def segment_minima(
     rate_bound = cast(Any, constraint.rate_bound)
     rates = np.broadcast_to(np.asarray(rate_bound(speed, accel), dtype=np.float64), speed.shape)
     bounds = 0.5 * (margins[:, :-1] + margins[:, 1:] - rates * h)
-    order = np.argsort(bounds, axis=1)
-    active = np.ones(len(states), dtype=bool)
-    for column in order.T:
-        active &= bounds[rows, column] < best - constraint.resolution
-        if not active.any():
-            break
-        sel = rows[active]
-        start, end = times[column[sel]], times[column[sel] + 1]
+    # The best value only falls during refinement, so these are all the intervals it can visit.
+    owner, column = np.nonzero(bounds < (best - constraint.resolution)[:, None])
+    if owner.size:
+        found_t = np.zeros(bounds.shape)
+        found = np.full(bounds.shape, np.inf)
 
-        def margin_at(tau: np.ndarray, sel: np.ndarray = sel) -> np.ndarray:
-            return constraint.margin(state_at(sel, tau), t0[sel] + tau)
+        def margin_at(tau: np.ndarray) -> np.ndarray:
+            return constraint.margin(state_at(owner, tau), t0[owner] + tau)
 
-        x, value = _golden(margin_at, start, end)
-        better = value < best[sel]
-        best[sel[better]], best_t[sel[better]] = value[better], x[better]
+        found_t[owner, column], found[owner, column] = _golden(
+            margin_at, times[column], times[column + 1]
+        )
+        active = np.ones(len(states), dtype=bool)
+        for visit in np.argsort(bounds, axis=1).T:
+            active &= bounds[rows, visit] < best - constraint.resolution
+            if not active.any():
+                break
+            better = active & (found[rows, visit] < best)
+            best = np.where(better, found[rows, visit], best)
+            best_t = np.where(better, found_t[rows, visit], best_t)
     return t0 + best_t, best, np.minimum(bounds.min(axis=1), best)
 
 

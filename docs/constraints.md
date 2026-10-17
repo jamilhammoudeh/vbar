@@ -132,12 +132,16 @@ can stay up to $\tfrac12 L h$ below the reported minimum; over 200 coasting flyb
 `segment_minima(constraint, state_at, times, states, thrust, n, t0)` does the same for $N$
 segments sampled at the same times, as the vectorized environment needs: `states` is
 $(N, m, 6)$, `thrust` and `t0` are $(N,)$, and `state_at(rows, tau)` evaluates the segments
-`rows` at the times `tau`. The bounds and the order in which intervals are refined are the same,
-including the stop at the first interval within `resolution` of the best value, but each round
-refines one interval of every segment still searching with a golden-section search to 1e-6 s
-run on all of them at once, instead of one Brent search per interval. Near a dip the margin's
-error is second order in the bracket, so the two agree to about 1e-7 m or better. The
-constraint's `margin` and `rate_bound` must accept arrays, as `KeepOut`'s do.
+`rows` at the times `tau`. The bounds are the same. Since the best value only falls during
+refinement, every interval the sequential rule could visit has a bound more than `resolution`
+below the best sample; all of those, across the batch, are searched in one golden-section search
+to 1e-6 s instead of one Brent search each. The rule is then replayed on the results: intervals
+in order of their bound, stopping at the first within `resolution` of the best value so far. Each
+segment's minimum therefore comes from the intervals `segment_minimum` would refine, and the two
+agree to the accuracy of the searches; near a dip the margin's error is second order in the
+bracket, about 1e-7 m or better. One search for the whole batch keeps the cost per step nearly
+independent of the batch size. The constraint's `margin` and `rate_bound` must accept arrays, as
+`KeepOut`'s do.
 
 ## Violation intervals
 
