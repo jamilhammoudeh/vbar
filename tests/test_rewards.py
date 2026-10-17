@@ -188,3 +188,26 @@ def test_batched_transitions_give_each_row_its_own_reward():
 def test_invalid_reward_parameters_are_rejected(fields):
     with pytest.raises(ValueError):
         Reward(**fields)
+
+
+@pytest.mark.parametrize(("tau", "duration"), [(30.0, 3000.0), (5.0, 1e4), (1.0, 5e3)])
+def test_quadratic_cost_stays_exact_on_segments_much_longer_than_tau(tau, duration):
+    # Burn-and-coast decisions can last thousands of seconds; the discounted block exponential
+    # grows as exp(d / 2 tau) and lost accuracy, then gave NaN, before segments were split.
+    q, r = np.diag([1e-4, 2e-4, 3e-4, 1.0, 2.0, 3.0]), 100.0 * np.eye(3)
+    x0 = np.array([20.0, -150.0, 5.0, 0.05, -0.02, 0.01])
+    a = np.array([1e-3, -2e-3, 5e-4])
+
+    def rate(s):
+        phi, gamma = cw_discrete(N, s)
+        e = phi @ x0 + gamma @ a
+        return np.exp(-s / tau) * (e @ q @ e + a @ r @ a)
+
+    knots = np.linspace(0.0, 60.0 * tau, 13)
+    expected = sum(
+        quad(rate, lo, hi, epsabs=0.0, epsrel=1e-13, limit=200)[0]
+        for lo, hi in zip(knots[:-1], knots[1:], strict=True)
+    )
+    expected += quad(rate, knots[-1], duration, limit=200)[0]
+    found = QuadraticCost(N, q, r)(x0[None], a[None], np.array([duration]), tau)
+    assert float(found[0]) == pytest.approx(expected, rel=1e-10)

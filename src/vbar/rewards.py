@@ -78,26 +78,52 @@ class QuadraticCost:
         self._matrices: dict[tuple[float, float | None], np.ndarray] = {}
 
     def matrix(self, duration: float, tau: float | None) -> np.ndarray:
-        """W (10x10) with int_0^d exp(-s / tau) cost(s) ds = z^T W z, z = (x_start, a, 1)."""
+        """W (10x10) with int_0^d exp(-s / tau) cost(s) ds = z^T W z, z = (x_start, a, 1).
+
+        With discounting, the block exponential grows as exp(d / 2 tau), so a segment longer
+        than tau is integrated in pieces h <= tau: W(d) = sum_j exp(-j h / tau) (E^j)^T W(h) E^j
+        with E the undiscounted transition of z over h.
+        """
         key = (round(float(duration), 9), tau)
         if key not in self._matrices:
-            a, b = cw_system(self.n)
-            f = np.zeros((10, 10))
-            f[:6, :6], f[:6, 6:9] = a, b
-            if tau is not None:
-                # exp(-s / tau) z^T M z = (exp(-s / 2 tau) z)^T M (exp(-s / 2 tau) z).
-                f -= np.eye(10) / (2.0 * tau)
-            qx = self.q @ self.reference
-            w = np.zeros((10, 10))
-            w[:6, :6], w[6:9, 6:9] = self.q, self.r
-            w[:6, 9] = w[9, :6] = -qx
-            w[9, 9] = self.reference @ qx
-            block = np.zeros((20, 20))
-            block[:10, :10], block[:10, 10:], block[10:, 10:] = -f.T, w, f
-            g = expm(block * key[0])
-            integral = g[10:, 10:].T @ g[:10, 10:]
-            self._matrices[key] = 0.5 * (integral + integral.T)
+            d = key[0]
+            pieces = 1 if tau is None else max(1, int(np.ceil(d / tau)))
+            h = d / pieces
+            piece = self._piece(h, tau)
+            if pieces == 1:
+                total = piece
+            else:
+                step = expm(self._dynamics() * h)
+                gamma = np.exp(-h / tau) if tau is not None else 1.0
+                total, power, weight = piece.copy(), step, gamma
+                for _ in range(1, pieces):
+                    total += weight * (power.T @ piece @ power)
+                    power, weight = power @ step, weight * gamma
+            self._matrices[key] = 0.5 * (total + total.T)
         return self._matrices[key]
+
+    def _dynamics(self) -> np.ndarray:
+        """z' = F z for z = (x, a, 1) with the acceleration held."""
+        a, b = cw_system(self.n)
+        f = np.zeros((10, 10))
+        f[:6, :6], f[:6, 6:9] = a, b
+        return f
+
+    def _piece(self, h: float, tau: float | None) -> np.ndarray:
+        """Van Loan's integral over one piece of length h."""
+        f = self._dynamics()
+        if tau is not None:
+            # exp(-s / tau) z^T M z = (exp(-s / 2 tau) z)^T M (exp(-s / 2 tau) z).
+            f -= np.eye(10) / (2.0 * tau)
+        qx = self.q @ self.reference
+        w = np.zeros((10, 10))
+        w[:6, :6], w[6:9, 6:9] = self.q, self.r
+        w[:6, 9] = w[9, :6] = -qx
+        w[9, 9] = self.reference @ qx
+        block = np.zeros((20, 20))
+        block[:10, :10], block[:10, 10:], block[10:, 10:] = -f.T, w, f
+        g = expm(block * h)
+        return g[10:, 10:].T @ g[:10, 10:]
 
     def __call__(
         self, starts: np.ndarray, accels: np.ndarray, durations: np.ndarray, tau: float | None
