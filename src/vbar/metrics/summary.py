@@ -44,8 +44,12 @@ def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str,
 
 def clopper_pearson(successes: int, trials: int, confidence: float = 0.95) -> tuple[float, float]:
     """Exact (Clopper-Pearson) interval for a success rate from `successes` of `trials`."""
+    if successes != int(successes) or trials != int(trials):
+        raise ValueError("successes and trials must be whole numbers")
     if not 0 <= successes <= trials or trials == 0:
         raise ValueError("need 0 <= successes <= trials and trials > 0")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must lie between 0 and 1")
     alpha = 1.0 - confidence
     lower = 0.0 if successes == 0 else beta.ppf(0.5 * alpha, successes, trials - successes + 1)
     upper = (
@@ -74,7 +78,9 @@ def summarize(name: str, values: ArrayLike | Sequence[Mapping[str, float]]) -> d
     if kind == "rate":
         if len(x) == 0:
             return {"rate": np.nan, "count": 0.0, "n": 0, "lower": np.nan, "upper": np.nan}
-        count = int(round(float(x.sum())))
+        if not np.all((x == 0.0) | (x == 1.0)):
+            raise ValueError(f"{name} is a rate, so its values must be 0 or 1")
+        count = int(x.sum())
         lower, upper = clopper_pearson(count, len(x))
         return {
             "rate": float(x.mean()),

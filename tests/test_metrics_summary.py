@@ -51,6 +51,8 @@ def test_infinite_values_stay_episode_values_in_the_tail():
 def test_rates_count_successes_and_nan_is_left_out():
     found = summarize("success", [1.0, 0.0, 1.0, np.nan, 1.0])
     assert (found["rate"], found["count"], found["n"]) == (0.75, 3.0, 4)
+    with pytest.raises(ValueError, match="0 or 1"):
+        summarize("success", [0.4, 0.4])
     assert np.isnan(unsafe_tail([np.nan], "low")["worst"])
 
 
@@ -85,8 +87,9 @@ def test_clopper_pearson_gives_the_exact_intervals_of_the_book_validation_cases(
     assert clopper_pearson(95, 100) == pytest.approx((0.887, 0.984), abs=1e-3)
     assert clopper_pearson(3, 10000) == pytest.approx((6.187e-5, 8.765e-4), rel=1e-3)
     assert clopper_pearson(0, 10)[0] == 0.0 and clopper_pearson(10, 10)[1] == 1.0
-    with pytest.raises(ValueError):
-        clopper_pearson(3, 2)
+    for successes, trials, confidence in ((3, 2, 0.95), (2.5, 10, 0.95), (3, 10, 1.5)):
+        with pytest.raises(ValueError):
+            clopper_pearson(successes, trials, confidence)
 
 
 def test_the_resolution_table_on_the_cards_matches_the_intervals():
