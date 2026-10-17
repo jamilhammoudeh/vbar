@@ -189,7 +189,7 @@ power figures need real filters and are not given.
 ## F10 stall_time (v1)
 - Definition: time (s) with an active safety row while the chaser moves slower than `stall_speed` (0.01 m/s, ours).
 - Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
-- Why it matters: a barrier can hold a head-on approach in place for good: along the orbit normal a keep-out barrier stalled the chaser for a whole three-orbit run (Ames et al. survey review, liveness case).
+- Why it matters: with the target between the chaser and its goal, a barrier's push and the agent's pull can cancel and hold the chaser in place for good; a filter that is safe by never arriving is not useful.
 - Known-answer tests: 60 s for a filter that zeroes every command from rest over six 10 s steps; 0 when the commands pass and the chaser moves.
 - Convergence: per decision.
 - Invariance: mirror across the orbit plane.

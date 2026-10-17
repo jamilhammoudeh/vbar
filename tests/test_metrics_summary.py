@@ -70,7 +70,8 @@ def test_every_safety_metric_ranks_by_its_tail_and_performance_by_the_iqm():
 
 
 def test_clopper_pearson_matches_the_published_validation_intervals():
-    # Kochenderfer et al. KAT-13 (14.1, example 14.5): 90 of 100, 95 of 100, 3 failures in 1e4.
+    # The cases of Kochenderfer et al., Algorithms for Decision Making, 2022, section 14.1 and
+    # example 14.5: 90 of 100, 95 of 100, 3 failures in 1e4.
     assert clopper_pearson(90, 100) == pytest.approx((0.8238, 0.9510), abs=1e-4)
     assert clopper_pearson(95, 100) == pytest.approx((0.887, 0.984), abs=1e-3)
     assert clopper_pearson(3, 10000) == pytest.approx((6.187e-5, 8.765e-4), rel=1e-3)
