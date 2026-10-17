@@ -280,7 +280,8 @@ class BaseEnv(gym.Env):
         self.record = None
         return self.obs.copy(), self._info()
 
-    def step(self, action):
+    def step(self, action, *, latency_s: float = 0.0):
+        """Fly one decision; `latency_s` delays this command's effect (real-time runs)."""
         coast_steps = 0
         if self.cfg.action_mode == "disc27":
             command = DISC27[self._index(action)].copy()
@@ -291,9 +292,9 @@ class BaseEnv(gym.Env):
             fraction = command[:3]
         else:
             fraction = command / self._action_scale()
-        actuation = self.spacecraft.apply(fraction, self.cfg.dt)
+        actuation = self.spacecraft.apply(fraction, self.cfg.dt, latency_s)
         if coast_steps:
-            coast = self.spacecraft.apply(np.zeros(3), coast_steps * self.cfg.dt)
+            coast = self.spacecraft.apply(np.zeros(3), coast_steps * self.cfg.dt, latency_s)
             actuation = _joined(actuation, coast)
         trace = self._fly(actuation)
         self.t += (1 + coast_steps) * self.cfg.dt
@@ -306,7 +307,14 @@ class BaseEnv(gym.Env):
             self.min_margin_bounds[name] = min(self.min_margin_bounds[name], found.lower_bound)
         self.obs = self._observe()
         record = StepRecord(
-            self.t, self.state.copy(), self.obs.copy(), command, command, actuation, trace
+            self.t,
+            self.state.copy(),
+            self.obs.copy(),
+            command,
+            command,
+            actuation,
+            trace,
+            agent_latency_s=latency_s,
         )
         reward, terminated, extra = self._evaluate(record)
         truncated = self.steps >= self.cfg.max_steps

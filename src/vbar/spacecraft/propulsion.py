@@ -175,15 +175,21 @@ class Spacecraft:
         limited[small] = 0.0
         return limited, saturated, bool(np.any(small))
 
-    def apply(self, command: ArrayLike, duration: float) -> Actuation:
+    def apply(self, command: ArrayLike, duration: float, latency: float = 0.0) -> Actuation:
         """Issue `command` (fractions of `max_accel` per Hill axis), held for `duration` s.
 
-        The command takes effect `delay` s after it is issued; until then the previous one
-        stays on, so a delay that is not a whole number of steps splits the interval in two.
+        The command takes effect `delay` plus `latency` s after it is issued; until then the
+        previous one stays on, so a delay that is not a whole number of steps splits the
+        interval in two. A command never takes effect before the one issued before it.
         """
+        if not (np.isfinite(latency) and latency >= 0.0):
+            raise ValueError("latency must be finite and not negative")
         u, saturated, below_mib = self.limit(command, duration)
         delivered = u if self.execution is None else self.execution.apply(u, self.rng)
-        self._queue.append((self.t + self.delay, u, delivered))
+        effect = self.t + self.delay + latency
+        if self._queue:
+            effect = max(effect, self._queue[-1][0])
+        self._queue.append((effect, u, delivered))
         end = self.t + duration
         burns = [self._burn(piece, t1 - t0) for t0, t1, piece in self._pieces(self.t, end)]
         self.t = end
