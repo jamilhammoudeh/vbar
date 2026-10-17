@@ -321,7 +321,7 @@ success), the first that matches in this order (`LABELS`):
 | `sign_error` | the convention self-check failed (A6) |
 | `oscillation` | chatter E6 above `oscillation_threshold` (0.05 1/s, ours) |
 | `contact_out_of_tolerance` | contact happened with a negative capture margin (M10 < 0) |
-| `hold_not_maintained` | the capture predicate held at some time but never for the required dwell |
+| `hold_not_maintained` | the capture predicate held at some time but never for the required dwell (a hold that lasted is not labelled so, whatever else failed) |
 | `overshoot` | the goal position came within the capture radius, in continuous time, but the capture predicate never held |
 | `timeout_near` | timeout ending within twice the capture radius (the lateral limit for docking) |
 | `timeout_far` | any other timeout |

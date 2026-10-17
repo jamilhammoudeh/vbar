@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .episode import Episode
-from .mission import goal_errors, hard_violated, hold_intervals
+from .mission import completion_time, goal_errors, hard_violated, hold_intervals
 from .settings import MetricSettings
 from .stl import Signal, Trace, minimum
 
@@ -82,7 +82,8 @@ def failure_label(
         return "oscillation"
     if "port" in goal and metrics["capture_margin"] < 0.0:
         return "contact_out_of_tolerance"
-    if goal.get("hold_time", 0.0) > 0.0 and hold_intervals(ep, trace):
+    held = goal.get("hold_time", 0.0) > 0.0 and hold_intervals(ep, trace)
+    if held and completion_time(ep, trace) is None:
         return "hold_not_maintained"
     radius = goal.get("capture_radius", goal.get("lateral_limit"))
     if "capture_radius" in goal and _closest_to_goal(ep, trace) < radius:

@@ -3,7 +3,7 @@ import pytest
 from metric_cases import DOCKING_GOAL, ConstantAgent, episode, pd_episode
 
 from vbar.agents import LLMAgent, PDAgent
-from vbar.constraints import ApproachCone, SpeedLimit, ZoneEntry
+from vbar.constraints import ApproachCone, SpeedLimit, SunExclusion, ZoneEntry
 from vbar.dynamics import EARTH, mean_motion
 from vbar.metrics import (
     LABELS,
@@ -135,3 +135,17 @@ def test_a_capture_inside_a_forbidden_zone_ends_as_other():
 
 def test_labels_are_listed_in_order():
     assert LABELS[0] == "filter_defect" and LABELS[-1] == "other" and len(LABELS) == 15
+
+
+def test_a_hold_that_lasted_but_broke_another_hard_constraint_is_not_called_unmaintained():
+    # At rest on the hold point for 120 s with a 60 s dwell, looking straight into the Sun; the
+    # run fails on the Sun constraint and ends at its step limit.
+    sun = SunExclusion(np.radians(20.0), sun_direction=(0.0, 1.0, 0.0), rate=N)
+    goal = {
+        "hold_point": (0.0, -100.0, 0.0),
+        "capture_radius": 5.0,
+        "capture_speed": 0.05,
+        "hold_time": 60.0,
+    }
+    ep = episode(extra=(sun,), goal=goal, start_state=(0.0, -100.0, 0, 0, 0, 0), max_steps=12)
+    assert label(ep) == "timeout_near"
