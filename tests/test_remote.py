@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
-from vbar.agents import DISC27, PDAgent
+from vbar.agents import DISC27, PDAgent, remote
 from vbar.agents.base import AgentView
 from vbar.agents.remote import AgentServer, RemoteAgentError, main, serve_agent
 from vbar.spacecraft import GaussianNav
@@ -282,6 +282,8 @@ def test_a_malformed_action_ends_the_session_with_every_episode_recorded(line, t
     assert np.all(np.isfinite(results[0]["states"]))
 
 
+# The host closes into the reset connection; that must not raise in its thread.
+@pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")
 def test_a_reset_connection_still_leaves_every_episode_recorded(tmp_path):
     def client(stream, sock):
         # An abortive close, as when the client process is killed.
@@ -292,3 +294,71 @@ def test_a_reset_connection_still_leaves_every_episode_recorded(tmp_path):
 
     results = host_with(client, tmp_path)
     assert [(r["seed"], r["completed"]) for r in results] == [(1, False), (2, False)]
+
+
+class Hops:
+    """Burn-and-coast decisions: a short burn toward the hold point, then a minute of coast."""
+
+    name = "hops"
+
+    def reset(self, view, rng=None):
+        self.hold = np.array(view.goal["hold_point"])
+
+    def act(self, obs, info):
+        return np.r_[np.clip(1e-3 * (self.hold - obs[:3]), -1.0, 1.0), 60.0]
+
+
+class Wrong:
+    """Returns the action of another mode."""
+
+    name = "wrong"
+
+    def __init__(self, action):
+        self.action = action
+
+    def reset(self, view, rng=None):
+        pass
+
+    def act(self, obs, info):
+        return self.action
+
+
+def test_every_action_mode_crosses_the_server_and_wrong_shapes_are_refused():
+    cfg = ApproachConfig(start_state=CLEAR, max_steps=40, action_mode="impulse_coast")
+    local = run_episode(ApproachEnv(cfg), Hops(), seed=0, agent_seed=1)
+    remote, _ = remote_run(Hops(), cfg, seed=0, agent_seed=1)
+    assert np.array_equal(local["states"], remote["states"])
+    for mode, action in (
+        ("impulse_coast", [0.0, 0.0, 0.0]),
+        ("normalized", [0.0] * 4),
+        ("disc27", 27),
+    ):
+        with pytest.raises(RemoteAgentError, match="expected"):
+            remote_run(Wrong(action), ApproachConfig(max_steps=2, action_mode=mode))
+
+
+def test_a_send_that_fails_mid_episode_still_leaves_every_episode_recorded(tmp_path, monkeypatch):
+    # The client resets just after answering, so the host's next message cannot be sent.
+    original = remote._Line.send
+    sent = []
+
+    def send_until_reset(self, message):
+        if message.get("type") == "act":
+            sent.append(message)
+            if len(sent) == 2:
+                raise ConnectionResetError("connection reset by the client")
+        return original(self, message)
+
+    monkeypatch.setattr(remote._Line, "send", send_until_reset)
+
+    def client(stream, sock):
+        send(stream, {"type": "action", "action": [0.0, 0.0, 0.0]})
+        stream.close()
+        sock.close()
+
+    results = host_with(client, tmp_path)
+    assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
+        (1, False, 1),
+        (2, False, 0),
+    ]
+    assert "reset" in results[0]["error"]

@@ -120,7 +120,7 @@ class RemoteAgent:
         return message
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
-        self.discrete = view.action_mode == "disc27"
+        self.mode = view.action_mode
         seq = rng.bit_generator.seed_seq if rng is not None else np.random.SeedSequence()
         self.line.send(
             {
@@ -137,16 +137,17 @@ class RemoteAgent:
             {"type": "act", "obs": np.asarray(obs, dtype=float).tolist(), "info": dict(info)}
         )
         action = self._expect("action").get("action")
-        if self.discrete:
-            if not isinstance(action, int) or isinstance(action, bool):
-                raise RemoteAgentError(f"expected an integer action, got {action!r}")
+        if self.mode == "disc27":
+            if isinstance(action, bool) or not isinstance(action, int) or not 0 <= action < 27:
+                raise RemoteAgentError(f"expected an integer action from 0 to 26, got {action!r}")
             return action
+        size = 4 if self.mode == "impulse_coast" else 3
         try:
             command = np.array(action, dtype=float)
         except (TypeError, ValueError) as error:
-            raise RemoteAgentError(f"expected three numbers, got {action!r}") from error
-        if command.shape != (3,) or not np.all(np.isfinite(command)):
-            raise RemoteAgentError(f"expected three finite numbers, got {action!r}")
+            raise RemoteAgentError(f"expected {size} numbers, got {action!r}") from error
+        if command.shape != (size,) or not np.all(np.isfinite(command)):
+            raise RemoteAgentError(f"expected {size} finite numbers, got {action!r}")
         return command
 
     def close(self) -> None:

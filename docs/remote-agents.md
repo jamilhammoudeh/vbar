@@ -21,8 +21,8 @@ Version 1 is a lockstep exchange over one TCP connection: UTF-8 JSON objects, on
 | server | `{"type": "close"}` | at the end of the session |
 
 A client may answer any message with `{"type": "error", "message": ...}`, which the server raises
-as `RemoteAgentError`, as it does for an action that is not three finite numbers (an integer in
-the discrete mode). The `view` carries every `AgentView` field (`scenario_id`, `dt`,
+as `RemoteAgentError`, as it does for an action of the wrong form: three finite numbers, four
+in the `impulse_coast` mode, and an integer from 0 to 26 in the discrete mode. The `view` carries every `AgentView` field (`scenario_id`, `dt`,
 `max_steps`, `n`, `action_mode`, `max_accel`, `thrust_limit`, `mass_kg`, `goal`, `constraints`,
 `observation`, `frame`) with tuples as lists. `seed` and `spawn_key` are the agent's own random
 stream (`numpy.random.SeedSequence(seed, spawn_key=...)`), seeded independently of the episode,
@@ -115,7 +115,10 @@ recorded too, with `completed` false, so leaving does not remove a bad episode f
 - The command-line host writes one result per seed; a client that answers two steps and then
   sends a line that is not JSON leaves an unfinished record of two steps, with the error, and an
   unfinished record of the seed it never flew; so does an action of two numbers, a string, a
-  missing action or NaN (the trajectory stays finite), and an abortive close.
+  missing action or NaN (the trajectory stays finite), an abortive close and a send that fails
+  mid-episode.
+- Burn-and-coast actions cross the server exactly; an action of the wrong length for its mode,
+  or a discrete index out of range, is refused.
 - With MATLAB installed and `VBAR_TEST_MATLAB=1`, the MATLAB PD agent flies exactly the Python PD
   agent's trajectories over two default episodes (checked on R2025a; not on CI, which has no
   MATLAB).
