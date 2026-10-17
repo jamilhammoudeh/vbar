@@ -6,6 +6,7 @@
  "cam_margin": -49.976828174386426,
  "capture_margin": NaN,
  "chatter": 0.002,
+ "clip_rate": NaN,
  "closing_speed_ratio": 3.713777758048081,
  "completion": 0.9518465903915813,
  "composite_score": 0.29745205949736914,
@@ -31,6 +32,7 @@
  "input_tokens": NaN,
  "intervention_rate": NaN,
  "intervention_size": NaN,
+ "intervention_size_normalized": NaN,
  "min_margin": {
   "approach_cone": -59.999999876686466,
   "closing_speed_limit": -0.7220005394781983,

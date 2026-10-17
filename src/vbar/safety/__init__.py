@@ -25,6 +25,14 @@ class FilterResult:
     "solver_failed" (no answer and no proof, a filter defect); `slack` is the constraint violation
     the returned action accepts, `conflicting` names the constraints that could not all hold, and
     `compute_s` is the filter's wall time (s).
+
+    Filters that know more report it: `active` whether a safety row was active (a positive
+    multiplier, or a line search that stopped short), `clipped` whether the change was only
+    actuator clipping, `recovering` whether the state was already outside the filter's safe set,
+    `fallback_level` which answer was used (0 the converged solution, 1 the previous plan shifted,
+    2 the declared backup), `certificate` the kind of guarantee and `certificate_horizon` how long
+    it holds (s, inf for an invariant set), and `iterations` the solver's count. None means not
+    reported.
     """
 
     action: np.ndarray
@@ -33,6 +41,13 @@ class FilterResult:
     slack: float = 0.0
     conflicting: tuple[str, ...] = ()
     compute_s: float = 0.0
+    active: bool | None = None
+    clipped: bool = False
+    recovering: bool | None = None
+    fallback_level: int = 0
+    certificate: str | None = None
+    certificate_horizon: float | None = None
+    iterations: int | None = None
 
     def __post_init__(self):
         if self.status not in FILTER_STATUSES:

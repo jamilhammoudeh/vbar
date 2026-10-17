@@ -16,8 +16,8 @@ class ScriptedFilter:
 
     name = "scripted"
 
-    def __init__(self, statuses=("feasible",), compute=(0.001,)):
-        self.statuses, self.compute = statuses, compute
+    def __init__(self, statuses=("feasible",), compute=(0.001,), **fields):
+        self.statuses, self.compute, self.fields = statuses, compute, fields
 
     def reset(self, view):
         self.k = 0
@@ -26,16 +26,20 @@ class ScriptedFilter:
         status = self.statuses[self.k % len(self.statuses)]
         spent = self.compute[self.k % len(self.compute)]
         self.k += 1
-        return FilterResult(0.5 * action, True, status, compute_s=spent)
+        return FilterResult(0.5 * action, True, status, compute_s=spent, **self.fields)
 
 
 def test_halving_every_command_gives_rate_one_and_the_mean_half_command_size():
     agent = FilteredAgent(PDAgent(), ScriptedFilter())
     ep = episode(agent, start_state=(0.0, -400.0, 30.0, 0.0, 0.0, 0.0), max_steps=30)
     m = filter_metrics(ep)
-    sizes = [np.linalg.norm(0.5 * rec.command) / math.sqrt(3.0) for rec in ep.records]
-    assert m["intervention_rate"] == 1.0
+    # Normalized commands: a full command is 0.02 m/s^2; the widest box change is 2 sqrt(3) of it.
+    sizes = [np.linalg.norm(0.5 * rec.command) * 0.02 for rec in ep.records]
+    assert m["intervention_rate"] == 1.0 and m["clip_rate"] == 0.0
     assert m["intervention_size"] == pytest.approx(np.mean(sizes), rel=1e-12)
+    assert m["intervention_size_normalized"] == pytest.approx(
+        np.mean(sizes) / (2 * math.sqrt(3.0) * 0.02), rel=1e-12
+    )
 
 
 def test_pass_through_never_intervenes_and_no_filter_gives_nan():
@@ -84,3 +88,50 @@ def test_paired_costs_compare_the_same_seeds_with_and_without_the_filter():
 
 def test_interquartile_mean_drops_the_outer_quarters():
     assert iqm([1.0, 2.0, 3.0, 4.0, 100.0, -50.0, 5.0, 6.0]) == pytest.approx(3.5)
+
+
+def test_clipping_is_counted_apart_from_safety_activity():
+    agent = FilteredAgent(PDAgent(), ScriptedFilter(clipped=True))
+    m = filter_metrics(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=5))
+    assert m["intervention_rate"] == 0.0 and m["clip_rate"] == 1.0
+    assert np.isnan(m["intervention_size"])
+
+
+def test_a_reported_safety_row_counts_even_when_the_action_did_not_move():
+    class Watching:
+        name = "watching"
+
+        def reset(self, view):
+            pass
+
+        def filter(self, obs, action):
+            return FilterResult(action, False, active=True)
+
+    m = filter_metrics(
+        episode(
+            FilteredAgent(PDAgent(), Watching()), start_state=(0, -400, 0, 0, 0, 0), max_steps=4
+        )
+    )
+    assert m["intervention_rate"] == 1.0 and m["intervention_size"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("mode", "layout", "widest"),
+    [("thrust", "box", 2 * math.sqrt(3) * 0.02), ("accel", "ball", 2 * 0.02)],
+)
+def test_intervention_size_is_in_metres_per_second_squared_in_every_action_mode(
+    mode, layout, widest
+):
+    agent = FilteredAgent(PDAgent(), ScriptedFilter())
+    ep = episode(
+        agent,
+        start_state=(0, -400, 30, 0, 0, 0),
+        max_steps=5,
+        action_mode=mode,
+        thrust_limit=layout,
+    )
+    m = filter_metrics(ep)
+    to_accel = 0.02 / {"thrust": 0.02 * 500.0, "accel": 0.02}[mode]
+    sizes = [np.linalg.norm(0.5 * rec.command) * to_accel for rec in ep.records]
+    assert m["intervention_size"] == pytest.approx(np.mean(sizes), rel=1e-12)
+    assert m["intervention_size_normalized"] == pytest.approx(np.mean(sizes) / widest, rel=1e-12)

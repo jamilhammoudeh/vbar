@@ -13,6 +13,9 @@ release may change the public API, and every such change is listed under Changed
   raises `TypeError`. Add the `rho_min` parameter (it may be ignored).
 - `Constraint.resolution` is a read-only property in the protocol rather than a class variable;
   a class attribute still satisfies it.
+- Filter metric F1 counts decisions with an active safety row, not every change; clipping is
+  counted apart (F1c). F2 is in m/s^2 rather than fractions of a full command over sqrt(3), and
+  F2n normalises it by the actuator's widest change.
 
 ### Added
 

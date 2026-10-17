@@ -6,6 +6,7 @@
  "cam_margin": -26.843486992326145,
  "capture_margin": NaN,
  "chatter": 0.004761904761904762,
+ "clip_rate": NaN,
  "closing_speed_ratio": NaN,
  "completion": 1.0,
  "composite_score": 1.0,
@@ -28,6 +29,7 @@
  "input_tokens": NaN,
  "intervention_rate": NaN,
  "intervention_size": NaN,
+ "intervention_size_normalized": NaN,
  "min_margin": {
   "keep_out": 54.26314979380625
  },
