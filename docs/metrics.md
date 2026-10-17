@@ -385,8 +385,8 @@ mutations it detects and how it ranks them, exploits tried, cross-platform toler
 needed to detect a stated change on the baselines, evidence of validity, and its version history.
 `tests/test_metric_cards.py` checks that every metric in `METRICS` has a complete card. The
 template, `cards/README.md`, also holds the resolution of a success rate: a 100-episode cell
-resolves a 90% rate to about 6 points (90 of 100 gives 0.824 to 0.951), and a half-width of 0.03
-at that rate needs about 385 episodes.
+resolves a 90% rate to about 6 points (90 of 100 gives 0.824 to 0.951); the normal approximation
+asks for 385 episodes for a half-width of 0.03 at that rate, where the exact half-width is 0.031.
 
 ## How it is tested
 
@@ -529,9 +529,10 @@ at that rate needs about 385 episodes.
   while the interquartile mean of the same values stays above 25; infinite S5, S6 and S4t values
   stay infinite in the tail, and a finite worst value of S4t stays its own percentile; a ratio where higher is worse
   takes the upper tail; rates count successes and leave out NaN; every safety metric in the list
-  above ranks by its tail and every performance metric by the interquartile mean. Clopper-Pearson
-  intervals match Kochenderfer et al.'s validation examples (90 of 100: 0.8238 to 0.9510; 3 failures
-  in 1e4: 6.187e-5 to 8.765e-4), and the resolution table on the cards is recomputed from them.
+  above ranks by its tail and every performance metric by the interquartile mean. The exact
+  Clopper-Pearson intervals of the validation cases in Kochenderfer et al. (section 14.1, eq. 14.5;
+  the book prints the normal approximation, recomputed here exactly) are 0.8238 to 0.9510
+  for 90 of 100 and 6.187e-5 to 8.765e-4 for 3 failures in 1e4, and the resolution table on the cards is recomputed from them.
 
 ## Example
 

@@ -23,8 +23,10 @@ Each card has these fields:
 
 Half-width of the 95% Clopper-Pearson interval (`vbar.metrics.clopper_pearson`) for a rate
 measured as a fraction p of n episodes. A 100-episode cell resolves a 90% success rate to about
-6 points (90 of 100 gives 0.824 to 0.951); a half-width of 0.03 at p = 0.9 needs about 385 episodes
-(Kochenderfer et al., *Algorithms for Decision Making*, 2022, section 14.1, example 14.5). Two rates
+6 points (90 of 100 gives 0.824 to 0.951). The normal approximation, with the standard error
+sqrt(p (1 - p) / n) of Kochenderfer et al. (*Algorithms for Decision Making*, 2022, section 14.1,
+eq. 14.5), asks for 385 episodes for a half-width of 0.03 at p = 0.9; the exact half-width there
+is 0.031. The book prints only the normal interval, which goes below 0 for rare failures. Two rates
 closer than these widths cannot be told apart at that n. The table applies to every card whose
 summary is a rate.
 

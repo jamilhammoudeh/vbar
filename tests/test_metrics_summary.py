@@ -69,9 +69,10 @@ def test_every_safety_metric_ranks_by_its_tail_and_performance_by_the_iqm():
         summarize("failure_label", [1.0])
 
 
-def test_clopper_pearson_matches_the_published_validation_intervals():
-    # The cases of Kochenderfer et al., Algorithms for Decision Making, 2022, section 14.1 and
-    # example 14.5: 90 of 100, 95 of 100, 3 failures in 1e4.
+def test_clopper_pearson_gives_the_exact_intervals_of_the_book_validation_cases():
+    # Kochenderfer et al., Algorithms for Decision Making, 2022, section 14.1 and eq. 14.5:
+    # 90 of 100, 95 of 100, 3 failures in 1e4. The book prints the normal
+    # approximation, which goes below 0 for 3 in 1e4; these are the exact intervals, recomputed.
     assert clopper_pearson(90, 100) == pytest.approx((0.8238, 0.9510), abs=1e-4)
     assert clopper_pearson(95, 100) == pytest.approx((0.887, 0.984), abs=1e-3)
     assert clopper_pearson(3, 10000) == pytest.approx((6.187e-5, 8.765e-4), rel=1e-3)
