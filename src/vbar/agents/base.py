@@ -47,7 +47,7 @@ def action_scale(view: AgentView) -> float:
     """Action units per fraction of a full command: 1, m/s^2, or N at the initial mass.
 
     Only the continuous modes have one; agents that produce continuous commands use this to
-    reject the discrete "disc27" mode.
+    reject the "disc27" and "impulse_coast" modes.
     """
     if view.action_mode == "normalized":
         return 1.0
@@ -57,7 +57,7 @@ def action_scale(view: AgentView) -> float:
         if view.mass_kg is None:
             raise ValueError("thrust actions need the view's mass_kg")
         return view.max_accel * view.mass_kg
-    if view.action_mode == "disc27":
+    if view.action_mode in ("disc27", "impulse_coast"):
         raise ValueError(f"action mode {view.action_mode!r} takes no continuous command")
     raise ValueError(f"unknown action mode {view.action_mode!r}")
 
@@ -66,6 +66,8 @@ def command_fraction(view: AgentView, action) -> np.ndarray:
     """The thrust an action asks for, in fractions of a full command at the initial mass."""
     if view.action_mode == "disc27":
         return DISC27[int(action)].copy()
+    if view.action_mode == "impulse_coast":
+        return np.asarray(action, dtype=float)[:3].copy()
     return np.asarray(action, dtype=float) / action_scale(view)
 
 
@@ -73,7 +75,7 @@ def zero_action(view: AgentView):
     """The action that asks for no thrust, in the view's action mode."""
     if view.action_mode == "disc27":
         return 13
-    return np.zeros(3)
+    return np.zeros(4 if view.action_mode == "impulse_coast" else 3)
 
 
 class Agent(Protocol):

@@ -25,7 +25,8 @@ and it passes `gymnasium.utils.env_checker.check_env` (tested in `tests/test_reg
   Hill axis, `"accel"` takes m/s^2 and `"thrust"` newtons, with the box bounds at a full command at
   the initial mass. The environment converts the action to fractions of a full command at the
   current mass, and the spacecraft applies its thrust limits, minimum impulse bit and delay.
-  `"disc27"` takes an index into 27 bang-off-bang commands ([training.md](training.md)).
+  `"disc27"` takes an index into 27 bang-off-bang commands, and `"impulse_coast"` a one-step
+  burn followed by a coast of chosen length in one decision ([training.md](training.md)).
 - **Observation:** the sensor's navigated state $[x, y, z, \dot x, \dot y, \dot z]$, exact by
   default, followed by the channels listed in `observation_channels`, always in this order:
   - `t_remaining`: time left in the episode (s);
@@ -168,7 +169,7 @@ action in the view's action mode. Provided:
 | `max_steps` | 360 | episode length |
 | `dynamics` | `"cw"` | `"cw"`, `"twobody"` or `"twobody_j2"` |
 | `body`, `altitude_m`, `inclination` | `"earth"`, 500e3 m, 0 rad | the target's circular orbit |
-| `action_mode` | `"normalized"` | `"normalized"`, `"accel"`, `"thrust"` or `"disc27"` |
+| `action_mode` | `"normalized"` | `"normalized"`, `"accel"`, `"thrust"`, `"disc27"` or `"impulse_coast"` |
 | `max_accel` | 0.02 m/s^2 | acceleration of a full command at the initial mass |
 | `thrust_limit` | `"box"` | thruster layout, `"box"` or `"ball"` |
 | `drive` | `"accel"` | hold the acceleration or the thrust over a burn |

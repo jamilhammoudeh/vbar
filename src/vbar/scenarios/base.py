@@ -31,7 +31,7 @@ from ..dynamics import make_dynamics
 from ..rewards import Reward, Transition
 from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
-ACTION_MODES = ("normalized", "accel", "thrust", "disc27")
+ACTION_MODES = ("normalized", "accel", "thrust", "disc27", "impulse_coast")
 SCALAR_CHANNELS = ("t_remaining", "propellant_fraction")
 CHANNELS = (*SCALAR_CHANNELS, "pending_commands")
 STREAMS = ("sensor", "actuator", "target")
@@ -43,8 +43,10 @@ class EnvConfig:
 
     `action_mode` "normalized" takes fractions of `max_accel` per Hill axis, "accel" takes
     m/s^2, "thrust" newtons and "disc27" an index into the 27 bang-off-bang commands
-    `vbar.agents.DISC27`. `thrust_limit` is the thruster layout ("box" or "ball") and
-    `drive` holds either the acceleration ("accel") or the thrust ("thrust") over a burn.
+    `vbar.agents.DISC27`. "impulse_coast" takes (fx, fy, fz, coast s): fractions of a full
+    command held for one step, then a coast rounded to whole steps, all in one decision.
+    `thrust_limit` is the thruster layout ("box" or "ball") and `drive` holds either the
+    acceleration ("accel") or the thrust ("thrust") over a burn.
     `violation_samples` is the number of constraint samples per step before refinement.
 
     `observation_channels` appends, in this order, any of: "t_remaining" (s), "propellant_fraction"
@@ -113,6 +115,19 @@ class StepRecord:
     agent_latency_s: float = 0.0
 
 
+def _joined(first: Actuation, second: Actuation) -> Actuation:
+    """Two consecutive actuations as one."""
+    return Actuation(
+        first.segments + second.segments,
+        first.dv_l2 + second.dv_l2,
+        first.dv_l1 + second.dv_l1,
+        first.propellant_kg + second.propellant_kg,
+        first.saturated or second.saturated,
+        first.below_mib or second.below_mib,
+        first.empty or second.empty,
+    )
+
+
 def public_spec(constraint: Constraint) -> dict[str, Any]:
     """A constraint's type and parameters, as agents may see them."""
     params: dict[str, Any] = {}
@@ -165,6 +180,10 @@ class BaseEnv(gym.Env):
         self.action_space: spaces.Space
         if config.action_mode == "disc27":
             self.action_space = spaces.Discrete(len(DISC27))
+        elif config.action_mode == "impulse_coast":
+            low = np.array([-1.0, -1.0, -1.0, 0.0], dtype=np.float32)
+            top = np.array([1.0, 1.0, 1.0, config.max_steps * config.dt], dtype=np.float32)
+            self.action_space = spaces.Box(low, top, dtype=np.float32)
         else:
             high = {"normalized": 1.0, "accel": config.max_accel}.get(
                 config.action_mode, config.max_accel * config.mass_kg
@@ -241,15 +260,23 @@ class BaseEnv(gym.Env):
         return self.obs.copy(), self._info()
 
     def step(self, action):
+        coast_steps = 0
         if self.cfg.action_mode == "disc27":
             command = DISC27[self._index(action)].copy()
         else:
             command = np.array(action, dtype=float)
-        fraction = command / self._action_scale()
+        if self.cfg.action_mode == "impulse_coast":
+            coast_steps = self._coast_steps(command)
+            fraction = command[:3]
+        else:
+            fraction = command / self._action_scale()
         actuation = self.spacecraft.apply(fraction, self.cfg.dt)
+        if coast_steps:
+            coast = self.spacecraft.apply(np.zeros(3), coast_steps * self.cfg.dt)
+            actuation = _joined(actuation, coast)
         trace = self._fly(actuation)
-        self.t += self.cfg.dt
-        self.steps += 1
+        self.t += (1 + coast_steps) * self.cfg.dt
+        self.steps += 1 + coast_steps
         self.dv_l2 += actuation.dv_l2
         self.dv_l1 += actuation.dv_l1
         self.propellant_used += actuation.propellant_kg
@@ -376,6 +403,13 @@ class BaseEnv(gym.Env):
                 slots[-1 - k] = [wait, *(u * self._action_scale())]
             parts.append(slots.ravel())
         return np.concatenate(parts)
+
+    def _coast_steps(self, command: np.ndarray) -> int:
+        """Whole steps of coast an impulse_coast action asks for, cut at the time limit."""
+        if command.shape != (4,) or not np.all(np.isfinite(command)):
+            raise ValueError("impulse_coast actions are four finite numbers (fx, fy, fz, coast s)")
+        left = max(self.cfg.max_steps - self.steps - 1, 0)
+        return int(np.clip(round(float(command[3]) / self.cfg.dt), 0, left))
 
     def _index(self, action) -> int:
         index = int(np.asarray(action).item())
