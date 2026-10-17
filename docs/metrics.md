@@ -133,6 +133,66 @@ any others passed in (for example a soft passive-speed envelope the scenario doe
 | S5 | `closing_speed_ratio` | ratio | highest $\max(0,-\dot\rho)/(v_0 + v_1\rho)$ with the scenario's closing-speed limit; refined around the highest sample without a certificate (S1 of the closing-speed limit is the certified quantity); NaN without that limit |
 | S6 | `min_time_to_keep_out` | s | least $(\rho - R)/\max(0,-\dot\rho)$ over the step boundaries while closing (faster than 1e-9 m/s), zero inside the sphere, $\infty$ if never closing; NaN without a keep-out sphere |
 
+## Passive safety and aborts (S4, S4b, S4i, S4t, S4o, S8, S9)
+
+Fehse (*Automated Rendezvous and Docking of Spacecraft*, 2003, sections 1.2, 4.1.2, 4.4 and 4.5)
+asks of every point of an approach that losing thrust leaves a collision-free drift, or else that a
+collision avoidance manoeuvre (CAM) is available. Each check is an **escape arc**: from a state,
+hold an acceleration for a while (a stuck thruster, or none), add an impulse (the CAM, or none),
+then drift. Its margin is the lowest range minus the collision radius over the whole arc, found
+like a constraint minimum: samples, the Lipschitz certificate, Brent refinement.
+
+| ID | Name | Units | Definition |
+|---|---|---|---|
+| S4 | `passive_safety_margin` | m | least free-drift margin over $T_{\text{free}}$ from every step boundary beyond $R_{\text{passive}}$ |
+| S4b | `passive_safe_fraction` | fraction | share of those boundaries whose drift stays clear |
+| S4i | `passive_forever_fraction` | fraction | share certified clear for all time by the travelling ellipse (Clohessy-Wiltshire only) |
+| S4t | `passive_threat_time` | s | earliest time a drift not certified forever could reach the envelope; $\infty$ if all are certified |
+| S4o | `stuck_thruster_margin` | m | as S4 with the acceleration in effect continuing for $t_{\text{detect}}$, from step boundaries and from points inside thrusting segments, where a burn cut short (free drift) is also checked |
+| S8 | `cam_margin` | m | least over step boundaries beyond $R_{\text{commit}}$ of the best margin over the CAM set: drift $t_{\text{exec}}$, apply the impulse, drift $T_{\text{CAM}}$ |
+| S9 | `unprotected_time` | s | time in steps that start beyond $R_{\text{commit}}$ with neither a clear drift (S4, only beyond $R_{\text{passive}}$) nor a clear abort (S8); Fehse's rule is zero |
+
+The scenario declares the settings (`MetricSettings`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `collision_radius` | keep-out radius | target extent plus chaser extent plus margin; need not equal the keep-out radius |
+| `passive_exclusion` | 0 m | $R_{\text{passive}}$: inside it passive safety cannot hold by design (Fehse 4.4.2; docking 50 m, ISS class 100 to 200 m) and only aborts count |
+| `commit_radius` | 0 m | $R_{\text{commit}}$: inside it no abort is expected (the last metre before contact) |
+| `drift_horizon` | 2 orbits | $T_{\text{free}}$ in seconds; longer under drag (Fehse uses 24 h for long-term CAM guarantees) |
+| `stuck_time` | 30 s | $t_{\text{detect}}$, detection and shut-off delay of a stuck thruster |
+| `partial_burn_samples` | 4 | points per thrusting segment checked as burns cut short |
+| `cam_impulses`, `cam_dv` | one 0.3 m/s CAM | the CAM set (Hill delta-v vectors). By default one CAM opposite the approach: along-track away from the target on a V-bar approach; on an R-bar approach radially away with a retrograde part of one fifth (Fehse 4.5, 5.7). The approach side is the goal's `port_axis`, else its hold point |
+| `cam_delay`, `cam_horizon` | 0 s, $T_{\text{free}}$ | $t_{\text{exec}}$ and $T_{\text{CAM}}$ |
+| `drift_samples_per_orbit` | 200 | sample spacing of the arcs before refinement |
+
+**How the arcs are computed.** On the Clohessy-Wiltshire model all arcs of a check are sampled at
+once with the closed-form matrices; each sample interval gets the certified bound
+$\tfrac12(m_i + m_{i+1} - V h)$ (`interval_bounds` on stacked arcs). An arc is refined only when
+the answer depends on it: when its sign is not settled by its lowest sample and its bound, or when
+its bound lies below the lowest margin found so far. For S8 a step is protected as soon as one CAM
+of the set is shown clear. On the two-body models each arc is integrated by a fresh copy of the
+episode's model, whose target starts again from its initial orbit position; on J2 the target's
+true phase at that step is not used, an approximation in the J2 terms only. The
+two-body arcs cost about 0.1 s each (0.25 s with J2), against about 2 ms on Clohessy-Wiltshire.
+
+**The travelling ellipse.** Free Clohessy-Wiltshire motion is an ellipse of radial semi-axis $b$
+and along-track semi-axis $2b$ whose centre drifts along-track (Fehse appendix A.1.5):
+
+$$
+x(t) = x_c + \frac{\dot x_0}{n}\sin nt - \Big(3x_0 + \frac{2\dot y_0}{n}\Big)\cos nt, \qquad
+x_c = 4x_0 + \frac{2\dot y_0}{n}, \qquad \dot y_c = -\tfrac32 n x_c,
+$$
+
+with the orbit-normal motion at the same frequency. Fehse prints his eq. A.69 with $+2b$; the
+correct sign is $-2b$ (in his axes $x_F = x_c - 2b\cos(nt + \varphi)$), and the printed form is
+176 m off after 300 s. `passive_forever(state, n, radius)` certifies a drift clear forever when the
+tube clears the target in the radial and orbit-normal plane (the least $\sqrt{x^2 + z^2}$ over a
+cycle is at least the radius), or when the centre is moving away and already farther along-track
+than $2b + R$. Otherwise it samples the passage of the centre past the target when that lasts at
+most 10 orbits; a longer passage, as from a near-hold with a tiny radial offset, is not certified,
+and its start is the threat time S4t.
+
 ## How it is tested
 
 `tests/test_metrics_episode.py` (cases in `tests/metric_cases.py`):
@@ -171,6 +231,18 @@ any others passed in (for example a soft passive-speed envelope the scenario doe
   over 120001 closed-form samples to 1e-7. S6 is 500 s for 250 m at 0.5 m/s straight in, and
   infinite at rest on the V-bar. S1, S3 and S5 for four constraint types are the same at 4, 10 and
   25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane.
+- Passive safety (`tests/test_metrics_passive.py`): escape arcs reproduce Fehse's CAMs at
+  400 km: an R-bar CAM 15 m below with 0.5 m/s away and 0.10 m/s retrograde is 2231.6 m ahead after
+  an orbit (review K24); a purely radial CAM advances $12\pi$ times its depth whatever its size
+  (K23); a -V-bar CAM of 0.3 m/s from 20 m behind passes under the target at $x$ = -396.220 m and
+  ends 4978.3 m ahead (K25). The travelling ellipse matches propagation to 1e-9 m on Fehse's
+  appendix case (K33), where his printed sign is 176 m off. A parallel orbit 10 m below drifting at
+  the target is not safe forever and its threat time is the closed-form entry time; drifting away
+  it is; a relative orbit whose tube clears the target by 60 m is. Rest on the V-bar hold point gives
+  S4 = 50 m everywhere. S4, S4b, S8 and S9 match closed-form references (20001 samples and Brent)
+  to 1 mm, and a stuck full-thrust command for 30 s matches its closed form. All seven metrics are
+  the same at 50 and 800 samples per orbit to 1 mm, unchanged by mirroring across the orbit plane,
+  and on the two-body model they agree with Clohessy-Wiltshire to 1 cm at 150 m.
 
 ## Example
 

@@ -34,8 +34,15 @@ CATALOGUE = (
     MetricInfo("S1b", "min_margin_bound", "per constraint"),
     MetricInfo("S2", "violation_depth", "per constraint"),
     MetricInfo("S3", "violation_duration", "s"),
+    MetricInfo("S4", "passive_safety_margin", "m"),
+    MetricInfo("S4b", "passive_safe_fraction", "fraction"),
+    MetricInfo("S4i", "passive_forever_fraction", "fraction"),
+    MetricInfo("S4t", "passive_threat_time", "s"),
+    MetricInfo("S4o", "stuck_thruster_margin", "m"),
     MetricInfo("S5", "closing_speed_ratio", "ratio"),
     MetricInfo("S6", "min_time_to_keep_out", "s"),
+    MetricInfo("S8", "cam_margin", "m"),
+    MetricInfo("S9", "unprotected_time", "s"),
 )
 
 METRICS = {info.name: info for info in CATALOGUE}
