@@ -37,6 +37,9 @@ def test_per_constraint_margins_are_summarised_constraint_by_constraint():
     found = summarize("min_margin", episodes)
     assert found["keep_out"] == summarize("min_margin", MARGINS)
     assert found["approach_cone"] == {"worst": 5.0, "quantile": 5.0, "tail_mean": 5.0}
+    # A constraint an episode lacks, or an episode without the metric, is left out, not zero.
+    sparse = summarize("min_margin", [{"keep_out": 3.0, "zone": 2.0}, {"keep_out": 4.0}, np.nan])
+    assert sparse["zone"]["worst"] == 2.0 and sparse["keep_out"]["worst"] == 3.0
 
 
 def test_both_tails_hold_the_same_number_of_episodes():

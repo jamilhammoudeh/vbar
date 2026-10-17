@@ -63,10 +63,11 @@ def summarize(name: str, values: ArrayLike | Sequence[Mapping[str, float]]) -> d
     """The ranking summary of metric `name` over episode values, as its catalogue entry says.
 
     Per-constraint metrics (S1 to S3) come as one mapping per episode; each constraint is then
-    summarised on its own, a constraint missing from an episode counting as NaN.
+    summarised on its own, a constraint missing from an episode, or an episode given as a number
+    (NaN) instead of a mapping, counting as NaN.
     """
-    if isinstance(values, Sequence) and values and all(isinstance(v, Mapping) for v in values):
-        per_episode = [v for v in values if isinstance(v, Mapping)]
+    if isinstance(values, Sequence) and any(isinstance(v, Mapping) for v in values):
+        per_episode = [v if isinstance(v, Mapping) else {} for v in values]
         names = sorted({c for v in per_episode for c in v})
         return {c: summarize(name, [v.get(c, np.nan) for v in per_episode]) for c in names}
     kind = METRICS[name].summary
