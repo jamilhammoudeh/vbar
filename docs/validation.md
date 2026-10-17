@@ -258,6 +258,30 @@ Earth constants and converted from Fehse's ISS-style axes.
 - Secs. 5.1, 5.5 and 3.1.8: lower bounds need the dual norm of the cost (the optimality gap rejects
   bounds in the wrong norm), and zero-mean dither cannot lower expected fuel (the dither mutants).
 
+**Goodman, *History of Space Shuttle Rendezvous*** (NASA JSC-63400, revision 3, 2011)
+
+Units converted from ft and ft/s; mean motion at 185 n.mi. where the book flies the ISS approach.
+
+- P. 137: the twice-orbital-rate circle flown clockwise needs only the radial hover thrust and
+  lies on the no-drift manifold $v_y + 2nx = 0$. After a thrust loss 90, 120, 150 or 180 deg into
+  it, the free ellipse keeps its range between $R$ and 7.00, 6.20, 4.15 and $2R$, and free drift is
+  certified clear of a sphere just inside $R$ and not of one just outside (derived).
+- Fig. 25.22: the STS-130 +V-bar gates (0.20, 0.15, 0.10 and 0.07 ft/s at 320, 110, 75 and 30 ft)
+  sit inside the V-bar passive-speed envelope by 3.84, 1.76, 1.80 and 1.03 times.
+- Table 24.3: the +R-bar gates from ORBT sit 3.2, 3.4, 4.1, 5.7, 7.7 and 11.0 times below
+  $0.2 + 4n\rho$ at 500 km at 2000, 1000, 600, 500, 200 and 100 ft, which is why the closing-rate
+  law is the scenario's (`GateTable`).
+- P. 244: the measured Shuttle-ISS contact speed, 0.113 ft/s = 0.0344 m/s, lies outside the
+  probe-drogue window 0.05 to 0.10 m/s and inside a window of 0.025 to 0.05 m/s (the upper bound
+  from Fehse appendix C, the lower ours).
+
+**Kochenderfer, Wheeler and Wray, *Algorithms for Decision Making*** (MIT Press, 2022)
+
+- Sec. 14.1, eq. 14.5: the validation cases 90 of 100, 95 of 100 and 3 failures in 1e4. The book
+  gives the normal interval, which goes below 0 for the rare case; the tests check the exact
+  Clopper-Pearson intervals recomputed for them, (0.8238, 0.9510), (0.887, 0.984) and (6.187e-5,
+  8.765e-4), and the resolution table on the cards.
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -295,3 +319,13 @@ Earth constants and converted from Fehse's ISS-style axes.
 - Desplats (1988), as given by Fehse (eqs 4.12 and 4.13): the Gaussian plume pressure model.
 - Agarwal et al., "Deep Reinforcement Learning at the Edge of the Statistical Precipice"
   (NeurIPS 2021): the interquartile mean.
+- Clopper and Pearson, "The use of confidence or fiducial limits illustrated in the case of the
+  binomial" (*Biometrika* 26, 1934): the exact interval of a rate.
+- Kochenderfer, Wheeler and Wray (sec. 14.1): ranking safety metrics by their unsafe tail, and
+  sections 19.3 and 20.1: the navigation posterior as the reference for a stated belief.
+- Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design* (2nd ed.,
+  Nob Hill, 2017): bounds hold only for the model they are computed on (sec. 8.10), and the
+  preparation and feedback split of real-time iteration (sec. 8.9).
+- Ames, Coogan, Egerstedt, Notomista, Sreenath and Tabuada, "Control Barrier Functions: Theory and
+  Applications" (ECC 2019): safety filters, the activity of their rows, and the conservatism of
+  safe sets under bounded inputs.
