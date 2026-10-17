@@ -6,6 +6,14 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+### Changed
+
+- `Constraint.rate_bound(speed, accel, rho_min=0.0)` takes a lower bound on the range;
+  `segment_minimum` passes it by keyword, so a constraint written as `rate_bound(speed, accel)`
+  raises `TypeError`. Add the `rho_min` parameter (it may be ignored).
+- `Constraint.resolution` is a read-only property in the protocol rather than a class variable;
+  a class attribute still satisfies it.
+
 ### Added
 
 - `vbar/Approach-v0` registered with Gymnasium on import, so `gymnasium.make` builds the approach
@@ -15,10 +23,9 @@ release may change the public API, and every such change is listed under Changed
   throughput benchmark (`benchmarks/steps.py`) and weekly mutation testing of the core modules.
 - SECURITY.md.
 - Constraint types: speed and closing-speed limits, an approach cone with its apex at the port,
-  Sun exclusion, passive-speed envelopes and an approach-zone ellipsoid. `Constraint.rate_bound`
-  takes a lower bound on the range, `rho_min`.
+  Sun exclusion, passive-speed envelopes and an approach-zone ellipsoid.
 - `FilterResult` with a status, slack, conflicting constraints and compute time; `FilteredAgent`
-  keeps the last command and result.
+  keeps the last command, result and measured filter time.
 - `vbar.metrics`: `record_episode` returns an `Episode` with every step record, and
   `evaluate(episode, settings, bounds, report)` returns every metric keyed by the names in
   `METRICS`: mission metrics with docking contact and hold dwell, efficiency, the optimality gap
