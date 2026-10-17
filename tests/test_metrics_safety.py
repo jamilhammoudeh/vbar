@@ -103,10 +103,12 @@ def test_safety_metrics_are_unchanged_by_mirroring_the_orbit_normal():
             assert b[key][name] == pytest.approx(value, abs=1e-9)
 
 
-def test_entering_a_zone_in_the_last_sample_interval_before_go_counts():
-    # The flyby enters a 100 m sphere at about 33.3 s; GO comes at the step boundary 33.6 s.
+@pytest.mark.parametrize(("dt", "steps"), [(8.4, 6), (1.12, 32)])
+def test_entering_a_zone_in_the_last_sample_interval_before_go_counts(dt, steps):
+    # The flyby enters a 100 m sphere at about 33.3 s; GO comes at the step boundary 33.6 s,
+    # which thirty steps of 1.12 s pass by rounding (33.600000000000016).
     zone = ZoneEntry((100.0, 100.0, 100.0), go_time=33.6)
-    ep = episode(extra=(zone,), soft=("zone_entry",), dt=8.4, max_steps=6)
+    ep = episode(extra=(zone,), soft=("zone_entry",), dt=dt, max_steps=steps)
     entry = drift_range_crossings(FLYBY, N, 100.0, 40.0)[0]
     at_go = np.linalg.norm((cw_stm(N, 33.6) @ np.array(FLYBY))[:3])
     m = safety_metrics(ep)

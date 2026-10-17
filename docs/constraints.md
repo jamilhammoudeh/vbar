@@ -62,7 +62,8 @@ $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
 - `ZoneEntry(semi_axes, center, go_time)`: stay out of an ellipsoid until the GO event at
   `go_time`. With $q = |D^{-1}(\mathbf r - \mathbf c)|$, $D$ the semi-axes and $a_{\min}$ the
   smallest, the margin is $a_{\min}(q - 1)$ (m) up to and including `go_time`, so the step that
-  ends at GO still sees the zone, and $+\infty$ after it. Since
+  ends at GO still sees the zone, and $+\infty$ after it (with a relative tolerance of 1e-9 on
+  `go_time`, since the environment's time is a sum of steps). Since
   $|q(\mathbf x) - q(\mathbf y)| \le |\mathbf x - \mathbf y| / a_{\min}$, the margin is 1-Lipschitz
   (rate bound $V$) and never above the distance to the ellipsoid outside it, equal to it for a
   sphere. The ISS approach ellipsoid is $\pm$2000 m along-track and $\pm$1000 m otherwise

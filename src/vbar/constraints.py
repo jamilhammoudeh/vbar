@@ -27,6 +27,8 @@ from scipy.optimize import minimize_scalar
 # Refinement stops when the bracket on the time of the minimum is this narrow (s); a margin
 # that falls at 10 m/s is then off by at most 0.1 mm.
 _BRACKET_TOL = 1e-5
+# Relative tolerance on a GO time; summed step times drift from the boundary by a few ulp.
+_GO_TOL = 1e-9
 # Safety factor on the CW gravity-gradient and Coriolis terms in the acceleration bound; it
 # covers the two-body nonlinearity and J2 at separations below 1% of the orbit radius.
 _NATURAL_MARGIN = 2.0
@@ -288,8 +290,10 @@ class ZoneEntry:
     def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
         offset = np.asarray(state)[..., :3] - np.asarray(self.center, dtype=float)
         q = np.linalg.norm(offset / np.asarray(self.semi_axes, dtype=float), axis=-1)
-        # Finite up to and including GO, so the step ending at GO still sees the zone.
-        return np.where(np.asarray(t) <= self.go_time, min(self.semi_axes) * (q - 1.0), np.inf)
+        # Finite up to and including GO, so the step ending at GO still sees the zone; the
+        # environment's time is a sum of steps, so a GO on a boundary may be passed by rounding.
+        until = self.go_time + _GO_TOL * max(1.0, abs(self.go_time))
+        return np.where(np.asarray(t) <= until, min(self.semi_axes) * (q - 1.0), np.inf)
 
     def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
         return speed
