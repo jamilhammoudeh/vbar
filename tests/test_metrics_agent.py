@@ -134,8 +134,10 @@ def test_a_posterior_without_a_range_spread_or_direction_is_rejected():
         belief_consistency(ep, lambda obs: (obs[-1][:3], np.zeros((3, 3))))
     with pytest.raises(ValueError, match="at the target"):
         belief_consistency(ep, lambda obs: (np.zeros(3), np.eye(3)))
+    with pytest.raises(ValueError, match="not finite"):
+        belief_consistency(ep, lambda obs: (np.full(3, np.nan), np.eye(3)))
     longer = dataclasses.replace(ep, agent_log=ep.agent_log * 3)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="6 entries for 2 decisions"):
         belief_consistency(longer, latest_fix)
 
 
@@ -225,12 +227,30 @@ def test_solver_fields_and_the_latency_split_come_from_the_entries_that_report_t
 
 @pytest.mark.parametrize(
     "entry",
-    [{"prep_s": "fast"}, {"feedback_s": -0.001}, {"iterations": np.inf}, {"fallback": "no"}],
+    [
+        {"prep_s": "fast"},
+        {"feedback_s": -0.001},
+        {"iterations": np.inf},
+        {"tolerance": -1e-6},
+        {"tolerance": True},
+        {"fallback": "no"},
+    ],
 )
 def test_solver_fields_the_agent_wrote_wrongly_are_rejected(entry):
     ep = dataclasses.replace(pd_episode(max_steps=1), agent_log=(entry,))
     with pytest.raises(ValueError, match="log field"):
         solver_metrics(ep)
+
+
+def test_solver_fields_may_be_numpy_numbers():
+    entry = {
+        "iterations": np.int64(7),
+        "feedback_s": np.float32(0.01),
+        "warm_start": np.bool_(True),
+    }
+    m = solver_metrics(dataclasses.replace(pd_episode(max_steps=1), agent_log=(entry,)))
+    assert m["solver_iterations_median"] == 7.0 and m["warm_start_rate"] == 1.0
+    assert m["feedback_median"] == pytest.approx(0.01)
 
 
 def test_an_agent_without_solver_fields_reports_none():

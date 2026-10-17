@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import numbers
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -103,14 +104,20 @@ def belief_consistency(ep: Episode, posterior: Posterior | None) -> float:
     if posterior is None or not ep.agent_log:
         return math.nan
     observations = np.array(_decision_observations(ep))
+    if len(ep.agent_log) != len(observations):
+        raise ValueError(
+            f"the log has {len(ep.agent_log)} entries for {len(observations)} decisions"
+        )
     errors = []
-    for k, (entry, _) in enumerate(zip(ep.agent_log, observations, strict=True)):
+    for k, entry in enumerate(ep.agent_log):
         belief = parse_belief(str(entry.get("reply", "")))
         if belief is None:
             continue
         mean, cov = posterior(observations[: k + 1])
         mean = np.asarray(mean, dtype=float)[:3]
         rho = float(np.linalg.norm(mean))
+        if not math.isfinite(rho):
+            raise ValueError("the posterior mean is not finite")
         if rho == 0.0:
             raise ValueError("the posterior mean is at the target, so it has no range direction")
         u = mean / rho
@@ -130,7 +137,11 @@ def _amounts(log: Sequence[Mapping[str, Any]], key: str) -> list[float]:
     """Reported values of `key`, each a finite number at least 0, since the agent writes them."""
     values = _reported(log, key)
     for v in values:
-        if isinstance(v, bool) or not isinstance(v, int | float) or not 0.0 <= v < math.inf:
+        if (
+            isinstance(v, bool | np.bool_)
+            or not isinstance(v, numbers.Real)
+            or not 0.0 <= float(v) < math.inf
+        ):
             raise ValueError(f"log field {key} must be a finite number >= 0, got {v!r}")
     return [float(v) for v in values]
 
