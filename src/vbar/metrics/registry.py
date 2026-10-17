@@ -70,6 +70,9 @@ CATALOGUE = (
     MetricInfo("A6", "sign_check_pass", "bool"),
     MetricInfo("A7", "training_cost", "dict"),
     MetricInfo("A8", "cost_of_learning", "dict"),
+    MetricInfo("C1", "composite_score", "score"),
+    MetricInfo("C1c", "completion", "fraction"),
+    MetricInfo("C1n", "infractions", "count per type"),
 )
 
 METRICS = {info.name: info for info in CATALOGUE}

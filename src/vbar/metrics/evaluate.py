@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .agent import AgentReport, agent_metrics
+from .composite import WEIGHTS, composite_metrics
 from .efficiency import FuelBounds, efficiency_metrics, optimality_gap
 from .episode import Episode
 from .filter import filter_metrics
@@ -27,8 +28,10 @@ def evaluate(
     for the episode's start state (E3) and `report` the facts about the agent from outside the
     episode (A6 to A8, token prices).
     """
+    settings = settings or MetricSettings()
+    mission = mission_metrics(ep)
     return {
-        **mission_metrics(ep),
+        **mission,
         **efficiency_metrics(ep),
         **optimality_gap(ep, bounds),
         **safety_metrics(ep),
@@ -36,4 +39,5 @@ def evaluate(
         **plume_metrics(ep, settings),
         **filter_metrics(ep, settings),
         **agent_metrics(ep, report),
+        **composite_metrics(ep, settings.composite_weights or WEIGHTS, mission),
     }

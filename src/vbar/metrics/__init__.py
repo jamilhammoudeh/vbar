@@ -1,6 +1,7 @@
 """Benchmark metrics: functions of a recorded episode (see docs/metrics.md)."""
 
 from .agent import AgentReport, agent_metrics, faithfulness, parse_belief
+from .composite import WEIGHTS, composite_metrics, composite_score, infractions, weight_sensitivity
 from .efficiency import FuelBounds, Oracle, efficiency_metrics, optimality_gap
 from .episode import Episode, record_episode
 from .evaluate import evaluate
@@ -31,11 +32,14 @@ __all__ = [
     "Signal",
     "Trace",
     "TravellingEllipse",
+    "WEIGHTS",
     "cam_impulses",
     "agent_metrics",
     "captured",
     "complement",
     "completion_time",
+    "composite_metrics",
+    "composite_score",
     "contact",
     "efficiency_metrics",
     "escape_arc",
@@ -43,6 +47,7 @@ __all__ = [
     "exhausts",
     "faithfulness",
     "filter_metrics",
+    "infractions",
     "iqm",
     "merge",
     "minimum",
@@ -59,4 +64,5 @@ __all__ = [
     "safety_metrics",
     "success",
     "total",
+    "weight_sensitivity",
 ]
