@@ -94,9 +94,10 @@ class FilteredAgent:
         self.last_filter_s = 0.0
 
     def act(self, obs, info):
-        raw = np.asarray(self.agent.act(obs, info), dtype=float)
+        # Own copies, so a filter that writes into its input cannot rewrite the recorded command.
+        raw = np.array(self.agent.act(obs, info), dtype=float)
         t0 = time.perf_counter()
-        out = self.filter.filter(obs, raw)
+        out = self.filter.filter(obs, raw.copy())
         elapsed = time.perf_counter() - t0
         if isinstance(out, FilterResult):
             result = out

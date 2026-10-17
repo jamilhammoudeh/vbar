@@ -133,6 +133,18 @@ def test_a_filter_cannot_hide_a_change_by_reporting_no_active_row():
     assert behaviour["stall_time"] == 50.0
 
 
+def test_a_filter_that_zeroes_the_command_in_place_still_intervenes():
+    def zero_in_place(action):
+        action[:] = 0.0
+        return action
+
+    for fields in ({}, {"active": False}):
+        agent = FilteredAgent(PDAgent(), Rewriting(zero_in_place, **fields))
+        ep = episode(agent, start_state=(0, -400, 30, 0, 0, 0), max_steps=5)
+        assert filter_metrics(ep)["intervention_rate"] == 1.0
+        assert np.linalg.norm(ep.records[0].command) > 0.0
+
+
 def test_only_the_flown_change_counts_so_intervention_size_stays_within_the_actuator():
     # Reversing a command ten times the box limit on every axis flies the widest change, F2n = 1.
     agent = FilteredAgent(ConstantAgent([10.0, 10.0, 10.0]), Rewriting(lambda a: -a))

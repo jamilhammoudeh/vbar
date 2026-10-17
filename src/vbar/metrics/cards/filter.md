@@ -12,7 +12,7 @@ power figures need real filters and are not given.
 - Convergence: per decision, so it depends on the step by definition.
 - Invariance: not applicable.
 - Mutation detection: 0 against 1 for pass-through against halving (`tests/test_metrics_mutants.py`).
-- Anti-gaming: judged from the recorded command and action, not from the filter's own flags, so a filter cannot hide a change by reporting no active row; clipping does not count, since the actuator clips anyway (Ames et al., control barrier function survey); a reported row only adds decisions; changes below 1e-6 of a full command are rounding.
+- Anti-gaming: judged from the recorded command and action, not from the filter's own flags, so a filter cannot hide a change by reporting no active row, and the recorded command is copied before the filter sees it, so writing into its input cannot hide one either; clipping does not count, since the actuator clips anyway (Ames et al., control barrier function survey); a reported row only adds decisions; changes below 1e-6 of a full command are rounding.
 - Reproducibility: exact (ratio of counts).
 - Power: not given.
 - Validity: not yet measured.
