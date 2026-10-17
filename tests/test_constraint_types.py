@@ -113,6 +113,21 @@ def test_gate_table_interpolates_between_gates_and_holds_beyond_them():
     assert gates.margin(np.array([0.0, 55.0, 0.0, 0.0, -0.1, 0.0])) == pytest.approx(0.05)
 
 
+def test_gate_table_bound_holds_across_a_steep_gate():
+    # 0.45 m/s falls to 0.05 m/s over 10 m; closing at 0.3 m/s from 205 m crosses it in 60 s
+    # with four samples, so the bound must carry the 0.045 1/s slope as well as the speed change.
+    gates = GateTable(((200.0, 0.5), (190.0, 0.05)))
+    state = np.array([0.0, 205.0, 0.0, 0.0, -0.3, 0.0])
+    m = CWDynamics(N)
+    m.reset(state)
+    _, sampled = m.advance(np.zeros(3), 60.0, n_samples=4)
+    found = segment_minimum(gates, m.state_in_last_segment, np.linspace(0, 60, 4), sampled, 0.0, N)
+    grid = np.linspace(0.0, 60.0, 20001)
+    dense = gates.margin(cw_discrete(N, grid)[0] @ state, grid).min()
+    assert found.lower_bound <= dense
+    assert found.margin == pytest.approx(dense, abs=1e-5)
+
+
 def test_gate_table_rejects_a_single_gate_repeated_ranges_and_negative_speeds():
     for gates in (((10.0, 0.1),), ((10.0, 0.1), (10.0, 0.2)), ((10.0, -0.1), (20.0, 0.1))):
         with pytest.raises(ValueError):
