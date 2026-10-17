@@ -94,7 +94,7 @@ The goal is the scenario's public goal, of one of two kinds.
 | M7 | `contact_axial_speed` | m/s | $-\mathbf v\cdot\hat{\mathbf a}$ at contact |
 | M8 | `contact_lateral_speed` | m/s | $\lvert\mathbf v - (\mathbf v\cdot\hat{\mathbf a})\hat{\mathbf a}\rvert$ at contact |
 | M9 | `hold_dwell` | s | longest continuous time inside the capture predicate, in continuous time (NaN without one) |
-| M10 | `capture_margin` | ratio | $\min\big(\tfrac{l_{\max} - \text{M6}}{l_{\max}}, \tfrac{s_{\max} - \text{M8}}{s_{\max}}, \tfrac{v_{\max} - \text{M7}}{v_{\max}}, \tfrac{\text{M7} - v_{\min}}{v_{\min}}\big)$; negative means out of tolerance (Fehse 7.1.1, 8.3.5) |
+| M10 | `capture_margin` | ratio | $\min\big(\tfrac{l_{\max} - \text{M6}}{l_{\max}}, \tfrac{s_{\max} - \text{M8}}{s_{\max}}, \tfrac{v_{\max} - \text{M7}}{v_{\max}}, \tfrac{\text{M7} - v_{\min}}{v_{\min}}\big)$, the last left out when $v_{\min}$ = 0; negative means out of tolerance (Fehse 7.1.1, 8.3.5) |
 
 The hold predicate is the signal $\min\big((R_{\text{cap}} - |\mathbf r - \mathbf r_g|)/R_{\text{cap}},
 (v_{\text{cap}} - |\mathbf v - \mathbf v_g|)/v_{\text{cap}}\big)$ with rate bound

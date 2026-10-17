@@ -147,3 +147,17 @@ def test_hold_dwell_is_the_time_until_drift_leaves_the_capture_ball():
         assert m["success"] is succeeds
         if succeeds:
             assert m["time_to_complete"] == pytest.approx(hold_time, abs=1e-9)
+
+
+def test_a_window_open_at_zero_speed_has_no_lower_criterion():
+    goal = {**DOCKING_GOAL, "axial_speed_window": (0.0, 0.1)}
+    start = (0.0, -3.0, 0.0, 0.0, 0.08, 0.0)
+    ep = episode(goal=goal, start_state=start, max_steps=2, keep_out_radius=1.0)
+    event = contact(ep)
+    assert mission_metrics(ep)["capture_margin"] == pytest.approx(
+        min(
+            (0.1 - event.axial_speed) / 0.1,
+            1.0 - event.lateral_error / 0.1,
+            1.0 - event.lateral_speed / 0.03,
+        )
+    )

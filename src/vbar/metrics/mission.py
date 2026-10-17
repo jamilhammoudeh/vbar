@@ -102,7 +102,8 @@ def contact(ep: Episode, trace: Trace | None = None) -> Contact | None:
     """The contact event and its capture margin, or None if the port plane was never crossed.
 
     The margin is the least over the criteria of (limit - value) / limit, with the lower end of
-    the axial window taken as (value - limit) / limit; negative means out of tolerance.
+    the axial window taken as (value - limit) / limit, or left out when it is zero; negative
+    means out of tolerance.
     """
     goal = ep.view.goal
     trace = trace or Trace(ep)
@@ -125,12 +126,15 @@ def contact(ep: Episode, trace: Trace | None = None) -> Contact | None:
     lateral = float(np.linalg.norm(offset - (offset @ axis) * axis))
     sideways = float(np.linalg.norm(velocity + axial * axis))
     low, high = goal["axial_speed_window"]
-    margin = min(
+    criteria = [
         (goal["lateral_limit"] - lateral) / goal["lateral_limit"],
         (goal["lateral_speed_limit"] - sideways) / goal["lateral_speed_limit"],
         (high - axial) / high,
-        (axial - low) / low,
-    )
+    ]
+    # A window open at zero (soft docking) has no lower criterion to normalise.
+    if low > 0.0:
+        criteria.append((axial - low) / low)
+    margin = min(criteria)
     return Contact(t, lateral, axial, sideways, margin)
 
 

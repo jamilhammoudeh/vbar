@@ -125,7 +125,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 - Changelog: v1, first version.
 
 ## M10 capture_margin (v1)
-- Definition: least over the contact criteria of (limit - value) / limit, the window's lower end as (value - limit) / limit; negative is out of tolerance.
+- Definition: least over the contact criteria of (limit - value) / limit, the window's lower end as (value - limit) / limit (left out when it is zero); negative is out of tolerance.
 - Why it matters: a continuous margin next to the boolean contact verdict.
 - Known-answer tests: equals the formula on closed-form contact values to 1e-8; -1 for a 0.2 m/s impact against 0.10 m/s.
 - Convergence: continuous-time event.
