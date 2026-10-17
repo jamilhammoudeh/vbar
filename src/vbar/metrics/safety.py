@@ -52,7 +52,8 @@ def closing_speed_ratio(ep: Episode, limit: ClosingSpeedLimit, trace: Trace) -> 
         rho = np.linalg.norm(np.asarray(state)[..., :3], axis=-1)
         return closing_speed(state) / (limit.v0 + limit.v1 * rho)
 
-    return max(peak(ratio, trace), float(ratio(ep.start)))
+    # The first segment's first sample is the start state, so the peak covers it.
+    return peak(ratio, trace)
 
 
 def time_to_keep_out(ep: Episode, keep_out: KeepOut) -> float:
@@ -66,7 +67,7 @@ def time_to_keep_out(ep: Episode, keep_out: KeepOut) -> float:
     closing = closing_speed(states)
     times = np.where(
         closing > _CLOSING_FLOOR,
-        np.maximum(rho - keep_out.radius, 0.0) / np.maximum(closing, _CLOSING_FLOOR),
+        (rho - keep_out.radius) / np.maximum(closing, _CLOSING_FLOOR),
         math.inf,
     )
     # Already inside, there is no time left whichever way the chaser moves.
