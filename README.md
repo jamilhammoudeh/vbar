@@ -161,7 +161,17 @@ print(agent.usage())  # decisions, model calls, tokens, cost and parse failures
 Each step's prompt gives the frame, the goal, the keep-out radius, the mean motion, the current
 state and the thrust limit, and asks for a JSON reply such as `{"ax": 0.1, "ay": -0.5, "az": 0.0}`.
 A reply that cannot be parsed counts as a parse failure and the spacecraft coasts for that step.
-The simulation clock is paused while the model answers.
+The prompt is configurable, the agent can offer tools (coast and transfer predictions from its
+own observation), every run can be recorded and replayed without the model, and an optional
+belief check measures whether the model's stated reasoning matches its inputs
+([docs/llm-agents.md](docs/llm-agents.md)). The simulation clock is paused while the model
+answers, unless the run is in real time.
+
+Agents can also run in another process or language through the agent server (with Python and
+MATLAB clients), LLM harnesses can fly episodes through a Model Context Protocol tool server
+([docs/remote-agents.md](docs/remote-agents.md)), and planners can submit whole plans to an
+external verifier ([docs/agents.md](docs/agents.md)). Every agent should pass the
+sign-convention check, `vbar.agents.sign_check.sign_check(agent)`, before it is scored.
 
 ### Reinforcement learning
 
@@ -178,11 +188,31 @@ env = gym.make("vbar/Approach-v0")
 obs, info = env.reset(seed=0)
 obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
- Its reward is a shaped training signal (progress toward the hold point, minus delta-v,
-minus a penalty for each step in the keep-out zone, plus a bonus on capture) and is not the
-benchmark score; score agents with `vbar.metrics`. The reward and `info` come from the true
-state, so evaluate trained policies through `run_episode`, which passes them only the observation
-and the time.
+
+Train with a library reward, whose terms follow the benchmark metrics and whose discount is
+declared per second, so the task does not change with the step length
+([docs/rewards.md](docs/rewards.md)):
+
+```python
+from vbar import ApproachConfig, ApproachEnv
+from vbar.rewards import Reward
+
+reward = Reward(tau=3600.0, success_bonus=10.0, fuel_weight=1.0, entry_weights={"keep_out": 5.0})
+env = ApproachEnv(ApproachConfig(reward=reward, training=True))
+obs, info = env.reset(seed=0)
+obs, r, terminated, truncated, info = env.step([0.0, -0.1, 0.0])
+print(round(info["discount"], 6))  # discount this transition by exp(-dt / tau)
+```
+
+Without `reward` the scenario returns its legacy shaped reward (progress toward the hold point,
+minus delta-v, minus a penalty for each step in the keep-out zone, plus a bonus on capture), which
+is not aligned with the metrics and is not the benchmark score; score agents with `vbar.metrics`.
+`ApproachVectorEnv` steps many copies as one batch ([docs/vector-env.md](docs/vector-env.md));
+the discrete bang-off-bang and burn-and-coast action modes, training-only starts and a safety
+filter in the training loop are on [docs/training.md](docs/training.md), and trained networks
+export to ONNX with their normalization built in ([docs/policy-export.md](docs/policy-export.md)).
+Rewards and `info` come from the true state: score trained policies with `run_episode`, which
+passes them only the observation and the time and refuses environments built for training.
 
 ## Dynamics
 

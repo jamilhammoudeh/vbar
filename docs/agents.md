@@ -119,7 +119,9 @@ plan, which the verifier rejects. Every call's prompt, reply, tokens, cost and l
 - A command overtaken by a newer one never acts; negative latencies, a negative time scale and a
   recording shorter than the run are refused; every run records its decision times.
 
-## Example
+## Examples
+
+The sign check:
 
 ```python
 from vbar import ApproachConfig
@@ -128,4 +130,47 @@ from vbar.agents.sign_check import sign_check
 
 check = sign_check(PDAgent(), ApproachConfig(action_mode="accel"))
 print(check.passed, check.commands["-y"])  # True (0.0, -0.25, 0.0)
+```
+
+A real-time run in which each decision's wall time counts twenty times over, repeated from its
+recorded latencies:
+
+```python
+from vbar import ApproachConfig, ApproachEnv, RealTime, run_episode
+from vbar.agents import PDAgent
+
+env = ApproachEnv(ApproachConfig(start_state=(-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)))
+result = run_episode(env, PDAgent(), seed=0, real_time=RealTime(time_scale=20.0))
+repeat = RealTime(time_scale=20.0, latencies=tuple(result["latencies_s"]))
+again = run_episode(env, PDAgent(), seed=0, real_time=repeat)
+print((again["states"] == result["states"]).all())  # True: recorded latencies repeat the run
+```
+
+Plan submission with a planner that flies the PD controller on the CW model:
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv, run_episode
+from vbar.agents import PDAgent
+from vbar.agents.plan import PlanAgent
+from vbar.dynamics import CWDynamics
+
+
+def pd_plan(obs, view, verdict, steps_left):
+    pd = PDAgent()
+    pd.reset(view)
+    model = CWDynamics(view.n)
+    model.reset(obs[:6])
+    state, rows = np.asarray(obs[:6]), []
+    for _ in range(min(steps_left, 200)):
+        rows.append(pd.act(state, {}))
+        state, _ = model.advance(rows[-1] * view.max_accel, view.dt)
+    return np.array(rows)
+
+
+agent = PlanAgent(pd_plan)
+env = ApproachEnv(ApproachConfig(start_state=(-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)))
+result = run_episode(env, agent, seed=0)
+print(agent.log[0]["verdict"].capture_step, result["captured"])  # the predicted step, True
 ```
