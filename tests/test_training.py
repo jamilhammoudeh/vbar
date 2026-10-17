@@ -5,6 +5,9 @@ from gymnasium.utils.env_checker import check_env
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DISC27, DriftAgent, LLMAgent, PDAgent, command_fraction, zero_action
 from vbar.rewards import Reward
+from vbar.safety import PassThroughFilter
+from vbar.spacecraft import GaussianNav
+from vbar.training import FilteredEnv
 
 START = (0.0, 400.0, 0.0, 0.0, 0.0, 0.0)
 
@@ -144,6 +147,51 @@ def test_injected_and_widened_starts_last_one_episode():
     assert np.max(np.abs(starts[:, :3])) > 4e3 and np.max(np.abs(starts[:, 3:])) > 0.9
     _, info = env.reset(seed=0)
     assert np.array_equal(info["true_state"], ApproachEnv().reset(seed=0)[1]["true_state"])
+
+
+class Halving:
+    """A stand-in filter that halves every command and records what it was shown."""
+
+    name = "halving"
+
+    def reset(self, view):
+        self.view, self.seen = view, []
+
+    def filter(self, obs, action):
+        self.seen.append(obs)
+        return 0.5 * np.asarray(action)
+
+
+def test_filtered_environment_flies_and_reports_the_executed_action():
+    actions = np.random.default_rng(4).uniform(-1.0, 1.0, (12, 3))
+    cfg = ApproachConfig(start_state=START, sensor=GaussianNav(2.0, 2e-3))
+    halving = Halving()
+    env = FilteredEnv(ApproachEnv(cfg), halving)
+    obs, _ = env.reset(seed=3)
+    observed = [obs]
+    for a in actions:
+        obs, _, _, _, info = env.step(a)
+        observed.append(obs)
+        assert np.array_equal(info["executed_action"], 0.5 * a) and info["intervened"]
+        assert np.array_equal(env.unwrapped.record.command, a)
+        assert np.array_equal(env.unwrapped.record.filtered, 0.5 * a)
+    assert np.array_equal(fly(ApproachEnv(cfg), 0.5 * actions, seed=3)[-1], env.unwrapped.state)
+    # The filter saw the noisy observations the learner acted on, not the truth.
+    assert all(np.array_equal(s, o) for s, o in zip(halving.seen, observed[:-1], strict=True))
+    assert halving.view.scenario_id == env.unwrapped.scenario_id
+
+
+# Checking the wrapper itself is the point here.
+@pytest.mark.filterwarnings("ignore:.*different from the unwrapped")
+def test_pass_through_filter_never_intervenes_and_discrete_modes_are_refused():
+    env = FilteredEnv(ApproachEnv(ApproachConfig(start_state=START)), PassThroughFilter())
+    env.reset(seed=0)
+    info = env.step([0.3, -0.2, 0.0])[-1]
+    assert not info["intervened"] and np.array_equal(info["executed_action"], [0.3, -0.2, 0.0])
+    check_env(env, skip_render_check=True)
+    for mode in ("disc27", "impulse_coast"):
+        with pytest.raises(ValueError, match="continuous action mode"):
+            FilteredEnv(ApproachEnv(ApproachConfig(action_mode=mode)), PassThroughFilter())
 
 
 def test_scored_runs_refuse_an_environment_built_for_training():

@@ -19,5 +19,6 @@ and how it is tested.
 | [training.md](training.md) | interfaces for reinforcement learning: the discrete bang-off-bang action mode |
 | [training.md](training.md) | interfaces for reinforcement learning: the discrete bang-off-bang action mode, burn-and-coast decisions |
 | [training.md](training.md) | interfaces for reinforcement learning: the discrete bang-off-bang action mode, burn-and-coast decisions, training-only starts |
+| [training.md](training.md) | interfaces for reinforcement learning: the discrete bang-off-bang action mode, burn-and-coast decisions, training-only starts, a safety filter in the training loop |
 | [rewards.md](rewards.md) | training rewards: per-second discounting, terms aligned with the metrics, potential-based progress shaping, the integrated quadratic cost |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |

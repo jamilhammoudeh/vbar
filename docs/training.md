@@ -1,7 +1,8 @@
 # Training interfaces
 
-Code: `vbar.scenarios.base` (the `"disc27"` and `"impulse_coast"` action modes),
-`vbar.agents.base` (`DISC27`, `command_fraction`, `zero_action`). Options that make
+Code: `vbar.scenarios.base` (the `"disc27"` and `"impulse_coast"` action modes, reset options),
+`vbar.agents.base` (`DISC27`, `command_fraction`, `zero_action`), `vbar.training`
+(`FilteredEnv`). Options that make
 reinforcement learning easier without changing what is scored. Rewards are on their own page
 ([rewards.md](rewards.md)).
 
@@ -57,6 +58,23 @@ path, refuses an environment built for training, so these starts never reach a s
 (Sutton and Barto, sec. 5.3, exploring starts; sec. 15.5, shaping by a curriculum of easier
 tasks). Unknown option names are rejected.
 
+## A safety filter in the training loop
+
+`FilteredEnv(env, safety_filter)` is a Gymnasium wrapper that passes every action through the
+filter before the environment flies it, so a learner can train on the system "agent plus
+filter". The filter gets `reset(view)` at each reset and `filter(obs, action)` with the
+observation the learner acted on, never the truth. Each step's `info` gains:
+
+- `executed_action`: the command the filter let through, in the action mode's units;
+- `intervened`: whether it differs from the learner's action by more than `tol` (1e-6) on any
+  axis.
+
+An off-policy learner must store the executed action with the transition, since the next state
+follows from it, not from the learner's output (Sutton and Barto, sec. 6.5). `env.unwrapped.record`
+keeps both: `command` is the learner's action and `filtered` the executed one. Only the continuous
+action modes are supported. For scored runs the filter wraps the agent instead
+(`vbar.safety.FilteredAgent`, [environment.md](environment.md)).
+
 ## How it is tested
 
 `tests/test_training.py`:
@@ -78,6 +96,11 @@ tasks). Unknown option names are rejected.
   exactly, wider ranges reach beyond the default ones over 200 seeds, and the next plain reset
   draws the same start as an environment never given options; `run_episode` refuses a training
   environment.
+- Through a filter that halves every command, the wrapped environment ends in exactly the state
+  of the unwrapped one flown with the halved commands, reports the executed action and an
+  intervention at every step, keeps both commands in the record, and shows the filter the noisy
+  observations the learner saw; the pass-through filter never intervenes, the wrapper passes
+  Gymnasium's checker, and discrete action modes are refused.
 
 ## Examples
 
