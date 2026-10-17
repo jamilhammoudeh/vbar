@@ -1,9 +1,13 @@
 import numpy as np
 import pytest
-from metric_cases import episode, pd_episode
+from metric_cases import DOCKING_GOAL, episode, pd_episode
+from scipy.optimize import brentq
 
 from vbar.agents import PDAgent
-from vbar.metrics import METRICS, evaluate, mission_metrics
+from vbar.dynamics import EARTH, cw_stm, mean_motion
+from vbar.metrics import METRICS, contact, evaluate, mission_metrics
+
+N = mean_motion(EARTH.radius + 500e3)
 
 
 def test_pd_from_behind_succeeds_and_stops_inside_the_capture_ball():
@@ -65,9 +69,81 @@ def test_mission_metrics_are_unchanged_by_mirroring_the_orbit_normal():
     a = mission_metrics(pd_episode(start_state=tuple(start)))
     b = mission_metrics(pd_episode(start_state=tuple(mirrored)))
     for name in a:
-        assert a[name] == pytest.approx(b[name], rel=1e-9)
+        assert a[name] == pytest.approx(b[name], rel=1e-9, nan_ok=True)
 
 
 def test_every_reported_metric_is_in_the_catalogue():
     assert set(evaluate(episode())) <= set(METRICS)
     assert [METRICS[name].id for name in ("success", "progress")] == ["M1", "M5"]
+
+
+def drift_state(start, t):
+    return cw_stm(N, t) @ np.asarray(start, dtype=float)
+
+
+def test_contact_is_scored_at_the_exact_port_plane_crossing():
+    # Coasting at 0.08 m/s toward the port 2 m behind the target, 5 cm off the axis. A longer
+    # coast would drift off the axis: Clohessy-Wiltshire coupling moves it 0.9 m radially in 100 s.
+    # The episode stops before the coast carries it inside the 1 m keep-out sphere.
+    start = (0.05, -3.0, 0.0, 0.0, 0.08, 0.004)
+    ep = episode(goal=DOCKING_GOAL, start_state=start, max_steps=2, keep_out_radius=1.0)
+    t = brentq(lambda s: drift_state(start, s)[1] + 2.0, 0.0, 30.0, xtol=1e-12)
+    x, y, z, vx, vy, vz = drift_state(start, t)
+    event = contact(ep)
+    assert event.t == pytest.approx(t, abs=1e-6)
+    assert event.lateral_error == pytest.approx(np.hypot(x, z), abs=1e-9)
+    assert event.axial_speed == pytest.approx(vy, abs=1e-9)
+    assert event.lateral_speed == pytest.approx(np.hypot(vx, vz), abs=1e-9)
+    expected = min(
+        (0.1 - np.hypot(x, z)) / 0.1,
+        (0.03 - np.hypot(vx, vz)) / 0.03,
+        (0.1 - vy) / 0.1,
+        (vy - 0.05) / 0.05,
+    )
+    m = mission_metrics(ep)
+    assert m["capture_margin"] == pytest.approx(expected, abs=1e-8)
+    assert m["success"] and m["time_to_complete"] == pytest.approx(t, abs=1e-6)
+
+
+def test_a_contact_too_fast_for_the_mechanism_fails_with_a_negative_margin():
+    start = (0.0, -3.0, 0.0, 0.0, 0.2, 0.0)
+    m = mission_metrics(
+        episode(goal=DOCKING_GOAL, start_state=start, max_steps=3, keep_out_radius=1.0)
+    )
+    assert not m["success"] and m["time_to_complete"] == 30.0
+    # The 0.2 m/s impact is twice the 0.10 m/s top of the probe-drogue window.
+    assert m["capture_margin"] == pytest.approx(-1.0, abs=1e-3)
+
+
+def test_a_contact_between_two_samples_ten_seconds_apart_is_found():
+    start = (0.0, -2.5, 0.0, 0.0, 0.08, 0.0)
+    ep = episode(
+        goal=DOCKING_GOAL, start_state=start, max_steps=2, keep_out_radius=1.0, violation_samples=2
+    )
+    t = brentq(lambda s: drift_state(start, s)[1] + 2.0, 0.0, 20.0, xtol=1e-12)
+    assert contact(ep).t == pytest.approx(t, abs=1e-6)
+
+
+def test_no_crossing_means_no_contact_metrics():
+    m = mission_metrics(episode(goal=DOCKING_GOAL, start_state=(0, -10.0, 0, 0, 0, 0), max_steps=3))
+    assert not m["success"]
+    assert np.isnan(m["contact_lateral_error"]) and np.isnan(m["capture_margin"])
+
+
+def test_hold_dwell_is_the_time_until_drift_leaves_the_capture_ball():
+    # From rest 2 m above the hold point, drift falls back along-track (Fehse eq 3.26).
+    start = (2.0, -100.0, 0.0, 0.0, 0.0, 0.0)
+    goal = {"hold_point": (0.0, -100.0, 0.0), "capture_radius": 10.0, "capture_speed": 0.05}
+
+    def gap(t):
+        x, y = drift_state(start, t)[:2]
+        return np.hypot(x, y + 100.0) - 10.0
+
+    leave = brentq(gap, 100.0, 3000.0, xtol=1e-12)
+    for hold_time, succeeds in ((0.9 * leave, True), (1.1 * leave, False)):
+        ep = episode(goal={**goal, "hold_time": hold_time}, start_state=start, max_steps=200)
+        m = mission_metrics(ep)
+        assert m["hold_dwell"] == pytest.approx(leave, abs=1e-6)
+        assert m["success"] is succeeds
+        if succeeds:
+            assert m["time_to_complete"] == pytest.approx(hold_time, abs=1e-9)

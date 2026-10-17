@@ -63,22 +63,43 @@ built for a metric (distance to the goal, the hold predicate, the contact plane)
   two sample intervals around the highest sample; no certificate.
 - `merge`, `complement(intervals, start, end)` and `total` combine interval lists.
 
-## Mission (M1 to M5)
+## Mission (M1 to M10)
 
-The goal is the scenario's public goal: `hold_point` $\mathbf r_g$, `capture_radius` $R_{\text{cap}}$,
-`capture_speed` $v_{\text{cap}}$ and optionally `goal_velocity` $\mathbf v_g$ (zero by default).
-The capture predicate is $|\mathbf r - \mathbf r_g| < R_{\text{cap}}$ and
-$|\mathbf v - \mathbf v_g| < v_{\text{cap}}$, checked at step boundaries after t = 0.
+The goal is the scenario's public goal, of one of two kinds.
+
+- **Hold goal:** `hold_point` $\mathbf r_g$, `capture_radius` $R_{\text{cap}}$, `capture_speed`
+  $v_{\text{cap}}$, optionally `goal_velocity` $\mathbf v_g$ (zero by default) and a dwell
+  `hold_time` $T_{\text{hold}}$. The capture predicate is $|\mathbf r - \mathbf r_g| <
+  R_{\text{cap}}$ and $|\mathbf v - \mathbf v_g| < v_{\text{cap}}$. A state inside it can leave
+  within a fraction of an orbit (only an exact V-bar point is a passive hold, Fehse 3.3.3), so a
+  goal with a dwell is met only when the predicate holds continuously for $T_{\text{hold}}$.
+- **Docking goal:** `port` $\mathbf p$, `port_axis` $\hat{\mathbf a}$ (from the port toward the
+  approach side), `lateral_limit`, `lateral_speed_limit` and `axial_speed_window`
+  $[v_{\min}, v_{\max}]$. Contact is an event (Fehse 8.1.1, 8.3.6): the first time the port-plane
+  depth $(\mathbf r - \mathbf p)\cdot\hat{\mathbf a}$ turns negative from the approach side, found
+  in continuous time, so a chaser cannot pass the port between two step boundaries.
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
-| M1 | `success` | bool | the capture predicate holds at some step boundary and no hard constraint's margin fell below zero, at the start or anywhere inside a step (the environment's certified in-step minima) |
-| M2 | `terminal_pos_error` | m | $\lvert\mathbf r - \mathbf r_g\rvert$ at the end |
+| M1 | `success` | bool | the goal is met and no hard constraint's margin fell below zero, at the start or anywhere inside a step (the environment's certified in-step minima). Met means: contact within tolerance (docking); a dwell of $T_{\text{hold}}$ (hold goal with a dwell); the capture predicate at some step boundary after t = 0 (otherwise) |
+| M2 | `terminal_pos_error` | m | $\lvert\mathbf r - \mathbf r_g\rvert$ at the end ($\mathbf r_g$ the port for docking) |
 | M3 | `terminal_vel_error` | m/s | $\lvert\mathbf v - \mathbf v_g\rvert$ at the end |
-| M4 | `time_to_complete` | s | first step boundary at which the capture predicate holds; the episode length $T$ if never |
+| M4 | `time_to_complete` | s | when the goal is met: the contact time, the end of the first full dwell, or the first capturing step boundary; the episode length $T$ if never |
 | M5 | `progress` | fraction | $\operatorname{clip}(1 - d_{\text{end}}/d_0, 0, 1)$, $d$ the distance to the goal |
+| M6 | `contact_lateral_error` | m | $\lvert\mathbf d - (\mathbf d\cdot\hat{\mathbf a})\hat{\mathbf a}\rvert$, $\mathbf d = \mathbf r - \mathbf p$, at contact |
+| M7 | `contact_axial_speed` | m/s | $-\mathbf v\cdot\hat{\mathbf a}$ at contact |
+| M8 | `contact_lateral_speed` | m/s | $\lvert\mathbf v - (\mathbf v\cdot\hat{\mathbf a})\hat{\mathbf a}\rvert$ at contact |
+| M9 | `hold_dwell` | s | longest continuous time inside the capture predicate, in continuous time (NaN without one) |
+| M10 | `capture_margin` | ratio | $\min\big(\tfrac{l_{\max} - \text{M6}}{l_{\max}}, \tfrac{s_{\max} - \text{M8}}{s_{\max}}, \tfrac{v_{\max} - \text{M7}}{v_{\max}}, \tfrac{\text{M7} - v_{\min}}{v_{\min}}\big)$; negative means out of tolerance (Fehse part 2 review C1) |
 
-`mission_metrics(episode)` returns all five; `evaluate(episode)` returns every metric, keyed by the
+The hold predicate is the signal $\min\big((R_{\text{cap}} - |\mathbf r - \mathbf r_g|)/R_{\text{cap}},
+(v_{\text{cap}} - |\mathbf v - \mathbf v_g|)/v_{\text{cap}}\big)$ with rate bound
+$V/R_{\text{cap}} + A/v_{\text{cap}}$; the dwell intervals are the complement of its negative
+intervals. M6 to M8 and M10 are NaN when there is no port or no contact. The docking v2 defaults
+(port 2 m behind the target on the -V-bar face, lateral 0.1 m, lateral speed 0.03 m/s, probe-drogue
+window 0.05 to 0.10 m/s) are in the scenario specification.
+
+`mission_metrics(episode)` returns all ten; `evaluate(episode)` returns every metric, keyed by the
 names in `METRICS`, whose entries give each metric's ID, units and version.
 
 ## Efficiency (E1, E1b, E2, E4 to E6)
@@ -241,8 +262,14 @@ full momentum transfer; it is a load indicator, not a surface force model.
   capture ball; resting on the V-bar hold point, an exact equilibrium, succeeds at the first step
   with zero terminal errors; capturing after flying through the keep-out zone is not a success;
   free drift through the target fails with progress $1 - d_{\text{end}}/250$; moving away gives
-  zero progress. Terminal errors are the same at 5, 10 and 20 s steps (1e-9 relative), and all five
-  are unchanged by mirroring the start across the orbit plane.
+  zero progress. Terminal errors are the same at 5, 10 and 20 s steps (1e-9 relative), and all
+  metrics are unchanged by mirroring the start across the orbit plane. A coast toward the port at
+  0.08 m/s, 5 cm off the axis, makes contact at the closed-form crossing time (Brent on the exact
+  transition matrix) to 1e-6 s with lateral offset, axial and lateral speeds to 1e-9 and the
+  capture margin to 1e-8; a 0.2 m/s impact fails with a margin of -1; a crossing between two
+  samples 10 s apart is found; no crossing gives NaN. From rest 2 m above the hold point the dwell
+  is the closed-form time the drift takes to leave a 10 m ball, and the run succeeds with a
+  required dwell 10% shorter and fails with one 10% longer.
 - Efficiency (`tests/test_metrics_efficiency.py`): a constant half-command burn for 30 s gives
   $0.01\sqrt2 \times 30$ m/s, 0.6 m/s on the 1-norm and $500(1 - e^{-0.6/(220 g_0)})$ kg, equal to
   the actuator's own per-burn propellant to 1e-12; a ball thruster spends on the 2-norm; a

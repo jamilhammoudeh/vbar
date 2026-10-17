@@ -29,21 +29,42 @@ class ConstantAgent:
 
 
 class GuardedApproach(ApproachEnv):
-    """The approach scenario with extra constraints after its keep-out sphere."""
+    """The approach scenario with extra constraints after its keep-out sphere.
 
-    def __init__(self, config, extra=(), soft=()):
+    `goal` replaces the public goal metrics read; with one, the episode runs to its step limit.
+    """
+
+    def __init__(self, config, extra=(), soft=(), goal=None):
         self.extra = tuple(extra)
         self.soft_constraints = tuple(soft)
+        self.goal = goal
         super().__init__(config)
 
     def _constraints(self):
         return (KeepOut(self.cfg.keep_out_radius), *self.extra)
 
+    def _goal(self):
+        return super()._goal() if self.goal is None else dict(self.goal)
 
-def episode(agent=None, seed=0, agent_seed=1, extra=(), soft=(), **config):
+    def _evaluate(self, record):
+        reward, terminated, extra = super()._evaluate(record)
+        return reward, terminated and self.goal is None, extra
+
+
+# Docking v2 defaults: port 2 m behind the target, probe-drogue window (SCENARIOS.md, D-030).
+DOCKING_GOAL = {
+    "port": (0.0, -2.0, 0.0),
+    "port_axis": (0.0, -1.0, 0.0),
+    "lateral_limit": 0.1,
+    "lateral_speed_limit": 0.03,
+    "axial_speed_window": (0.05, 0.10),
+}
+
+
+def episode(agent=None, seed=0, agent_seed=1, extra=(), soft=(), goal=None, **config):
     config.setdefault("start_state", FLYBY)
     config.setdefault("max_steps", 20)
-    env = GuardedApproach(ApproachConfig(**config), extra, soft)
+    env = GuardedApproach(ApproachConfig(**config), extra, soft, goal)
     return record_episode(env, agent or DriftAgent(), seed=seed, agent_seed=agent_seed)
 
 

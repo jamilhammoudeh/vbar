@@ -3,7 +3,7 @@
 from .efficiency import FuelBounds, Oracle, efficiency_metrics, optimality_gap
 from .episode import Episode, record_episode
 from .evaluate import evaluate
-from .mission import captured, mission_metrics, success
+from .mission import Contact, captured, completion_time, contact, mission_metrics, success
 from .passive import (
     TravellingEllipse,
     cam_impulses,
@@ -19,6 +19,7 @@ from .stl import Signal, Trace, complement, merge, minimum, negative_intervals, 
 
 __all__ = [
     "METRICS",
+    "Contact",
     "Episode",
     "FuelBounds",
     "MetricInfo",
@@ -30,6 +31,8 @@ __all__ = [
     "cam_impulses",
     "captured",
     "complement",
+    "completion_time",
+    "contact",
     "efficiency_metrics",
     "escape_arc",
     "evaluate",
