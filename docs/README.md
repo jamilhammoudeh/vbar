@@ -24,7 +24,7 @@ and how it is tested.
 | [llm-agents.md](llm-agents.md) | LLM agents: the model function, the prompt and its fields, parsing, tool calling and the built-in tools, tokens and cost |
 | [llm-agents.md](llm-agents.md) | LLM agents: the model function, the prompt and its fields, parsing, tool calling and the built-in tools, tokens and cost, transcript replay |
 | [llm-agents.md](llm-agents.md) | LLM agents: the model function, the prompt and its fields, parsing, tool calling and the built-in tools, tokens and cost, reasoning faithfulness, transcript replay |
-| [remote-agents.md](remote-agents.md) | agents in another process or language: the agent server, its JSON-lines protocol, the Python and MATLAB clients |
+| [remote-agents.md](remote-agents.md) | agents in another process or language: the agent server, its JSON-lines protocol, the Python and MATLAB clients, the tool server for LLM harnesses |
 | [agents.md](agents.md) | tools around agents: the sign-convention check, real-time runs, plan submission with an external verifier |
 | [vector-env.md](vector-env.md) | the vectorized approach environment: batched propulsion, propagation and keep-out checks, same-step autoreset, supported options, speed |
 | [training.md](training.md) | interfaces for reinforcement learning: the discrete bang-off-bang action mode, burn-and-coast decisions, training-only starts, a safety filter in the training loop |

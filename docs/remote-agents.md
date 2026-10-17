@@ -1,7 +1,7 @@
 # Remote agents
 
 Code: `vbar.agents.remote` (`AgentServer`, `RemoteAgent`, `serve_agent`, `main`),
-`clients/matlab/` (`vbar_agent_client.m`, `pd_agent.m`). An agent can run in another process,
+`clients/matlab/` (`vbar_agent_client.m`, `pd_agent.m`), `vbar.agents.mcp` (`ToolServer`). An agent can run in another process,
 on another machine or in another language: the agent server waits for it to connect and presents
 it to `run_episode` as an ordinary agent, so it is scored exactly like an in-process one. Running
 submitted agents out of process also keeps them away from the environment's memory.
@@ -68,6 +68,34 @@ vbar_agent_client("127.0.0.1", 5555, pd_agent())
 The seed arrives in MATLAB as a double, so the agent's stream cannot be rebuilt bit for bit
 there; MATLAB agents that need randomness seed their own generator from it.
 
+## Tool server for LLM harnesses
+
+LLM harnesses that call tools through the Model Context Protocol can fly V-BAR episodes
+directly: `python -m vbar.agents.mcp --seeds 0 1 2 --out results.jsonl` serves the approach
+scenario over stdio, JSON-RPC 2.0 with one message per line, and a harness adds it as a stdio
+tool server. `ToolServer(env, seeds)` is the same server in Python; its `handle(message)` answers
+one message and `serve(stdin, stdout)` runs the loop. It answers `initialize` (protocol versions
+2025-06-18, 2025-03-26 and 2024-11-05; the client's choice when supported), `ping`, `tools/list`
+and `tools/call`, ignores notifications, and returns JSON-RPC errors for unknown methods (-32601),
+unknown tools (-32602) and lines that are not JSON (-32700).
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `describe_task` | none | the frame in words, the `AgentView` and the number of episodes |
+| `start_episode` | none | the next seed's first observation (by name), time, steps left, episode number |
+| `observe` | none | the same for the current step |
+| `command` | `ax`, `ay`, `az` fractions in [-1, 1] | the next observation, or `episode_over` and the episodes left |
+| `predict_coast`, `transfer_burn` | as for the LLM agent | predictions from the current observation ([llm-agents.md](llm-agents.md)) |
+
+Tool results come as JSON text and as `structuredContent`; a call that cannot be carried out (no
+episode running, a new episode before the current one ends, no episodes left, non-numeric or
+non-finite commands, invalid predictions) returns `isError` with the reason. Episodes run in the
+order of the seeds and cannot be abandoned, so a client cannot restart until it likes a start.
+Each command's wall time since the previous observation is the decision latency. Results stay
+on the server: `ToolServer.results` holds `run_episode`'s result for each finished episode (with
+`agent_seed` 0, since the client has no stream of ours), and the command line writes them to the
+`--out` file as they finish. The client never sees the true state, the reward or the outcome.
+
 ## How it is tested
 
 `tests/test_remote.py`, with the client in a thread of the test process:
@@ -82,6 +110,19 @@ there; MATLAB agents that need randomness seed their own generator from it.
 - With MATLAB installed and `VBAR_TEST_MATLAB=1`, the MATLAB PD agent flies exactly the Python PD
   agent's trajectories over two default episodes (checked on R2025a; not on CI, which has no
   MATLAB).
+
+`tests/test_mcp.py`:
+
+- The handshake negotiates the protocol version, notifications get no answer, the six tools are
+  listed, an unknown method and a line that is not JSON get their error codes.
+- A PD controller flying through `start_episode` and `command` calls produces exactly the
+  in-process run's states and actions; command replies hold only the observation, time, steps
+  left and episode number.
+- Starting before the episode ends, observing with none running, a non-numeric command and
+  starting past the last seed are tool errors.
+- `predict_coast` through the server equals the tool on the current observation.
+- `python -m vbar.agents.mcp` in a subprocess answers five requests on stdio and writes the
+  episode's result.
 
 ## Example
 
