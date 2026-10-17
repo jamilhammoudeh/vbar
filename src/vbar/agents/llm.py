@@ -7,7 +7,9 @@ model works through a small adapter; `text_model` wraps a plain `prompt -> text`
 tools offered. A reply may call tools; the agent runs them on its own observation, adds the
 results to the conversation and asks again, at most `max_tool_rounds` times, then asks once more
 without tools. Each decision's messages, tool calls, reply, parsed action, parse failure, token
-counts, cost and wall-clock latency are stored in `self.log`.
+counts, cost and wall-clock latency are stored in `self.log`. `RecordedModel` keeps a run's
+requests and replies and `ReplayModel` plays them back, so a run repeats exactly without the
+model.
 
 The simulation clock is paused during the model call unless the run is in real time. Every
 number in the prompt comes from the observation or the scenario's public description, never
@@ -16,12 +18,14 @@ from the true state.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import string
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import KW_ONLY, dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -115,6 +119,75 @@ def text_model(complete: Callable[[str], str]) -> Model:
 
 def as_reply(answer: Reply | str) -> Reply:
     return answer if isinstance(answer, Reply) else Reply(text=str(answer))
+
+
+def request_digest(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> str:
+    """SHA-256 of a request's canonical JSON; equal requests have equal digests."""
+    canonical = json.dumps({"messages": messages, "tools": tools}, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _reply_to_dict(reply: Reply) -> dict[str, Any]:
+    return {
+        "text": reply.text,
+        "input_tokens": reply.input_tokens,
+        "output_tokens": reply.output_tokens,
+        "tool_calls": [
+            {"name": c.name, "arguments": dict(c.arguments), "id": c.id} for c in reply.tool_calls
+        ],
+    }
+
+
+def _reply_from_dict(entry: Mapping[str, Any]) -> Reply:
+    calls = tuple(ToolCall(c["name"], c["arguments"], c.get("id", "")) for c in entry["tool_calls"])
+    return Reply(entry["text"], entry["input_tokens"], entry["output_tokens"], calls)
+
+
+class RecordedModel:
+    """Calls `model` and records each request's digest with its reply, in order."""
+
+    def __init__(self, model: Model):
+        self.model = model
+        self.entries: list[dict[str, Any]] = []
+
+    def __call__(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply:
+        reply = as_reply(self.model(messages, tools))
+        self.entries.append(
+            {"request": request_digest(messages, tools), "reply": _reply_to_dict(reply)}
+        )
+        return reply
+
+    def save(self, path: str | Path) -> None:
+        Path(path).write_text(json.dumps(self.entries, indent=1), encoding="utf-8")
+
+
+class ReplayError(RuntimeError):
+    """A replayed run asked for something the transcript does not hold."""
+
+
+class ReplayModel:
+    """Answers each request with the recorded reply, in order, without calling a model.
+
+    Raises `ReplayError` when a request differs from the recorded one (the run has diverged) or
+    the transcript is exhausted. Replies carry the recorded token counts.
+    """
+
+    def __init__(self, entries: Sequence[Mapping[str, Any]]):
+        self.entries = list(entries)
+        self.position = 0
+
+    @classmethod
+    def load(cls, path: str | Path) -> ReplayModel:
+        return cls(json.loads(Path(path).read_text(encoding="utf-8")))
+
+    def __call__(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply:
+        if self.position >= len(self.entries):
+            raise ReplayError(f"the run made more than the {len(self.entries)} recorded requests")
+        entry = self.entries[self.position]
+        if request_digest(messages, tools) != entry["request"]:
+            raise ReplayError(f"request {self.position} differs from the transcript")
+        self.position += 1
+        return _reply_from_dict(entry["reply"])
 
 
 def parse_action(text: str) -> np.ndarray | None:

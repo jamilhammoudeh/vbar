@@ -1,8 +1,19 @@
+import json
+
 import numpy as np
 import pytest
 
-from vbar import ApproachConfig, ApproachEnv, run_episode
-from vbar.agents import LLMAgent, Price, Reply, ToolCall, text_model
+from vbar import ApproachConfig, ApproachEnv, RealTime, run_episode
+from vbar.agents import (
+    LLMAgent,
+    Price,
+    RecordedModel,
+    ReplayError,
+    ReplayModel,
+    Reply,
+    ToolCall,
+    text_model,
+)
 from vbar.agents.tools import CW_TOOLS
 from vbar.dynamics import cw_discrete
 from vbar.spacecraft import GaussianNav
@@ -139,3 +150,52 @@ def test_transfer_burn_arrives_at_rest_at_the_target():
     model = Scripted(call("transfer_burn", x=0.0, y=-100.0, z=0.0, seconds=half_orbit), ANSWER)
     entry, *_ = first_decision(model)
     assert "singular" in entry["tool_calls"][0]["result"]["error"]
+
+
+class Stochastic:
+    """A stand-in model with its own random stream: random fractions, sometimes a tool call."""
+
+    def __init__(self, seed):
+        self.rng = np.random.default_rng(seed)
+
+    def __call__(self, messages, tools):
+        if tools and self.rng.random() < 0.3:
+            return call("predict_coast", seconds=float(self.rng.integers(10, 900)))
+        ax, ay, az = self.rng.uniform(-0.3, 0.3, 3)
+        tokens = (int(self.rng.integers(500, 900)), int(self.rng.integers(10, 40)))
+        return Reply(json.dumps({"ax": ax, "ay": ay, "az": az}), *tokens)
+
+
+def noisy_run(model, seed=4, **run_fields):
+    environment = ApproachEnv(ApproachConfig(max_steps=25, sensor=GaussianNav(2.0, 2e-3)))
+    agent = LLMAgent(model, tools=CW_TOOLS)
+    return run_episode(environment, agent, seed=seed, agent_seed=0, **run_fields), agent
+
+
+def test_runs_replay_identically_from_cached_replies(tmp_path):
+    recorder = RecordedModel(Stochastic(7))
+    recorded, first = noisy_run(recorder)
+    assert any(e["tool_calls"] for e in first.log)
+    recorder.save(tmp_path / "transcript.json")
+    replayed, second = noisy_run(ReplayModel.load(tmp_path / "transcript.json"))
+    assert np.array_equal(recorded["states"], replayed["states"])
+    assert np.array_equal(recorded["actions"], replayed["actions"])
+    assert [e["messages"] for e in first.log] == [e["messages"] for e in second.log]
+    assert first.usage()["input_tokens"] == second.usage()["input_tokens"]
+
+
+def test_replay_refuses_a_run_that_diverges_or_outlasts_the_transcript():
+    recorder = RecordedModel(Stochastic(7))
+    noisy_run(recorder)
+    with pytest.raises(ReplayError, match="request 0 differs"):
+        noisy_run(ReplayModel(recorder.entries), seed=5)
+    with pytest.raises(ReplayError, match="more than the 3 recorded"):
+        noisy_run(ReplayModel(recorder.entries[:3]))
+
+
+def test_real_time_runs_replay_with_their_recorded_latencies():
+    recorder = RecordedModel(Stochastic(2))
+    recorded, _ = noisy_run(recorder, real_time=RealTime(time_scale=500.0))
+    repeat = RealTime(time_scale=500.0, latencies=tuple(recorded["latencies_s"]))
+    replayed, _ = noisy_run(ReplayModel(recorder.entries), real_time=repeat)
+    assert np.array_equal(recorded["states"], replayed["states"])

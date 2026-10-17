@@ -1,8 +1,8 @@
 # LLM agents
 
 Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `ToolCall`, `Price`, `text_model`,
-`parse_action`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`, `TRANSFER_BURN`, `CW_TOOLS`). An LLM
-agent asks a language model for each command. V-BAR has no model client of its own: the model
+`parse_action`, `RecordedModel`, `ReplayModel`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`,
+`TRANSFER_BURN`, `CW_TOOLS`). An LLM agent asks a language model for each command. V-BAR has no model client of its own: the model
 is any function, so a hosted API, a local model or a test stand-in plugs in the same way.
 
 ## The model function
@@ -80,6 +80,20 @@ arguments and results, and the wall-clock latency of the whole decision.
 `agent.usage()` totals decisions, model calls, tokens, cost and parse failures over the episode.
 The log restarts at every reset.
 
+## Transcripts and replay
+
+`RecordedModel(model)` wraps a model and records, for each request, the SHA-256 digest of its
+canonical JSON (messages and tools, keys sorted) with the reply, text, token counts and tool
+calls; `save(path)` writes them as JSON. `ReplayModel(entries)` or `ReplayModel.load(path)`
+answers the same requests in order with the recorded replies and never calls a model. Given the
+same scenario, seeds and agent configuration, the prompts, tool results and therefore the whole
+run repeat exactly. A request that differs from the recorded one raises `ReplayError` naming
+the request, because the run has diverged (another seed, prompt or package version), and so
+does a run that asks for more replies than were recorded.
+
+In real time the model's latency changes the trajectory; replay it with the recorded latencies,
+`RealTime(latencies=result["latencies_s"], time_scale=s)` ([agents.md](agents.md)).
+
 ## How it is tested
 
 `tests/test_llm.py` with stand-in models:
@@ -99,6 +113,10 @@ The log restarts at every reset.
 - Applying `transfer_burn`'s first impulse to the observed state arrives at the target within
   the rounding (0.3 m over 1500 s) and the second impulse stops it; a half-orbit transfer is
   refused as singular.
+- A 25-step run with navigation noise, a model with its own random stream and tool calls, saved
+  to a file and replayed, gives identical states, actions, messages and token counts; replay of
+  another seed fails at request 0 and a truncated transcript fails when it runs out; a real-time
+  run replayed with its recorded latencies gives identical states.
 
 `tests/test_agents.py` checks that the prompt is built from the noisy observation, not the
 truth, and that fractions are converted to each action mode.
