@@ -419,6 +419,17 @@ success), the first that matches in this order (`LABELS`):
   target is caught by the keep-out margin and counted once in C1; PD gains of 0.005 to 0.04 rad/s
   lower S4 and S4o in order and raise the unprotected time (the 0.02 rad/s approach still succeeds,
   so only the passive metrics see it); a filter that changes every command gives F1 = 1.
+- Convergence, invariance and reproducibility (`tests/test_metrics_gate.py`): with a constant
+  command, so the trajectory is the same at every step size, all metrics defined in continuous
+  time agree at 20, 10 and 5 s steps (to rounding, or to the 1 mm range resolution for refined
+  minima); passive safety at 40, 20, 10 and 5 s steps can only fall as the step boundaries nest,
+  by less each time. Every metric is unchanged by mirroring the start across the orbit plane;
+  doubling every length, the thrust and the abort impulse doubles the lengths and keeps times,
+  fractions and success; results do not depend on the order episodes are evaluated in or on
+  reusing an environment. `evaluate` on three frozen episodes (`tests/golden/metrics_*.json`)
+  must reproduce to 1e-9 relative on every platform, exactly for booleans, counts and labels, and
+  to the stated resolution for refined minima (1 mm, or 1e-6 for angles and ratios), since which
+  sample intervals get refined can change with the last bits of a sample.
 
 ## Example
 

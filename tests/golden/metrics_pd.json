@@ -1,0 +1,66 @@
+{
+ "below_lower_bound": false,
+ "burn_count": 1,
+ "cam_margin": -26.843486992326145,
+ "capture_margin": NaN,
+ "chatter": 0.004761904761904762,
+ "closing_speed_ratio": NaN,
+ "completion": 1.0,
+ "composite_score": 1.0,
+ "contact_axial_speed": NaN,
+ "contact_lateral_error": NaN,
+ "contact_lateral_speed": NaN,
+ "cost_of_learning": null,
+ "delta_v": 2.7178269830897723,
+ "delta_v_axes": 3.790016960356632,
+ "duty_cycle": 1.0,
+ "failure_label": null,
+ "filter_compute_median": NaN,
+ "filter_compute_p95": NaN,
+ "hold_dwell": 6.007335410939049,
+ "infeasible_steps": NaN,
+ "infractions": {
+  "keep_out": 0,
+  "timeout": 0
+ },
+ "input_tokens": NaN,
+ "intervention_rate": NaN,
+ "intervention_size": NaN,
+ "min_margin": {
+  "keep_out": 54.26314979380625
+ },
+ "min_margin_bound": {
+  "keep_out": 54.262094126746234
+ },
+ "min_time_to_keep_out": 198.75912620281912,
+ "optimality_gap": NaN,
+ "optimality_gap_upper": NaN,
+ "output_tokens": NaN,
+ "parse_failure_rate": NaN,
+ "passive_forever_fraction": 1.0,
+ "passive_safe_fraction": 1.0,
+ "passive_safety_margin": 33.75978232274062,
+ "passive_threat_time": Infinity,
+ "plume_impulse": 0.0,
+ "plume_margin": Infinity,
+ "plume_time": 0.0,
+ "progress": 0.9858343126012947,
+ "propellant_mass": 0.8775793480430126,
+ "reasoning_faithfulness": NaN,
+ "sign_check_pass": NaN,
+ "solver_failures": NaN,
+ "stuck_thruster_margin": 33.42582740623611,
+ "success": true,
+ "terminal_pos_error": 4.7597552847859586,
+ "terminal_vel_error": 0.03900647218085326,
+ "time_to_complete": 630.0,
+ "token_cost": NaN,
+ "training_cost": null,
+ "unprotected_time": 0.0,
+ "violation_depth": {
+  "keep_out": 0.0
+ },
+ "violation_duration": {
+  "keep_out": 0.0
+ }
+}
