@@ -31,6 +31,13 @@ def test_ratios_where_higher_is_worse_take_the_upper_tail():
     assert summarize("closing_speed_ratio", ratios) == tail
 
 
+def test_per_constraint_margins_are_summarised_constraint_by_constraint():
+    episodes = [{"keep_out": m, "approach_cone": 5.0} for m in MARGINS]
+    found = summarize("min_margin", episodes)
+    assert found["keep_out"] == summarize("min_margin", MARGINS)
+    assert found["approach_cone"] == {"worst": 5.0, "quantile": 5.0, "tail_mean": 5.0}
+
+
 def test_infinite_values_stay_episode_values_in_the_tail():
     # S5 is infinite through a hold gate, S6 when never closing, S4t when every drift is certified.
     ratios = summarize("closing_speed_ratio", [0.5] * 20 + [np.inf] * 2)

@@ -365,7 +365,8 @@ success), the first that matches in this order (`LABELS`):
 ## Summaries across episodes
 
 Each metric's catalogue entry (`METRICS[name].summary`) says how it ranks across episodes, and
-`summarize(name, values)` computes it. Performance metrics (delta-v, terminal errors, time) use
+`summarize(name, values)` computes it, per constraint when the values are the per-constraint
+mappings `evaluate` gives for S1 to S3. Performance metrics (delta-v, terminal errors, time) use
 the interquartile mean. Safety metrics use their unsafe tail, `unsafe_tail(values, worse)`: the
 worst value, the 5th percentile on the unsafe side and the mean at or beyond it (a conditional
 value at risk). The percentile is an episode value, the inverse of the empirical distribution

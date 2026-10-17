@@ -9,6 +9,9 @@ are left to the statistics of the evaluation harness.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 from numpy.typing import ArrayLike
 from scipy.stats import beta
@@ -51,8 +54,16 @@ def clopper_pearson(successes: int, trials: int, confidence: float = 0.95) -> tu
     return float(lower), float(upper)
 
 
-def summarize(name: str, values: ArrayLike) -> dict[str, float]:
-    """The ranking summary of metric `name` over episode values, as its catalogue entry says."""
+def summarize(name: str, values: ArrayLike | Sequence[Mapping[str, float]]) -> dict[str, Any]:
+    """The ranking summary of metric `name` over episode values, as its catalogue entry says.
+
+    Per-constraint metrics (S1 to S3) come as one mapping per episode; each constraint is then
+    summarised on its own, a constraint missing from an episode counting as NaN.
+    """
+    if isinstance(values, Sequence) and values and all(isinstance(v, Mapping) for v in values):
+        per_episode = [v for v in values if isinstance(v, Mapping)]
+        names = sorted({c for v in per_episode for c in v})
+        return {c: summarize(name, [v.get(c, np.nan) for v in per_episode]) for c in names}
     kind = METRICS[name].summary
     x = np.asarray(values, dtype=float)
     x = x[~np.isnan(x)]
