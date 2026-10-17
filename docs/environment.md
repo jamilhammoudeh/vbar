@@ -157,7 +157,8 @@ action in the view's action mode. Provided:
   hold the agent's command and the result, and `last_filter_s` the filter's measured time, for
   the step record ([metrics.md](metrics.md)). Only the pass-through filter exists so far.
 
-`vbar.agents.action_scale(view)` gives the action units per fraction of a full command.
+`vbar.agents.action_scale(view)` gives the action units per fraction of a full command. The
+sign-convention check every agent passes before scoring is on [agents.md](agents.md).
 
 ## Configuration
 
