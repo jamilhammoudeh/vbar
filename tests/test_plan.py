@@ -152,3 +152,25 @@ def test_plan_agent_rejects_the_discrete_mode():
         PlanAgent(rollout()).reset(view)
     with pytest.raises(ValueError, match="cannot check"):
         PlanVerifier(dataclasses.replace(view, constraints=({"type": "cone"},)))
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        '[{"ax": 0, "ay": 0, "az": 0, "steps": 1e999}]',
+        '[{"ax": ' + "9" * 400 + ', "ay": 0, "az": 0, "steps": 1}]',
+        "[" * 3000 + "]" * 3000,
+        '[{"ax": 0, "ay": 0, "az": 0, "steps": ' + "9" * 400 + "}]",
+        '[{"ax": 0, "ay": 0, "az": 0, "steps": -3}]',
+    ],
+    ids=["infinite steps", "huge fraction", "deep nesting", "huge steps", "negative steps"],
+)
+def test_unusable_plan_replies_are_empty_plans(reply):
+    assert parse_plan(reply).shape == (0, 3)
+
+
+def test_plans_longer_than_the_time_left_are_refused_without_flying_them():
+    assert parse_plan('[{"ax": 0, "ay": 0, "az": 0, "steps": 400}]', max_rows=360).shape == (0, 3)
+    view = ApproachEnv(ApproachConfig(start_state=CLEAR)).agent_view()
+    verdict = PlanVerifier(view).verify(np.array(CLEAR), np.zeros((100_000, 3)), steps_left=5)
+    assert "only 5 remain" in " ".join(verdict.problems) and not verdict.ok

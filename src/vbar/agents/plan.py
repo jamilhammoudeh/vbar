@@ -11,8 +11,6 @@ and the planner is asked again at the next decision.
 
 from __future__ import annotations
 
-import json
-import re
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
@@ -24,7 +22,7 @@ import numpy as np
 from ..constraints import Constraint, KeepOut, segment_minimum
 from ..dynamics import CWDynamics
 from .base import AgentView, action_scale
-from .llm import Model, Price, as_reply
+from .llm import REPLY_ERRORS, Model, Price, as_reply, first_json
 
 
 @dataclass(frozen=True)
@@ -92,6 +90,8 @@ class PlanVerifier:
             commands = np.nan_to_num(commands, nan=0.0, posinf=0.0, neginf=0.0)
         if steps_left is not None and len(commands) > steps_left:
             problems.append(f"the plan has {len(commands)} steps but only {steps_left} remain")
+            # The rest could never be flown; predicting it would only cost time.
+            commands = commands[:steps_left]
         accels = self._limit(commands) * view.max_accel
         model = CWDynamics(view.n)
         model.reset(np.asarray(obs, dtype=float)[:6])
@@ -193,20 +193,27 @@ the fractions held for k steps. A verifier will predict it and tell you what is 
 {feedback}Reply with ONLY the JSON list."""
 
 
-def parse_plan(text: str) -> np.ndarray:
-    """Rows of fractions from a reply's JSON list of segments; empty when it cannot be read."""
-    match = re.search(r"\[.*\]", text, flags=re.DOTALL)
-    if not match:
-        return np.zeros((0, 3))
+def parse_plan(text: str, max_rows: int = 10_000) -> np.ndarray:
+    """Rows of fractions from a reply's JSON list of segments.
+
+    Empty when the reply cannot be read, a segment's steps are not a whole number of at least
+    zero, or the plan has more than `max_rows` steps.
+    """
+    segments = first_json(text, r"\[.*\]")
+    empty = np.zeros((0, 3))
     try:
-        segments = json.loads(match.group(0))
-        rows = [
-            [float(s["ax"]), float(s["ay"]), float(s["az"])]
-            for s in segments
-            for _ in range(int(s["steps"]))
-        ]
-    except (ValueError, KeyError, TypeError):
-        return np.zeros((0, 3))
+        parts, total = [], 0
+        for s in segments:
+            steps = s["steps"]
+            if isinstance(steps, bool) or not float(steps).is_integer() or steps < 0:
+                return empty
+            total += int(steps)
+            if total > max_rows:
+                return empty
+            parts.append(([float(s["ax"]), float(s["ay"]), float(s["az"])], int(steps)))
+    except REPLY_ERRORS:
+        return empty
+    rows = [command for command, steps in parts for _ in range(steps)]
     return np.array(rows, dtype=float).reshape(-1, 3)
 
 
@@ -258,4 +265,4 @@ class LLMPlanner:
                 "latency_s": latency,
             }
         )
-        return parse_plan(reply.text)
+        return parse_plan(reply.text, max_rows=steps_left)
