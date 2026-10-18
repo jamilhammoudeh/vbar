@@ -254,3 +254,20 @@ def test_a_non_finite_request_id_gets_a_strict_json_error():
     server.serve(io.StringIO('{"jsonrpc": "2.0", "id": NaN, "method": "ping"}\n'), out)
     reply = json.loads(out.getvalue(), parse_constant=lambda name: pytest.fail(name))
     assert reply["error"]["code"] == -32600 and reply["id"] is None
+
+
+def test_a_non_finite_prediction_is_a_tool_error_that_keeps_its_id():
+    server = ToolServer(ApproachEnv(), [0])
+    call(server, "start_episode")
+    out = io.StringIO()
+    huge = {"x": 1e308, "y": -1e308, "z": 1e308, "seconds": 600.0}
+    message = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "transfer_burn", "arguments": huge},
+    }
+    server.serve(io.StringIO(json.dumps(message) + "\n"), out)
+    reply = json.loads(out.getvalue())
+    assert reply["id"] == 2 and reply["result"]["isError"]
+    assert "not finite" in reply["result"]["content"][0]["text"]

@@ -245,8 +245,13 @@ class ToolServer:
                     try:
                         text = json.dumps(response, allow_nan=False)
                     except ValueError:
-                        # Only a non-finite request id can do this; strict JSON has no NaN.
-                        text = json.dumps(_error(None, INVALID_REQUEST, "id must be finite"))
+                        # Strict JSON has no NaN or infinity: in the id, or in a result.
+                        ident = response.get("id")
+                        if isinstance(ident, float) and not np.isfinite(ident):
+                            fallback = _error(None, INVALID_REQUEST, "id must be finite")
+                        else:
+                            fallback = _error(ident, INTERNAL_ERROR, "the result is not finite")
+                        text = json.dumps(fallback)
                     try:
                         sink.write(text + "\n")
                         sink.flush()

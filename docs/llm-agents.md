@@ -69,7 +69,8 @@ use the Clohessy-Wiltshire model with the view's mean motion:
   $8(1 - \cos nT) = 3nT\sin nT$ in plane (Alfriend et al., *Spacecraft Formation Flying*,
   p. 92), are refused. The impulses are ideal; a burn of several steps arrives off target.
 
-Results are rounded (positions to 1 cm, velocities to 0.1 mm/s) to keep transcripts short.
+Results are rounded (positions to 1 cm, velocities to 0.1 mm/s) to keep transcripts short; a
+result with a number that is not finite, from extreme arguments, comes back as an error.
 
 ## Tokens, cost and the log
 
@@ -125,7 +126,7 @@ In real time the model's latency changes the trajectory; replay it with the reco
 - Unknown tools, missing or non-finite arguments and out-of-range durations return errors.
 - Applying `transfer_burn`'s first impulse to the observed state arrives at the target within
   the rounding (0.3 m over 1500 s) and the second impulse stops it; a half-orbit transfer is
-  refused as singular.
+  refused as singular; arguments of 1e308 give an error, not infinity.
 - Through 20 m of navigation noise, a model that reads its position and velocity from the prompt
   and reports them as its belief is faithful at every step, and one that overstates the range by
   half never is; the belief must have both fields and the right closing sign; without `belief`

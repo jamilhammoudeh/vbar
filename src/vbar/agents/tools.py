@@ -50,6 +50,14 @@ def _number(arguments: Mapping[str, Any], key: str) -> float:
     return value
 
 
+def _finite(result: dict[str, Any]) -> dict[str, Any]:
+    """The result, or an error when any number in it is not finite (strict JSON has none)."""
+    numbers = np.concatenate([np.ravel(np.asarray(v, dtype=float)) for v in result.values()])
+    if not np.all(np.isfinite(numbers)):
+        return {"error": "the result is not finite for these inputs"}
+    return result
+
+
 def predict_coast(obs: np.ndarray, view: AgentView, arguments: Mapping[str, Any]) -> dict[str, Any]:
     """State after coasting `seconds` from the observed state, and the closest range on the way."""
     seconds = _number(arguments, "seconds")
@@ -64,12 +72,14 @@ def predict_coast(obs: np.ndarray, view: AgentView, arguments: Mapping[str, Any]
     closest = segment_minimum(
         KeepOut(0.0), model.state_in_last_segment, times, np.asarray(samples), 0.0, view.n
     )
-    return {
-        "position_m": np.round(end[:3], 2).tolist(),
-        "velocity_mps": np.round(end[3:], 4).tolist(),
-        "closest_range_m": round(closest.margin, 2),
-        "closest_at_s": round(closest.t, 1),
-    }
+    return _finite(
+        {
+            "position_m": np.round(end[:3], 2).tolist(),
+            "velocity_mps": np.round(end[3:], 4).tolist(),
+            "closest_range_m": round(closest.margin, 2),
+            "closest_at_s": round(closest.t, 1),
+        }
+    )
 
 
 def transfer_burn(obs: np.ndarray, view: AgentView, arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -85,14 +95,16 @@ def transfer_burn(obs: np.ndarray, view: AgentView, arguments: Mapping[str, Any]
     r0, v0 = obs[:3], obs[3:6]
     v_depart = np.linalg.solve(rv, target - rr @ r0)
     first, second = v_depart - v0, -(vr @ r0 + vv @ v_depart)
-    return {
-        "first_burn_mps": np.round(first, 4).tolist(),
-        "second_burn_mps": np.round(second, 4).tolist(),
-        "total_mps": round(float(np.linalg.norm(first) + np.linalg.norm(second)), 4),
-        "first_burn_steps_at_full_thrust": round(
-            float(np.max(np.abs(first)) / (view.max_accel * view.dt)), 2
-        ),
-    }
+    return _finite(
+        {
+            "first_burn_mps": np.round(first, 4).tolist(),
+            "second_burn_mps": np.round(second, 4).tolist(),
+            "total_mps": round(float(np.linalg.norm(first) + np.linalg.norm(second)), 4),
+            "first_burn_steps_at_full_thrust": round(
+                float(np.max(np.abs(first)) / (view.max_accel * view.dt)), 2
+            ),
+        }
+    )
 
 
 PREDICT_COAST = Tool(
@@ -133,6 +145,8 @@ def call_tool(tools: Mapping[str, Tool], name: str, obs, view, arguments) -> dic
     if tool is None:
         return {"error": f"unknown tool {name!r}"}
     try:
-        return tool.run(np.asarray(obs, dtype=float), view, dict(arguments))
+        # Overflow on extreme arguments is reported by the finite check, not as a warning.
+        with np.errstate(over="ignore", invalid="ignore"):
+            return tool.run(np.asarray(obs, dtype=float), view, dict(arguments))
     except (KeyError, TypeError, ValueError) as error:
         return {"error": f"bad arguments for {name}: {error}"}

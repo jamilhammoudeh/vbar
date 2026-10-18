@@ -244,3 +244,18 @@ def test_beliefs_need_both_fields_and_the_right_closing_sign():
     run_episode(env(steps=2), plain)
     assert plain.log[0]["faithful"] is None and plain.usage()["faithful_fraction"] is None
     assert "range_m" not in plain.log[0]["prompt"]
+
+
+@pytest.mark.filterwarnings("ignore:overflow", "ignore:invalid value")
+def test_tools_refuse_to_return_non_finite_numbers():
+    environment = env()
+    obs, _ = environment.reset(seed=0)
+    view = environment.agent_view()
+    from vbar.agents.tools import predict_coast, transfer_burn
+
+    found = transfer_burn(obs, view, {"x": 1e308, "y": -1e308, "z": 1e308, "seconds": 600.0})
+    assert "not finite" in found["error"]
+    assert (
+        "not finite"
+        in predict_coast(np.r_[1e308, 0, 0, 1e308, 0, 0], view, {"seconds": 60.0})["error"]
+    )
