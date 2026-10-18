@@ -80,8 +80,8 @@ verifier calls and last verdict go to `log`, the data for plan quality against v
 tools)` function as the LLM agent ([llm-agents.md](llm-agents.md)). Its prompt gives the frame,
 the goal, the keep-out radius, the observed state, the step, the thrust limit and the steps left,
 asks for a JSON list of segments `{"ax", "ay", "az", "steps"}`, and on a revision includes the
-verdict's summary. `parse_plan(text, max_rows=10_000)` expands the segments into rows; numbers
-may be quoted. A reply that cannot be read (bad JSON, nesting too deep, a number too large for a
+verdict's summary. `parse_plan(text, max_rows=1_000_000)` expands the segments into rows;
+numbers may be quoted. A reply that cannot be read (bad JSON, nesting too deep, a number too large for a
 float, steps that are not a whole number of at least zero, more than `max_rows` steps) is an
 empty plan, which the verifier rejects. A plan longer than the steps left is parsed, so the
 verifier can tell the model it is too long, and the verifier predicts at most the steps left.
@@ -110,11 +110,12 @@ Every call's prompt, reply, tokens, cost and latency go to its `log`.
 - A planner that cuts through the zone first and goes around after the rejection is accepted on
   the second call and the run captures without a violation; a planner whose plans never pass is
   not flown, using every allowed call at each decision.
-- The LLM planner's revision prompt carries the verdict and the steps left, and tells a model
-  whose 100-step plan exceeds the 30 steps left that it is too long; segments are expanded, with
-  quoted numbers; an unreadable reply is an empty plan, as are infinite, negative, fractional or
-  400-digit steps, a 400-digit fraction, 3000 levels of nesting, more than `max_rows` steps and
-  a negative segment paired with a long one; a 2000-row plan with 5 steps left is rejected after
+- The LLM planner's revision prompt carries the verdict and the steps left, and tells a model whose
+  100-step plan exceeds the 30 steps left, or whose 20 000-step plan exceeds 360, that it is too
+  long, and passes a 12 000-step plan whole; segments are expanded, with quoted numbers; an
+  unreadable reply is an empty plan, as are infinite, negative, fractional or 400-digit steps,
+  `true` as steps, a 400-digit fraction, 3000 levels of nesting, more than `max_rows` steps and a
+  negative segment paired with a long one; a 2000-row plan with 5 steps left is rejected after
   predicting exactly 5 steps, and a negative number of steps left predicts none.
 - The plan agent rejects the discrete mode, and the verifier unknown constraint types.
 

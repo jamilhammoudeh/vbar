@@ -193,7 +193,12 @@ the fractions held for k steps. A verifier will predict it and tell you what is 
 {feedback}Reply with ONLY the JSON list."""
 
 
-def parse_plan(text: str, max_rows: int = 10_000) -> np.ndarray:
+# Plans longer than this many steps are not expanded: 24 MB of rows, days of flight at any
+# step the scenarios use. Shorter plans are parsed whole, so the verifier can report their length.
+MAX_PLAN_ROWS = 1_000_000
+
+
+def parse_plan(text: str, max_rows: int = MAX_PLAN_ROWS) -> np.ndarray:
     """Rows of fractions from a reply's JSON list of segments.
 
     Empty when the reply cannot be read, a segment's steps are not a whole number of at least
@@ -215,8 +220,10 @@ def parse_plan(text: str, max_rows: int = 10_000) -> np.ndarray:
             parts.append(([float(s["ax"]), float(s["ay"]), float(s["az"])], int(steps)))
     except REPLY_ERRORS:
         return empty
-    rows = [command for command, steps in parts for _ in range(steps)]
-    return np.array(rows, dtype=float).reshape(-1, 3)
+    if not parts:
+        return empty
+    commands = np.array([command for command, _ in parts], dtype=float)
+    return np.repeat(commands, [steps for _, steps in parts], axis=0)
 
 
 class LLMPlanner:

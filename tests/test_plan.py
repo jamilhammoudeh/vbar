@@ -201,3 +201,25 @@ def test_the_llm_planner_hears_that_a_plan_is_too_long_not_empty():
     assert (
         parse_plan('[{"ax": "0.1", "ay": 0, "az": 0, "steps": "2"}]').tolist() == [[0.1, 0, 0]] * 2
     )
+
+
+def test_long_llm_plans_reach_the_verifier_at_their_real_length():
+    def complete(steps):
+        return lambda messages, tools: Reply(
+            json.dumps([{"ax": 0.0, "ay": 0.0, "az": 0.0, "steps": steps}])
+        )
+
+    env = ApproachEnv(ApproachConfig(start_state=CLEAR))
+    obs, _ = env.reset(seed=0)
+    view = env.agent_view()
+    # Longer than the 360 steps left: the model hears how long, not that it is empty.
+    rows = LLMPlanner(complete(20_000))(obs, view, None, 360)
+    verdict = PlanVerifier(view).verify(obs, rows, 360)
+    assert "the plan has 20000 steps but only 360 remain" in verdict.problems
+    # A long episode can need a plan of more than 10 000 steps.
+    assert LLMPlanner(complete(12_000))(obs, view, None, 30_000).shape == (12_000, 3)
+
+
+@pytest.mark.parametrize("steps", ["2.5", "true"])
+def test_fractional_and_boolean_steps_are_refused(steps):
+    assert parse_plan('[{"ax": 0, "ay": 0, "az": 0, "steps": ' + steps + "}]").shape == (0, 3)
