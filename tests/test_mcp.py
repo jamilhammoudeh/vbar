@@ -290,3 +290,10 @@ def test_a_result_that_cannot_be_strict_json_keeps_its_request_id():
     server.serve(io.StringIO(json.dumps(message) + "\n"), out)
     reply = json.loads(out.getvalue())
     assert reply["id"] == 7 and reply["error"]["code"] == INTERNAL_ERROR
+
+
+def test_a_command_too_large_for_a_float_is_a_tool_error():
+    server = ToolServer(ApproachEnv(), [0])
+    call(server, "start_episode")
+    result, _ = call(server, "command", ax=int("9" * 400), ay=0, az=0)
+    assert result["isError"]

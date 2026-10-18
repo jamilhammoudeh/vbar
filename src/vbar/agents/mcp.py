@@ -136,7 +136,7 @@ class ToolServer:
         episode = self._running()
         try:
             fraction = np.array([float(args[k]) for k in ("ax", "ay", "az")])
-        except (KeyError, TypeError, ValueError) as error:
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
             raise ToolError(f"command needs numbers ax, ay and az: {error}") from error
         if not np.all(np.isfinite(fraction)):
             raise ToolError("command values must be finite")
