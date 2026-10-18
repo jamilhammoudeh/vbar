@@ -132,7 +132,8 @@ In real time the model's latency changes the trajectory; replay it with the reco
   refused as singular; arguments of 1e308 give an error, not infinity, and so does a 400-digit
   integer; a reply whose fractions overflow a float, or nest 3000 levels deep, is a parse failure
   and the episode goes on; tool calls with a list, a string or null as arguments, or a list as
-  the name, get errors.
+  the name, get errors; a reply whose text is null (an adapter passing a provider's empty
+  content) is a parse failure.
 - Through 20 m of navigation noise, a model that reads its position and velocity from the prompt
   and reports them as its belief is faithful at every step, and one that overstates the range by
   half never is; the belief must have both fields and the right closing sign; without `belief`

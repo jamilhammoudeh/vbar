@@ -309,3 +309,10 @@ def test_tool_calls_with_odd_arguments_record_and_replay(tmp_path):
     replayed = run_episode(environment, second, seed=0, agent_seed=0)
     assert np.array_equal(recorded["states"], replayed["states"])
     assert first.log[0]["messages"] == second.log[0]["messages"]
+
+
+def test_a_reply_without_text_is_a_parse_failure():
+    # Some providers send content None with tool calls; an adapter may pass it on.
+    agent = LLMAgent(lambda messages, tools: Reply(text=None))
+    result = run_episode(env(steps=2), agent)
+    assert result["dv_used_mps"] == 0.0 and agent.usage()["parse_failures"] == 2
