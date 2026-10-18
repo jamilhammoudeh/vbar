@@ -292,3 +292,20 @@ def test_malformed_tool_calls_come_back_as_errors(name, arguments):
     )
     assert "error" in entry["tool_calls"][0]["result"]
     assert not entry["parse_failed"]
+
+
+def test_tool_calls_with_odd_arguments_record_and_replay(tmp_path):
+    odd = [[1, 2], "seconds", None, 5]
+    replies = [
+        Reply(tool_calls=(ToolCall("predict_coast", a, f"c{k}"),)) for k, a in enumerate(odd)
+    ]
+    recorder = RecordedModel(Scripted(*replies, ANSWER))
+    environment = ApproachEnv(ApproachConfig(start_state=START, max_steps=1))
+    first = LLMAgent(recorder, tools=CW_TOOLS, max_tool_rounds=4)
+    recorded = run_episode(environment, first, seed=0, agent_seed=0)
+    assert all("error" in call["result"] for call in first.log[0]["tool_calls"])
+    recorder.save(tmp_path / "odd.json")
+    second = LLMAgent(ReplayModel.load(tmp_path / "odd.json"), tools=CW_TOOLS, max_tool_rounds=4)
+    replayed = run_episode(environment, second, seed=0, agent_seed=0)
+    assert np.array_equal(recorded["states"], replayed["states"])
+    assert first.log[0]["messages"] == second.log[0]["messages"]

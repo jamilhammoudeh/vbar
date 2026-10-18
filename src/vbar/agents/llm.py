@@ -148,7 +148,7 @@ def _reply_to_dict(reply: Reply) -> dict[str, Any]:
         "input_tokens": reply.input_tokens,
         "output_tokens": reply.output_tokens,
         "tool_calls": [
-            {"name": c.name, "arguments": dict(c.arguments), "id": c.id} for c in reply.tool_calls
+            {"name": c.name, "arguments": _plain(c.arguments), "id": c.id} for c in reply.tool_calls
         ],
     }
 
@@ -238,6 +238,8 @@ def json_depth(text: str) -> int:
 def first_json(text: str, pattern: str = r"\{.*?\}") -> Any:
     """The first JSON value in `text` matching `pattern`, or None when there is none or it
     cannot be parsed (malformed, or nested too deeply)."""
+    if not isinstance(text, str):
+        return None
     match = re.search(pattern, text, flags=re.DOTALL)
     if not match or json_depth(match.group(0)) > MAX_JSON_DEPTH:
         return None

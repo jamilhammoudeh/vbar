@@ -44,7 +44,8 @@ never from the true state. A template with an unknown field is refused when the 
 The first JSON object in the reply is read; each fraction is clipped to [-1, 1] and converted to
 the action mode. A reply without a valid object (malformed, nested too deeply, or holding a
 number too large for a float) is a parse failure (metric A4) and the spacecraft coasts for that
-step; `true` and `false` read as 1 and 0, as the environment reads them. The agent rejects the discrete and burn-and-coast action modes.
+step; `true` and `false` read as 1 and 0, as the environment reads them. The agent rejects the
+discrete and burn-and-coast action modes.
 
 ## Tool calling
 
