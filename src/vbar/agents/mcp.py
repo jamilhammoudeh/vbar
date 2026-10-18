@@ -176,7 +176,10 @@ class ToolServer:
             return _error(None, INVALID_REQUEST, "not a JSON-RPC 2.0 message")
         if "id" not in message:
             return None
-        ident, method, params = message["id"], message.get("method"), message.get("params", {})
+        ident = message["id"]
+        if not _valid_id(ident):
+            return _error(None, INVALID_REQUEST, "id must be a string, a finite number or null")
+        method, params = message.get("method"), message.get("params", {})
         if not isinstance(params, dict):
             return _error(ident, INVALID_PARAMS, "params must be an object")
         if method == "initialize":
@@ -245,13 +248,12 @@ class ToolServer:
                     try:
                         text = json.dumps(response, allow_nan=False)
                     except ValueError:
-                        # Strict JSON has no NaN or infinity: in the id, or in a result.
-                        ident = response.get("id")
-                        if isinstance(ident, float) and not np.isfinite(ident):
-                            fallback = _error(None, INVALID_REQUEST, "id must be finite")
-                        else:
-                            fallback = _error(ident, INTERNAL_ERROR, "the result is not finite")
-                        text = json.dumps(fallback)
+                        # Ids are checked when the request arrives, so only a result can be
+                        # non-finite here; strict JSON has no NaN or infinity.
+                        fallback = _error(
+                            response.get("id"), INTERNAL_ERROR, "the result is not finite"
+                        )
+                        text = json.dumps(fallback, allow_nan=False)
                     try:
                         sink.write(text + "\n")
                         sink.flush()
@@ -260,6 +262,15 @@ class ToolServer:
                         break
         finally:
             self.finish()
+
+
+def _valid_id(ident: Any) -> bool:
+    """JSON-RPC ids are strings, numbers or null; numbers must be finite for strict JSON."""
+    if ident is None or isinstance(ident, str):
+        return True
+    if isinstance(ident, bool) or not isinstance(ident, int | float):
+        return False
+    return isinstance(ident, int) or bool(np.isfinite(ident))
 
 
 def _text(text: str) -> dict[str, str]:

@@ -271,3 +271,22 @@ def test_a_non_finite_prediction_is_a_tool_error_that_keeps_its_id():
     reply = json.loads(out.getvalue())
     assert reply["id"] == 2 and reply["result"]["isError"]
     assert "not finite" in reply["result"]["content"][0]["text"]
+
+
+@pytest.mark.parametrize("ident", ["[NaN]", '{"a": Infinity}', "true"])
+def test_ids_that_are_not_strings_numbers_or_null_are_refused_in_strict_json(ident):
+    server = ToolServer(ApproachEnv(), [0])
+    out = io.StringIO()
+    server.serve(io.StringIO('{"jsonrpc": "2.0", "id": ' + ident + ', "method": "ping"}\n'), out)
+    reply = json.loads(out.getvalue(), parse_constant=lambda name: pytest.fail(name))
+    assert reply["id"] is None and reply["error"]["code"] == -32600
+
+
+def test_a_result_that_cannot_be_strict_json_keeps_its_request_id():
+    server = ToolServer(ApproachEnv(), [0])
+    server.tools["observe"] = ("broken", {"type": "object"}, lambda arguments: {"x": float("inf")})
+    out = io.StringIO()
+    message = {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "observe"}}
+    server.serve(io.StringIO(json.dumps(message) + "\n"), out)
+    reply = json.loads(out.getvalue())
+    assert reply["id"] == 7 and reply["error"]["code"] == INTERNAL_ERROR

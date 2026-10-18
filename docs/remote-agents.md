@@ -141,10 +141,11 @@ never sees the true state, the reward or the outcome.
 - A PD controller flying through `start_episode` and `command` calls produces exactly the
   in-process run's states and actions; command replies hold only the observation, time, steps
   left and episode number.
-- Starting before the episode ends, observing with none running, a non-numeric command and
-  starting past the last seed are tool errors; 200 000 levels of nesting are a parse error and
-  the next request is answered; a NaN request id gets an error in strict JSON, and a prediction
-  of 1e308 metres is a tool error that keeps its request id.
+- Starting before the episode ends, observing with none running, a non-numeric command and starting
+  past the last seed are tool errors; 200 000 levels of nesting are a parse error and the next
+  request is answered; a NaN request id, or one that is a list, an object or a boolean, gets an
+  error in strict JSON with id null; a result that is not finite keeps its id; a prediction of 1e308
+  metres is a tool error that keeps its request id.
 - `predict_coast` through the server equals the tool on the current observation.
 - `params` given as a list, `arguments` given as a list or a string, and `initialize` with list
   params get -32602, as does a tool name that is not a string, and the next request is still
