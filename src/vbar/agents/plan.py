@@ -91,7 +91,7 @@ class PlanVerifier:
         if steps_left is not None and len(commands) > steps_left:
             problems.append(f"the plan has {len(commands)} steps but only {steps_left} remain")
             # The rest could never be flown; predicting it would only cost time.
-            commands = commands[:steps_left]
+            commands = commands[: max(steps_left, 0)]
         accels = self._limit(commands) * view.max_accel
         model = CWDynamics(view.n)
         model.reset(np.asarray(obs, dtype=float)[:6])
@@ -204,8 +204,10 @@ def parse_plan(text: str, max_rows: int = 10_000) -> np.ndarray:
     try:
         parts, total = [], 0
         for s in segments:
-            steps = s["steps"]
-            if isinstance(steps, bool) or not float(steps).is_integer() or steps < 0:
+            if isinstance(s["steps"], bool):
+                return empty
+            steps = float(s["steps"])
+            if not steps.is_integer() or steps < 0:
                 return empty
             total += int(steps)
             if total > max_rows:
@@ -265,4 +267,5 @@ class LLMPlanner:
                 "latency_s": latency,
             }
         )
-        return parse_plan(reply.text, max_rows=steps_left)
+        # Over-long plans are parsed, so the verifier can say they are too long.
+        return parse_plan(reply.text)

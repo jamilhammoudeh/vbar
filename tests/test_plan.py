@@ -171,6 +171,33 @@ def test_unusable_plan_replies_are_empty_plans(reply):
 
 def test_plans_longer_than_the_time_left_are_refused_without_flying_them():
     assert parse_plan('[{"ax": 0, "ay": 0, "az": 0, "steps": 400}]', max_rows=360).shape == (0, 3)
+    # A negative segment cannot buy room for a longer one.
+    lopsided = (
+        '[{"ax": 0, "ay": 0, "az": 0, "steps": -300}, {"ax": 0, "ay": 0, "az": 0, "steps": 400}]'
+    )
+    assert parse_plan(lopsided, max_rows=360).shape == (0, 3)
     view = ApproachEnv(ApproachConfig(start_state=CLEAR)).agent_view()
-    verdict = PlanVerifier(view).verify(np.array(CLEAR), np.zeros((100_000, 3)), steps_left=5)
+    verifier = PlanVerifier(view)
+    verdict = verifier.verify(np.array(CLEAR), np.zeros((2_000, 3)), steps_left=5)
     assert "only 5 remain" in " ".join(verdict.problems) and not verdict.ok
+    # The prediction stops where the episode would: the end of five coasting steps.
+    five = verifier.verify(np.array(CLEAR), np.zeros((5, 3)))
+    assert verdict.final_distance_m == five.final_distance_m
+    none_left = verifier.verify(np.array(CLEAR), [[1.0, 0.0, 0.0]] * 4, steps_left=-3)
+    assert none_left.delta_v_mps == 0.0
+
+
+def test_the_llm_planner_hears_that_a_plan_is_too_long_not_empty():
+    prompts = []
+
+    def complete(messages, tools):
+        prompts.append(messages[0]["content"])
+        return Reply(json.dumps([{"ax": 0.0, "ay": -0.1, "az": 0.0, "steps": 100}]))
+
+    agent = PlanAgent(LLMPlanner(complete), max_revisions=1)
+    run_episode(ApproachEnv(ApproachConfig(start_state=THROUGH, max_steps=30)), agent)
+    assert "the plan has 100 steps but only 30 remain" in prompts[1]
+    assert "the plan is empty" not in prompts[1]
+    assert (
+        parse_plan('[{"ax": "0.1", "ay": 0, "az": 0, "steps": "2"}]').tolist() == [[0.1, 0, 0]] * 2
+    )
