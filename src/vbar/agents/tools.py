@@ -148,5 +148,5 @@ def call_tool(tools: Mapping[str, Tool], name: str, obs, view, arguments) -> dic
         # Overflow on extreme arguments is reported by the finite check, not as a warning.
         with np.errstate(over="ignore", invalid="ignore"):
             return tool.run(np.asarray(obs, dtype=float), view, dict(arguments))
-    except (KeyError, TypeError, ValueError) as error:
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
         return {"error": f"bad arguments for {name}: {error}"}

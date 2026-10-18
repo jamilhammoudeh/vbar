@@ -14,6 +14,7 @@ from vbar.agents import (
     Reply,
     ToolCall,
     belief_matches,
+    parse_action,
     parse_belief,
     text_model,
 )
@@ -259,3 +260,13 @@ def test_tools_refuse_to_return_non_finite_numbers():
         "not finite"
         in predict_coast(np.r_[1e308, 0, 0, 1e308, 0, 0], view, {"seconds": 60.0})["error"]
     )
+
+
+def test_numbers_too_large_for_a_float_are_errors_not_crashes():
+    huge = int("9" * 400)
+    entry, *_ = first_decision(Scripted(call("predict_coast", seconds=huge), ANSWER))
+    assert "bad arguments" in entry["tool_calls"][0]["result"]["error"]
+    reply = (
+        '{"ax": ' + "9" * 400 + ', "ay": 0, "az": 0, "range_m": ' + "9" * 400 + ', "closing": true}'
+    )
+    assert parse_action(reply) is None and parse_belief(reply) is None

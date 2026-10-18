@@ -208,7 +208,7 @@ def parse_belief(text: str) -> dict[str, Any] | None:
     try:
         data = json.loads(match.group(0))
         range_m, closing = float(data["range_m"]), data["closing"]
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, OverflowError):
         return None
     if not np.isfinite(range_m) or not isinstance(closing, bool):
         return None
@@ -237,7 +237,7 @@ def parse_action(text: str) -> np.ndarray | None:
     try:
         data = json.loads(match.group(0))
         a = np.array([float(data["ax"]), float(data["ay"]), float(data["az"])])
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, OverflowError):
         return None
     if not np.all(np.isfinite(a)):
         return None
