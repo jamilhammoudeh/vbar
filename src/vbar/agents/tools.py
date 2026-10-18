@@ -141,7 +141,7 @@ CW_TOOLS = (PREDICT_COAST, TRANSFER_BURN)
 
 def call_tool(tools: Mapping[str, Tool], name: str, obs, view, arguments) -> dict[str, Any]:
     """Run tool `name`; unknown tools and bad arguments come back as {"error": ...}."""
-    tool = tools.get(name)
+    tool = tools.get(name) if isinstance(name, str) else None
     if tool is None:
         return {"error": f"unknown tool {name!r}"}
     try:

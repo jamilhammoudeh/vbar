@@ -42,8 +42,9 @@ Every value comes from the observation or the scenario's public description (`Ag
 never from the true state. A template with an unknown field is refused when the agent is built.
 
 The first JSON object in the reply is read; each fraction is clipped to [-1, 1] and converted to
-the action mode. A reply without a valid object is a parse failure (metric A4) and the
-spacecraft coasts for that step. The agent rejects the discrete and burn-and-coast action modes.
+the action mode. A reply without a valid object (malformed, nested too deeply, or holding a
+number too large for a float) is a parse failure (metric A4) and the spacecraft coasts for that
+step; `true` and `false` read as 1 and 0, as the environment reads them. The agent rejects the discrete and burn-and-coast action modes.
 
 ## Tool calling
 
@@ -51,8 +52,9 @@ spacecraft coasts for that step. The agent rejects the discrete and burn-and-coa
 (`ToolCall(name, arguments, id)`), the agent appends the assistant message with its calls,
 runs each tool, appends one `"tool"` message per call with the result as JSON (paired by
 `tool_call_id`), and calls the model again. After `max_tool_rounds` (4) rounds of calls it asks
-once more offering no tools, so every decision ends in an answer. Unknown tools and invalid
-arguments come back to the model as `{"error": ...}`.
+once more offering no tools, so every decision ends in an answer. Unknown tools, invalid
+arguments, and calls whose name is not a string or whose arguments are not an object come back
+to the model as `{"error": ...}`.
 
 A tool's `run(obs, view, arguments)` sees only the observation the agent received and its
 `AgentView`: tools do arithmetic for the model and cannot reveal the truth. The built-in ones
@@ -127,7 +129,9 @@ In real time the model's latency changes the trajectory; replay it with the reco
 - Applying `transfer_burn`'s first impulse to the observed state arrives at the target within
   the rounding (0.3 m over 1500 s) and the second impulse stops it; a half-orbit transfer is
   refused as singular; arguments of 1e308 give an error, not infinity, and so does a 400-digit
-  integer; a reply whose fractions overflow a float is a parse failure.
+  integer; a reply whose fractions overflow a float, or nest 3000 levels deep, is a parse failure
+  and the episode goes on; tool calls with a list, a string or null as arguments, or a list as
+  the name, get errors.
 - Through 20 m of navigation noise, a model that reads its position and velocity from the prompt
   and reports them as its belief is faithful at every step, and one that overstates the range by
   half never is; the belief must have both fields and the right closing sign; without `belief`

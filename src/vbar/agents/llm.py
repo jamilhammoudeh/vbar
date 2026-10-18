@@ -118,6 +118,11 @@ class Price:
 Model = Callable[[list[dict[str, Any]], list[dict[str, Any]]], "Reply | str"]
 
 
+def _plain(arguments: Any) -> Any:
+    """Tool-call arguments for the log: a dict copy, or the value as the model sent it."""
+    return dict(arguments) if isinstance(arguments, Mapping) else arguments
+
+
 def text_model(complete: Callable[[str], str]) -> Model:
     """Adapt a `prompt -> text` function: it receives the last message's content."""
 
@@ -200,15 +205,54 @@ class ReplayModel:
         return _reply_from_dict(entry["reply"])
 
 
-def parse_belief(text: str) -> dict[str, Any] | None:
-    """Extract "range_m" (number) and "closing" (true or false) from a reply's JSON, or None."""
-    match = re.search(r"\{.*?\}", text, flags=re.DOTALL)
-    if not match:
+# Everything converting a model's JSON can raise; a reply that triggers any of them is unusable.
+REPLY_ERRORS = (ValueError, KeyError, TypeError, OverflowError, RecursionError)
+
+# Deeper replies are refused before parsing: how deep `json.loads` goes before raising
+# RecursionError differs between Python versions (about 1000 on 3.12, over 10000 on 3.13).
+MAX_JSON_DEPTH = 32
+
+
+def json_depth(text: str) -> int:
+    """Deepest nesting of JSON arrays and objects in `text`, ignoring brackets inside strings."""
+    depth = peak = 0
+    in_string = escaped = False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            peak = max(peak, depth)
+        elif ch in "]}":
+            depth -= 1
+    return peak
+
+
+def first_json(text: str, pattern: str = r"\{.*?\}") -> Any:
+    """The first JSON value in `text` matching `pattern`, or None when there is none or it
+    cannot be parsed (malformed, or nested too deeply)."""
+    match = re.search(pattern, text, flags=re.DOTALL)
+    if not match or json_depth(match.group(0)) > MAX_JSON_DEPTH:
         return None
     try:
-        data = json.loads(match.group(0))
+        return json.loads(match.group(0))
+    except (ValueError, RecursionError):
+        return None
+
+
+def parse_belief(text: str) -> dict[str, Any] | None:
+    """Extract "range_m" (number) and "closing" (true or false) from a reply's JSON, or None."""
+    data = first_json(text)
+    try:
         range_m, closing = float(data["range_m"]), data["closing"]
-    except (ValueError, KeyError, TypeError, OverflowError):
+    except REPLY_ERRORS:
         return None
     if not np.isfinite(range_m) or not isinstance(closing, bool):
         return None
@@ -231,13 +275,10 @@ def belief_matches(belief: Mapping[str, Any] | None, obs: np.ndarray) -> bool:
 
 def parse_action(text: str) -> np.ndarray | None:
     """Extract {"ax":..,"ay":..,"az":..} from a model reply. Returns None on failure."""
-    match = re.search(r"\{.*?\}", text, flags=re.DOTALL)
-    if not match:
-        return None
+    data = first_json(text)
     try:
-        data = json.loads(match.group(0))
         a = np.array([float(data["ax"]), float(data["ay"]), float(data["az"])])
-    except (ValueError, KeyError, TypeError, OverflowError):
+    except REPLY_ERRORS:
         return None
     if not np.all(np.isfinite(a)):
         return None
@@ -321,14 +362,17 @@ class LLMAgent:
                     "role": "assistant",
                     "content": reply.text,
                     "tool_calls": [
-                        {"id": c.id, "name": c.name, "arguments": dict(c.arguments)}
+                        {"id": c.id, "name": c.name, "arguments": _plain(c.arguments)}
                         for c in reply.tool_calls
                     ],
                 }
             )
             for c in reply.tool_calls:
-                result = call_tool(offered, c.name, obs, self.view, c.arguments)
-                calls.append({"name": c.name, "arguments": dict(c.arguments), "result": result})
+                if isinstance(c.name, str) and isinstance(c.arguments, Mapping):
+                    result = call_tool(offered, c.name, obs, self.view, c.arguments)
+                else:
+                    result = {"error": "a tool call needs a name and an object of arguments"}
+                calls.append({"name": c.name, "arguments": _plain(c.arguments), "result": result})
                 messages.append(
                     {
                         "role": "tool",

@@ -270,3 +270,25 @@ def test_numbers_too_large_for_a_float_are_errors_not_crashes():
         '{"ax": ' + "9" * 400 + ', "ay": 0, "az": 0, "range_m": ' + "9" * 400 + ', "closing": true}'
     )
     assert parse_action(reply) is None and parse_belief(reply) is None
+
+
+def test_deeply_nested_replies_are_parse_failures():
+    reply = (
+        '{"ax": ' + "[" * 3000 + "]" * 3000 + ', "ay": 0, "az": 0, "range_m": 1, "closing": true}'
+    )
+    assert parse_action(reply) is None and parse_belief(reply) is None
+    agent = LLMAgent(text_model(lambda prompt: reply), belief=True)
+    assert run_episode(env(steps=2), agent)["dv_used_mps"] == 0.0
+    assert agent.usage()["parse_failures"] == 2
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [("predict_coast", [1, 2]), ("predict_coast", "seconds"), ("predict_coast", None), (["x"], {})],
+)
+def test_malformed_tool_calls_come_back_as_errors(name, arguments):
+    entry, *_ = first_decision(
+        Scripted(Reply(tool_calls=(ToolCall(name, arguments, "c"),)), ANSWER)
+    )
+    assert "error" in entry["tool_calls"][0]["result"]
+    assert not entry["parse_failed"]
