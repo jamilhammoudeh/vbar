@@ -165,7 +165,8 @@ class RemoteAgent:
         if self.mode == "disc27":
             # Whole numbers of any type are indices, as `BaseEnv.step` reads them.
             whole = isinstance(action, int | float) and not isinstance(action, bool)
-            if not (whole and float(action).is_integer() and 0 <= action < 27):
+            # Range first: float() overflows on integers past 1e308.
+            if not (whole and 0 <= action < 27 and float(action).is_integer()):
                 raise RemoteAgentError(f"expected an integer action from 0 to 26, got {action!r}")
             return int(action)
         size = 4 if self.mode == "impulse_coast" else 3

@@ -81,7 +81,7 @@ def test_remote_runs_match_in_process_runs_exactly(make, fields):
     assert local["captured"] == served["captured"]
 
 
-def raw_session(handle, timeout=20.0):
+def raw_session(handle, timeout=20.0, config=None):
     """Run `handle(file)` as a hand-written client against a one-step episode."""
     server = AgentServer(timeout=timeout)
     seen = {}
@@ -96,7 +96,8 @@ def raw_session(handle, timeout=20.0):
     try:
         remote = server.accept()
         try:
-            run_episode(ApproachEnv(ApproachConfig(max_steps=1)), remote, seed=0, agent_seed=5)
+            env = ApproachEnv(config or ApproachConfig(max_steps=1))
+            run_episode(env, remote, seed=0, agent_seed=5)
         finally:
             remote.close()
     finally:
@@ -580,3 +581,17 @@ def test_the_client_converts_actions_as_the_environment_does():
         assert np.array_equal(local["states"], served["states"])
     with pytest.raises(RemoteAgentError, match="unusable action"):
         remote_run(Wrong([int("9" * 400), 0, 0]), ApproachConfig(max_steps=2))
+
+
+def test_a_huge_discrete_index_is_a_protocol_error():
+    # Sent raw, past the Python client's own conversion: the server must refuse it itself.
+
+    def handle(stream, seen):
+        send(stream, {"type": "hello", "name": "huge", "protocol": 1})
+        receive(stream)
+        send(stream, {"type": "ready"})
+        receive(stream)
+        send(stream, {"type": "action", "action": int("9" * 400)})
+
+    with pytest.raises(RemoteAgentError, match="expected an integer action"):
+        raw_session(handle, config=ApproachConfig(max_steps=1, action_mode="disc27"))
