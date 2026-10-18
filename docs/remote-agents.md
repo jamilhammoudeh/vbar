@@ -48,12 +48,12 @@ agent.close()                        # sends close
 
 `python -m vbar.agents.remote --port 5555 --seeds 0 1 2 --out results.jsonl` hosts the default
 approach scenario for one client and writes one JSON line per episode with the result of
-`run_episode` (arrays as lists). However the session fails (a bad hello, a disconnect or reset,
-a line that is not JSON, not UTF-8 or too deeply nested to parse, an action the server cannot use),
+`run_episode` (arrays as lists). However the session fails (a bad hello, a disconnect or reset, a
+line that is not JSON, not UTF-8 or too deeply nested to parse, an action the server cannot use),
 the episode being flown is written with `completed` false and the error, and so is every seed not
-yet flown; a failed hello records every seed unflown. The records are also written when the
-host itself is interrupted (Ctrl+C) before the interrupt goes on. Real-time runs ([agents.md](agents.md)) work
-through the server too; the measured latency then includes the network.
+yet flown; a failed hello records every seed unflown. The records are also written when the host
+itself is interrupted (Ctrl+C) before the interrupt goes on. Real-time runs ([agents.md](agents.md))
+work through the server too; the measured latency then includes the network.
 
 ## Clients
 

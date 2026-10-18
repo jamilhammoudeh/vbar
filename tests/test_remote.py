@@ -478,7 +478,6 @@ def test_an_interrupt_mid_episode_still_leaves_every_episode_recorded(tmp_path, 
         except KeyboardInterrupt:
             raised.append(True)
 
-    monkeypatch.setattr(remote, "main", main)
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -511,3 +510,62 @@ def test_one_number_actions_cross_the_server_in_any_shape():
     assert np.array_equal(local["states"], served["states"])
     with pytest.raises(RemoteAgentError, match="non-finite"):
         remote_run(Wrong(np.array([np.nan, 0.0, 0.0])), ApproachConfig(max_steps=2))
+
+
+def raw_host_session(lines_after_hello, timeout=5.0):
+    """Send raw bytes to `AgentServer.accept` and return the agent or the error."""
+    server = AgentServer(timeout=timeout)
+    outcome = {}
+
+    def client():
+        with socket.create_connection(server.address) as sock:
+            sock.sendall(lines_after_hello)
+            outcome["closed"] = sock.recv(1) == b""
+
+    thread = threading.Thread(target=client, daemon=True)
+    thread.start()
+    try:
+        outcome["agent"] = server.accept()
+    except RemoteAgentError as error:
+        outcome["error"] = str(error)
+    finally:
+        server.close()
+    if "agent" in outcome:
+        outcome["agent"].close()
+    thread.join(5.0)
+    return outcome
+
+
+def test_messages_sent_together_are_read_one_at_a_time():
+    # The hello and an early "ready" in one packet: the second stays buffered for the reset.
+    server = AgentServer(timeout=5.0)
+    received = {}
+
+    def client():
+        with socket.create_connection(server.address) as sock:
+            hello = {"type": "hello", "name": "eager", "protocol": 1}
+            sock.sendall((json.dumps(hello) + "\n" + json.dumps({"type": "ready"}) + "\n").encode())
+            stream = sock.makefile("rwb")
+            received["reset"] = receive(stream)
+            send(stream, {"type": "action", "action": [0.0, 0.0, 0.0]})
+            receive(stream)
+
+    thread = threading.Thread(target=client, daemon=True)
+    thread.start()
+    agent = server.accept()
+    try:
+        agent.reset(ApproachEnv().agent_view(), np.random.default_rng(0))
+        assert np.array_equal(agent.act(np.zeros(6), {"time_s": 0.0}), np.zeros(3))
+    finally:
+        agent.close()
+        server.close()
+    thread.join(5.0)
+    assert received["reset"]["type"] == "reset"
+
+
+def test_hellos_that_fail_close_the_connection():
+    long = b'{"type": "hello", "name": "' + b"x" * (remote.MAX_LINE + 10)
+    for raw in (b'{"type": "hello", "name": "x", "protocol": true}\n', long):
+        outcome = raw_host_session(raw)
+        assert "error" in outcome and outcome["closed"]
+    assert "longer than" in raw_host_session(long)["error"]

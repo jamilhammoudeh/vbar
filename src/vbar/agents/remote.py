@@ -239,8 +239,14 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
                 action = np.asarray(
                     agent.act(np.array(message["obs"], dtype=float), message["info"])
                 )
-                # One number (a discrete index, in any type or shape) goes as a number.
-                reply: Any = action.item() if action.size == 1 else action.astype(float).tolist()
+                # Converted as `BaseEnv.step` converts it; one number (a discrete index in any type
+                # or shape) goes as a number.
+                try:
+                    numbers = np.asarray(action, dtype=float)
+                except (TypeError, ValueError):
+                    line.send({"type": "error", "message": f"unusable action {action!r}"})
+                    return
+                reply: Any = numbers.item() if numbers.size == 1 else numbers.tolist()
                 try:
                     line.send({"type": "action", "action": reply})
                 except ValueError:
