@@ -569,3 +569,14 @@ def test_hellos_that_fail_close_the_connection():
         outcome = raw_host_session(raw)
         assert "error" in outcome and outcome["closed"]
     assert "longer than" in raw_host_session(long)["error"]
+
+
+def test_the_client_converts_actions_as_the_environment_does():
+    # In process, True and "13" are read as numbers; through the client they must be too.
+    cfg = ApproachConfig(start_state=CLEAR, max_steps=3, action_mode="disc27")
+    for action in ("13", 13):
+        local = run_episode(ApproachEnv(cfg), Wrong(action), seed=0, agent_seed=1)
+        served, _ = remote_run(Wrong(action), cfg, seed=0, agent_seed=1)
+        assert np.array_equal(local["states"], served["states"])
+    with pytest.raises(RemoteAgentError, match="unusable action"):
+        remote_run(Wrong([int("9" * 400), 0, 0]), ApproachConfig(max_steps=2))

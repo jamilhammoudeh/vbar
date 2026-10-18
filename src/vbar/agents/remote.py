@@ -243,7 +243,7 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
                 # or shape) goes as a number.
                 try:
                     numbers = np.asarray(action, dtype=float)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     line.send({"type": "error", "message": f"unusable action {action!r}"})
                     return
                 reply: Any = numbers.item() if numbers.size == 1 else numbers.tolist()
