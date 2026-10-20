@@ -283,11 +283,34 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
             83422.67419104476,
             MU,
         ),
+        # Near-parabolic arcs flown in from 1.6e7 perigee radii to a 7000 km perigee: an ellipse
+        # with 1 - e = 1e-8 and a parabola, estimated 2.8e-5 and 3.1e-5.
+        (
+            [-101184302788927.67, -55339265096181.234, 0.0],
+            [2.2099593795789376, 1.207922795071485, 0.0],
+            3e13,
+            MU,
+        ),
+        (
+            [-102920742826148.11, -56291164571881.82, 0.0],
+            [2.2874333255518025, 1.250356149069808, 0.0],
+            3e13,
+            MU,
+        ),
+        # An ellipse with 1 - e = 1e-7 from apogee to its 7000 km perigee: nothing cancels, but a
+        # time error of eps t alone moves the perigee by eps pi sqrt(2) (1 - e)^-1.5 of its radius,
+        # 3.1e-5; it comes back 4.5e-5 off.
+        (
+            [-133871120621992.19, -40761022759371.125, -4130390662165.415],
+            [0.00015297460609412034, -0.000486514597373636, -0.00015689783878587935],
+            92156939776371.02,
+            MU,
+        ),
         # |a| = 1e-6 over 1e301: the bracket closes on an overflowed point, an infinite radius.
         ([1.0, 0.0, 0.0], [0.0, math.sqrt(1e6 + 2.0), 0.0], 1e301, 1.0),
     ],
 )
-def test_arcs_whose_rounding_moves_the_end_past_the_threshold_are_refused(r0, v0, t, mu):
+def test_arcs_whose_estimated_end_error_passes_the_threshold_are_refused(r0, v0, t, mu):
     with pytest.raises(ValueError, match="cancel to rounding"):
         propagate_kepler(np.array(r0), np.array(v0), t, mu)
 
@@ -318,15 +341,6 @@ def test_arcs_whose_rounding_moves_the_end_past_the_threshold_are_refused(r0, v0
 def test_arcs_inside_the_rounding_threshold_are_returned(r0, v0, t):
     r1, v1 = propagate_kepler(np.array(r0), np.array(v0), t, MU)
     assert np.all(np.isfinite(r1)) and np.all(np.isfinite(v1))
-
-
-def test_a_near_parabolic_ellipse_flown_from_apogee_to_perigee_is_returned():
-    # 1 - e = 1e-7: one ulp of t moves the perigee by eps pi sqrt(2) (1 - e)^-1.5, 3.1e-5 of its
-    # 7000 km radius, on any method. Nothing cancels, so the state is returned, 4.5e-5 off.
-    r0 = np.array([-133871120621992.19, -40761022759371.125, -4130390662165.415])
-    v0 = np.array([0.00015297460609412034, -0.000486514597373636, -0.00015689783878587935])
-    r1, _ = propagate_kepler(r0, v0, 92156939776371.02, MU)
-    assert np.linalg.norm(r1) == pytest.approx(7000e3, rel=1e-4)
 
 
 def test_free_fall_from_rest_is_not_refused():
