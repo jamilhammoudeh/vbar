@@ -53,6 +53,11 @@ class Transition:
     terminal: Any = False
 
 
+def _check_tau(tau: float | None) -> None:
+    if tau is not None and not 0.0 < tau < np.inf:
+        raise ValueError("tau must be positive and finite, or None for no discount")
+
+
 class QuadraticCost:
     """Cost rate (x - x_ref)^T Q (x - x_ref) + a^T R a, integrated exactly under CW motion.
 
@@ -87,8 +92,7 @@ class QuadraticCost:
         W(d) = sum_j exp(-j h / tau) E_j^T W(h) E_j with E_j the undiscounted transition of z
         over j h, from the closed-form CW matrices. Pieces starting past 60 tau are skipped.
         """
-        if tau is not None and not 0.0 < tau < np.inf:
-            raise ValueError("tau must be positive and finite, or None for no discount")
+        _check_tau(tau)
         key = (float(duration), tau)
         if key not in self._matrices:
             d = key[0]
@@ -104,7 +108,7 @@ class QuadraticCost:
             if tau is not None:
                 # The CW response to a held acceleration makes the cost grow like s^4, and
                 # exp(-x) x^4 / 24 is below 1e-20 past x = 60: the tail is under rounding.
-                last = min(last, int(60.0 * tau / h))
+                last = int(min(last, 60.0 * tau / h))
             if last >= 1:
                 starts = h * np.arange(1, last + 1)
                 weights = np.ones_like(starts) if tau is None else np.exp(-starts / tau)
@@ -144,6 +148,7 @@ class QuadraticCost:
         self, starts: np.ndarray, accels: np.ndarray, durations: np.ndarray, tau: float | None
     ) -> np.ndarray:
         """Integrated cost of each segment, without the discount of its start offset."""
+        _check_tau(tau)
         z = np.concatenate([starts, accels, np.ones((*starts.shape[:-1], 1))], axis=-1)
         cost = np.zeros(starts.shape[:-1])
         for d in np.unique(durations):
@@ -176,8 +181,7 @@ class Reward:
     quadratic: QuadraticCost | None = None
 
     def __post_init__(self):
-        if self.tau is not None and not 0.0 < self.tau < np.inf:
-            raise ValueError("tau must be positive and finite, or None for no discount")
+        _check_tau(self.tau)
         weights = [self.success_bonus, self.fuel_weight, self.time_weight, self.progress_weight]
         weights += [*self.violation_weights.values(), *self.entry_weights.values()]
         if not all(np.isfinite(w) and w >= 0.0 for w in weights):

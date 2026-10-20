@@ -126,7 +126,7 @@ earlier results and is not aligned with the metrics.
   exponential lost five digits or overflowed, and to 1e-12 on 1e4, 3e4 and 1e5 s segments
   without discounting or with $\tau$ = 1e5 s, where one block was up to 1e-3 off with SciPy 1.11.
   A mean motion that is not positive is refused, and so is a time constant that is not positive
-  and finite.
+  and finite, even for segments of zero length; one of 1e307 s gives the undiscounted cost.
 - It matches quadrature to 1e-13 on segments of 7.4 ms and 9.988 s, durations off any grid that
   were up to 6e-8 off when rounded to 1 ns, and on a 300 s segment split into two pieces.
 - Under $\tau$ = 1000 s a 1e5 s segment with a held acceleration matches quadrature to 1e-13 (the

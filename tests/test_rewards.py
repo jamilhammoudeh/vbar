@@ -197,11 +197,21 @@ def test_invalid_reward_parameters_are_rejected(fields):
         Reward(**fields)
 
 
+@pytest.mark.parametrize("duration", [10.0, 0.0])
 @pytest.mark.parametrize("tau", [0.0, -5.0, np.inf, np.nan])
-def test_quadratic_cost_refuses_time_constants_that_are_not_positive_and_finite(tau):
+def test_quadratic_cost_refuses_time_constants_that_are_not_positive_and_finite(tau, duration):
     cost = QuadraticCost(N, np.eye(6), np.eye(3))
     with pytest.raises(ValueError, match="tau must be positive and finite"):
-        cost(np.zeros((1, 6)), np.zeros((1, 3)), np.array([10.0]), tau)
+        cost(np.zeros((1, 6)), np.zeros((1, 3)), np.array([duration]), tau)
+
+
+def test_quadratic_cost_under_the_largest_time_constants_is_the_undiscounted_cost():
+    # 60 tau / h overflows an integer for tau near 1e307; the piece count must not.
+    cost = QuadraticCost(N, Q_COST, R_COST)
+    a = np.array([3e-4, -1e-3, 2e-4])
+    args = (X_COST[None], a[None], np.array([3000.0]))
+    assert cost(*args, 1e307)[0] == pytest.approx(cost(*args, None)[0], rel=1e-14)
+    Reward(tau=1e307)
 
 
 @pytest.mark.parametrize("n", [0.0, -1e-3, float("nan"), float("inf")])
@@ -283,7 +293,7 @@ def quadrature_cost(a, duration, tau):
 )
 def test_quadratic_cost_integrates_the_exact_duration(tau, duration):
     # Real-time latency gives durations off any grid; rounding them to 1 ns was up to 6e-8 off.
-    # 300 s is two pieces of at most a quarter radian, the shortest split segment.
+    # 300 s splits into two pieces of at most a quarter radian (anything past 226 s splits).
     a = np.array([3e-4, -1e-3, 2e-4])
     found = QuadraticCost(N, Q_COST, R_COST)(X_COST[None], a[None], np.array([duration]), tau)
     assert float(found[0]) == pytest.approx(quadrature_cost(a, duration, tau), rel=1e-13)
