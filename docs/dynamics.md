@@ -183,14 +183,21 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   largest term over $\sqrt\mu\,|t|$, relative to the larger radius. Flown back in from far out at up
   to three times escape speed over up to $10^6$ s that is up to $3 \times 10^{-10}$, against a
   sensitivity of a few $10^{-15}$; it grows fast with excess speed and with the starting radius over
-  $|a|$, to $1.6 \times 10^{-7}$ at nine times escape speed. The solver computes that estimate at
-  the solution and raises `ValueError` when it exceeds $10^{-6}$, or when no positive radius is
-  left; the estimate is up to about 20 times above the actual error, so a few arcs near $10^{-7}$
-  are refused too. The tests fly ellipses up to $e = 0.98$ over twenty periods, near-parabolic arcs
-  of one second against a Taylor step, near-radial hyperbolas and a year-long slow escape against an
-  integrator, near-parabolic hyperbolas over up to $10^{10}$ s, from perigee and from off it,
-  against their composed halves, and 1000 random hyperbolas out and back; near-radial arcs at 53 and
-  73 times escape speed are refused.
+  $|a|$, to $1.6 \times 10^{-7}$ at nine times escape speed, and the end state can be off by that
+  times the ratio of the two radii. The solver turns the rounding into the time it stands for,
+  $\varepsilon$ times the largest term over $\sqrt\mu$, and raises `ValueError` when that time error
+  moves the end position by more than $10^{-5}$ of the end radius, or when no positive radius is
+  left. On 21 000 arcs of every conic class in SI and canonical units it refused none whose end
+  state was good to $10^{-9}$ (81 of 602 were good to $10^{-6}$), and no unbound arc it returned was
+  off by more than $2.5 \times 10^{-5}$ at the end. An arc near the threshold, or one where rounding
+  leaves the bracket on a spurious root of the residual, can be refused on one machine and returned
+  on another: the outcome turns on the last bit of $\mathbf r_0 \cdot \mathbf v_0$, which BLAS
+  kernels round differently. The tests fly ellipses up to $e = 0.98$ over twenty periods,
+  near-parabolic arcs of one second against a Taylor step, near-radial hyperbolas and a year-long
+  slow escape against an integrator, near-parabolic hyperbolas over up to $10^{10}$ s, from perigee
+  and from off it, against their composed halves, and 1000 random hyperbolas out and back;
+  near-radial arcs at 10 and 73 times escape speed and one in canonical units are refused, and free
+  fall from rest is not.
 
 ## J2 mean elements
 
