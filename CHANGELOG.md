@@ -122,6 +122,8 @@ release may change the public API, and every such change is listed under Changed
   get different draws than in 0.2.0 for the same `agent_seed`, and `agent_seed` may not equal
   `seed`. A small seed can still be guessed, so seeds not given are drawn and recorded (see
   Changed).
+- `run_episode` recorded the agent's own array as each action, so an agent that reused one array
+  for every command rewrote its recorded history; each action is now copied.
 - `propagate_kepler` and `lagrange_coefficients` converge on every conic: the universal anomaly
   is found by safeguarded Newton inside a bracket, and an elliptic time is reduced with an exact
   remainder. In 0.2.0 a few in a thousand random orbits with e above 0.89 propagated over several

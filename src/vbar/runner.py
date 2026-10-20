@@ -74,7 +74,8 @@ class ScoredRun:
         """
         if self.done:
             raise RuntimeError("the episode has ended")
-        action = np.asarray(action, dtype=float)
+        # A copy: an agent may reuse one array for every command.
+        action = np.array(action, dtype=float)
         if latency_s is None:
             self.obs, _, terminated, truncated, self.info = self.env.step(action)
         else:

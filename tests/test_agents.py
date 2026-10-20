@@ -221,6 +221,27 @@ def test_agent_seed_reproduces_the_run_and_is_recorded():
     assert np.array_equal(drawn["states"], replayed["states"])
 
 
+class OneBuffer:
+    """Writes every command into the same array: a short burn, then coasting."""
+
+    name = "one-buffer"
+
+    def reset(self, view, rng=None):
+        self.command = np.zeros(3)
+        self.steps = 0
+
+    def act(self, obs, info):
+        self.command[:] = (0.0, -1.0, 0.0) if self.steps == 0 else (0.0, 0.0, 0.0)
+        self.steps += 1
+        return self.command
+
+
+def test_recorded_actions_are_the_commands_flown_when_an_agent_reuses_its_array():
+    result = run_episode(ApproachEnv(ApproachConfig(max_steps=3)), OneBuffer(), seed=0)
+    assert result["actions"].tolist() == [[0.0, -1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+    assert result["dv_used_mps"] > 0.0
+
+
 def test_llm_prompt_is_built_from_the_observation_not_the_truth():
     cfg = ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=3, sensor=GaussianNav(5.0))
     env = ApproachEnv(cfg)

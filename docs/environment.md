@@ -234,6 +234,7 @@ sign-convention check every agent passes before scoring is on [agents.md](agents
   and no drawn seed; equal seeds are refused, and drawn seeds repeat the run.
 - An agent that overwrites every list and array in its view's constraints, a user constraint
   holding a list among them, leaves the environment's constraints unchanged.
+- An agent that writes every command into one array has each step's command recorded.
 - The PD agent flies the same trajectory in normalized and acceleration modes, in thrust mode
   under the constant-thrust drive, and with observation channels on; the LLM agent's fractions are
   converted to each mode.
