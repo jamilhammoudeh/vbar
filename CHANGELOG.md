@@ -13,13 +13,6 @@ release may change the public API, and every such change is listed under Changed
   raises `TypeError`. Add the `rho_min` parameter (it may be ignored).
 - `Constraint.resolution` is a read-only property in the protocol rather than a class variable;
   a class attribute still satisfies it.
-- Filter metric F1 counts decisions with an active safety row or a change in the flown
-  acceleration, not every change; clipping to the thrust limit is counted apart (F1c). F2 is the
-  change in flown acceleration in m/s^2 rather than fractions of a full command over sqrt(3), and
-  F2n normalises it by the actuator's widest change.
-- S5 divides by the speed the scenario's closing-rate law allows, so it also scores range-rate
-  tables, and no longer raises for a limit with v0 <= 0; the plume range is the scenario's unless
-  the settings give one.
 - `LLMAgent` calls `complete(messages, tools)` and accepts a `Reply` or text; wrap a
   `prompt -> text` function with `vbar.agents.text_model`. Options after `complete` are
   keyword-only.
@@ -90,38 +83,33 @@ release may change the public API, and every such change is listed under Changed
 - `LLMAgent` prompt templates (`prompt=`), token counts and cost from a declared `Price`, and
   `usage()` totals.
 - LLM tool calling (`LLMAgent(tools=...)`, `ToolCall`) with Clohessy-Wiltshire coast and
-  transfer tools computed from the agent's own observation (`vbar.agents.tools`).
+  transfer tools computed from the agent's own observation (`vbar.agents.tools`). Tools return an
+  error for results that are not finite and for arguments too large for a float. LLM replies
+  nested more than 32 levels deep, or with numbers too large for a float, are parse failures.
 - `RecordedModel` and `ReplayModel`: record an LLM run's requests and replies and replay it
   exactly without the model.
 - `LLMAgent(belief=True)`: the model reports its range and closing belief, checked against the
-  observation (`belief_matches`, `faithful_fraction`).
+  observation (`belief_matches`, `faithful_fraction`) with the parser and match rule of metric A5.
 - `vbar.agents.plan`: plan submission with an external CW verifier (`PlanVerifier`, `Verdict`),
-  `PlanAgent` with revision from the verdict, and `LLMPlanner`.
+  `PlanAgent` with revision from the verdict, and `LLMPlanner`. `parse_plan` refuses steps that
+  are not whole numbers of at least zero and plans longer than `max_rows` (a million by default);
+  the verifier predicts at most the steps left.
 - `vbar.agents.remote`: an agent server with a JSON-lines TCP protocol, a Python client
-  (`serve_agent`), a command-line host, and a MATLAB client in `clients/matlab/`.
+  (`serve_agent`), a command-line host, and a MATLAB client in `clients/matlab/`. The server
+  bounds each message by its timeout and each line by 1 MiB, accepts only an integer protocol and
+  records episodes a client leaves unfinished; the host records every episode even when
+  interrupted; `RemoteAgent.act` refuses actions of the wrong form with `RemoteAgentError`; the
+  Python client converts actions as the environment does.
 - `vbar.agents.mcp`: a Model Context Protocol tool server over stdio for LLM harnesses
-  (`python -m vbar.agents.mcp`).
+  (`python -m vbar.agents.mcp`). It records episodes a client leaves unfinished and answers
+  `params` or `arguments` that are not objects, tool names that are not strings and request ids
+  that are not strings, finite numbers or null with JSON-RPC errors.
 - `vbar.agents.policy`: MLP policies with observation normalization and action squashing, ONNX
   export with both built in, an ONNX agent and latency profiles; optional `onnx` extra.
-- Every `run_episode` result has `completed`; the agent and tool servers record episodes a
-  client leaves unfinished, and the tool server answers `params` or `arguments` that are not
-  objects, null included, with a JSON-RPC error.
-- `RemoteAgent.act` refuses actions of the wrong form with `RemoteAgentError`; the tool server
-  answers a tool name that is not a string with -32602.
-- The agent server bounds each whole message by its timeout and lines by 1 MiB, accepts only an
-  integer protocol, and the command-line host records every episode even when interrupted.
-- LLM tools return an error for results that are not finite and for numbers too large for a
-  float; such a reply counts as a parse failure. The Python agent client converts actions as
-  the environment does. The tool server refuses request ids that are not strings, finite
-  numbers or null.
-- `parse_plan` takes `max_rows` (a million by default) and refuses steps that are not whole numbers
-  of at least zero, where it used to truncate or skip them; the verifier predicts at most the
-  steps left; replies too deeply nested are parse failures.
+- Every `run_episode` result has `completed`.
 
 ### Fixed
 
-- The LLM agent's own belief check and metric A5 use one parser and one match rule, so
-  `usage()["faithful_fraction"]` equals `reasoning_faithfulness` on the same run.
 - An agent given an `agent_seed` equal to the episode seed could read it back from its own
   generator and rebuild the start state and the sensor noise. The agent's stream is now seeded
   from a hash of `agent_seed` (`vbar.agents.agent_generator`), so agents that draw random numbers
@@ -131,8 +119,6 @@ release may change the public API, and every such change is listed under Changed
   Before, a few in a thousand random orbits with e above 0.89, propagated over several periods,
   raised "did not converge", as did about one in five random hyperbolas flown back from far out,
   where the solver now stops when the bracket closes to rounding.
-- LLM replies nested more than 32 levels deep are parse failures on every Python version; on 3.13
-  and later, deeper replies used to parse and the belief parser accepted them.
 
 ## [0.2.0] - 2026-10-16
 
