@@ -188,6 +188,7 @@ def test_batched_transitions_give_each_row_its_own_reward():
         {"tau": 0.0},
         {"tau": -5.0},
         {"tau": np.inf},
+        {"tau": 5e-324},
         {"fuel_weight": -1.0},
         {"entry_weights": {"x": np.nan}},
     ],
@@ -198,11 +199,20 @@ def test_invalid_reward_parameters_are_rejected(fields):
 
 
 @pytest.mark.parametrize("duration", [10.0, 0.0])
-@pytest.mark.parametrize("tau", [0.0, -5.0, np.inf, np.nan])
-def test_quadratic_cost_refuses_time_constants_that_are_not_positive_and_finite(tau, duration):
+@pytest.mark.parametrize("tau", [0.0, -5.0, np.inf, np.nan, 5e-324])
+def test_quadratic_cost_refuses_time_constants_outside_the_normal_floats(tau, duration):
     cost = QuadraticCost(N, np.eye(6), np.eye(3))
-    with pytest.raises(ValueError, match="tau must be positive and finite"):
+    with pytest.raises(ValueError, match="tau must be finite and at least"):
         cost(np.zeros((1, 6)), np.zeros((1, 3)), np.array([duration]), tau)
+
+
+def test_quadratic_cost_under_the_smallest_time_constants_is_a_point_cost():
+    # Sixty time constants of 1e-305 s: the integral is the start's cost rate times tau.
+    cost = QuadraticCost(N, Q_COST, R_COST)
+    a = np.array([3e-4, -1e-3, 2e-4])
+    found = cost(X_COST[None], a[None], np.array([1e4]), 1e-305)[0]
+    assert found == pytest.approx((X_COST @ Q_COST @ X_COST + a @ R_COST @ a) * 1e-305, rel=1e-12)
+    Reward(tau=1e-305)
 
 
 def test_quadratic_cost_under_the_largest_time_constants_is_the_undiscounted_cost():

@@ -66,13 +66,14 @@ $s$ is the time from the start of the step and $d$ the distance to the goal.
   it makes the exponential grow as $e^{d/2\tau}$, and a long segment spans many orbits of CW motion,
   a segment is integrated in $k$ pieces $h = d/k \le \min(\tau, 1/4n)$,
   $W(d) = \sum_j e^{-jh/\tau} E_j^T W(h) E_j$ with $E_j$ the undiscounted transition of $\mathbf z$
-  over $jh$, taken from the closed-form CW matrices; pieces starting past $60\tau$ are skipped,
-  since a held acceleration makes the cost grow like $s^4$ and $e^{-x}x^4/24 < 10^{-20}$ beyond
-  $x = 60$. SciPy 1.11, the oldest supported, computes one-radian blocks to only $10^{-11}$ and
-  quarter-radian ones to $4 \times 10^{-15}$, and powers of its one-piece transition drift by
-  $10^{-11}$ over a hundred pieces; with both choices the cost is good to $3 \times 10^{-14}$ there
-  and $2 \times 10^{-15}$ on current SciPy. The duration is integrated as given, since real-time
-  latency makes it arbitrary. It is exact for the CW model only.
+  over $jh$, taken from the closed-form CW matrices, summed in blocks of 4096 so long segments need
+  no more memory; under discount the integral stops at $60\tau$, since a held acceleration makes the
+  cost grow like $s^4$ and $e^{-x}x^4/24 < 10^{-20}$ beyond $x = 60$. SciPy 1.11, the oldest
+  supported, computes one-radian blocks to only $10^{-11}$ and quarter-radian ones to
+  $4 \times 10^{-15}$, and powers of its one-piece transition drift by $10^{-11}$ over a hundred
+  pieces; with both choices the cost is good to $3 \times 10^{-14}$ there and $2 \times 10^{-15}$ on
+  current SciPy. The duration is not rounded, since real-time latency makes it arbitrary. It is
+  exact for the CW model only.
 
 ## Transitions
 
@@ -125,8 +126,9 @@ earlier results and is not aligned with the metrics.
 - It stays at 1e-10 on segments 100, 2000 and 5000 times longer than $\tau$, where one block
   exponential lost five digits or overflowed, and to 1e-12 on 1e4, 3e4 and 1e5 s segments
   without discounting or with $\tau$ = 1e5 s, where one block was up to 1e-3 off with SciPy 1.11.
-  A mean motion that is not positive is refused, and so is a time constant that is not positive
-  and finite, even for segments of zero length; one of 1e307 s gives the undiscounted cost.
+  A mean motion that is not positive is refused, and so is a time constant that is not finite or
+  is below the smallest normal double (2.2e-308 s), even for segments of zero length; one of
+  1e307 s gives the undiscounted cost, and one of 1e-305 s the start's cost rate times it.
 - It matches quadrature to 1e-13 on segments of 7.4 ms and 9.988 s, durations off any grid that
   were up to 6e-8 off when rounded to 1 ns, and on a 300 s segment split into two pieces.
 - Under $\tau$ = 1000 s a 1e5 s segment with a held acceleration matches quadrature to 1e-13 (the

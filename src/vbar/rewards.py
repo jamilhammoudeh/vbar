@@ -54,8 +54,9 @@ class Transition:
 
 
 def _check_tau(tau: float | None) -> None:
-    if tau is not None and not 0.0 < tau < np.inf:
-        raise ValueError("tau must be positive and finite, or None for no discount")
+    # Below the smallest normal double 1 / (2 tau) overflows in the discounted exponential.
+    if tau is not None and not np.finfo(float).tiny <= tau < np.inf:
+        raise ValueError("tau must be finite and at least 2.2e-308 s, or None for no discount")
 
 
 class QuadraticCost:
@@ -90,12 +91,16 @@ class QuadraticCost:
         The block exponential grows as exp(d / 2 tau) and spans d n radians of CW motion, so a
         long segment is integrated in pieces h <= min(tau, 1 / 4n):
         W(d) = sum_j exp(-j h / tau) E_j^T W(h) E_j with E_j the undiscounted transition of z
-        over j h, from the closed-form CW matrices. Pieces starting past 60 tau are skipped.
+        over j h, from the closed-form CW matrices. Under discount the integral stops at 60 tau.
         """
         _check_tau(tau)
         key = (float(duration), tau)
         if key not in self._matrices:
             d = key[0]
+            if tau is not None:
+                # The CW response to a held acceleration makes the cost grow like s^4, and
+                # exp(-x) x^4 / 24 is below 1e-20 past x = 60: the rest is under rounding.
+                d = min(d, 60.0 * tau)
             # SciPy 1.11's expm leaves 1e-11 relative on one-radian pieces and 4e-15 on
             # quarter-radian ones, and powers of its one-piece transition drift by 1e-11 over a
             # hundred pieces, hence the short pieces and the closed-form transitions.
@@ -104,16 +109,12 @@ class QuadraticCost:
             h = d / pieces
             piece = self._piece(h, tau)
             total = piece.copy()
-            last = pieces - 1
-            if tau is not None:
-                # The CW response to a held acceleration makes the cost grow like s^4, and
-                # exp(-x) x^4 / 24 is below 1e-20 past x = 60: the tail is under rounding.
-                last = int(min(last, 60.0 * tau / h))
-            if last >= 1:
-                starts = h * np.arange(1, last + 1)
+            # In blocks, so a long undiscounted segment needs no more memory than a short one.
+            for first in range(1, pieces, 4096):
+                starts = h * np.arange(first, min(first + 4096, pieces))
                 weights = np.ones_like(starts) if tau is None else np.exp(-starts / tau)
                 phi, gamma = cw_discrete(self.n, starts)
-                transitions = np.zeros((last, 10, 10))
+                transitions = np.zeros((len(starts), 10, 10))
                 transitions[:, :6, :6], transitions[:, :6, 6:9] = phi, gamma
                 transitions[:, 6:, 6:] = np.eye(4)
                 terms = np.swapaxes(transitions, 1, 2) @ piece @ transitions
