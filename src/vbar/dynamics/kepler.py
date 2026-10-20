@@ -204,20 +204,19 @@ def lagrange_coefficients(
     _, r_norm, c2, c3 = residual_and_radius(chi)
     z = alpha * chi * chi
     # The residual is known to about eps times its largest term, so chi stands for a time off by
-    # that over sqrt(mu), which moves the end position by the time times the end speed. Past 1e-5
-    # of the end radius, or with no finite positive radius (a bracket closed on an overflowed
-    # point), the state is refused. The terms grow far beyond sqrt(mu) t and cancel on
-    # near-radial and near-parabolic arcs toward perigee from far out; from apogee to perigee of
-    # a near-parabolic ellipse the rounding of t alone can pass the threshold. The velocity
-    # also carries the radius's own rounding; on unbound arcs with an estimate above 1e-11 its
-    # relative error was measured within 6 times the estimate.
+    # that over sqrt(mu), and the time error times the end speed moves the end position. Past
+    # 1e-5 of the end radius, or with no finite positive radius (a bracket closed on an
+    # overflowed point), the state is refused. On near-radial arcs toward perigee from far out
+    # the terms grow far beyond sqrt(mu) t and cancel; on arcs that fall to perigee from far out
+    # little cancels but the end speed is high. The estimate is not a bound, for the position or
+    # for the velocity, which also carries the radius's own rounding.
     largest = max(
         abs(chi * chi * chi * c3), abs(sigma0 * chi * chi * c2), abs(r0_norm * chi * (1.0 - z * c3))
     )
     late = _EPS * largest / sqrt_mu
     speed = math.sqrt(max(mu * (2.0 / r_norm - alpha), 0.0)) if r_norm > 0.0 else 0.0
     if not (0.0 < r_norm < math.inf and late * speed <= 1e-5 * r_norm):
-        raise ValueError("the universal kepler terms cancel to rounding on this arc")
+        raise ValueError("rounding may move the kepler end state by more than 1e-5 of its radius")
     f = 1.0 - chi * chi * c2 / r0_norm
     g = t - chi * chi * chi * c3 / sqrt_mu
     f_dot = sqrt_mu * chi * (z * c3 - 1.0) / (r_norm * r0_norm)

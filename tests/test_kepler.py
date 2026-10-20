@@ -283,8 +283,9 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
             83422.67419104476,
             MU,
         ),
-        # Near-parabolic arcs flown in from 1.6e7 perigee radii to a 7000 km perigee: an ellipse
-        # with 1 - e = 1e-8 and a parabola, estimated 2.8e-5 and 3.1e-5.
+        # An ellipse with 1 - e = 1e-8 and a parabola flown in to a 7000 km perigee from 1.6e7 and
+        # 1.7e7 perigee radii: little cancels, but the end speed is high. Estimated 2.8e-5 and
+        # 3.05e-5, about 2 eps (r0 / rp)^1.5.
         (
             [-101184302788927.67, -55339265096181.234, 0.0],
             [2.2099593795789376, 1.207922795071485, 0.0],
@@ -299,7 +300,7 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
         ),
         # An ellipse with 1 - e = 1e-7 from apogee to its 7000 km perigee: nothing cancels, but a
         # time error of eps t alone moves the perigee by eps pi sqrt(2) (1 - e)^-1.5 of its radius,
-        # 3.1e-5; it comes back 4.5e-5 off.
+        # 3.1e-5; unchecked, it comes back 4.5e-5 off.
         (
             [-133871120621992.19, -40761022759371.125, -4130390662165.415],
             [0.00015297460609412034, -0.000486514597373636, -0.00015689783878587935],
@@ -311,7 +312,7 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
     ],
 )
 def test_arcs_whose_estimated_end_error_passes_the_threshold_are_refused(r0, v0, t, mu):
-    with pytest.raises(ValueError, match="cancel to rounding"):
+    with pytest.raises(ValueError, match="1e-5 of its radius"):
         propagate_kepler(np.array(r0), np.array(v0), t, mu)
 
 
