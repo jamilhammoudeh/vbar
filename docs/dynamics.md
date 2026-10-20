@@ -169,23 +169,40 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   Plain Newton failed at $e \gtrsim 0.9$ over many periods and on near-radial hyperbolas. It stops
   when the step falls below $10^{-12}$ of the anomaly or the bracket closes to rounding.
 
-  Checked against a 60-digit reference from starts 6700 to 50 000 km out, on arcs of up to $10^6$
-  s at up to three times escape speed the error is below $10^{-12}$ of the larger radius, about how
-  far one ulp of rounding in the starting state moves the exact answer, which is as good as double
-  precision allows. On long elliptic arcs it grows with the number of revolutions, as that
-  sensitivity does. Arcs toward perigee from far out, near-radial or near-parabolic, are harder:
-  the terms of the Kepler function grow far beyond $\sqrt\mu\, t$ and cancel, and the state
-  carries about $\varepsilon$ times the largest term over $\sqrt\mu\,|t|$ of the larger radius,
-  which grows fast with excess speed and with how far out the arc starts.
+  Checked against a 60-digit reference from starts 6700 to 50 000 km out, the error mostly matches
+  how far one ulp of rounding in the starting state moves the exact answer, which is as good as
+  double precision allows. On arcs of up to $10^6$ s at up to three times escape speed that is below
+  $10^{-12}$ of the larger radius, except through perigee of an eccentric ellipse, where the
+  sensitivity itself is larger and the error was measured up to $5 \times 10^{-12}$ after five
+  revolutions at $e = 0.9$ and $6.5 \times 10^{-12}$ after one at $e = 0.95$, from a 7000 km
+  perigee. On ellipses the error grows
+  with the number of revolutions as the sensitivity does, fastest from near perigee of an eccentric
+  orbit, where $\alpha = 2/r_0 - v_0^2/\mu$ is the difference of two close terms: after $10^4$
+  revolutions from a 7000 km perigee, up to $3.4 \times 10^{-9}$ at $e = 0.9$ and
+  $3.5 \times 10^{-7}$ at $e = 0.98$.
 
-  The solver estimates the end error from the residual's rounding: $\varepsilon$ times the largest
-  term over $\sqrt\mu$ is a time error, times the end speed a position error. It raises
-  `ValueError` when that exceeds $10^{-5}$ of the end radius, or when no finite positive radius is
-  left. That also refuses near-parabolic ellipses flown from apogee to perigee, where nothing
-  cancels but a time error of $\varepsilon t$ alone moves the perigee by
-  $\varepsilon\pi\sqrt2\,(1 - e)^{-3/2}$ of its radius. The estimate is not a bound: on 31 000
-  arcs of every conic class in SI and canonical units it refused 602, none good to $10^{-9}$ at the
-  end, and no unbound arc it returned was off by more than $2.5 \times 10^{-5}$. An arc near the
+  Arcs that end near perigee after a long fall are harder. On near-radial hyperbolas toward
+  perigee, at high excess speed or far out against $|a|$, the terms of the Kepler function grow far
+  beyond $\sqrt\mu\, t$ and cancel, and the state carries about $\varepsilon$ times the largest term
+  over $\sqrt\mu\,|t|$ of the larger radius, which grows fast with excess speed and with how far out
+  the arc starts. On near-parabolic arcs flown in from far out little cancels, but the perigee speed
+  is high, and a time error of $\varepsilon t$ alone moves the perigee by about
+  $\tfrac23\varepsilon\,(r_0/r_p)^{3/2}$ of its radius; from apogee of an ellipse, by
+  $\varepsilon\pi\sqrt2\,(1 - e)^{-3/2}$.
+
+  The solver estimates the end error from rounding. $\varepsilon$ times the largest term over
+  $\sqrt\mu$ is a time error; whole periods taken off an elliptic $t$ add the period's rounding,
+  $1.5\,\varepsilon\,(2/r_0 + v_0^2/\mu)/\alpha$ of their length; times the end speed that is a
+  position error. It raises `ValueError` when that exceeds $10^{-5}$ of the end radius, or when no
+  finite positive radius is left. Besides the arcs above, that refuses eccentric ellipses flown to
+  perigee over very many periods: from a 7000 km perigee at $e = 0.98$, $10^5$ periods are estimated
+  at $2 \times 10^{-5}$ and refused, though only $3.5 \times 10^{-6}$ off. The estimate is not a
+  bound. On 31 000 arcs of every conic class in SI and canonical units it refused 609, none with
+  both position and velocity good to $10^{-9}$, and returned none off by more than
+  $2.5 \times 10^{-5}$ in either; other returned unbound arcs have been found $4 \times 10^{-5}$
+  off. Only the position is checked: at apogee of a near-parabolic ellipse, where the speed is
+  small, the velocity can be far worse, $7 \times 10^{-3}$ of it after $10^4$ periods from perigee
+  at $1 - e = 10^{-6}$, within how far one ulp of the starting speed moves it. An arc near the
   threshold can be refused on one machine and returned on another, since the outcome turns on the
   last bit of $\mathbf r_0 \cdot \mathbf v_0$, which BLAS kernels round differently.
 
@@ -194,9 +211,10 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   near-parabolic hyperbolas over up to $10^{10}$ s, from perigee and from off it, against their
   composed halves, and 1000 random hyperbolas out and back. Near-radial arcs at 19 and 73 times
   escape speed, one in canonical units, two 1.4 and 3.4 times past the threshold, a near-parabolic
-  ellipse and a parabola flown in from far out, a near-parabolic ellipse from apogee to perigee and
-  an arc whose bracket closes on an overflowed point are refused; two arcs 1.1 and 4.4 times inside
-  the threshold, one nearly at rest and free fall from rest are not.
+  ellipse and a parabola flown in from far out, near-parabolic ellipses from apogee to perigee and
+  over 100.5 periods, $10^6$ periods from perigee at $e = 0.98$ and an arc whose bracket closes on an
+  overflowed point are refused; two arcs 1.1 and 4.4 times inside the threshold, $10^4$ periods from
+  perigee at $e = 0.98$, one arc nearly at rest and free fall from rest are not.
 
 ## J2 mean elements
 
