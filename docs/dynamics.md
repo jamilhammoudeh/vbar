@@ -169,43 +169,34 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   Plain Newton failed at $e \gtrsim 0.9$ over many periods and on near-radial hyperbolas. It stops
   when the step falls below $10^{-12}$ of the anomaly or the bracket closes to rounding.
 
-  Checked against a 60-digit reference from starts 6700 to 50 000 km out, the error mostly matches
-  how far one ulp of rounding in the starting state moves the exact answer, which is as good as
-  double precision allows. On arcs of up to $10^6$ s at up to three times escape speed it is below
-  $10^{-12}$ of the larger radius. On ellipses it grows with the number of revolutions as that
-  sensitivity does: by 5 to 10 $\varepsilon$ per revolution on most arcs ($10^{-7}$ to
-  $2 \times 10^{-7}$ of the radius after $10^8$ revolutions), and much faster on arcs that start and
-  end near perigee of an eccentric orbit, about $5 \times 10^3\,\varepsilon$ per revolution at
-  $e = 0.9$ and $4 \times 10^5\,\varepsilon$ at $e = 0.98$, still within the sensitivity.
-  Near-parabolic arcs of up to $10^{12}$ s stay within the sensitivity, up to $2 \times 10^{-10}$;
-  from apogee to perigee of an ellipse with $1 - e = 10^{-7}$ that is $4.5 \times 10^{-5}$ of the
-  perigee radius, since one ulp of $t$ alone moves the perigee by
-  $\varepsilon\pi\sqrt2\,(1 - e)^{-3/2}$ of its radius for any $a$ and $\mu$. Near-radial hyperbolas
-  toward perigee, at high excess speed or far out against $|a|$, are the exception: there the terms
-  of the Kepler function grow far beyond $\sqrt\mu\, t$ and cancel, and the state carries about
-  $\varepsilon$ times the largest term over $\sqrt\mu\,|t|$, relative to the larger radius. Flown
-  back in from far out at up to three times escape speed over up to $10^6$ s that is up to
-  $3 \times 10^{-10}$, against a sensitivity of a few $10^{-15}$; it grows fast with excess speed
-  and with the starting radius over $|a|$, to $1.6 \times 10^{-7}$ at nine times escape speed, and
-  the end state can be off by that times the ratio of the two radii. The solver turns the rounding
-  into the time it stands for, $\varepsilon$ times the largest term's excess over $\sqrt\mu\,|t|$,
-  over $\sqrt\mu$ (the rounding of $t$ itself is any method's and is left out), and raises
-  `ValueError` when that time error moves the end position by more than $10^{-5}$ of the end radius,
-  or when no finite positive radius is left. On 21 000 arcs of every conic class in SI and canonical
-  units it refused none whose end state was good to $10^{-9}$ (81 of 602 were good to $10^{-6}$),
-  and no unbound arc it returned was off by more than $2.5 \times 10^{-5}$ at the end. An arc near
-  the threshold, or one where rounding leaves the bracket on a spurious root of the residual or on
-  the point where the radius overflows, can be refused on one machine and returned on another: the
-  outcome turns on the last bit of $\mathbf r_0 \cdot \mathbf v_0$, which BLAS kernels round
-  differently. At absurd speeds (a million times escape speed over milliseconds) the estimate can
-  refuse states that were good. The tests fly ellipses up to $e = 0.98$ over twenty periods,
-  near-parabolic arcs of one second against a Taylor step, near-radial hyperbolas and a year-long
-  slow escape against an integrator, near-parabolic hyperbolas over up to $10^{10}$ s, from perigee
-  and from off it, against their composed halves, and 1000 random hyperbolas out and back;
-  near-radial arcs at 19 and 73 times escape speed, one in canonical units, two 1.4 and 3.4 times
-  past the threshold and one whose bracket closes on an overflowed point are refused, while two 1.1
-  and 4.4 times inside it, the near-parabolic ellipse from apogee to perigee, one nearly at rest and
-  free fall from rest are not.
+  Checked against a 60-digit reference from starts 6700 to 50 000 km out, on arcs of up to $10^6$
+  s at up to three times escape speed the error is below $10^{-12}$ of the larger radius, about how
+  far one ulp of rounding in the starting state moves the exact answer, which is as good as double
+  precision allows. On long elliptic arcs it grows with the number of revolutions, as that
+  sensitivity does. Arcs toward perigee from far out, near-radial or near-parabolic, are harder:
+  the terms of the Kepler function grow far beyond $\sqrt\mu\, t$ and cancel, and the state
+  carries about $\varepsilon$ times the largest term over $\sqrt\mu\,|t|$ of the larger radius,
+  which grows fast with excess speed and with how far out the arc starts.
+
+  The solver estimates the end error from the residual's rounding: $\varepsilon$ times the largest
+  term over $\sqrt\mu$ is a time error, times the end speed a position error. It raises
+  `ValueError` when that exceeds $10^{-5}$ of the end radius, or when no finite positive radius is
+  left. That also refuses near-parabolic ellipses flown from apogee to perigee, where nothing
+  cancels but a time error of $\varepsilon t$ alone moves the perigee by
+  $\varepsilon\pi\sqrt2\,(1 - e)^{-3/2}$ of its radius. The estimate is not a bound: on 31 000
+  arcs of every conic class in SI and canonical units it refused 602, none good to $10^{-9}$ at the
+  end, and no unbound arc it returned was off by more than $2.5 \times 10^{-5}$. An arc near the
+  threshold can be refused on one machine and returned on another, since the outcome turns on the
+  last bit of $\mathbf r_0 \cdot \mathbf v_0$, which BLAS kernels round differently.
+
+  The tests fly ellipses up to $e = 0.98$ over twenty periods, near-parabolic arcs of one second
+  against a Taylor step, near-radial hyperbolas and a year-long slow escape against an integrator,
+  near-parabolic hyperbolas over up to $10^{10}$ s, from perigee and from off it, against their
+  composed halves, and 1000 random hyperbolas out and back. Near-radial arcs at 19 and 73 times
+  escape speed, one in canonical units, two 1.4 and 3.4 times past the threshold, a near-parabolic
+  ellipse and a parabola flown in from far out, a near-parabolic ellipse from apogee to perigee and
+  an arc whose bracket closes on an overflowed point are refused; two arcs 1.1 and 4.4 times inside
+  the threshold, one nearly at rest and free fall from rest are not.
 
 ## J2 mean elements
 

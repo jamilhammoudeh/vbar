@@ -135,10 +135,11 @@ release may change the public API, and every such change is listed under Changed
   propagated over several periods, about one in five random hyperbolas flown back from far out, and
   short arcs on hyperbolas within 1e-8 of escape speed raised "did not converge"; some
   near-radial arcs raised `OverflowError` or `ZeroDivisionError`, or a math domain error from the
-  hyperbolic starting value. Arcs whose cancelling terms leave an estimated error above 1e-5 of
-  the end radius (near-radial hyperbolas toward perigee, at high excess speed or far out against
-  |a|) raise `ValueError`; 0.2.0 raised `RuntimeError`, `OverflowError`, `ZeroDivisionError` or
-  a math domain error on most of them.
+  hyperbolic starting value. Arcs whose estimated end error from rounding exceeds 1e-5 of the end
+  radius (near-radial and near-parabolic arcs toward perigee from far out, and near-parabolic
+  ellipses flown from apogee to perigee) raise `ValueError`. 0.2.0 raised `RuntimeError`,
+  `OverflowError`, `ZeroDivisionError` or a math domain error on most of the hyperbolas, and
+  returned many of the ellipses off by up to 5e-2.
 
 ## [0.2.0] - 2026-10-16
 
