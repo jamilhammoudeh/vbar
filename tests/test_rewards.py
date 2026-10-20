@@ -219,10 +219,11 @@ def test_quadratic_cost_stays_exact_on_segments_much_longer_than_tau(tau, durati
     assert float(found[0]) == pytest.approx(expected, rel=1e-10)
 
 
-@pytest.mark.parametrize(("tau", "duration"), [(None, 1e4), (None, 3e4), (1e5, 3e4)])
+@pytest.mark.parametrize(("tau", "duration"), [(None, 1e4), (None, 3e4), (1e5, 3e4), (None, 1e5)])
 def test_quadratic_cost_stays_exact_on_long_segments_without_much_discount(tau, duration):
     # Without discounting the CW part of the exponential still spans many orbits; one block
-    # was 3e-8 off at 1e4 s and 1e-3 off at 3e4 s with SciPy 1.11.
+    # was 3e-8 off at 1e4 s and 1e-3 off at 3e4 s with SciPy 1.11. The pieces now leave at most
+    # 3e-14 there (5e-16 on current SciPy), well inside the bound.
     q, r = np.diag([1e-4, 2e-4, 3e-4, 1.0, 2.0, 3.0]), 100.0 * np.eye(3)
     x0 = np.array([20.0, -150.0, 5.0, 0.05, -0.02, 0.01])
     a = np.array([1e-4, -2e-4, 5e-5])
@@ -240,4 +241,4 @@ def test_quadratic_cost_stays_exact_on_long_segments_without_much_discount(tau, 
         for lo, hi in zip(knots[:-1], knots[1:], strict=True)
     )
     found = QuadraticCost(N, q, r)(x0[None], a[None], np.array([duration]), tau)
-    assert float(found[0]) == pytest.approx(expected, rel=1e-11)
+    assert float(found[0]) == pytest.approx(expected, rel=1e-12)

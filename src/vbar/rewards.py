@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 from scipy.linalg import expm
 
-from .dynamics import cw_system
+from .dynamics import cw_discrete, cw_system
 
 
 @dataclass(frozen=True)
@@ -83,28 +83,32 @@ class QuadraticCost:
         """W (10x10) with int_0^d exp(-s / tau) cost(s) ds = z^T W z, z = (x_start, a, 1).
 
         The block exponential grows as exp(d / 2 tau) and spans d n radians of CW motion, so a
-        long segment is integrated in pieces h <= min(tau, 1 / n):
-        W(d) = sum_j exp(-j h / tau) (E^j)^T W(h) E^j with E the undiscounted transition of z
-        over h. Pieces whose discount has fallen below 1e-17 add nothing and are skipped.
+        long segment is integrated in pieces h <= min(tau, 1 / 4n):
+        W(d) = sum_j exp(-j h / tau) E_j^T W(h) E_j with E_j the undiscounted transition of z
+        over j h, from the closed-form CW matrices. SciPy 1.11's `expm` leaves 1e-11 relative on
+        one-radian pieces and 4e-15 on quarter-radian ones, and powers of its one-piece transition
+        drift by 1e-11 over a hundred pieces. Pieces whose discount has fallen below 1e-17 add
+        nothing and are skipped.
         """
         key = (round(float(duration), 9), tau)
         if key not in self._matrices:
             d = key[0]
-            longest = 1.0 / self.n if tau is None else min(tau, 1.0 / self.n)
+            longest = 0.25 / self.n if tau is None else min(tau, 0.25 / self.n)
             pieces = max(1, int(np.ceil(d / longest)))
             h = d / pieces
             piece = self._piece(h, tau)
-            if pieces == 1:
-                total = piece
-            else:
-                step = expm(self._dynamics() * h)
-                gamma = np.exp(-h / tau) if tau is not None else 1.0
-                total, power, weight = piece.copy(), step, gamma
-                for _ in range(1, pieces):
-                    if weight < 1e-17:
-                        break
-                    total += weight * (power.T @ piece @ power)
-                    power, weight = power @ step, weight * gamma
+            total = piece.copy()
+            if pieces > 1:
+                starts = h * np.arange(1, pieces)
+                weights = np.ones_like(starts) if tau is None else np.exp(-starts / tau)
+                keep = weights >= 1e-17
+                starts, weights = starts[keep], weights[keep]
+                phi, gamma = cw_discrete(self.n, starts)
+                transitions = np.zeros((len(starts), 10, 10))
+                transitions[:, :6, :6], transitions[:, :6, 6:9] = phi, gamma
+                transitions[:, 6:, 6:] = np.eye(4)
+                terms = np.swapaxes(transitions, 1, 2) @ piece @ transitions
+                total += np.einsum("j,jkl->kl", weights, terms)
             self._matrices[key] = 0.5 * (total + total.T)
         return self._matrices[key]
 
