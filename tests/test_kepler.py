@@ -268,11 +268,27 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
             103410.93068920661,
             1.0,
         ),
-        # Just past the threshold: estimated 3.4e-5 of the end radius, 2.7e-5 off.
+        # 3.4 times past the threshold: estimated 3.4e-5 of the end radius, 2.7e-5 off.
         (
             [21601713162736.074, 10158077848490.854, -6871578556309.546],
             [-83.46701687549394, -39.249851939921626, 26.55113829280097],
             256517939840.39578,
+            MU,
+        ),
+        # 1.4 times past it, 9.7 times escape speed: estimated 1.4e-5, 1.7e-5 off. The circular
+        # speed in place of the end speed would estimate 1e-6.
+        (
+            [-8013715776.852051, 364342485.97387695, 2288597021.9437256],
+            [96140.64190871082, -4370.781400918961, -27456.132882159203],
+            83422.67419104476,
+            MU,
+        ),
+        # An ellipse with 1 - e = 1e-7 flown from apogee to its 7000 km perigee: estimated 3.1e-5,
+        # 4.5e-5 off, about its own sensitivity.
+        (
+            [-133871120621992.19, -40761022759371.125, -4130390662165.415],
+            [0.00015297460609412034, -0.000486514597373636, -0.00015689783878587935],
+            92156939776371.02,
             MU,
         ),
         # |a| = 1e-6 over 1e301: the bracket closes on an overflowed point, an infinite radius.
@@ -287,13 +303,19 @@ def test_near_radial_hyperbolas_whose_terms_cancel_to_rounding_are_refused(r0, v
 @pytest.mark.parametrize(
     ("r0", "v0", "t"),
     [
-        # Just inside the threshold: estimated 2.3e-6 of the end radius, 3.3e-6 off.
+        # 4.4 times inside the threshold: estimated 2.3e-6 of the end radius, 3.3e-6 off.
         (
             [-3172277925966.012, -7330152259582.755, -9205154186468.893],
             [20.699405175995018, 47.82991754335562, 60.06447753336198],
             150064180943.9222,
         ),
-        # Nearly at rest: vis-viva's argument rounds below zero and the speed is taken as zero.
+        # 1.1 times inside it: estimated 8.8e-6, 3.8e-6 off.
+        (
+            [-3106658836.328224, 7338504825.029907, 3680047357.05188],
+            [-69056.50777751184, 163121.61335238256, 81799.98800402135],
+            -45078.528613785245,
+        ),
+        # Nearly at rest: vis-viva's argument can round below zero; the speed is then zero.
         (
             [5539197.509528515, 62879444.171807274, 36954234.60342952],
             [-5.805750965800457e-05, -0.0006590528557638296, -0.00038732520887766543],

@@ -207,8 +207,8 @@ def lagrange_coefficients(
     # and cancel, so chi stands for a time off by about eps * largest / sqrt(mu), which moves the
     # end position by that times the end speed. Past 1e-5 of the end radius, or with no finite
     # positive radius (a bracket closed on an overflowed point), the state is refused. The
-    # velocity also carries the radius's own rounding; on unbound arcs its relative error was
-    # measured within 6 times this estimate.
+    # velocity also carries the radius's own rounding; on unbound arcs with an estimate above
+    # 1e-11 its relative error was measured within 6 times the estimate.
     largest = max(
         abs(chi * chi * chi * c3), abs(sigma0 * chi * chi * c2), abs(r0_norm * chi * (1.0 - z * c3))
     )
