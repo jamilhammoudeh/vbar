@@ -9,7 +9,7 @@ radius, exclusion and commit zones, horizons, the CAM set). Power as in the miss
 - Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: whether a loss of thrust at any point would end in a collision.
 - Known-answer tests: 50 m everywhere at rest on the V-bar hold point; equal to a closed-form reference (20001 samples and Brent) over the flyby to 1 mm; within 1 cm of Clohessy-Wiltshire on the two-body model at 150 m.
-- Convergence: the same at 50 and 800 drift samples per orbit to 1 mm; as steps nest from 40 to 5 s it can only fall, by less each time (`tests/test_metrics_gate.py`).
+- Convergence: the same at 50 and 800 drift samples per orbit to 1 mm; as steps nest from 40 to 5 s it can only fall, by less each time (`tests/test_metrics_properties.py`).
 - Invariance: mirror; doubles with all lengths.
 - Mutation detection: falls in order as PD gains rise from 0.005 to 0.04 rad/s; the 0.02 rad/s approach succeeds while S4 is negative, which M1 cannot show (`tests/test_metrics_mutants.py`).
 - Anti-gaming: evaluated from every step boundary, not only the end; partial burns are covered by S4o.

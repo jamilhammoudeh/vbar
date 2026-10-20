@@ -8,7 +8,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Summary: interquartile mean across episodes.
 - Why it matters: fuel for one steerable engine.
 - Known-answer tests: a half-command burn on two axes for 30 s gives 0.01 sqrt(2) 30 m/s; a constant-thrust burn gives Isp g0 ln(m0 / m1) (1e-12).
-- Convergence: the same at 10 and 2.5 s steps (1e-12); same trajectory at 20, 10 and 5 s (`tests/test_metrics_gate.py`).
+- Convergence: the same at 10 and 2.5 s steps (1e-12); same trajectory at 20, 10 and 5 s (`tests/test_metrics_properties.py`).
 - Invariance: unchanged when a ball thruster's command is rotated; doubles with all lengths and the thrust.
 - Mutation detection: rises in order with decision delay (1, 3, 6 steps) and with dither at 0.05, 0.15, 0.45 of one noise sequence (`tests/test_metrics_mutants.py`).
 - Anti-gaming: reads executed, not commanded, acceleration, so a filter or delay cannot hide thrust; a half-step delay moves the burn but not its cost.

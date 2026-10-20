@@ -9,7 +9,7 @@ named. Power as in the mission cards.
 - Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: how close each constraint came to being broken, as signal temporal logic robustness.
 - Known-answer tests: keep-out S1 of the flyby equals the closed-form closest approach minus 50 m to 1 mm; speed and closing-speed margins found on the rebuilt trajectory equal the environment's own search to 1e-9 m/s; each constraint type's margin matches a direct reference (`tests/test_constraint_types.py`).
-- Convergence: the same at 4, 10 and 25 s steps to 1e-6 for keep-out, speed, closing-speed and cone; the same trajectory at 20, 10 and 5 s (`tests/test_metrics_gate.py`).
+- Convergence: the same at 4, 10 and 25 s steps to 1e-6 for keep-out, speed, closing-speed and cone; the same trajectory at 20, 10 and 5 s (`tests/test_metrics_properties.py`).
 - Invariance: mirror across the orbit plane; doubles with all lengths.
 - Mutation detection: negative when PD flies through the target, positive for the clean approach (`tests/test_metrics_mutants.py`).
 - Anti-gaming: a dip between step boundaries or between samples is found (Lipschitz-flagged refinement), so burning then coasting through a constraint does not hide it.

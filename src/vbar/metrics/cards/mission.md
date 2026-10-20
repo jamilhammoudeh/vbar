@@ -13,7 +13,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 - Why it matters: the headline completion rate.
 - Known-answer tests: PD from 400 m behind succeeds; rest on the V-bar hold point succeeds at 10 s; capture after flying through the keep-out zone fails; a hold that lasts 0.9 of the required dwell fails and 1.1 succeeds; contact at 0.08 m/s on axis succeeds, at 0.2 m/s fails; the Shuttle-ISS contact at 0.0344 m/s (Goodman, p. 244) succeeds in a 0.025 to 0.05 m/s window and fails in the probe-drogue window.
 - Convergence: decided at step boundaries for capture, in continuous time for dwell and contact; contact found between samples 10 s apart (`test_a_contact_between_two_samples_ten_seconds_apart_is_found`).
-- Invariance: unchanged by mirroring across the orbit plane and by doubling all lengths and the thrust (`tests/test_metrics_gate.py`).
+- Invariance: unchanged by mirroring across the orbit plane and by doubling all lengths and the thrust (`tests/test_metrics_properties.py`).
 - Mutation detection: sign flip fails; position biases of 10 and 40 m and velocity biases of 0.03 and 0.1 m/s fail (`tests/test_metrics_mutants.py`).
 - Anti-gaming: a violation between step boundaries still fails the run (continuous-time minima); passing the port between boundaries is caught by the contact event; a hold must last its dwell.
 - Reproducibility: exact (boolean) in `tests/golden/metrics_*.json`.

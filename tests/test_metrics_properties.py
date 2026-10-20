@@ -1,7 +1,7 @@
 """Properties every metric must have: convergence, invariance and reproducibility.
 
 The golden fixtures in `tests/golden/metrics_*.json` freeze `evaluate` on three episodes; after an
-intended change to a metric, run `python tests/test_metrics_gate.py` to regenerate them and
+intended change to a metric, run `python tests/test_metrics_properties.py` to regenerate them and
 review the diff.
 """
 

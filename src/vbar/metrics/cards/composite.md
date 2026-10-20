@@ -8,7 +8,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Summary: interquartile mean across episodes.
 - Why it matters: one number that combines completion and infractions, never reported without its breakdown.
 - Known-answer tests: 1 for a clean success; the flyby's progress over 2.1; the formula with custom weights.
-- Convergence: the infraction counts come from continuous-time intervals; the same at 20, 10 and 5 s steps (`tests/test_metrics_gate.py`).
+- Convergence: the infraction counts come from continuous-time intervals; the same at 20, 10 and 5 s steps (`tests/test_metrics_properties.py`).
 - Invariance: mirror; unchanged when all lengths double.
 - Mutation detection: never rises with position or velocity bias, and falls at the largest (`tests/test_metrics_mutants.py`).
 - Anti-gaming: a long violation counts once but a violation that is left and re-entered counts each time, so repeated grazing costs more.

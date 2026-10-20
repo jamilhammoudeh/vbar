@@ -529,7 +529,7 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   target is caught by the keep-out margin and counted once in C1; PD gains of 0.005 to 0.04 rad/s
   lower S4 and S4o in order and raise the unprotected time (the 0.02 rad/s approach still succeeds,
   so only the passive metrics see it); a filter that changes every command gives F1 = 1.
-- Convergence, invariance and reproducibility (`tests/test_metrics_gate.py`): with a constant
+- Convergence, invariance and reproducibility (`tests/test_metrics_properties.py`): with a constant
   command, so the trajectory is the same at every step size, all metrics defined in continuous
   time agree at 20, 10 and 5 s steps (to rounding, or to the 1 mm range resolution for refined
   minima); passive safety at 40, 20, 10 and 5 s steps can only fall as the step boundaries nest,
