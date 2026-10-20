@@ -88,12 +88,12 @@ release may change the public API, and every such change is listed under Changed
   `usage()` totals.
 - LLM tool calling (`LLMAgent(tools=...)`, `ToolCall`) with Clohessy-Wiltshire coast and
   transfer tools computed from the agent's own observation (`vbar.agents.tools`). Tools return an
-  error for results that are not finite and for arguments too large for a float. LLM replies
-  nested more than 32 levels deep, or with numbers too large for a float, are parse failures.
+  error for results that are not finite and for arguments too large for a float.
 - `RecordedModel` and `ReplayModel`: record an LLM run's requests and replies and replay it
   exactly without the model.
 - `LLMAgent(belief=True)`: the model reports its range and closing belief, checked against the
-  observation (`belief_matches`, `faithful_fraction`) with the parser and match rule of metric A5.
+  observation with the parser and match rule of metric A5 (`belief_matches`, and
+  `faithful_fraction` in `usage()`).
 - `vbar.agents.plan`: plan submission with an external CW verifier (`PlanVerifier`, `Verdict`),
   `PlanAgent` with revision from the verdict, and `LLMPlanner`. `parse_plan` refuses steps that
   are not whole numbers of at least zero and plans longer than `max_rows` (a million by default);
@@ -122,6 +122,9 @@ release may change the public API, and every such change is listed under Changed
   get different draws than in 0.2.0 for the same `agent_seed`, and `agent_seed` may not equal
   `seed`. A small seed can still be guessed, so seeds not given are drawn and recorded (see
   Changed).
+- LLM replies with a number too large for a float, or nested more than 32 levels deep, are parse
+  failures on every Python version. In 0.2.0 the number raised `OverflowError`, and nesting deep
+  enough for `json.loads` to give up raised `RecursionError`; either ended the run.
 - `run_episode` recorded the agent's own array as each action, so an agent that reused one array
   for every command rewrote its recorded history; each action is now copied.
 - `propagate_kepler` and `lagrange_coefficients` converge on every conic: the universal anomaly
