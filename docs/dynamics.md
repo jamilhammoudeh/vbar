@@ -173,13 +173,12 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   how far one ulp of rounding in the starting state moves the exact answer, which is as good as
   double precision allows. On arcs of up to $10^6$ s at up to three times escape speed that is below
   $10^{-12}$ of the larger radius, except through perigee of an eccentric ellipse, where the
-  sensitivity itself is larger and the error was measured up to $5 \times 10^{-12}$ after five
-  revolutions at $e = 0.9$ and $6.5 \times 10^{-12}$ after one at $e = 0.95$, from a 7000 km
-  perigee. On ellipses the error grows
-  with the number of revolutions as the sensitivity does, fastest from near perigee of an eccentric
-  orbit, where $\alpha = 2/r_0 - v_0^2/\mu$ is the difference of two close terms: after $10^4$
-  revolutions from a 7000 km perigee, up to $3.4 \times 10^{-9}$ at $e = 0.9$ and
-  $3.5 \times 10^{-7}$ at $e = 0.98$.
+  sensitivity itself is larger: from a 7000 km perigee in 120 orientations the error was up to
+  $10^{-11}$ after five revolutions at $e = 0.9$ and $1.5 \times 10^{-11}$ after one at
+  $e = 0.95$. On ellipses the error grows with the number of revolutions as the sensitivity does,
+  fastest from near perigee of an eccentric orbit, where $\alpha = 2/r_0 - v_0^2/\mu$ is the
+  difference of two close terms: after $10^4$ revolutions from a 7000 km perigee, up to
+  $1.8 \times 10^{-8}$ at $e = 0.9$ and $1.3 \times 10^{-6}$ at $e = 0.98$.
 
   Arcs that end near perigee after a long fall are harder. On near-radial hyperbolas toward
   perigee, at high excess speed or far out against $|a|$, the terms of the Kepler function grow far
@@ -196,7 +195,7 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   position error. It raises `ValueError` when that exceeds $10^{-5}$ of the end radius, or when no
   finite positive radius is left. Besides the arcs above, that refuses eccentric ellipses flown to
   perigee over very many periods: from a 7000 km perigee at $e = 0.98$, $10^5$ periods are estimated
-  at $2 \times 10^{-5}$ and refused, though only $3.5 \times 10^{-6}$ off. The estimate is not a
+  at $2 \times 10^{-5}$ and refused, though typically $4 \times 10^{-6}$ off. The estimate is not a
   bound. On 31 000 arcs of every conic class in SI and canonical units it refused 609, none with
   both position and velocity good to $10^{-9}$, and returned none off by more than
   $2.5 \times 10^{-5}$ in either; other returned unbound arcs have been found $4 \times 10^{-5}$
@@ -212,9 +211,9 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   composed halves, and 1000 random hyperbolas out and back. Near-radial arcs at 19 and 73 times
   escape speed, one in canonical units, two 1.4 and 3.4 times past the threshold, a near-parabolic
   ellipse and a parabola flown in from far out, near-parabolic ellipses from apogee to perigee and
-  over 100.5 periods, $10^6$ periods from perigee at $e = 0.98$ and an arc whose bracket closes on an
-  overflowed point are refused; two arcs 1.1 and 4.4 times inside the threshold, $10^4$ periods from
-  perigee at $e = 0.98$, one arc nearly at rest and free fall from rest are not.
+  over 100.5 periods, $10^5$ and $10^6$ periods from perigee at $e = 0.98$ and an arc whose bracket
+  closes on an overflowed point are refused; two arcs 1.1 and 4.4 times inside the threshold,
+  $10^4$ periods from perigee at $e = 0.98$, one arc nearly at rest and free fall from rest are not.
 
 ## J2 mean elements
 

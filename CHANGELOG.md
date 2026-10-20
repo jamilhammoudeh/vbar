@@ -140,8 +140,8 @@ release may change the public API, and every such change is listed under Changed
   flown from apogee to perigee, and eccentric ellipses flown to perigee over very many periods)
   raise `ValueError`. 0.2.0 raised `RuntimeError`, `OverflowError`, `ZeroDivisionError` or a math
   domain error on most of the hyperbolas, and returned most of the near-parabolic ellipses flown
-  from apogee to perigee, off by 5e-2 of the perigee radius at 1 - e = 1e-9 and by nearly all of it
-  at 1e-10.
+  from apogee to perigee, off by up to 7.5e-2 of the perigee radius at 1 - e = 1e-9 and up to twice
+  it at 1e-10.
 
 ## [0.2.0] - 2026-10-16
 
