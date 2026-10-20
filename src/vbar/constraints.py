@@ -529,6 +529,53 @@ def _golden(
     return best_x, best
 
 
+def sampled_negative_intervals(
+    margin_at: Callable[[float], float],
+    times: np.ndarray,
+    margins: np.ndarray,
+    rates: np.ndarray,
+) -> list[tuple[float, float]]:
+    """Intervals (s) where a margin is negative, from evenly spaced samples and rate bounds.
+
+    `times` (s) and `margins` are the samples, `margin_at(t)` the margin at any time between
+    them, and `rates` bound |d margin / dt| on each sample interval. Sign changes are found by
+    Brent's method to 1e-9 s; an interval whose ends share a sign is searched for a dip below zero,
+    or a rise above it, only when its rate bound allows one, which assumes at most one dip per
+    interval. The environment's violation intervals and the metrics' both come from here.
+    """
+    found: list[tuple[float, float]] = []
+    h = float(times[1] - times[0])
+
+    def root(a: float, b: float) -> float:
+        return float(brentq(margin_at, a, b, xtol=_ROOT_TOL))
+
+    def extremum(f: Callable[[float], float], a: float, b: float) -> tuple[float, float]:
+        best = minimize_scalar(f, bounds=(a, b), method="bounded", options={"xatol": _ROOT_TOL})
+        return float(best.x), float(best.fun)
+
+    for i in range(len(times) - 1):
+        t0, t1, a, b = float(times[i]), float(times[i + 1]), margins[i], margins[i + 1]
+        if not (np.isfinite(a) and np.isfinite(b)):
+            # An infinite margin (a constraint switched off) leaves at most an instant below zero.
+            continue
+        if a < 0.0 and b < 0.0:
+            if 0.5 * (a + b + rates[i] * h) > 0.0:
+                t_peak, minus_peak = extremum(lambda t: -margin_at(t), t0, t1)
+                if minus_peak <= 0.0:
+                    found += [(t0, root(t0, t_peak)), (root(t_peak, t1), t1)]
+                    continue
+            found.append((t0, t1))
+        elif a < 0.0:
+            found.append((t0, root(t0, t1)))
+        elif b < 0.0:
+            found.append((root(t0, t1), t1))
+        elif 0.5 * (a + b - rates[i] * h) < 0.0:
+            t_min, low = extremum(margin_at, t0, t1)
+            if low < 0.0:
+                found.append((root(t0, t_min), root(t_min, t1)))
+    return found
+
+
 def violation_intervals(
     constraint: Constraint,
     state_at: Callable[[float], np.ndarray],
@@ -536,35 +583,32 @@ def violation_intervals(
     states: np.ndarray,
     minimum: SegmentMinimum,
     t0: float = 0.0,
+    thrust: float = 0.0,
+    n: float = 0.0,
 ) -> tuple[tuple[float, float], ...]:
     """Intervals (s from the episode start) inside a segment where the margin is negative.
 
-    Takes the samples `segment_minimum` was given and its result. Boundaries are the roots of
-    the margin between samples of opposite sign, found with Brent's method to 1e-9 s; a dip
-    below zero between two non-negative samples is bracketed by the refined minimum. Like the
-    refinement, it assumes at most one crossing or one dip per sample interval.
+    Takes the samples `segment_minimum` was given and its result, plus the segment's thrust
+    acceleration (m/s^2) and the mean motion (rad/s) for the rate bounds; a segment whose
+    certified lower bound is not negative has none. The search is `sampled_negative_intervals`,
+    and touching intervals are joined.
     """
-    if not minimum.margin < 0.0:
+    if not minimum.lower_bound < 0.0 or len(times) < 2:
         return ()
+    h = float(times[1] - times[0])
+    speed, accel = interval_bounds(states, h, thrust, n)
+    rho_min = range_lower_bounds(states, h, speed)
+    bounds = zip(speed, accel, rho_min, strict=True)
+    rates = np.array([constraint.rate_bound(v, a, rho_min=r) for v, a, r in bounds])
 
-    def margin_at(tau: float) -> float:
-        return float(constraint.margin(state_at(tau), t0 + tau))
+    def margin_at(t: float) -> float:
+        return float(constraint.margin(state_at(t - t0), t))
 
-    margins = constraint.margin(states, t0 + times)
-    inside = margins < 0.0
-    crossings = [
-        brentq(margin_at, times[i], times[i + 1], xtol=_ROOT_TOL)
-        for i in np.flatnonzero(inside[:-1] != inside[1:])
-    ]
-    tau_min = minimum.t - t0
-    j = int(np.clip(np.searchsorted(times, tau_min) - 1, 0, len(times) - 2))
-    if not (inside[j] or inside[j + 1]) and times[j] < tau_min < times[j + 1]:
-        crossings += [
-            brentq(margin_at, times[j], tau_min, xtol=_ROOT_TOL),
-            brentq(margin_at, tau_min, times[j + 1], xtol=_ROOT_TOL),
-        ]
-    edges = [float(times[0])] if inside[0] else []
-    edges += sorted(float(c) for c in crossings)
-    if len(edges) % 2:
-        edges.append(float(times[-1]))
-    return tuple((t0 + edges[k], t0 + edges[k + 1]) for k in range(0, len(edges), 2))
+    margins = np.asarray(constraint.margin(states, t0 + times), dtype=float)
+    joined: list[tuple[float, float]] = []
+    for lo, hi in sampled_negative_intervals(margin_at, t0 + times, margins, rates):
+        if joined and lo <= joined[-1][1] + _ROOT_TOL:
+            joined[-1] = (joined[-1][0], max(joined[-1][1], hi))
+        else:
+            joined.append((lo, hi))
+    return tuple(joined)

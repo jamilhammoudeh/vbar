@@ -19,13 +19,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.optimize import brentq, minimize_scalar
+from scipy.optimize import minimize_scalar
 
 from ..constraints import (
     Constraint,
     SegmentMinimum,
     interval_bounds,
     range_lower_bounds,
+    sampled_negative_intervals,
     segment_minimum,
 )
 from .episode import Episode
@@ -222,10 +223,6 @@ def peak(value: Callable[..., np.ndarray], trace: Trace) -> float:
     return best
 
 
-def _root(f: Callable[[float], float], a: float, b: float) -> float:
-    return float(brentq(f, a, b, xtol=_TIME_TOL))
-
-
 def _extremum(f: Callable[[float], float], a: float, b: float) -> tuple[float, float]:
     found = minimize_scalar(f, bounds=(a, b), method="bounded", options={"xatol": _TIME_TOL})
     return float(found.x), float(found.fun)
@@ -254,32 +251,9 @@ def segment_negative_intervals(
     def f(t: float) -> float:
         return float(signal.margin(trace.state_in(seg, t), t))
 
-    found: list[tuple[float, float]] = []
-    t = seg.times
-    m = np.asarray(signal.margin(seg.states, t), dtype=float)
-    h, rates = _rates(signal, seg, trace.n)
-    for i in range(len(t) - 1):
-        a, b = m[i], m[i + 1]
-        if not (np.isfinite(a) and np.isfinite(b)):
-            # An infinite margin (a constraint switched off) leaves at most an instant below zero.
-            continue
-        if a < 0.0 and b < 0.0:
-            if 0.5 * (a + b + rates[i] * h) > 0.0:
-                t_peak, minus_peak = _extremum(lambda s: -f(s), t[i], t[i + 1])
-                if minus_peak <= 0.0:
-                    first = (t[i], _root(f, t[i], t_peak))
-                    found += [first, (_root(f, t_peak, t[i + 1]), t[i + 1])]
-                    continue
-            found.append((t[i], t[i + 1]))
-        elif a < 0.0:
-            found.append((t[i], _root(f, t[i], t[i + 1])))
-        elif b < 0.0:
-            found.append((_root(f, t[i], t[i + 1]), t[i + 1]))
-        elif 0.5 * (a + b - rates[i] * h) < 0.0:
-            t_min, low = _extremum(f, t[i], t[i + 1])
-            if low < 0.0:
-                found.append((_root(f, t[i], t_min), _root(f, t_min, t[i + 1])))
-    return found
+    margins = np.asarray(signal.margin(seg.states, seg.times), dtype=float)
+    _, rates = _rates(signal, seg, trace.n)
+    return sampled_negative_intervals(f, seg.times, margins, rates)
 
 
 def merge(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:

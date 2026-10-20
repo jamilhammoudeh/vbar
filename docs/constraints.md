@@ -1,7 +1,8 @@
 # Constraints and the in-step minimum
 
 Code: `vbar.constraints` (`Constraint`, the constraint types below, `segment_minimum`,
-`segment_minima`, `interval_bounds`, `range_lower_bounds`, `violation_intervals`). A
+`segment_minima`, `interval_bounds`, `range_lower_bounds`, `violation_intervals`,
+`sampled_negative_intervals`). A
 constraint's margin is $\ge 0$ where it holds and $< 0$ where it is violated, in the constraint's
 units, as in the quantitative semantics of signal temporal logic (Donzé and Maler, 2010). The
 environment finds each constraint's lowest margin over every constant-acceleration segment of a
@@ -145,15 +146,19 @@ independent of the batch size. The constraint's `margin` and `rate_bound` must a
 
 ## Violation intervals
 
-`violation_intervals(constraint, state_at, times, states, minimum, t0)` returns the times inside a
-segment where the margin is negative, as (start, end) pairs in seconds from the episode start. It
-takes the samples and the result of `segment_minimum`, and returns nothing when the refined minimum
-is not negative. Each boundary is the root of the margin on a sample interval whose ends have
-opposite signs, found with Brent's method (`scipy.optimize.brentq`) to 1e-9 s; a dip below zero
-between two non-negative samples is bracketed on both sides by the refined minimum's time. An
-interval open at the segment's start or end runs to that end. The environment merges intervals
-that meet at a segment boundary, so a pass through the keep-out zone during an actuation delay's
-switch is one interval. The reward library builds its constraint costs from these intervals
+`violation_intervals(constraint, state_at, times, states, minimum, t0, thrust, n)` returns the
+times inside a segment where the margin is negative, as (start, end) pairs in seconds from the
+episode start. It takes the samples and the result of `segment_minimum`, with the segment's thrust
+acceleration and the mean motion for the rate bounds, and returns nothing when the certified lower
+bound is not negative. The search, `sampled_negative_intervals`, is the one the metrics use
+(`vbar.metrics.negative_intervals`), so the reward and the violation metrics see the same
+intervals. Each boundary is the root of the margin on a sample interval whose ends have opposite
+signs, found with Brent's method (`scipy.optimize.brentq`) to 1e-9 s. A sample interval whose ends
+share a sign is searched for a dip below zero, or a rise above it, only when its Lipschitz bound
+allows one; like the refinement, this assumes at most one dip per sample interval. An interval
+open at the segment's start or end runs to that end. The environment merges intervals that meet at
+a segment boundary, so a pass through the keep-out zone during an actuation delay's switch is one
+interval. The reward library builds its constraint costs from these intervals
 ([rewards.md](rewards.md)).
 
 ## In the environment

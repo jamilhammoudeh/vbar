@@ -380,7 +380,8 @@ class BaseEnv(gym.Env):
             for c in self.constraints:
                 state_at = self.dynamics.state_in_last_segment
                 found = segment_minimum(c, state_at, tau, samples, thrust, self.n, t0)
-                for start, end in violation_intervals(c, state_at, tau, samples, found, t0):
+                spans = violation_intervals(c, state_at, tau, samples, found, t0, thrust, self.n)
+                for start, end in spans:
                     merged = violations[c.name]
                     # An interval that runs across a segment boundary is one interval.
                     if merged and start - merged[-1][1] < 1e-9:

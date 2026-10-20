@@ -286,7 +286,7 @@ class ApproachVectorEnv(vector.VectorEnv):
         for c in self.constraints:
             t_min, margin, bound = minima[c.name]
             rows: list[tuple[tuple[float, float], ...]] = [()] * self.num_envs
-            for i in np.flatnonzero(margin < 0.0):
+            for i in np.flatnonzero(bound < 0.0):
                 if int(i) in traces:
                     rows[i] = traces[int(i)].violations[c.name]
                     continue
@@ -296,7 +296,10 @@ class ApproachVectorEnv(vector.VectorEnv):
                     return at(np.zeros(1, dtype=int), np.array([tau]))[0]
 
                 found = SegmentMinimum(t_min[i], margin[i], bound[i])
-                rows[i] = violation_intervals(c, state_at, self.times, samples[i], found, t0[i])
+                thrust = float(np.linalg.norm(accel[i]))
+                rows[i] = violation_intervals(
+                    c, state_at, self.times, samples[i], found, t0[i], thrust, self.n
+                )
             spans[c.name] = rows
         return spans
 
