@@ -123,6 +123,9 @@ def test_cw_response_is_linear(r0, v0, accel, t, c):
     st.lists(st.floats(0.0, 2 * np.pi), min_size=4, max_size=4),
     st.floats(-2e5, 2e5),
 )
+# Thirteen periods back at e = 0.9477, where plain Newton from the elliptic starting value used to
+# wander and give up.
+@example(10818400.0, 0.9477, [5.187, 2.41, 1.479, 0.089], -135705.0)
 def test_lagrange_coefficients_satisfy_f_gdot_minus_g_fdot_equals_one(a, e, angles, t):
     r0, v0 = state_from_elements([a, e, *angles], EARTH.mu)
     f, g, f_dot, g_dot = lagrange_coefficients(r0, v0, t, EARTH.mu)

@@ -154,7 +154,12 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   coefficients $f, g, \dot f, \dot g$, valid on any conic (Bate, Mueller and White,
   *Fundamentals of Astrodynamics*, ch. 4). The Stumpff functions use their series below
   $|z| = 0.1$, where the closed forms cancel. Hyperbolic starting values follow Vallado,
-  *Fundamentals of Astrodynamics and Applications*, algorithm 8.
+  *Fundamentals of Astrodynamics and Applications*, algorithm 8. On an ellipse the time is first
+  reduced to one period, since the coefficients are periodic. The universal anomaly is found by
+  Newton's method inside a bracket (the Kepler function rises with it at the rate of the radius),
+  with a bisection whenever a step leaves the bracket, so it converges at any eccentricity and
+  time span; plain Newton from the elliptic starting value failed at $e \gtrsim 0.9$ over many
+  periods.
 
 ## J2 mean elements
 

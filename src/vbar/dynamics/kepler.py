@@ -103,6 +103,7 @@ def lagrange_coefficients(
 
     r(t) = f r0 + g v0 and v(t) = f_dot r0 + g_dot v0 on any conic, including hyperbolas.
     Universal-variable form after Bate, Mueller and White, Fundamentals of Astrodynamics, ch. 4.
+    On an ellipse `t` is reduced to one period first, since the coefficients are periodic.
     """
     r0 = np.asarray(r0, dtype=float)
     v0 = np.asarray(v0, dtype=float)
@@ -110,31 +111,60 @@ def lagrange_coefficients(
     sqrt_mu = math.sqrt(mu)
     sigma0 = float(r0 @ v0) / sqrt_mu
     alpha = 2.0 / r0_norm - float(v0 @ v0) / mu
-    if alpha >= 0.0 or t == 0.0:
-        chi = sqrt_mu * t * alpha
-    else:
-        # Starting value for hyperbolas from Vallado, Fundamentals of Astrodynamics, alg. 8.
-        a = 1.0 / alpha
-        direction = math.copysign(1.0, t)
-        denominator = sigma0 * sqrt_mu + direction * math.sqrt(-mu * a) * (1.0 - r0_norm * alpha)
-        chi = direction * math.sqrt(-a) * math.log(-2.0 * mu * alpha * t / denominator)
-    for _ in range(50):
+
+    def residual_and_radius(chi: float) -> tuple[float, float, float, float]:
         z = alpha * chi * chi
         c2, c3 = _stumpff(z)
         r_norm = chi * chi * c2 + sigma0 * chi * (1.0 - z * c3) + r0_norm * (1.0 - z * c2)
         residual = (
             chi**3 * c3 + sigma0 * chi * chi * c2 + r0_norm * chi * (1.0 - z * c3) - sqrt_mu * t
         )
-        # dF/dchi is the radius, which is positive, so the root is unique.
-        d_chi = residual / r_norm
-        chi -= d_chi
-        if abs(d_chi) < 1e-12 * max(1.0, abs(chi)):
+        return residual, r_norm, c2, c3
+
+    if alpha > 0.0:
+        period = 2.0 * math.pi / (sqrt_mu * alpha**1.5)
+        t -= math.floor(t / period) * period
+        # F(chi) - sqrt(mu) t rises with chi (dF/dchi is the radius), from below zero at chi = 0
+        # to above it one period of chi later, so the root is bracketed.
+        lo, hi = 0.0, 2.0 * math.pi / math.sqrt(alpha)
+        chi = sqrt_mu * t * alpha
+    else:
+        if t == 0.0:
+            chi = 0.0
+        elif alpha == 0.0:
+            chi = sqrt_mu * t / r0_norm
+        else:
+            # Starting value for hyperbolas from Vallado, Fundamentals of Astrodynamics, alg. 8.
+            a = 1.0 / alpha
+            direction = math.copysign(1.0, t)
+            denominator = sigma0 * sqrt_mu + direction * math.sqrt(-mu * a) * (
+                1.0 - r0_norm * alpha
+            )
+            chi = direction * math.sqrt(-a) * math.log(-2.0 * mu * alpha * t / denominator)
+        lo, hi = (0.0, math.inf) if t >= 0.0 else (-math.inf, 0.0)
+    for _ in range(200):
+        residual, r_norm, _, _ = residual_and_radius(chi)
+        if residual < 0.0:
+            lo = max(lo, chi)
+        else:
+            hi = min(hi, chi)
+        step = chi - residual / r_norm
+        if abs(step - chi) < 1e-12 * max(1.0, abs(chi)):
+            chi = step
             break
+        if not lo < step < hi:
+            # A Newton step that leaves the bracket overshot; bisect, or widen an open side.
+            if math.isinf(hi):
+                step = 2.0 * max(chi, 1.0)
+            elif math.isinf(lo):
+                step = 2.0 * min(chi, -1.0)
+            else:
+                step = 0.5 * (lo + hi)
+        chi = step
     else:
         raise RuntimeError("universal kepler equation did not converge")
+    _, r_norm, c2, c3 = residual_and_radius(chi)
     z = alpha * chi * chi
-    c2, c3 = _stumpff(z)
-    r_norm = chi * chi * c2 + sigma0 * chi * (1.0 - z * c3) + r0_norm * (1.0 - z * c2)
     f = 1.0 - chi * chi * c2 / r0_norm
     g = t - chi**3 * c3 / sqrt_mu
     f_dot = sqrt_mu * chi * (z * c3 - 1.0) / (r_norm * r0_norm)

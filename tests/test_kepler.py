@@ -143,3 +143,17 @@ def test_propagation_runs_backwards_to_the_start():
     r2, v2 = propagate_kepler(r1, v1, -5e4, MU)
     assert np.linalg.norm(r2 - r0) < 1e-13 * np.linalg.norm(r0)
     assert np.linalg.norm(v2 - v0) < 1e-13 * np.linalg.norm(v0)
+
+
+@pytest.mark.parametrize("e", [0.9, 0.9477, 0.98])
+def test_universal_propagation_over_many_periods_matches_the_mean_anomaly(e):
+    elements = np.array([10818400.0, e, 5.187, 2.41, 1.479, 0.089])
+    r0, v0 = state_from_elements(elements, MU)
+    period = 2.0 * np.pi * np.sqrt(elements[0] ** 3 / MU)
+    for t in (-13.6 * period, 0.37 * period, 20.25 * period):
+        r1, _ = propagate_kepler(r0, v0, t, MU)
+        expected = elements.copy()
+        expected[5] += 2.0 * np.pi * t / period
+        r_ref, _ = state_from_elements(expected, MU)
+        # Both reduce to one revolution, so the gap is the rounding of the reduced time.
+        assert np.linalg.norm(r1 - r_ref) < 1e-9 * np.linalg.norm(r_ref)
