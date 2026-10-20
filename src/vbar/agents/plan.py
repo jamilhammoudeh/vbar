@@ -143,7 +143,8 @@ class PlanAgent:
 
     A plan is rows of fractions of a full command, one per step. The planner gets the previous
     verdict when its plan was rejected (None on a first attempt) and the steps left in the
-    episode. Each planning point's verifier calls and last verdict go to `log`.
+    episode. Each planning point's verifier calls and last verdict go to `planning_log`; it has no
+    per-decision `log`, so the metrics do not read it as one.
     """
 
     def __init__(self, planner: Planner, max_revisions: int = 3, name: str = "plan"):
@@ -156,7 +157,7 @@ class PlanAgent:
         self.scale = action_scale(view)
         self.verifier = PlanVerifier(view)
         self.queue: deque[np.ndarray] = deque()
-        self.log: list[dict[str, Any]] = []
+        self.planning_log: list[dict[str, Any]] = []
 
     def act(self, obs, info):
         if not self.queue:
@@ -169,7 +170,9 @@ class PlanAgent:
                 if verdict.ok:
                     self.queue.extend(np.asarray(plan, dtype=float).reshape(-1, 3))
                     break
-            self.log.append({"time_s": info["time_s"], "verifier_calls": calls, "verdict": verdict})
+            self.planning_log.append(
+                {"time_s": info["time_s"], "verifier_calls": calls, "verdict": verdict}
+            )
         fraction = self.queue.popleft() if self.queue else np.zeros(3)
         return fraction * self.scale
 

@@ -74,7 +74,8 @@ no plan left, with `verdict` None at first and the last rejection after that, un
 passes or `max_revisions` revisions are used. It then flies the accepted plan open loop, one row
 per step, converted to the action mode. A plan that never passes is not flown: the spacecraft
 coasts and the planner is asked again at the next decision. Each planning point's number of
-verifier calls and last verdict go to `log`, the data for plan quality against verifier calls.
+verifier calls and last verdict go to `planning_log`, the data for plan quality against verifier
+calls; it is not a per-decision `log`, so the metrics leave it alone.
 
 `LLMPlanner(complete, price)` is a planner backed by a model with the same `complete(messages,
 tools)` function as the LLM agent ([llm-agents.md](llm-agents.md)). Its prompt gives the frame, the
@@ -180,5 +181,5 @@ def pd_plan(obs, view, verdict, steps_left):
 agent = PlanAgent(pd_plan)
 env = ApproachEnv(ApproachConfig(start_state=(-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)))
 result = run_episode(env, agent, seed=0)
-print(agent.log[0]["verdict"].capture_step, result["captured"])  # the predicted step, True
+print(agent.planning_log[0]["verdict"].capture_step, result["captured"])  # the predicted step, True
 ```

@@ -19,7 +19,7 @@ optimality gap, oracle bounds), so it can be recomputed from a saved run.
 | `constraints`, `hard` | the scenario's constraint objects and the names of those whose violation fails the run (all but the scenario's `soft_constraints`) |
 | `terminated`, `truncated` | how the episode ended |
 | `isp`, `dynamics`, `body`, `altitude_m`, `inclination` | actuator and propagation settings |
-| `agent_log` | the agent's own per-decision log, when it keeps one (`LLMAgent.log`) |
+| `agent_log` | the agent's own per-decision `log`, when it keeps one (`LLMAgent.log`); a `log` whose length is not the number of decisions is left out with a warning |
 | `first_obs` | the observation the first decision was made on |
 
 When the agent is a `FilteredAgent`, the record's `command` is the agent's raw command, `filtered`
@@ -312,14 +312,14 @@ Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
 | A9f | `agent_fallback_count` | count | decisions the log marks `fallback`, the agent's own backup answer (the filter's are F5f) |
 
 A belief is the first JSON object in a reply with a numeric `range_m` and a boolean `closing`
-(`parse_belief`, shared with the LLM agent's own check); the log holds one entry per decision. Facts from outside the episode come in an
-`AgentReport` (sign check, training figures with their required keys, token prices), passed as
-`evaluate(episode, settings, bounds, report, posterior)`. A5b needs `posterior`, a function from the
-observations up to a decision to the mean (m) and covariance (m^2) of the position, from those
-observations alone. Under navigation noise the rational belief is that posterior, not the latest
-fix (Kochenderfer et al., *Algorithms for Decision Making*, 2022, sections 19.3 and 20.1), so an
-agent that restates each fix scores A5 = 1 and a large A5b. Only decisions with a stated belief
-count, so A5b is read with A5, which counts the missing ones.
+(`parse_belief`, shared with the LLM agent's own check); the log holds one entry per decision. Facts
+from outside the episode come in an `AgentReport` (sign check, training figures with their required
+keys, token prices), passed as `evaluate(episode, settings, bounds, report, posterior)`. A5b needs
+`posterior`, a function from the observations up to a decision to the mean (m) and covariance (m^2)
+of the position, from those observations alone. Under navigation noise the rational belief is that
+posterior, not the latest fix (Kochenderfer et al., *Algorithms for Decision Making*, 2022, sections
+19.3 and 20.1), so an agent that restates each fix scores A5 = 1 and a large A5b. Only decisions
+with a stated belief count, so A5b is read with A5, which counts the missing ones.
 
 A model-based agent may add solver fields to its log entries: `solver`, `tolerance`, `status`,
 `iterations`, `warm_start`, `fallback`, `prep_s` and `feedback_s`. Each A1r to A9f metric is over

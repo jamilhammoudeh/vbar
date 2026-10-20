@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import secrets
 import time
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
@@ -68,11 +69,20 @@ class Episode:
         return next((c for c in self.constraints if c.name == name), None)
 
 
-def _agent_log(agent) -> tuple[Mapping[str, Any], ...]:
+def _agent_log(agent, decisions: int) -> tuple[Mapping[str, Any], ...]:
+    """The agent's per-decision `log`, or () when it has none or its length does not fit."""
     for holder in (agent, getattr(agent, "agent", None)):
         log = getattr(holder, "log", None)
-        if log is not None:
-            return tuple(dict(entry) for entry in log)
+        if log is None:
+            continue
+        if len(log) != decisions:
+            warnings.warn(
+                f"{type(holder).__name__}.log has {len(log)} entries for {decisions} decisions, "
+                "so it is not read as a per-decision log",
+                stacklevel=3,
+            )
+            return ()
+        return tuple(dict(entry) for entry in log)
     return ()
 
 
@@ -127,7 +137,7 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         body=cfg.body,
         altitude_m=cfg.altitude_m,
         inclination=cfg.inclination,
-        agent_log=_agent_log(agent),
+        agent_log=_agent_log(agent, len(records)),
         first_obs=first_obs,
         seed=seed,
         agent_seed=agent_seed,

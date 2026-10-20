@@ -112,17 +112,17 @@ def test_plan_agent_revises_until_the_verifier_accepts():
     agent = PlanAgent(planner)
     result = run_episode(ApproachEnv(ApproachConfig(start_state=THROUGH)), agent, seed=0)
     assert result["captured"] and not result["keep_out_violated"]
-    assert agent.log[0]["verifier_calls"] == 2 and agent.log[0]["verdict"].ok
+    assert agent.planning_log[0]["verifier_calls"] == 2 and agent.planning_log[0]["verdict"].ok
     assert attempts[0] is None and not attempts[1].ok
-    assert len(agent.log) == 1
+    assert len(agent.planning_log) == 1
 
 
 def test_a_plan_that_never_passes_is_not_flown():
     agent = PlanAgent(lambda obs, view, verdict, steps_left: np.zeros((0, 3)), max_revisions=2)
     result = run_episode(ApproachEnv(ApproachConfig(start_state=THROUGH, max_steps=4)), agent)
     assert result["dv_used_mps"] == 0.0
-    assert [e["verifier_calls"] for e in agent.log] == [3, 3, 3, 3]
-    assert "the plan is empty" in agent.log[0]["verdict"].problems
+    assert [e["verifier_calls"] for e in agent.planning_log] == [3, 3, 3, 3]
+    assert "the plan is empty" in agent.planning_log[0]["verdict"].problems
 
 
 def test_llm_planner_sends_the_verdict_back_and_reads_segments():
