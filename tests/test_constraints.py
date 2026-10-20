@@ -4,6 +4,7 @@ from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
 from vbar.constraints import (
+    ClosingSpeedLimit,
     KeepOut,
     interval_bounds,
     range_lower_bounds,
@@ -264,7 +265,7 @@ def test_violation_open_at_either_end_of_the_segment_runs_to_that_end():
     assert detected_violations(clear, 10.0) == ()
 
 
-def batched(states, accels, duration, samples):
+def batched(states, accels, duration, samples, constraint=KEEP_OUT):
     """The batched minimum over CW segments that all start at 100 s."""
     phis, gammas = cw_discrete(N, np.linspace(0.0, duration, samples))
     sampled = np.einsum("mij,nj->nmi", phis, states) + np.einsum("mij,nj->nmi", gammas, accels)
@@ -278,7 +279,7 @@ def batched(states, accels, duration, samples):
     times = np.linspace(0.0, duration, samples)
     thrust = np.linalg.norm(accels, axis=1)
     t0 = np.full(len(states), 100.0)
-    return segment_minima(KEEP_OUT, state_at, times, sampled, thrust, N, t0)
+    return segment_minima(constraint, state_at, times, sampled, thrust, N, t0)
 
 
 @pytest.mark.parametrize("samples", [2, 20])
@@ -292,4 +293,29 @@ def test_batched_minimum_agrees_with_the_scalar_one(samples):
         found, _ = detected_minimum(state, accel, 10.0, samples)
         # Golden section to 1e-6 s and Brent to 1e-5 s land within 1e-7 m of the same dip.
         assert margin[k] == pytest.approx(found.margin, abs=1e-7)
+        assert bound[k] == pytest.approx(found.lower_bound, rel=1e-12, abs=1e-12)
+
+
+def test_batched_minimum_uses_the_range_bound_as_the_scalar_one_does():
+    # A closing-speed limit's rate bound needs a positive lower bound on the range; without it
+    # the bound is infinite and the batched certificate collapses to -inf.
+    limit = ClosingSpeedLimit(0.2, 4.0 * N)
+    flybys = [random_flyby(seed) for seed in range(20)]
+    states = np.array([f[0] for f in flybys])
+    accels = np.array([f[1] for f in flybys])
+    _, _, bound = batched(states, accels, 10.0, 20, constraint=limit)
+    for k, (state, accel, _) in enumerate(flybys):
+        m = CWDynamics(N)
+        m.reset(state)
+        _, sampled = m.advance(accel, 10.0, n_samples=20)
+        found = segment_minimum(
+            limit,
+            m.state_in_last_segment,
+            np.linspace(0.0, 10.0, 20),
+            sampled,
+            float(np.linalg.norm(accel)),
+            N,
+            100.0,
+        )
+        assert np.isfinite(bound[k])
         assert bound[k] == pytest.approx(found.lower_bound, rel=1e-12, abs=1e-12)

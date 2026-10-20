@@ -88,9 +88,11 @@ def closing_speed(state: np.ndarray) -> np.ndarray:
 
 def _closing_rate_bound(speed: float, accel: float, rho_min: float) -> float:
     # rho_ddot = (|v|^2 - rho_dot^2) / rho + r_hat . dv/dt, so |rho_ddot| <= |v|^2 / rho + |dv/dt|.
-    if rho_min <= 0.0:
-        return np.inf
-    return speed * speed / rho_min + accel
+    # Written elementwise so the batched minimum can pass arrays.
+    rho = np.asarray(rho_min, dtype=float)
+    positive = rho > 0.0
+    bound = np.where(positive, speed * speed / np.where(positive, rho, 1.0) + accel, np.inf)
+    return cast(float, bound if bound.ndim else float(bound))
 
 
 @dataclass(frozen=True)
@@ -473,9 +475,12 @@ def segment_minima(
     best_t, best = times[k].astype(float), margins[rows, k].astype(float)
     h = float(times[1] - times[0])
     speed, accel = interval_bounds(states, h, thrust[:, None], n)
+    rho_min = range_lower_bounds(states, h, speed)
     # The protocol is written for floats; batched use needs a vectorized rate bound.
     rate_bound = cast(Any, constraint.rate_bound)
-    rates = np.broadcast_to(np.asarray(rate_bound(speed, accel), dtype=np.float64), speed.shape)
+    rates = np.broadcast_to(
+        np.asarray(rate_bound(speed, accel, rho_min=rho_min), dtype=np.float64), speed.shape
+    )
     bounds = 0.5 * (margins[:, :-1] + margins[:, 1:] - rates * h)
     # The best value only falls during refinement, so these are all the intervals it can visit.
     owner, column = np.nonzero(bounds < (best - constraint.resolution)[:, None])
