@@ -26,9 +26,8 @@ hidden)` gives Glorot-uniform weights for tests. `PolicyAgent(policy)` flies it 
 any continuous action mode.
 
 Normalization and squashing belong to the policy, not to the code around it. A policy exported
-without them acts on raw metres and returns unbounded numbers: the input scaling Sutton and
-Barto stress for function approximation (*Reinforcement Learning*, 2nd ed. draft, secs. 14.1 and
-14.5) would then live outside the file and be easy to lose.
+without them acts on raw metres and returns unbounded numbers, and the scaling it was trained with
+would live outside the file and be easy to lose.
 
 ## Export
 

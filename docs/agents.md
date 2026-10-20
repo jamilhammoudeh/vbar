@@ -8,7 +8,7 @@ covers the tools around them.
 
 ## Sign-convention check
 
-`sign_check(agent, config)` runs VALIDATION V12 before an agent is scored. Six times, the agent
+`sign_check(agent, config)` runs the sign-convention self-check before an agent is scored. Six times, the agent
 is reset with the approach scenario's view and asked for its first command from rest at
 $(0, -300, 0)$ m, on the V-bar and so at rest under Clohessy-Wiltshire motion, with the goal
 50 m away along $+x$, $-x$, $+y$, $-y$, $+z$ and $-z$. The command, read in fractions of a full

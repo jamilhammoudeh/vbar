@@ -5,7 +5,7 @@ term is a rate or an event in SI units, integrated exactly over the step's const
 segments, and the return is discounted per second: a step of duration dt is discounted by
 gamma = exp(-dt / tau), or not at all when no time constant is given. The same physical
 trajectory then earns the same return at any decision interval, the semi-Markov return of
-Sutton and Barto, Reinforcement Learning (2nd ed. draft, 2015), sec. 14.4.
+Bradtke and Duff (1995).
 
 Progress shaping is potential-based: gamma Phi(s') - Phi(s), with Phi = 0 at a true terminal, so
 it shifts every policy's return by -Phi(s0) and leaves the optimum unchanged (Ng, Harada and

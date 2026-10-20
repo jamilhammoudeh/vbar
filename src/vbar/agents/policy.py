@@ -3,9 +3,8 @@
 `MLPPolicy` is a multilayer perceptron in numpy: the observation is normalized, passed through
 the hidden layers, and the output squashed to fractions of a full command. `export_onnx` writes
 the same computation as one ONNX graph, so a policy trained in any framework (its weights copied
-into an `MLPPolicy`) is flown from a single file with no preprocessing left outside it, the
-mismatch Sutton and Barto's input-scaling examples warn about (2nd ed. draft, 2015, secs. 14.1
-and 14.5). `OnnxAgent` flies an exported file with onnxruntime, and `profile_latency` measures
+into an `MLPPolicy`) is flown from a single file with no preprocessing left outside it.
+`OnnxAgent` flies an exported file with onnxruntime, and `profile_latency` measures
 its inference time under fixed CPU profiles. ONNX support needs the optional `onnx` extra.
 """
 

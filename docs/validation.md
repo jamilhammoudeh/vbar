@@ -287,26 +287,34 @@ The reward library ([rewards.md](rewards.md)), the training interfaces
 ([training.md](training.md)) and the agent tools ([agents.md](agents.md),
 [llm-agents.md](llm-agents.md)) are checked against the cases below.
 
-**Sutton and Barto, *Reinforcement Learning: An Introduction*** (2nd ed. draft, 2015; the draft
-has no section on reward shaping or time limits, so those results are cited from their papers)
+**Bradtke and Duff, "Reinforcement learning methods for continuous-time Markov decision
+problems"** (NIPS 1995)
 
-- Sec. 14.4, the semi-Markov return (KAT-2): a trajectory's discounted return is the same for
-  10 s steps, 5 s steps and an uneven partition, to 1e-12.
-- Eq. 3.3 with an absorbing terminal state (KAT-1): potential-based shaping telescopes to
-  $-\Phi(s_0)$ at a terminal and to $\Gamma_T\Phi(s_T) - \Phi(s_0)$ at a time limit, on random
-  transitions and on PD captures in the environment.
-- Sec. 14.4 on the environment: one burn through the keep-out sphere earns the same return at
-  10, 5 and 2.5 s steps, and one burn-and-coast decision earns what the steps it spans earn.
-- KAT-3 of the review (after Bradtke, Ydstie and Barto's adaptive LQ control): for the Riccati
-  gain of the exactly discretized discounted quadratic cost, the 5-step return of the
-  environment plus the bootstrap $\Gamma_N V(x_N)$ equals $V(x_0) = -x_0^T P x_0$ to 1e-9.
+- The semi-Markov return: a trajectory's discounted return is the same for 10 s steps, 5 s steps
+  and an uneven partition, to 1e-12; on the environment, one burn through the keep-out sphere
+  earns the same return at 10, 5 and 2.5 s steps, and one burn-and-coast decision earns what the
+  steps it spans earn.
+
+**Ng, Harada and Russell, "Policy invariance under reward transformations"** (ICML 1999), with
+the absorbing terminal state of Sutton and Barto, *Reinforcement Learning: An Introduction* (2nd
+ed., 2018), sec. 3.4
+
+- Potential-based shaping telescopes to $-\Phi(s_0)$ at a terminal and to
+  $\Gamma_T\Phi(s_T) - \Phi(s_0)$ at a time limit, on random transitions and on PD captures in
+  the environment.
+
+**Bradtke, Ydstie and Barto, "Adaptive linear quadratic control using policy iteration"** (ACC
+1994)
+
+- For the Riccati gain of the exactly discretized discounted quadratic cost, the 5-step return of
+  the environment plus the bootstrap $\Gamma_N V(x_N)$ equals $V(x_0) = -x_0^T P x_0$ to 1e-9.
 
 **Alfriend, Vadali, Gurfil, How and Breger, *Spacecraft Formation Flying***
 
 - Page 92: the LLM agent's transfer tool refuses durations where Clohessy-Wiltshire targeting is
   singular (a half orbit in the test) and arrives at its target otherwise.
 
-**VALIDATION V12** (this project's convention self-check): the PD agent passes in every
+**Sign-convention self-check**: the PD agent passes in every
 continuous mode, ISS-style axes and a flipped radial axis are caught.
 
 ## Methods
@@ -361,4 +369,4 @@ continuous mode, ISS-style axes and a flipped radial axis are caught.
 - Ng, Harada and Russell, "Policy invariance under reward transformations" (ICML 1999):
   potential-based shaping.
 - Bradtke and Duff, "Reinforcement learning methods for continuous-time Markov decision
-  problems" (NIPS 1995), as presented by Sutton and Barto (sec. 14.4): discounting per second.
+  problems" (NIPS 1995): discounting per second.

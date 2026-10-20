@@ -58,7 +58,7 @@ def exp_integral(tau, a, b):
 
 
 def test_discount_is_declared_per_second():
-    # Sutton and Barto review C3: tau = 3600 s gives 0.99723 at 10 s steps and 0.99861 at 5 s.
+    # tau = 3600 s gives 0.99723 at 10 s steps and 0.99861 at 5 s.
     reward = Reward(tau=3600.0)
     assert float(reward.discount(10.0)) == pytest.approx(0.99723, abs=5e-6)
     assert float(reward.discount(5.0)) == pytest.approx(0.99861, abs=5e-6)
@@ -75,8 +75,8 @@ PARTITIONS = {
 
 @pytest.mark.parametrize("tau", [None, 600.0, 3600.0])
 def test_return_is_the_same_for_every_partition_of_one_trajectory(tau):
-    # Sutton and Barto 14.4 (KAT-2): with rewards integrated over the step and discounts
-    # exp(-dt / tau) the return is the integral of exp(-t / tau) r(t) for any partition.
+    # The semi-Markov return (Bradtke and Duff, 1995): with rewards integrated over the step and
+    # discounts exp(-dt / tau) the return is the integral of exp(-t / tau) r(t) for any partition.
     reward = Reward(
         tau=tau,
         time_weight=2.0,
@@ -96,7 +96,7 @@ def test_return_is_the_same_for_every_partition_of_one_trajectory(tau):
 @pytest.mark.parametrize("tau", [None, 3600.0])
 @pytest.mark.parametrize("terminal", [False, True])
 def test_progress_shaping_telescopes_to_minus_the_first_potential(tau, terminal):
-    # Sutton and Barto (3.3) with an absorbing terminal (KAT-1): the shaped terms sum to
+    # Sutton and Barto (2nd ed., 2018, sec. 3.4) with an absorbing terminal: the shaped terms sum to
     # gamma^T Phi(s_T) - Phi(s_0), and to -Phi(s_0) when the episode ends at a true terminal.
     rng = np.random.default_rng(1)
     steps = rng.uniform(2.0, 20.0, 50)

@@ -2,7 +2,7 @@
 
 When a filter changes the learner's action, the transition the environment makes follows the
 filtered command, so an off-policy learner must store that command, not its own output (Sutton
-and Barto, Reinforcement Learning, 2nd ed. draft, 2015, sec. 6.5: the update uses the action
+and Barto, Reinforcement Learning, 2nd ed., 2018, sec. 6.5: the update uses the action
 actually taken). The filter sees only what the learner saw.
 """
 

@@ -20,8 +20,7 @@ $r(t)$ held over the step contributes $\int_{t_k}^{t_{k+1}} e^{-(t - t_k)/\tau} 
 step's reward and an event at time $t$ in the step contributes its size times
 $e^{-(t - t_k)/\tau}$. The return $G = \sum_k \Gamma_k R_k$, with $\Gamma_k = \prod_{j<k}\gamma_j$,
 is then $\int_0^T e^{-t/\tau} r(t)\,dt$ plus the discounted events, whatever the decision
-interval: the semi-Markov return of Sutton and Barto, *Reinforcement Learning: An Introduction*
-(2nd ed. draft, 2015), sec. 14.4, after Bradtke and Duff (1995). With a fixed per-step $\gamma$,
+interval: the semi-Markov return of Bradtke and Duff (1995). With a fixed per-step $\gamma$,
 halving $\Delta t$ would double the effective horizon. $\tau$ = 3600 s gives $\gamma$ = 0.99723
 at 10 s steps and 0.99861 at 5 s.
 
@@ -105,12 +104,13 @@ earlier results and is not aligned with the metrics.
 
 `tests/test_rewards.py`:
 
-- The discount reproduces the per-second values in the Sutton and Barto review (0.99723 and
-  0.99861 for $\tau$ = 3600 s).
-- KAT-2 (Sutton and Barto 14.4): the return of one trajectory with burns and keep-out passes,
+- The discount gives the per-second values 0.99723 and 0.99861 for $\tau$ = 3600 s at 10 s and
+  5 s steps.
+- The semi-Markov return (Bradtke and Duff, 1995): the return of one trajectory with burns and keep-out passes,
   under time, fuel, constraint-time and entry costs, equals the closed-form integral to 1e-12
   relative for 10 s steps, 5 s steps and an uneven partition, with and without discounting.
-- KAT-1 (Sutton and Barto eq. 3.3 with an absorbing terminal): progress shaping over 50 random
+- Potential-based shaping with an absorbing terminal state (Ng, Harada and Russell, 1999; Sutton
+  and Barto, 2nd ed., 2018, sec. 3.4): progress shaping over 50 random
   steps sums to $\Gamma_T\Phi(s_T) - \Phi(s_0)$ when truncated and to $-\Phi(s_0)$ at a terminal,
   to 1e-12 relative.
 - The success bonus needs both a terminal step and success.
@@ -125,12 +125,12 @@ earlier results and is not aligned with the metrics.
 
 `tests/test_reward_env.py`, on episodes of the approach scenario:
 
-- KAT-2: an open-loop burn through the keep-out sphere earns the same return, under every term
+- The semi-Markov return: an open-loop burn through the keep-out sphere earns the same return, under every term
   including the quadratic cost, at 10, 5 and 2.5 s steps, to 1e-10 relative (2e-14 observed).
-- KAT-1: progress shaping changes the return of PD captures by exactly $w_p d_0$, from a clear
+- Potential-based shaping: progress shaping changes the return of PD captures by exactly $w_p d_0$, from a clear
   path and after cutting through the keep-out zone; a truncated episode keeps
   $\Gamma_T \Phi(s_T)$.
-- KAT-3: for the Riccati gain of the exactly discretized discounted quadratic cost, the 5-step
+- The linear-quadratic value (Bradtke, Ydstie and Barto, 1994): for the Riccati gain of the exactly discretized discounted quadratic cost, the 5-step
   return plus the bootstrap $\Gamma_N V(x_N)$ equals $V(x_0) = -x_0^T P x_0$ to 1e-9 relative,
   and without the bootstrap the gap is the discounted value of the last state.
 - The success bonus is withheld from a capture after a keep-out violation; under an aligned

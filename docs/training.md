@@ -11,8 +11,8 @@ reinforcement learning easier without changing what is scored. Rewards are on th
 `action_mode="disc27"` replaces the continuous action with `Discrete(27)`: index $i$ selects the
 command `DISC27[i]` from $\{-1, 0, 1\}^3$, fractions of a full command per Hill axis, held for the
 step. Index 13 is no thrust. Value-based learners (the DQN family) can then act without a
-maximization over a continuous action (Sutton and Barto, *Reinforcement Learning*, 2nd ed. draft,
-sec. 9.4), and little is lost: the fuel-optimal bounded control of the linear problem is
+maximization over a continuous action (Sutton and Barto, *Reinforcement Learning*, 2nd ed., 2018,
+sec. 10.1), and little is lost: the fuel-optimal bounded control of the linear problem is
 bang-off-bang. The scenario ID gains the suffix `:disc27`, so results in this mode are never
 mixed with continuous ones.
 
@@ -32,7 +32,7 @@ for $t_c$ seconds rounded to whole steps and cut at the time limit. The agent se
 between the burn and the end of the coast; the environment checks constraints over the whole
 interval in continuous time, as in any step. One decision can span hundreds of steps, so a
 transfer of two burns takes two or three decisions instead of hundreds, the semi-Markov
-formulation of Sutton and Barto (sec. 14.4).
+formulation of Bradtke and Duff (1995).
 
 The step's duration is $(1 + k)\Delta t$ for $k$ coast steps, `info["time_s"]` and the step count
 advance by it, and with a library reward the transition is discounted by
@@ -55,8 +55,8 @@ An environment built with `training=True` accepts `reset(seed=..., options=...)`
 Options apply to that episode only; the next `reset` without them draws from the configuration
 again. Without `training=True`, any option raises a `ValueError`, and `run_episode`, the scored
 path, refuses an environment built for training, so these starts never reach a scored run
-(Sutton and Barto, sec. 5.3, exploring starts; sec. 15.5, shaping by a curriculum of easier
-tasks). Unknown option names are rejected.
+(Sutton and Barto, secs. 5.2 and 5.3, exploring starts; sec. 17.4, shaping by a curriculum of
+easier tasks). Unknown option names are rejected.
 
 ## A safety filter in the training loop
 

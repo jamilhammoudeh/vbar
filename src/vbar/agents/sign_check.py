@@ -1,4 +1,4 @@
-"""Sign-convention self-check (VALIDATION V12), run on every agent before it is scored.
+"""Sign-convention self-check, run on every agent before it is scored.
 
 From rest on the V-bar, the agent is asked through its normal observation and view to reach a
 goal 50 m along +x, -x, +y, -y, +z and -z in turn. Its first command must push toward the goal

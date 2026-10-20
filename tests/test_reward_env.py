@@ -1,4 +1,4 @@
-"""Rewards on real episodes of the approach scenario (Sutton and Barto review, KAT-1 to KAT-3)."""
+"""Rewards on real episodes of the approach scenario."""
 
 import numpy as np
 import pytest
@@ -73,8 +73,8 @@ class Waypoints:
 
 @pytest.mark.parametrize("tau", [None, 3600.0])
 def test_one_trajectory_earns_the_same_return_at_every_decision_interval(tau):
-    # Sutton and Barto 14.4 (KAT-2): an open-loop burn that carries the chaser through the
-    # keep-out sphere, flown at 10, 5 and 2.5 s steps.
+    # The semi-Markov return (Bradtke and Duff, 1995): an open-loop burn that carries the chaser
+    # through the keep-out sphere, flown at 10, 5 and 2.5 s steps.
     n = ApproachEnv().n
     reward = Reward(
         tau=tau,
@@ -103,7 +103,8 @@ def test_one_trajectory_earns_the_same_return_at_every_decision_interval(tau):
 
 @pytest.mark.parametrize("start", [CLEAR, THROUGH])
 def test_progress_shaping_changes_the_return_by_minus_the_first_potential(start):
-    # KAT-1: both flights end in capture, a true terminal, one after cutting through the zone.
+    # Potential-based shaping (Ng, Harada and Russell, 1999): both flights end in capture, a true
+    # terminal, one after cutting through the zone.
     shaped = Reward(tau=3600.0, fuel_weight=1.0, progress_weight=0.01)
     plain = Reward(tau=3600.0, fuel_weight=1.0)
     with_shaping = rollout(ApproachEnv(ApproachConfig(start_state=start, reward=shaped)), PDAgent())
@@ -139,7 +140,7 @@ def test_success_bonus_is_withheld_after_a_keep_out_violation():
 
 
 def test_going_around_the_target_earns_more_than_cutting_through():
-    # Sutton review C2: the legacy reward pays the capture bonus after cutting through the
+    # The legacy reward pays the capture bonus after cutting through the
     # keep-out zone; under the aligned reward the flight around it has the higher return.
     aligned = Reward(
         tau=3600.0,
@@ -160,9 +161,9 @@ def test_going_around_the_target_earns_more_than_cutting_through():
 
 
 def test_discounted_lqr_value_is_the_return_of_its_own_policy():
-    # Sutton review KAT-3: under the exactly discretized quadratic cost the N-step return of
-    # u = -K x plus the bootstrap Gamma_N V(x_N) equals V(x_0) = -x_0^T P x_0, with P from the
-    # Riccati equation for (sqrt(gamma) A_d, sqrt(gamma) B_d) and the cost's cross term.
+    # After Bradtke, Ydstie and Barto (1994): under the exactly discretized quadratic cost the
+    # N-step return of u = -K x plus the bootstrap Gamma_N V(x_N) equals V(x_0) = -x_0^T P x_0, with
+    # P from the Riccati equation for (sqrt(gamma) A_d, sqrt(gamma) B_d) and the cost's cross term.
     dt, tau = 10.0, 3600.0
     n = ApproachEnv().n
     q, r = np.diag([1e-4] * 3 + [1.0] * 3), 100.0 * np.eye(3)
