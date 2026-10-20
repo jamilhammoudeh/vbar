@@ -18,7 +18,7 @@ from .episode import Episode
 from .mission import mission_metrics
 from .stl import Trace, negative_intervals
 
-# Default weights; the speed weight applies to both speed constraints.
+# Default infraction weights, a convention rather than a measurement.
 WEIGHTS = {
     "keep_out": 0.7,
     "approach_cone": 0.5,
