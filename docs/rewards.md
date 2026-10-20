@@ -130,7 +130,8 @@ earlier results and is not aligned with the metrics.
 - Under $\tau$ = 1000 s a 1e5 s segment with a held acceleration matches quadrature to 1e-13 (the
   former cut at a discount of 1e-17 lost 1.7e-12), and a 1e6 s segment under $\tau$ = 0.01 s, 1e8
   pieces long, costs what a 1 s segment does without building them.
-  A mean motion that is not positive is refused.
+  A mean motion that is not positive is refused, and so is a time constant that is not positive
+  and finite.
 - A batch of transitions gives each row its own reward; invalid time constants and weights are
   rejected.
 

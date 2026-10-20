@@ -87,6 +87,8 @@ class QuadraticCost:
         W(d) = sum_j exp(-j h / tau) E_j^T W(h) E_j with E_j the undiscounted transition of z
         over j h, from the closed-form CW matrices. Pieces starting past 60 tau are skipped.
         """
+        if tau is not None and not 0.0 < tau < np.inf:
+            raise ValueError("tau must be positive and finite, or None for no discount")
         key = (float(duration), tau)
         if key not in self._matrices:
             d = key[0]
@@ -174,8 +176,8 @@ class Reward:
     quadratic: QuadraticCost | None = None
 
     def __post_init__(self):
-        if self.tau is not None and not self.tau > 0.0:
-            raise ValueError("tau must be positive, or None for no discount")
+        if self.tau is not None and not 0.0 < self.tau < np.inf:
+            raise ValueError("tau must be positive and finite, or None for no discount")
         weights = [self.success_bonus, self.fuel_weight, self.time_weight, self.progress_weight]
         weights += [*self.violation_weights.values(), *self.entry_weights.values()]
         if not all(np.isfinite(w) and w >= 0.0 for w in weights):

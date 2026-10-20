@@ -183,11 +183,25 @@ def test_batched_transitions_give_each_row_its_own_reward():
 
 
 @pytest.mark.parametrize(
-    "fields", [{"tau": 0.0}, {"tau": -5.0}, {"fuel_weight": -1.0}, {"entry_weights": {"x": np.nan}}]
+    "fields",
+    [
+        {"tau": 0.0},
+        {"tau": -5.0},
+        {"tau": np.inf},
+        {"fuel_weight": -1.0},
+        {"entry_weights": {"x": np.nan}},
+    ],
 )
 def test_invalid_reward_parameters_are_rejected(fields):
     with pytest.raises(ValueError):
         Reward(**fields)
+
+
+@pytest.mark.parametrize("tau", [0.0, -5.0, np.inf, np.nan])
+def test_quadratic_cost_refuses_time_constants_that_are_not_positive_and_finite(tau):
+    cost = QuadraticCost(N, np.eye(6), np.eye(3))
+    with pytest.raises(ValueError, match="tau must be positive and finite"):
+        cost(np.zeros((1, 6)), np.zeros((1, 3)), np.array([10.0]), tau)
 
 
 @pytest.mark.parametrize("n", [0.0, -1e-3, float("nan"), float("inf")])
