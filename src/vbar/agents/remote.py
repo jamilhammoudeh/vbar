@@ -270,7 +270,6 @@ def main(argv: list[str] | None = None) -> None:
     server cannot use), the episode being flown is written unfinished with the error, and so is
     every seed not yet flown, so a session cannot drop a bad episode.
     """
-    import time
 
     from ..runner import ScoredRun
     from ..scenarios import ApproachConfig, ApproachEnv
