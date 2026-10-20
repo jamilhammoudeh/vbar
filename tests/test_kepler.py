@@ -229,6 +229,21 @@ def test_long_near_parabolic_hyperbolic_arcs_compose_from_their_halves(t):
     assert energy[1] == pytest.approx(energy[0], rel=1e-6)
 
 
+def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
+    # Off perigee the residual's terms overflow with opposite signs (inf - inf) on a backward
+    # arc; read as past the root, the solver still closes on it.
+    r_norm, angle = 25176957.067439117, 0.7243643379663687
+    r0 = np.array([r_norm, 0.0, 0.0])
+    speed = (1.0 + 7.633e-6) * math.sqrt(2.0 * MU / r_norm)
+    v0 = speed * np.array([math.sin(angle), math.cos(angle), 0.0])
+    t = -3.1622776601683795e9
+    r1, _ = propagate_kepler(r0, v0, t, MU)
+    r_half, v_half = propagate_kepler(r0, v0, 0.5 * t, MU)
+    r2, _ = propagate_kepler(r_half, v_half, 0.5 * t, MU)
+    assert np.all(np.isfinite(r1))
+    assert np.linalg.norm(r2 - r1) < 1e-11 * np.linalg.norm(r1)
+
+
 def test_a_near_radial_hyperbola_in_canonical_units_runs_back_without_overflow():
     # mu = 1 and |a| far below one unit: a doubling floor of one unit of chi overshoots into
     # sinh overflow, which the solver must read as being past the root.
