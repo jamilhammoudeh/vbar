@@ -98,11 +98,11 @@ $$
 $$
 
 $\mathbf d$ runs from the spacecraft to the Sun, placed at `distance` along `sun`.
-$P_\odot$ = 4.56e-6 N/m^2 is the pressure on an absorbing surface at 1 AU, 1367 W/m^2 over the
-speed of light (their eq 3.69). $\nu$ is the visible fraction of the Sun from the conical shadow.
-$C_R$ is 1 for an absorbing surface; their table 3.5 gives 1.21 for solar panels, 1.30 for an
-antenna and 1.88 for a sail. With equal coefficients two spacecraft 1 km apart feel the same force to
-about 1e-8 of it, except while one is in the penumbra and the other is not.
+$P_\odot$ = 4.56e-6 N/m^2 is the pressure on an absorbing surface at 1 AU, 1367 W/m^2 over the speed
+of light (their eq 3.69). $\nu$ is the visible fraction of the Sun from the conical shadow. $C_R$ is
+1 for an absorbing surface; their table 3.5 gives 1.21 for solar panels, 1.30 for an antenna and
+1.88 for a sail. With equal coefficients two spacecraft 1 km apart feel the same force to about 1e-8
+of it, except while one is in the penumbra and the other is not.
 
 **Flat plates.** `FlatPlatePressure(sun, target, chaser, body=EARTH, distance=AU)` takes each
 spacecraft as a sequence of `Plate(area_to_mass, normal, specular=0.0, diffuse=0.0)`: the plate's

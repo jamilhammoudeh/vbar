@@ -87,11 +87,11 @@ with $\mathbf n_k$ standard normal. $Q$ equals $P - F P F^\top$ in exact arithme
 difference cancels on short steps, where the added position variance is about $q^2\Delta t^3/3$
 against $\sigma_r^2$. $Q$ is computed instead by Van Loan's method, from one exponential of the
 block matrix $[[-A, \operatorname{diag}(0, q^2)], [0, A^\top]]\,\Delta t$, and $L$ from its
-eigendecomposition with rounding below zero clipped, so steps down to microseconds stay exact. Each episode starts from a draw of $P$, so the error is
-stationary from the first observation, and the lag covariance is
-$E[\mathbf e_{k+1}\mathbf e_k^\top] = F P$. Integrating the observed velocity reproduces the
-observed position, and averaging over steps does not remove the error: at the defaults the
-correlation time $1 / (\zeta\omega)$ is 100 s.
+eigendecomposition with rounding below zero clipped, so steps down to microseconds stay exact. Each
+episode starts from a draw of $P$, so the error is stationary from the first observation, and the
+lag covariance is $E[\mathbf e_{k+1}\mathbf e_k^\top] = F P$. Integrating the observed velocity
+reproduces the observed position, and averaging over steps does not remove the error: at the
+defaults the correlation time $1 / (\zeta\omega)$ is 100 s.
 
 The defaults, 4 cm, 0.4 mm/s and $\zeta$ = 1 ($\omega$ = 0.01 rad/s), are the carrier-phase
 differential GPS levels at 1 km reported by Alfriend et al. (*Spacecraft Formation Flying*,

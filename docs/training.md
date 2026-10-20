@@ -73,8 +73,8 @@ observation the learner acted on, never the truth. Each step's `info` gains:
 An off-policy learner must store the executed action with the transition, since the next state
 follows from it, not from the learner's output (Sutton and Barto, sec. 6.5). `env.unwrapped.record`
 keeps both: `command` is the learner's action and `filtered` the executed one, with the filter's
-`FilterResult` in `filter_result`. Only the continuous action modes are supported. For scored runs the filter wraps the agent instead
-(`vbar.safety.FilteredAgent`, [environment.md](environment.md)).
+`FilterResult` in `filter_result`. Only the continuous action modes are supported. For scored runs
+the filter wraps the agent instead (`vbar.safety.FilteredAgent`, [environment.md](environment.md)).
 
 ## How it is tested
 

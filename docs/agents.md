@@ -8,14 +8,14 @@ covers the tools around them.
 
 ## Sign-convention check
 
-`sign_check(agent, config)` runs the sign-convention self-check before an agent is scored. Six times, the agent
-is reset with the approach scenario's view and asked for its first command from rest at
-$(0, -300, 0)$ m, on the V-bar and so at rest under Clohessy-Wiltshire motion, with the goal
+`sign_check(agent, config)` runs the sign-convention self-check before an agent is scored. Six
+times, the agent is reset with the approach scenario's view and asked for its first command from
+rest at $(0, -300, 0)$ m, on the V-bar and so at rest under Clohessy-Wiltshire motion, with the goal
 50 m away along $+x$, $-x$, $+y$, $-y$, $+z$ and $-z$. The command, read in fractions of a full
-command whatever the action mode (`command_fraction`), passes when its component on that axis
-has the goal's sign; zero fails. The scenario keeps `config`'s action mode, thrusters, delay and
-observation channels, so the agent sees its normal observation layout, but navigation is exact,
-so only the agent's conventions decide the result.
+command whatever the action mode (`command_fraction`), passes when its component on that axis has
+the goal's sign; zero fails. The scenario keeps `config`'s action mode, thrusters, delay and
+observation channels, so the agent sees its normal observation layout, but navigation is exact, so
+only the agent's conventions decide the result.
 
 `SignCheck.passed` is metric A6; `failures` lists the directions that failed and `commands` the
 first command of each. The check catches an agent that reads the Hill frame as ISS-style LVLH
@@ -77,16 +77,16 @@ coasts and the planner is asked again at the next decision. Each planning point'
 verifier calls and last verdict go to `planning_log`, the data for plan quality against verifier
 calls; it is not a per-decision `log`, so the metrics leave it alone.
 
-`LLMPlanner(complete, price)` is a planner backed by a model with the same `complete(messages,
-tools)` function as the LLM agent ([llm-agents.md](llm-agents.md)). Its prompt gives the frame, the
-goal, the keep-out radius, the observed state, the step, the thrust limit and the steps left, asks
-for a JSON list of segments `{"ax", "ay", "az", "steps"}`, and on a revision includes the verdict's
-summary. `parse_plan(text, max_rows=1_000_000)` expands the segments into rows; numbers may be
-quoted. A reply that cannot be read (bad JSON, nesting deeper than 32 levels, a number too large
-for a float, steps that are not a whole number of at least zero, more than `max_rows` steps) is an
-empty plan, which the verifier rejects. A plan longer than the steps left is parsed, so the verifier can tell
-the model it is too long, and the verifier predicts at most the steps left. Every call's prompt,
-reply, tokens, cost and latency go to its `log`.
+`LLMPlanner(complete, price)` is a planner backed by a model with the same
+`complete(messages, tools)` function as the LLM agent ([llm-agents.md](llm-agents.md)). Its prompt
+gives the frame, the goal, the keep-out radius, the observed state, the step, the thrust limit and
+the steps left, asks for a JSON list of segments `{"ax", "ay", "az", "steps"}`, and on a revision
+includes the verdict's summary. `parse_plan(text, max_rows=1_000_000)` expands the segments into
+rows; numbers may be quoted. A reply that cannot be read (bad JSON, nesting deeper than 32 levels, a
+number too large for a float, steps that are not a whole number of at least zero, more than
+`max_rows` steps) is an empty plan, which the verifier rejects. A plan longer than the steps left is
+parsed, so the verifier can tell the model it is too long, and the verifier predicts at most the
+steps left. Every call's prompt, reply, tokens, cost and latency go to its `log`.
 
 ## How it is tested
 

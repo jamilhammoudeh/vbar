@@ -39,12 +39,12 @@ $$
 $$
 
 `cw_step` evaluates this closed form for one duration (the same formulas as
-`vbar.dynamics.cw_discrete`, to 4e-16 relative), since the searches call it thousands of times per episode.
-This is exact on the Clohessy-Wiltshire model. On the two-body models it drops the difference
-between their natural acceleration and Clohessy-Wiltshire's over at most one sample spacing:
-measured below 1e-8 m at 150 m without J2 (below 2e-7 m at 2 km), and about 1e-6 m with J2, whose
-Hill frame turns faster than $n$ by about $\tfrac32 J_2 (R/a)^2 n$. Both are far below the 1 mm
-resolution of the range constraints, and the reconstruction needs only the records and $n$.
+`vbar.dynamics.cw_discrete`, to 4e-16 relative), since the searches call it thousands of times per
+episode. This is exact on the Clohessy-Wiltshire model. On the two-body models it drops the
+difference between their natural acceleration and Clohessy-Wiltshire's over at most one sample
+spacing: measured below 1e-8 m at 150 m without J2 (below 2e-7 m at 2 km), and about 1e-6 m with J2,
+whose Hill frame turns faster than $n$ by about $\tfrac32 J_2 (R/a)^2 n$. Both are far below the
+1 mm resolution of the range constraints, and the reconstruction needs only the records and $n$.
 
 ## Signals in continuous time
 
@@ -287,10 +287,10 @@ filter defect counted apart. Inside the commit zone (`commit_radius`) the filter
 
 `filter_metrics(episode, settings)` gives F1, F1c, F2, F2n, F5, F5b and F6, and
 `filter_behaviour(episode, settings)` F8 to F10 and the fallback and certificate columns, from the
-optional `FilterResult` fields (NaN where the filter does not report them); `paired_filter_metrics(on, off)`
-gives F3 and F4 from runs over the same seeds and rejects runs that do not pair.
-`iqm(values)` is the interquartile mean, the mean of the middle half (Agarwal et al., "Deep
-Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
+optional `FilterResult` fields (NaN where the filter does not report them);
+`paired_filter_metrics(on, off)` gives F3 and F4 from runs over the same seeds and rejects runs that
+do not pair. `iqm(values)` is the interquartile mean, the mean of the middle half (Agarwal et al.,
+"Deep Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
 
 ## Agent (A1 to A9)
 
@@ -448,25 +448,25 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   25 s steps, and S1 and S3 are unchanged by mirroring across the orbit plane. An entry into an
   approach zone in the last sample interval before its GO event is found, with its duration to
   1e-6 s.
-- Passive safety (`tests/test_metrics_passive.py`): escape arcs reproduce Fehse's CAMs at
-  400 km: an R-bar CAM 15 m below with 0.5 m/s away and 0.10 m/s retrograde is 2231.6 m ahead after
-  an orbit (figs. 4.19, 4.20); a purely radial CAM advances $12\pi$ times its depth whatever its
-  size (figs. 4.17, 4.18); a -V-bar CAM of 0.3 m/s from 20 m behind passes under the target at
+- Passive safety (`tests/test_metrics_passive.py`): escape arcs reproduce Fehse's CAMs at 400 km: an
+  R-bar CAM 15 m below with 0.5 m/s away and 0.10 m/s retrograde is 2231.6 m ahead after an orbit
+  (figs. 4.19, 4.20); a purely radial CAM advances $12\pi$ times its depth whatever its size
+  (figs. 4.17, 4.18); a -V-bar CAM of 0.3 m/s from 20 m behind passes under the target at
   $x$ = -396.220 m and ends 4978.3 m ahead (fig. 4.16). The travelling ellipse matches propagation
-  to 1e-9 m on Fehse's appendix A.1.5 case, where his printed sign is 176 m off. A parallel orbit 10 m below drifting at
-  the target is not safe forever and its threat time is the closed-form entry time; drifting away
-  it is; a relative orbit whose tube clears the target by 60 m is. Rest on the V-bar hold point gives
-  S4 = 50 m everywhere. S4, S4b, S8 and S9 match closed-form references (20001 samples and Brent)
-  to 1 mm, and a stuck full-thrust command for 30 s matches its closed form. All seven metrics are
-  the same at 50 and 800 samples per orbit to 1 mm, unchanged by mirroring across the orbit plane,
-  and on the two-body model they agree with Clohessy-Wiltshire to 1 cm at 150 m.
-  With only 8 drift samples per orbit a 4 m/s pass through the target is still found, since
-  arcs whose sign the samples cannot settle are refined; an ellipse whose centre recedes but sits
-  between $b + R$ and $2b + R$ along-track is not certified, and comes within 16 m; a burn whose
-  ends both drift clear by 196 m is caught by a cut midway. On the twice-orbital-rate circle of
-  radius $R$ flown clockwise (Goodman, p. 137), a thrust loss after 90, 120, 150 or 180 deg leaves
-  a drift-free ellipse whose range stays between $R$ and 7.00, 6.20, 4.15 and $2R$, and free drift
-  is certified clear of a sphere just inside $R$.
+  to 1e-9 m on Fehse's appendix A.1.5 case, where his printed sign is 176 m off. A parallel orbit
+  10 m below drifting at the target is not safe forever and its threat time is the closed-form entry
+  time; drifting away it is; a relative orbit whose tube clears the target by 60 m is. Rest on the
+  V-bar hold point gives S4 = 50 m everywhere. S4, S4b, S8 and S9 match closed-form references
+  (20001 samples and Brent) to 1 mm, and a stuck full-thrust command for 30 s matches its closed
+  form. All seven metrics are the same at 50 and 800 samples per orbit to 1 mm, unchanged by
+  mirroring across the orbit plane, and on the two-body model they agree with Clohessy-Wiltshire to
+  1 cm at 150 m. With only 8 drift samples per orbit a 4 m/s pass through the target is still found,
+  since arcs whose sign the samples cannot settle are refined; an ellipse whose centre recedes but
+  sits between $b + R$ and $2b + R$ along-track is not certified, and comes within 16 m; a burn
+  whose ends both drift clear by 196 m is caught by a cut midway. On the twice-orbital-rate circle
+  of radius $R$ flown clockwise (Goodman, p. 137), a thrust loss after 90, 120, 150 or 180 deg
+  leaves a drift-free ellipse whose range stays between $R$ and 7.00, 6.20, 4.15 and $2R$, and free
+  drift is certified clear of a sphere just inside $R$.
 - Plume (`tests/test_metrics_plume.py`): the pressure normalization matches a midpoint rule
   over the sphere to 1e-6 and tends to $2\pi\theta_0^2$ for a narrow plume. Braking at full thrust
   30 m behind the target gives the impulse of an independent quadrature on the closed-form

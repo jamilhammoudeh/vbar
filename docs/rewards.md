@@ -48,8 +48,8 @@ $s$ is the time from the start of the step and $d$ the distance to the goal.
 - **Progress** is potential-based. Over an episode the shaped terms sum to
   $\Gamma_T \Phi(s_T) - \Phi(s_0)$, which at a true terminal is $-\Phi(s_0)$, the same for every
   policy, so shaping changes no policy's ranking (Ng, Harada and Russell, 1999). Distance-progress
-  terms of the form $\Phi(s') - \Phi(s)$ with $\gamma < 1$ are not: they add $(1 - \gamma)\Phi(s')$ per
-  step, a distance penalty that rewards cutting straight through the target.
+  terms of the form $\Phi(s') - \Phi(s)$ with $\gamma < 1$ are not: they add $(1 - \gamma)\Phi(s')$
+  per step, a distance penalty that rewards cutting straight through the target.
 - **Constraint costs** come from the violation intervals of each step's segment trace
   ([constraints.md](constraints.md)), the same intervals behind S3 (time in violation) and C1
   (one count per contiguous interval). An interval that continues across a step boundary is one
@@ -106,9 +106,10 @@ earlier results and is not aligned with the metrics.
 
 - The discount gives the per-second values 0.99723 and 0.99861 for $\tau$ = 3600 s at 10 s and
   5 s steps.
-- The semi-Markov return (Bradtke and Duff, 1995): the return of one trajectory with burns and keep-out passes,
-  under time, fuel, constraint-time and entry costs, equals the closed-form integral to 1e-12
-  relative for 10 s steps, 5 s steps and an uneven partition, with and without discounting.
+- The semi-Markov return (Bradtke and Duff, 1995): the return of one trajectory with burns and
+  keep-out passes, under time, fuel, constraint-time and entry costs, equals the closed-form
+  integral to 1e-12 relative for 10 s steps, 5 s steps and an uneven partition, with and without
+  discounting.
 - Potential-based shaping with an absorbing terminal state (Ng, Harada and Russell, 1999; Sutton
   and Barto, 2nd ed., 2018, sec. 3.4): progress shaping over 50 random
   steps sums to $\Gamma_T\Phi(s_T) - \Phi(s_0)$ when truncated and to $-\Phi(s_0)$ at a terminal,
@@ -125,14 +126,16 @@ earlier results and is not aligned with the metrics.
 
 `tests/test_reward_env.py`, on episodes of the approach scenario:
 
-- The semi-Markov return: an open-loop burn through the keep-out sphere earns the same return, under every term
-  including the quadratic cost, at 10, 5 and 2.5 s steps, to 1e-10 relative (2e-14 observed).
-- Potential-based shaping: progress shaping changes the return of PD captures by exactly $w_p d_0$, from a clear
-  path and after cutting through the keep-out zone; a truncated episode keeps
+- The semi-Markov return: an open-loop burn through the keep-out sphere earns the same return, under
+  every term including the quadratic cost, at 10, 5 and 2.5 s steps, to 1e-10 relative (2e-14
+  observed).
+- Potential-based shaping: progress shaping changes the return of PD captures by exactly $w_p d_0$,
+  from a clear path and after cutting through the keep-out zone; a truncated episode keeps
   $\Gamma_T \Phi(s_T)$.
-- The linear-quadratic value (Bradtke, Ydstie and Barto, 1994): for the Riccati gain of the exactly discretized discounted quadratic cost, the 5-step
-  return plus the bootstrap $\Gamma_N V(x_N)$ equals $V(x_0) = -x_0^T P x_0$ to 1e-9 relative,
-  and without the bootstrap the gap is the discounted value of the last state.
+- The linear-quadratic value (Bradtke, Ydstie and Barto, 1994): for the Riccati gain of the exactly
+  discretized discounted quadratic cost, the 5-step return plus the bootstrap $\Gamma_N V(x_N)$
+  equals $V(x_0) = -x_0^T P x_0$ to 1e-9 relative, and without the bootstrap the gap is the
+  discounted value of the last state.
 - The success bonus is withheld from a capture after a keep-out violation; under an aligned
   reward a PD flight around the keep-out sphere earns more than one cutting through it, while
   the legacy reward still pays the capture bonus after the violation.
