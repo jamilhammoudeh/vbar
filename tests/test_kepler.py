@@ -316,9 +316,11 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
             MU,
         ),
         # 1e6 periods from a 7000 km perigee at e = 0.98, where 2 / r0 and v0^2 / mu cancel to
-        # 1 / 100 of either, so the period is known to about 300 eps. Estimated 2.1e-4;
-        # unchecked, 3.5e-5 off, and one ulp of the starting speed moves it 1.6e-4.
+        # 1 / 100 of either, so the period is known to within about 300 eps (50 here). Estimated
+        # 2.1e-4; unchecked, 3.5e-5 off, and one ulp of the starting speed moves it 1.6e-4.
         ([7e6, 0.0, 0.0], [0.0, 10618.238182916357, 0.0], 2060691819383.197, MU),
+        # The same over 1e5 periods, twice past the threshold: estimated 2.1e-5, 3.5e-6 off.
+        ([7e6, 0.0, 0.0], [0.0, 10618.238182916357, 0.0], 206069181938.3197, MU),
         # |a| = 1e-6 over 1e301: the bracket closes on an overflowed point, an infinite radius.
         ([1.0, 0.0, 0.0], [0.0, math.sqrt(1e6 + 2.0), 0.0], 1e301, 1.0),
     ],
