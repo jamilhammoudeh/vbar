@@ -54,7 +54,8 @@ class Transition:
 
 
 def _check_tau(tau: float | None) -> None:
-    # Below the smallest normal double 1 / (2 tau) overflows in the discounted exponential.
+    # 1 / (2 tau) in the discounted exponential overflows below about 2.8e-309, and weights
+    # under subnormal pieces lose digits; tau is kept to normal doubles.
     if tau is not None and not np.finfo(float).tiny <= tau < np.inf:
         raise ValueError("tau must be finite and at least 2.2e-308 s, or None for no discount")
 

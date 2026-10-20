@@ -216,7 +216,7 @@ def test_quadratic_cost_under_the_smallest_time_constants_is_a_point_cost():
 
 
 def test_quadratic_cost_under_the_largest_time_constants_is_the_undiscounted_cost():
-    # 60 tau / h overflows an integer for tau near 1e307; the piece count must not.
+    # 60 tau overflows to infinity for tau near 1e307; the segment's own length must bound it.
     cost = QuadraticCost(N, Q_COST, R_COST)
     a = np.array([3e-4, -1e-3, 2e-4])
     args = (X_COST[None], a[None], np.array([3000.0]))
@@ -318,8 +318,19 @@ def test_quadratic_cost_keeps_the_tail_of_a_cost_growing_under_discount():
 
 
 def test_quadratic_cost_of_a_long_segment_under_a_short_time_constant_is_cheap():
-    # 1e8 pieces of 0.01 s, all but the first few thousand discounted to nothing.
+    # 1e8 pieces of 0.01 s if built; past 60 tau the discount leaves nothing, so 60 are.
     cost = QuadraticCost(N, Q_COST, R_COST)
     a = np.array([3e-4, -1e-3, 2e-4])
     long, short = (cost(X_COST[None], a[None], np.array([d]), 0.01)[0] for d in (1e6, 1.0))
     assert long == pytest.approx(short, rel=1e-15)
+
+
+def test_a_long_undiscounted_segment_summed_in_blocks_matches_its_two_halves():
+    # 2e6 s is 8855 pieces, three blocks of 4096; each half needs two.
+    cost = QuadraticCost(N, Q_COST, R_COST)
+    a = np.array([3e-5, -1e-4, 2e-5])
+    phi, gamma = cw_discrete(N, 1e6)
+    middle = phi @ X_COST + gamma @ a
+    whole = cost(X_COST[None], a[None], np.array([2e6]), None)[0]
+    halves = cost(np.array([X_COST, middle]), np.array([a, a]), np.array([1e6, 1e6]), None)
+    assert whole == pytest.approx(halves.sum(), rel=1e-12)
