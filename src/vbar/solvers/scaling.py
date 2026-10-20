@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .stage import StageQP
+
 
 @dataclass(frozen=True)
 class HillScaling:
@@ -152,3 +154,51 @@ class HillScaling:
             `t` in seconds.
         """
         return float(t) / self.n
+
+    def stage(self, qp: StageQP) -> StageQP:
+        """The horizon problem in these units, with the same objective value.
+
+        With D = diag(1/L x3, 1/(n L) x3) on states and 1/(n^2 L) on inputs, the scaled problem
+        has A' = D A D^-1, B' = D B n^2 L, c' = D c and x0' = D x0; costs are transformed
+        so that every plan has the same objective in both units, and rows keep their values.
+
+        Parameters
+        ----------
+        qp : StageQP
+            A problem on Hill-frame states (m, m/s) and accelerations (m/s^2).
+
+        Returns
+        -------
+        StageQP
+            The same problem on nondimensional states and accelerations. Its solution maps back
+            through `state_si` and `accel_si`. Row multipliers equal those in SI units; the
+            dynamics multipliers are y' = D^-1 y, so y = D y', which is `y' / L` for the
+            position rows and `y' / (n L)` for the velocity rows.
+
+        Raises
+        ------
+        ValueError
+            If the states do not have six components.
+        """
+        if qp.A.shape[1] != 6:
+            raise ValueError("states must have six components")
+        nu = qp.B.shape[2]
+        to_scaled = 1.0 / self._state_units()
+        accel_unit = self.n * self.n * self.length
+        # z_si = to_si * z_scaled on z = (x, u).
+        to_si = np.concatenate([self._state_units(), np.full(nu, accel_unit)])
+        x_units = self._state_units()
+        return StageQP(
+            x0=qp.x0 * to_scaled,
+            A=to_scaled[:, None] * qp.A * x_units[None, :],
+            B=to_scaled[:, None] * qp.B * accel_unit,
+            c=qp.c * to_scaled,
+            Q=qp.Q * np.outer(to_si, to_si),
+            q=qp.q * to_si,
+            P=qp.P * np.outer(x_units, x_units),
+            p=qp.p * x_units,
+            C=None if qp.C is None else qp.C * to_si,
+            e=qp.e,
+            C_N=None if qp.C_N is None else qp.C_N * x_units,
+            e_N=qp.e_N,
+        )

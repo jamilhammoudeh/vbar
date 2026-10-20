@@ -364,7 +364,8 @@ and 2160 draws).
 
 ## Published examples behind the solvers
 
-The projection of [solvers.md](solvers.md) is checked against the cases below.
+The projection and the horizon solvers of [solvers.md](solvers.md) are checked against the cases
+below.
 
 **Boyd and Vandenberghe, *Convex Optimization*** (Cambridge University Press, 2004)
 
@@ -376,6 +377,18 @@ The projection of [solvers.md](solvers.md) is checked against the cases below.
   random instances to 1e-12.
 - Exercise 5.26: a feasible set that is a single point, where Slater's condition fails; its
   analogue, a row tangent to the thrust ball, is solved and reported without finite multipliers.
+
+**Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design*** (2nd
+ed., Nob Hill, 2017)
+
+- Sec. 8.8.3, eqs. (8.51) to (8.54): the Riccati recursion equals the sparse KKT solve of the
+  whole horizon to 1e-10 relative on exact CW with 40 time-varying stages, affine terms and
+  $R = 10^3 I$; the same recursion solving the unsymmetrized stage system by LU is off by 33% in
+  $u$ on that problem (our case, recomputed with our constants), and the test asserts it is off by
+  more than 10%, while the shipped one-triangle Cholesky recursion keeps $P_k$ symmetric to
+  rounding.
+- Sec. 8.8.4: condensing is avoided; at 200 stages of 60 s the condensed Hessian's condition
+  number exceeds 1e10 while the stage-wise solve matches the sparse solve to 1e-9.
 
 ## Methods
 
@@ -430,8 +443,9 @@ The projection of [solvers.md](solvers.md) is checked against the cases below.
 - Kochenderfer, Wheeler and Wray (sec. 14.1): ranking safety metrics by their unsafe tail, and
   sections 19.3 and 20.1: the navigation posterior as the reference for a stated belief.
 - Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design* (2nd ed.,
-  Nob Hill, 2017): bounds hold only for the model they are computed on (sec. 8.10), and the
-  preparation and feedback split of real-time iteration (sec. 8.9).
+  Nob Hill, 2017): bounds hold only for the model they are computed on (sec. 8.10), the
+  preparation and feedback split of real-time iteration (sec. 8.9), the Riccati recursion for
+  stage-structured QPs (sec. 8.8.3).
 - Boyd and Vandenberghe, *Convex Optimization* (2004): the KKT conditions behind the active-set
   projection (sec. 5.5.3), Farkas certificates of infeasibility (sec. 5.8.3), projection onto a
   halfspace (sec. 8.1.1), the sum-of-infeasibilities phase I and its conflicting rows
