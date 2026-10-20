@@ -95,6 +95,9 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
     the agent's latency there excludes the filter's measured wall time; other agents' attributes
     are not read.
     """
+    config = getattr(getattr(env, "unwrapped", env), "cfg", None)
+    if getattr(config, "training", False):
+        raise ValueError("scored runs need an environment built with training=False")
     if agent_seed is None:
         agent_seed = secrets.randbits(128)
     obs, info = env.reset(seed=seed)

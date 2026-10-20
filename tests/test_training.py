@@ -203,6 +203,8 @@ def test_pass_through_filter_never_intervenes_and_discrete_modes_are_refused():
 def test_scored_runs_refuse_an_environment_built_for_training():
     with pytest.raises(ValueError, match="training=False"):
         run_episode(ApproachEnv(ApproachConfig(training=True)), PDAgent(), seed=0)
+    with pytest.raises(ValueError, match="training=False"):
+        record_episode(ApproachEnv(ApproachConfig(training=True)), PDAgent(), seed=0)
     check_env(ApproachEnv(ApproachConfig(training=True)), skip_render_check=True)
 
 

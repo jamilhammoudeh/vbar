@@ -8,8 +8,8 @@ optimality gap, oracle bounds), so it can be recomputed from a saved run.
 ## Recording an episode
 
 `record_episode(env, agent, seed, agent_seed)` runs one episode the way `vbar.run_episode` does
-(the agent gets the view, its own random stream, the observations and the time) and returns an
-`Episode`:
+(the agent gets the view, its own random stream, the observations and the time; an environment
+built with `training=True` is refused) and returns an `Episode`:
 
 | Field | Meaning |
 |---|---|
