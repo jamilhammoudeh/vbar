@@ -118,7 +118,8 @@ def lagrange_coefficients(
         z = alpha * chi * chi
         if z < -(700.0**2):
             # sinh overflows beyond here. F(chi), sqrt(mu) times the time to reach chi, has the
-            # sign of chi and is past any double, so the residual is infinite with that sign.
+            # sign of chi and exceeds any realistic sqrt(mu) t (|a|^1.5 sinh(700) is 5e294
+            # even for |a| = 1e-6), so the residual is taken as infinite with that sign.
             return math.copysign(math.inf, chi), math.inf, math.nan, math.nan
         c2, c3 = _stumpff(z)
         r_norm = chi * chi * c2 + sigma0 * chi * (1.0 - z * c3) + r0_norm * (1.0 - z * c2)

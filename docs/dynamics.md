@@ -151,36 +151,39 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   equatorial orbits only the sums $\omega + M$ and $\Omega + \omega + M$ are defined, and angles
   are measured from the x axis when there is no node line.
 - `propagate_kepler(r0, v0, t, mu)`: universal-variable propagation through the Lagrange
-  coefficients $f, g, \dot f, \dot g$, valid on any conic (Bate, Mueller and White,
-  *Fundamentals of Astrodynamics*, ch. 4). The Stumpff functions use their series below
-  $|z| = 0.1$, where the closed forms cancel. Hyperbolic starting values follow Vallado,
-  *Fundamentals of Astrodynamics and Applications*, algorithm 8, except where its logarithm's
-  argument is at most 1 (short near-radial arcs, where it gives the wrong sign) or negative; the
-  short-arc value $\sqrt\mu\, t / r_0$ is used then. On an ellipse the time is first reduced to
-  within half a period with an exact remainder, since the coefficients are periodic; subtracting
-  whole periods instead loses a short arc's time entirely when the period is long (near-parabolic
-  ellipses have periods up to $10^{18}$ s). The universal anomaly is then bracketed (the Kepler
-  function rises with it at the rate of the radius) and found by safeguarded Newton (Press et
-  al., *Numerical Recipes*, 3rd ed., sec. 9.4): a bisection whenever a step leaves the bracket or
-  is not half the step before last, and at most a doubling while one side of the bracket is open.
-  Where the Stumpff functions would overflow ($\sinh$ beyond 700) the residual is taken as
-  infinite with the sign of the anomaly, since the Kepler function there is past any time a double
-  holds; a step can land there on near-parabolic hyperbolas over long times, or when $|a|$ is far
-  below one unit of the anomaly. Plain Newton failed at $e \gtrsim 0.9$ over many periods and on
-  near-radial hyperbolas. It stops when the step falls below $10^{-12}$ of the anomaly or the
-  bracket closes to rounding.
+  coefficients $f, g, \dot f, \dot g$, valid on any conic (Bate, Mueller and White, *Fundamentals of
+  Astrodynamics*, ch. 4). The Stumpff functions use their series below $|z| = 0.1$, where the closed
+  forms cancel. Hyperbolic starting values follow Vallado, *Fundamentals of Astrodynamics and
+  Applications*, algorithm 8, except where its logarithm's argument is at most 1 (short near-radial
+  arcs, where it gives the wrong sign) or negative; the short-arc value $\sqrt\mu\, t / r_0$ is used
+  then. On an ellipse the time is first reduced to within half a period with an exact remainder,
+  since the coefficients are periodic; subtracting whole periods instead loses a short arc's time
+  entirely when the period is long (near-parabolic ellipses have periods up to $10^{18}$ s). The
+  universal anomaly is then bracketed (the Kepler function rises with it at the rate of the radius)
+  and found by safeguarded Newton (Press et al., *Numerical Recipes*, 3rd ed., sec. 9.4): a
+  bisection whenever a step leaves the bracket or is not half the step before last, and at most a
+  doubling while one side of the bracket is open. Where the Stumpff functions would overflow
+  ($\sinh$ beyond 700) the residual is taken as infinite with the sign of the anomaly, since the
+  Kepler function there exceeds any realistic $\sqrt\mu\, t$; a step can land there on
+  near-parabolic hyperbolas over long times, or when $|a|$ is far below one unit of the anomaly.
+  Plain Newton failed at $e \gtrsim 0.9$ over many periods and on near-radial hyperbolas. It stops
+  when the step falls below $10^{-12}$ of the anomaly or the bracket closes to rounding.
 
-  In a check against a 60-digit reference, starting 6700 to 50 000 km out, the error is below
-  $4 \times 10^{-13}$ of the larger radius on random, near-radial, near-parabolic and parabolic
-  arcs of up to $10^6$ s either way, and below $2 \times 10^{-11}$ on arcs of up to $10^{12}$ s.
-  Flown back in along a near-radial hyperbola from far out, the terms of the Kepler function reach
-  $10^{19}$ and their difference never gets below its rounding: the state carries that rounding,
-  up to $3 \times 10^{-10}$ of the far radius. That is the universal-variable residual's
-  cancellation, not the problem's sensitivity (one ulp in the starting state moves the exact
-  answer by $6 \times 10^{-16}$ of the far radius). The tests fly ellipses up to $e = 0.98$ over
-  twenty periods, near-parabolic arcs of one second against a Taylor step, near-radial
-  hyperbolas and a year-long slow escape against an integrator, near-parabolic hyperbolas over up
-  to $10^{10}$ s against their composed halves, and 1000 random hyperbolas out and back.
+  Checked against a 60-digit reference from starts 6700 to 50 000 km out, the error mostly matches
+  how far one ulp of rounding in the starting state moves the exact answer, which is as good as
+  double precision allows. On arcs of up to $10^6$ s at up to three times escape speed it is below
+  $6 \times 10^{-13}$ of the larger radius. On ellipses it grows by a few $\varepsilon$ per
+  revolution, as the problem's own sensitivity does ($10^{-7}$ of the radius after $10^8$
+  revolutions); near-parabolic arcs of up to $10^{12}$ s stay within that sensitivity, up to
+  $2 \times 10^{-10}$. Near-radial hyperbolas through or toward perigee are the exception: there
+  the terms of the Kepler function grow far beyond $\sqrt\mu\, t$ and cancel, and the state carries
+  about $\varepsilon$ times the largest term over $\sqrt\mu\,|t|$. Flown back in from far out at
+  up to three times escape speed that is up to $3 \times 10^{-10}$ of the far radius, against a
+  sensitivity of a few $10^{-15}$; it grows with excess speed, to $4 \times 10^{-7}$ at 88 times
+  escape speed. The tests fly ellipses up to $e = 0.98$ over twenty periods, near-parabolic arcs of
+  one second against a Taylor step, near-radial hyperbolas and a year-long slow escape against an
+  integrator, near-parabolic hyperbolas over up to $10^{10}$ s, from perigee and from off it,
+  against their composed halves, and 1000 random hyperbolas out and back.
 
 ## J2 mean elements
 
