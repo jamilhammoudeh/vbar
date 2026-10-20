@@ -7,7 +7,7 @@ from vbar.agents import DISC27, DriftAgent, LLMAgent, PDAgent, command_fraction,
 from vbar.agents.llm import text_model
 from vbar.metrics import record_episode
 from vbar.rewards import Reward
-from vbar.safety import FilteredAgent, PassThroughFilter
+from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter
 from vbar.spacecraft import GaussianNav
 from vbar.training import FilteredEnv
 
@@ -204,6 +204,22 @@ def test_scored_runs_refuse_an_environment_built_for_training():
     with pytest.raises(ValueError, match="training=False"):
         run_episode(ApproachEnv(ApproachConfig(training=True)), PDAgent(), seed=0)
     check_env(ApproachEnv(ApproachConfig(training=True)), skip_render_check=True)
+
+
+class ReportingHalving(Halving):
+    """Halves every command and says so in a `FilterResult`, as a real filter would."""
+
+    def filter(self, obs, action):
+        safe = super().filter(obs, action)
+        return FilterResult(safe, True, active=True)
+
+
+def test_filtered_environment_takes_a_filter_result_like_the_filtered_agent():
+    env = FilteredEnv(ApproachEnv(ApproachConfig(start_state=START)), ReportingHalving())
+    env.reset(seed=0)
+    info = env.step([0.4, 0.0, -0.2])[-1]
+    assert np.array_equal(info["executed_action"], [0.2, 0.0, -0.1]) and info["intervened"]
+    assert env.unwrapped.record.filter_result.active
 
 
 @pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])

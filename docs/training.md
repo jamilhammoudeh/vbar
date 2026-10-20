@@ -66,13 +66,14 @@ filter". The filter gets `reset(view)` at each reset and `filter(obs, action)` w
 observation the learner acted on, never the truth. Each step's `info` gains:
 
 - `executed_action`: the command the filter let through, in the action mode's units;
-- `intervened`: whether it differs from the learner's action by more than `tol` (1e-6) on any
-  axis.
+- `intervened`: the filter's own report when it returns a `FilterResult`, otherwise whether the
+  command moved by more than `tol` (1e-6) on any axis, as for `FilteredAgent`
+  (`vbar.safety.run_filter` does both).
 
 An off-policy learner must store the executed action with the transition, since the next state
 follows from it, not from the learner's output (Sutton and Barto, sec. 6.5). `env.unwrapped.record`
-keeps both: `command` is the learner's action and `filtered` the executed one. Only the continuous
-action modes are supported. For scored runs the filter wraps the agent instead
+keeps both: `command` is the learner's action and `filtered` the executed one, with the filter's
+`FilterResult` in `filter_result`. Only the continuous action modes are supported. For scored runs the filter wraps the agent instead
 (`vbar.safety.FilteredAgent`, [environment.md](environment.md)).
 
 ## How it is tested

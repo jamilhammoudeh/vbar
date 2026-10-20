@@ -15,6 +15,7 @@ import gymnasium as gym
 import numpy as np
 
 from .agents.base import CONTINUOUS_MODES
+from .safety import run_filter
 from .scenarios.base import BaseEnv
 
 
@@ -45,11 +46,14 @@ class FilteredEnv(gym.Wrapper):
 
     def step(self, action):
         command = np.array(action, dtype=float)
-        executed = np.array(self.safety_filter.filter(self.last_obs.copy(), command), dtype=float)
+        result, _ = run_filter(self.safety_filter, self.last_obs, command, self.tol)
+        executed = np.array(result.action, dtype=float)
         obs, reward, terminated, truncated, info = self.env.step(executed)
         record = self.base.record
-        self.base.record = dataclasses.replace(record, command=command, filtered=executed)
+        self.base.record = dataclasses.replace(
+            record, command=command, filtered=executed, filter_result=result
+        )
         info["executed_action"] = executed.copy()
-        info["intervened"] = bool(np.max(np.abs(executed - command)) > self.tol)
+        info["intervened"] = bool(result.intervened)
         self.last_obs = obs
         return obs, reward, terminated, truncated, info

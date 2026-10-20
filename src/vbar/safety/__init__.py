@@ -57,6 +57,25 @@ class FilterResult:
             raise ValueError("a certificate horizon must be positive (inf for an invariant set)")
 
 
+def run_filter(
+    safety_filter, obs: np.ndarray, command: np.ndarray, tol: float
+) -> tuple[FilterResult, float]:
+    """The filter's decision on `command` and its measured wall time (s).
+
+    A filter may return a `FilterResult` or a bare action; a bare action gets status "feasible"
+    and `intervened` when any component moved by more than `tol`. The filter gets copies, so it
+    cannot rewrite the caller's command or observation.
+    """
+    t0 = time.perf_counter()
+    out = safety_filter.filter(np.array(obs, dtype=float), np.array(command, dtype=float))
+    elapsed = time.perf_counter() - t0
+    if isinstance(out, FilterResult):
+        return out, elapsed
+    safe = np.asarray(out, dtype=float)
+    moved = bool(np.max(np.abs(safe - command)) > tol)
+    return FilterResult(safe, moved, compute_s=elapsed), elapsed
+
+
 class PassThroughFilter:
     """Does not change the action. The 'safety filter off' condition."""
 
@@ -98,15 +117,7 @@ class FilteredAgent:
     def act(self, obs, info):
         # Own copies, so a filter that writes into its input cannot rewrite the recorded command.
         raw = np.array(self.agent.act(obs, info), dtype=float)
-        t0 = time.perf_counter()
-        out = self.filter.filter(obs, raw.copy())
-        elapsed = time.perf_counter() - t0
-        if isinstance(out, FilterResult):
-            result = out
-        else:
-            safe = np.asarray(out, dtype=float)
-            moved = bool(np.max(np.abs(safe - raw)) > self.tol)
-            result = FilterResult(safe, moved, compute_s=elapsed)
+        result, elapsed = run_filter(self.filter, obs, raw, self.tol)
         self.decisions += 1
         self.interventions += int(result.intervened)
         self.last_command = raw
@@ -115,4 +126,4 @@ class FilteredAgent:
         return np.asarray(result.action, dtype=float)
 
 
-__all__ = ["FILTER_STATUSES", "FilterResult", "FilteredAgent", "PassThroughFilter"]
+__all__ = ["FILTER_STATUSES", "FilterResult", "FilteredAgent", "PassThroughFilter", "run_filter"]
