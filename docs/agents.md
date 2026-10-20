@@ -81,9 +81,9 @@ tools)` function as the LLM agent ([llm-agents.md](llm-agents.md)). Its prompt g
 goal, the keep-out radius, the observed state, the step, the thrust limit and the steps left, asks
 for a JSON list of segments `{"ax", "ay", "az", "steps"}`, and on a revision includes the verdict's
 summary. `parse_plan(text, max_rows=1_000_000)` expands the segments into rows; numbers may be
-quoted. A reply that cannot be read (bad JSON, nesting too deep, a number too large for a float,
-steps that are not a whole number of at least zero, more than `max_rows` steps) is an empty plan,
-which the verifier rejects. A plan longer than the steps left is parsed, so the verifier can tell
+quoted. A reply that cannot be read (bad JSON, nesting deeper than 32 levels, a number too large
+for a float, steps that are not a whole number of at least zero, more than `max_rows` steps) is an
+empty plan, which the verifier rejects. A plan longer than the steps left is parsed, so the verifier can tell
 the model it is too long, and the verifier predicts at most the steps left. Every call's prompt,
 reply, tokens, cost and latency go to its `log`.
 

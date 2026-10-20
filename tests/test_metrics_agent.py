@@ -288,3 +288,8 @@ def test_reported_facts_pass_through_and_incomplete_training_figures_are_rejecte
     assert m["cost_of_learning"] is None and math.isnan(m["reasoning_faithfulness"])
     with pytest.raises(ValueError, match="propellant_kg"):
         AgentReport(cost_of_learning={"constraint_violations": 3, "learning_curve_area": 0.4})
+
+
+def test_a_deeply_nested_belief_is_no_belief_rather_than_an_error():
+    reply = '{"range_m": 1, "closing": true, "x": ' + "[" * 50000 + "]" * 50000 + "}"
+    assert parse_belief(reply) is None

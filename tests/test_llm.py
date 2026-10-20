@@ -18,6 +18,7 @@ from vbar.agents import (
     parse_belief,
     text_model,
 )
+from vbar.agents.llm import first_json, json_depth
 from vbar.agents.tools import CW_TOOLS
 from vbar.dynamics import cw_discrete
 from vbar.spacecraft import GaussianNav
@@ -316,3 +317,15 @@ def test_a_reply_without_text_is_a_parse_failure():
     agent = LLMAgent(lambda messages, tools: Reply(text=None))
     result = run_episode(env(steps=2), agent)
     assert result["dv_used_mps"] == 0.0 and agent.usage()["parse_failures"] == 2
+
+
+@pytest.mark.parametrize("depth", [33, 3000, 50000])
+def test_replies_nested_past_the_limit_are_refused_on_every_python(depth):
+    # 50000 levels make json.loads raise on every supported Python; 3000 parse on 3.13.
+    reply = '{"range_m": 1, "closing": true, "x": ' + "[" * depth + "]" * depth + "}"
+    assert first_json(reply) is None and parse_belief(reply) is None
+
+
+def test_brackets_inside_strings_do_not_count_as_nesting():
+    assert json_depth('{"note": "[[[[{{{{", "v": [1, [2]]}') == 3
+    assert json_depth(r'{"q": "an escaped \" [ quote"}') == 1

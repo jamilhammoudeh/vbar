@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 
+from ..agents.llm import MAX_JSON_DEPTH, json_depth
 from .episode import Episode
 
 Posterior = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
@@ -54,9 +55,11 @@ class AgentReport:
 def parse_belief(text: str) -> dict[str, Any] | None:
     """The first JSON object in a reply with a numeric `range_m` and a boolean `closing`."""
     for match in re.finditer(r"\{[^{}]*\}", text):
+        if json_depth(match.group(0)) > MAX_JSON_DEPTH:
+            continue
         try:
             data = json.loads(match.group(0))
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
         range_m, closing = data.get("range_m"), data.get("closing")
         if isinstance(range_m, int | float) and isinstance(closing, bool):
