@@ -204,15 +204,17 @@ def lagrange_coefficients(
     _, r_norm, c2, c3 = residual_and_radius(chi)
     z = alpha * chi * chi
     # On near-radial hyperbolas toward perigee the residual's terms grow far beyond sqrt(mu) t
-    # and cancel, so chi stands for a time off by about eps * largest / sqrt(mu), which moves the
-    # end position by that times the end speed. Past 1e-5 of the end radius, or with no finite
-    # positive radius (a bracket closed on an overflowed point), the state is refused. The
-    # velocity also carries the radius's own rounding; on unbound arcs with an estimate above
-    # 1e-11 its relative error was measured within 6 times the estimate.
+    # and cancel, so chi stands for a time off by about eps times their excess over sqrt(mu) |t|,
+    # over sqrt(mu); that moves the end position by the time times the end speed. Past 1e-5 of
+    # the end radius, or with no finite positive radius (a bracket closed on an overflowed
+    # point), the state is refused. The rounding of t itself is left out: it moves the end on
+    # any method, and from apogee to perigee of an ellipse with 1 - e near 1e-7 it alone exceeds
+    # 1e-5. The velocity also carries the radius's own rounding; on unbound arcs with an
+    # estimate above 1e-11 its relative error was measured within 6 times the estimate.
     largest = max(
         abs(chi * chi * chi * c3), abs(sigma0 * chi * chi * c2), abs(r0_norm * chi * (1.0 - z * c3))
     )
-    late = _EPS * largest / sqrt_mu
+    late = _EPS * max(largest - sqrt_mu * abs(t), 0.0) / sqrt_mu
     speed = math.sqrt(max(mu * (2.0 / r_norm - alpha), 0.0)) if r_norm > 0.0 else 0.0
     if not (0.0 < r_norm < math.inf and late * speed <= 1e-5 * r_norm):
         raise ValueError("the universal kepler terms cancel to rounding on this arc")
