@@ -129,7 +129,8 @@ release may change the public API, and every such change is listed under Changed
 - `propagate_kepler` and `lagrange_coefficients` converge at high eccentricity over many periods:
   an elliptic time is reduced to one period and the universal anomaly is solved inside a bracket.
   Before, a few in a thousand random orbits with e above 0.89, propagated over several periods,
-  raised "did not converge".
+  raised "did not converge", as did about one in five random hyperbolas flown back from far out,
+  where the solver now stops when the bracket closes to rounding.
 - LLM replies nested more than 32 levels deep are parse failures on every Python version; on 3.13
   and later, deeper replies used to parse and the belief parser accepted them.
 

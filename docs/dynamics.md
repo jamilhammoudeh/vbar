@@ -157,9 +157,13 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   *Fundamentals of Astrodynamics and Applications*, algorithm 8. On an ellipse the time is first
   reduced to one period, since the coefficients are periodic. The universal anomaly is found by
   Newton's method inside a bracket (the Kepler function rises with it at the rate of the radius),
-  with a bisection whenever a step leaves the bracket, so it converges at any eccentricity and
-  time span; plain Newton from the elliptic starting value failed at $e \gtrsim 0.9$ over many
-  periods.
+  with a bisection whenever a step leaves the bracket; plain Newton from the elliptic starting
+  value failed at $e \gtrsim 0.9$ over many periods. It stops when the step falls below
+  $10^{-12}$ of the anomaly or the bracket closes to rounding. The second case occurs far out on
+  near-radial hyperbolas, where the terms of the Kepler function reach $10^{17}$ and their
+  difference never gets below its rounding; the returned state then carries that rounding, about
+  $10^{-12}$ of the radius. The tests fly ellipses up to $e = 0.98$ over twenty periods and 500
+  random hyperbolas up to $10^6$ s out and back.
 
 ## J2 mean elements
 

@@ -145,6 +145,31 @@ def test_propagation_runs_backwards_to_the_start():
     assert np.linalg.norm(v2 - v0) < 1e-13 * np.linalg.norm(v0)
 
 
+def test_near_radial_hyperbola_runs_back_to_its_start():
+    r0 = np.array([-9500485.524854492, 4807575.325180032, 4890361.797190876])
+    v0 = np.array([-11034.507532596703, -3746.9491895108595, 20270.285813437044])
+    t = -920814.2466715943
+    r1, v1 = propagate_kepler(r0, v0, t, MU)
+    # At 2e10 m the velocity is 0.03 deg off radial and the residual's terms cancel from 9e16,
+    # so the return trip ends on a bracket closed to rounding, not on a small Newton step.
+    r2, _ = propagate_kepler(r1, v1, -t, MU)
+    assert np.linalg.norm(r2 - r0) < 1e-12 * np.linalg.norm(r1)
+
+
+def test_random_hyperbolas_run_back_to_their_start():
+    rng = np.random.default_rng(1)
+    for _ in range(500):
+        r0 = rng.normal(size=3)
+        r0 *= rng.uniform(6.7e6, 5e7) / np.linalg.norm(r0)
+        v_escape = math.sqrt(2.0 * MU / np.linalg.norm(r0))
+        v0 = rng.normal(size=3)
+        v0 *= v_escape * rng.uniform(1.0001, 3.0) / np.linalg.norm(v0)
+        t = rng.uniform(-1e6, 1e6)
+        r1, v1 = propagate_kepler(r0, v0, t, MU)
+        r2, _ = propagate_kepler(r1, v1, -t, MU)
+        assert np.linalg.norm(r2 - r0) < 1e-10 * np.linalg.norm(r1)
+
+
 @pytest.mark.parametrize("e", [0.9, 0.9477, 0.98])
 def test_universal_propagation_over_many_periods_matches_the_mean_anomaly(e):
     elements = np.array([10818400.0, e, 5.187, 2.41, 1.479, 0.089])

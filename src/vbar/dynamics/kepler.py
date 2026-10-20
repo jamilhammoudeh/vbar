@@ -148,6 +148,11 @@ def lagrange_coefficients(
             lo = max(lo, chi)
         else:
             hi = min(hi, chi)
+        width = hi - lo
+        if math.isfinite(width) and width <= 4.0 * math.ulp(max(abs(lo), abs(hi))):
+            # The residual is at its rounding floor (far out on a hyperbola, where it is the
+            # difference of large terms) and the bracket has closed on the root.
+            break
         step = chi - residual / r_norm
         if abs(step - chi) < 1e-12 * max(1.0, abs(chi)):
             chi = step
