@@ -59,6 +59,14 @@ class Constraint(Protocol):
         ...
 
 
+def _vector3(value, name: str) -> tuple[float, float, float]:
+    """`value` as three floats, so a constraint given a list or array shares nothing mutable."""
+    vector = [float(c) for c in value]
+    if len(vector) != 3:
+        raise ValueError(f"{name} must have three components")
+    return vector[0], vector[1], vector[2]
+
+
 @dataclass(frozen=True)
 class KeepOut:
     """Stay outside a sphere of `radius` (m) around the target; margin rho - radius (m)."""
@@ -209,6 +217,8 @@ class ApproachCone:
     resolution: ClassVar[float] = 1e-3
 
     def __post_init__(self):
+        object.__setattr__(self, "axis", _vector3(self.axis, "axis"))
+        object.__setattr__(self, "apex", _vector3(self.apex, "apex"))
         if not 0.0 < self.half_angle < 0.5 * np.pi:
             raise ValueError("half_angle must be between 0 and pi/2")
         if not np.linalg.norm(self.axis) > 0.0:
@@ -245,6 +255,9 @@ class SunExclusion:
     rate: float
     name: str = "sun_exclusion"
     resolution: ClassVar[float] = 1e-5
+
+    def __post_init__(self):
+        object.__setattr__(self, "sun_direction", _vector3(self.sun_direction, "sun_direction"))
 
     def sun_at(self, t: float | np.ndarray) -> np.ndarray:
         """Unit Sun direction in Hill axes at `t` s, shape (..., 3)."""
@@ -340,6 +353,8 @@ class ZoneEntry:
     resolution: ClassVar[float] = 1e-3
 
     def __post_init__(self):
+        object.__setattr__(self, "semi_axes", _vector3(self.semi_axes, "semi_axes"))
+        object.__setattr__(self, "center", _vector3(self.center, "center"))
         if not min(self.semi_axes) > 0.0:
             raise ValueError("semi_axes must be positive")
 

@@ -30,6 +30,7 @@ release may change the public API, and every such change is listed under Changed
 - SECURITY.md.
 - Constraint types: speed and closing-speed limits, range-rate gate tables, an approach cone with
   its apex at the port, Sun exclusion, passive-speed envelopes and an approach-zone ellipsoid.
+  Vector parameters are held as tuples, and the agent's view gets copies of every parameter.
 - `FilterResult` with a status, slack, conflicting constraints and compute time; `FilteredAgent`
   keeps the last command, result and measured filter time.
 - `vbar.metrics`: `record_episode` returns an `Episode` with every step record, and

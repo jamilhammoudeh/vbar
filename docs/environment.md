@@ -232,6 +232,8 @@ sign-convention check every agent passes before scoring is on [agents.md](agents
 - An agent that hashes candidate seeds finds an `agent_seed` of 12 and no drawn one; an agent that
   resets a twin environment with seeds 0 to 199 finds episode seed 150 from its first observation
   and no drawn seed; equal seeds are refused, and drawn seeds repeat the run.
+- An agent that overwrites every list and array in its view's constraints, a user constraint
+  holding a list among them, leaves the environment's constraints unchanged.
 - The PD agent flies the same trajectory in normalized and acceleration modes, in thrust mode
   under the constant-thrust drive, and with observation channels on; the LLM agent's fractions are
   converted to each mode.

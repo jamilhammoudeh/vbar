@@ -303,3 +303,17 @@ def test_certificate_and_refined_minimum_bracket_the_dense_minimum(constraint, s
     # 4001 samples over at most 30 s miss a smooth minimum by far less than 1e-5 m/s.
     assert found.margin <= dense.min() + 1e-6
     assert found.margin >= found.lower_bound
+
+
+def test_vector_parameters_given_as_lists_or_arrays_are_held_as_tuples():
+    axis = [0.0, -1.0, 0.0]
+    cone = ApproachCone(0.2, axis=axis, apex=np.array([0.0, -2.0, 0.0]))
+    zone = ZoneEntry([1000.0, 2000.0, 1000.0], center=np.zeros(3))
+    sun = SunExclusion(0.1, [1.0, 0.0, 0.0], N)
+    axis[1] = 1.0
+    assert cone.axis == (0.0, -1.0, 0.0) and cone.apex == (0.0, -2.0, 0.0)
+    assert zone.semi_axes == (1000.0, 2000.0, 1000.0) and zone.center == (0.0, 0.0, 0.0)
+    assert sun.sun_direction == (1.0, 0.0, 0.0)
+    assert len({cone, zone, sun}) == 3
+    with pytest.raises(ValueError, match="three components"):
+        ZoneEntry([1000.0, 2000.0])

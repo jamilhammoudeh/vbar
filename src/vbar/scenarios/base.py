@@ -131,10 +131,14 @@ def _joined(first: Actuation, second: Actuation) -> Actuation:
 
 
 def public_spec(constraint: Constraint) -> dict[str, Any]:
-    """A constraint's type and parameters, as agents may see them."""
+    """A constraint's type and parameters, as agents may see them.
+
+    The parameters are copies, so an agent changing them leaves the environment's constraint as
+    it was, whatever types the constraint holds.
+    """
     params: dict[str, Any] = {}
     if is_dataclass(constraint):
-        params = {f.name: getattr(constraint, f.name) for f in fields(constraint)}
+        params = {f.name: copy.deepcopy(getattr(constraint, f.name)) for f in fields(constraint)}
     params.pop("name", None)
     return {"type": constraint.name, **params}
 

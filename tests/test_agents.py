@@ -1,5 +1,6 @@
 import dataclasses
 import re
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -8,6 +9,7 @@ from vbar import ApproachConfig, ApproachEnv, ScoredRun, run_episode
 from vbar.agents import LLMAgent, PDAgent, action_scale, agent_generator
 from vbar.agents.base import AgentView
 from vbar.agents.llm import text_model
+from vbar.constraints import ApproachCone, KeepOut
 from vbar.metrics import record_episode
 from vbar.spacecraft import GaussianNav
 
@@ -143,6 +145,55 @@ def test_a_small_episode_seed_is_found_from_the_first_observation_and_a_drawn_on
     assert guesser.guess == 150
     result = run_episode(ApproachEnv(config), guesser)
     assert guesser.guess is None and result["seed"] >= 200
+
+
+@dataclasses.dataclass(frozen=True)
+class FarSphere:
+    """A keep-out sphere whose centre is held in a list, as a user's constraint might hold it."""
+
+    center: list
+    radius: float = 1.0
+    name: str = "far_sphere"
+    resolution: ClassVar[float] = 1e-3
+
+    def margin(self, state, t=0.0):
+        offset = np.asarray(state)[..., :3] - np.asarray(self.center, dtype=float)
+        return np.linalg.norm(offset, axis=-1) - self.radius
+
+    def rate_bound(self, speed, accel, rho_min=0.0):
+        return speed
+
+
+class ListedConstraintsEnv(ApproachEnv):
+    def _constraints(self):
+        return (
+            KeepOut(self.cfg.keep_out_radius),
+            ApproachCone(0.3, axis=np.array([0.0, -1.0, 0.0]), apex=[0.0, -2.0, 0.0]),
+            FarSphere([0.0, 5000.0, 0.0]),
+        )
+
+
+class Tamperer:
+    """Overwrites every list or array in the constraints of its view."""
+
+    name = "tamperer"
+
+    def reset(self, view, rng=None):
+        for spec in view.constraints:
+            for value in spec.values():
+                if isinstance(value, list | np.ndarray):
+                    value[:] = [0.0] * len(value)
+
+    def act(self, obs, info):
+        return np.zeros(3)
+
+
+def test_an_agent_cannot_change_the_environments_constraints_through_its_view():
+    env = ListedConstraintsEnv(ApproachConfig(max_steps=3))
+    run_episode(env, Tamperer(), seed=0)
+    _, cone, sphere = env.constraints
+    assert cone.axis == (0.0, -1.0, 0.0) and cone.apex == (0.0, -2.0, 0.0)
+    assert sphere.center == [0.0, 5000.0, 0.0]
 
 
 class RandomAgent:
