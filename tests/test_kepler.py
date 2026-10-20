@@ -173,7 +173,8 @@ def random_hyperbola(rng, radial):
 @pytest.mark.parametrize("radial", [False, True])
 def test_random_hyperbolas_run_back_to_their_start(radial):
     # Flown back in along a near-radial arc, the residual's terms reach 1e19 and cancel, so the
-    # return carries their rounding: up to 3e-10 of the far radius in 8000 trials.
+    # return carries their rounding: up to 3e-10 of the far radius in 8000 trials. The problem
+    # itself is far better conditioned; this is the formulation's limit.
     bound = 1e-9 if radial else 1e-10
     rng = np.random.default_rng(1)
     for _ in range(500):
@@ -200,6 +201,44 @@ def test_near_radial_hyperbolic_arcs_match_an_integrator():
         start = np.r_[r0, v0]
         reference = solve_ivp(two_body, (0.0, t), start, "DOP853", rtol=1e-12, atol=1e-6).y[:3, -1]
         assert np.linalg.norm(r1 - reference) < 1e-9 * np.linalg.norm(reference)
+
+
+def test_a_slow_escape_flown_for_a_year_matches_an_integrator():
+    # 169 m/s of excess speed from a 7000 km perigee; with the near-zero energy the Kepler
+    # function's sinh terms overflow if the solver ever steps far past the root.
+    r_p = 7000e3
+    r0 = np.array([r_p, 0.0, 0.0])
+    v0 = np.array([0.0, 1.000125 * math.sqrt(2.0 * MU / r_p), 0.0])
+    t = 3e7
+    r1, _ = propagate_kepler(r0, v0, t, MU)
+    start = np.r_[r0, v0]
+    reference = solve_ivp(two_body, (0.0, t), start, "DOP853", rtol=1e-12, atol=1e-6).y[:3, -1]
+    assert np.linalg.norm(r1 - reference) < 1e-9 * np.linalg.norm(reference)
+
+
+@pytest.mark.parametrize("t", [1e8, -1e8, 1e9, -1e9, 1e10, -1e10])
+def test_long_near_parabolic_hyperbolic_arcs_compose_from_their_halves(t):
+    r_p = 7000e3
+    r0 = np.array([r_p, 0.0, 0.0])
+    v0 = np.array([0.0, (1.0 + 1e-6) * math.sqrt(2.0 * MU / r_p), 0.0])
+    r1, v1 = propagate_kepler(r0, v0, t, MU)
+    r_half, v_half = propagate_kepler(r0, v0, 0.5 * t, MU)
+    r2, v2 = propagate_kepler(r_half, v_half, 0.5 * t, MU)
+    assert np.linalg.norm(r2 - r1) < 1e-11 * np.linalg.norm(r1)
+    energy = [0.5 * v @ v - MU / np.linalg.norm(r) for r, v in ((r0, v0), (r1, v1))]
+    assert energy[1] == pytest.approx(energy[0], rel=1e-6)
+
+
+def test_a_near_radial_hyperbola_in_canonical_units_runs_back_without_overflow():
+    # mu = 1 and |a| far below one unit: a doubling floor of one unit of chi overshoots into
+    # sinh overflow, which the solver must read as being past the root.
+    r0 = np.array([1.3062270583062603, 0.5741915299732164, 1.4093036972845525])
+    v0 = np.array([487.6565855806324, 214.30050316875523, 526.0886762042227])
+    t = -586750.502222578
+    r1, _ = propagate_kepler(r0, v0, t, 1.0)
+    r_half, v_half = propagate_kepler(r0, v0, 0.5 * t, 1.0)
+    r2, _ = propagate_kepler(r_half, v_half, 0.5 * t, 1.0)
+    assert np.linalg.norm(r2 - r1) < 1e-8 * np.linalg.norm(r1)
 
 
 @pytest.mark.parametrize("excess", [-1e-4, -1e-6, -1e-10, -1e-12, 1e-10, 1e-12])

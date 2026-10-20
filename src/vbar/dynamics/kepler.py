@@ -108,17 +108,29 @@ def lagrange_coefficients(
     r0 = np.asarray(r0, dtype=float)
     v0 = np.asarray(v0, dtype=float)
     r0_norm = float(np.linalg.norm(r0))
+    # Python floats throughout, so overflow gives inf rather than numpy warnings.
+    t = float(t)
     sqrt_mu = math.sqrt(mu)
     sigma0 = float(r0 @ v0) / sqrt_mu
     alpha = 2.0 / r0_norm - float(v0 @ v0) / mu
 
     def residual_and_radius(chi: float) -> tuple[float, float, float, float]:
         z = alpha * chi * chi
+        if z < -(700.0**2):
+            # sinh overflows beyond here. F(chi), sqrt(mu) times the time to reach chi, has the
+            # sign of chi and is past any double, so the residual is infinite with that sign.
+            return math.copysign(math.inf, chi), math.inf, math.nan, math.nan
         c2, c3 = _stumpff(z)
         r_norm = chi * chi * c2 + sigma0 * chi * (1.0 - z * c3) + r0_norm * (1.0 - z * c2)
         residual = (
-            chi**3 * c3 + sigma0 * chi * chi * c2 + r0_norm * chi * (1.0 - z * c3) - sqrt_mu * t
+            chi * chi * chi * c3
+            + sigma0 * chi * chi * c2
+            + r0_norm * chi * (1.0 - z * c3)
+            - sqrt_mu * t
         )
+        if not (math.isfinite(residual) and math.isfinite(r_norm)):
+            # Terms that overflow (or meet as inf - inf) only far past the root.
+            return math.copysign(math.inf, chi), math.inf, c2, c3
         return residual, r_norm, c2, c3
 
     if alpha > 0.0:
@@ -186,7 +198,7 @@ def lagrange_coefficients(
     _, r_norm, c2, c3 = residual_and_radius(chi)
     z = alpha * chi * chi
     f = 1.0 - chi * chi * c2 / r0_norm
-    g = t - chi**3 * c3 / sqrt_mu
+    g = t - chi * chi * chi * c3 / sqrt_mu
     f_dot = sqrt_mu * chi * (z * c3 - 1.0) / (r_norm * r0_norm)
     g_dot = 1.0 - chi * chi * c2 / r_norm
     return f, g, f_dot, g_dot
