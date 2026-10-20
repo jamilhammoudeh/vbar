@@ -326,7 +326,8 @@ def test_quadratic_cost_of_a_long_segment_under_a_short_time_constant_is_cheap()
 
 
 def test_a_long_undiscounted_segment_summed_in_blocks_matches_its_two_halves():
-    # 2e6 s is 8855 pieces, three blocks of 4096; each half needs two.
+    # 2e6 s is 8855 pieces, three blocks of 4096; each half needs two. The two sums differ by
+    # 1.4e-14 (3.7e-14 with SciPy 1.11), well inside the bound.
     cost = QuadraticCost(N, Q_COST, R_COST)
     a = np.array([3e-5, -1e-4, 2e-5])
     phi, gamma = cw_discrete(N, 1e6)
