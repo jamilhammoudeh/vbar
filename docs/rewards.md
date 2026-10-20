@@ -57,22 +57,22 @@ $s$ is the time from the start of the step and $d$ the distance to the goal.
 - **Quadratic.** `QuadraticCost(n, q, r, reference)` integrates the cost rate exactly under
   Clohessy-Wiltshire motion: over a segment held at acceleration $\mathbf a$ from state
   $\mathbf x_0$ the discounted integral is $\mathbf z^T W \mathbf z$ with
-  $\mathbf z = (\mathbf x_0, \mathbf a, 1)$, where $W$ comes from Van Loan's block exponential
-  (Van Loan, *Computing integrals involving the matrix exponential*, 1978): with
-  $F = \begin{bmatrix} A & B & 0 \\ 0 & 0 & 0 \\ 0 & 0 & 0\end{bmatrix} - \tfrac{1}{2\tau} I$
-  and $C$ the cost matrix of $\mathbf z$, $\exp\left(\begin{bmatrix} -F^T & C \\ 0 & F\end{bmatrix}
-  d\right)$ has blocks $G_{12}$, $G_{22}$ and $W = G_{22}^T G_{12}$. The $\tfrac{1}{2\tau}$ shift
-  folds the discount into the state; since it makes the exponential grow as $e^{d/2\tau}$, and
-  a long segment spans many orbits of CW motion, a segment is integrated in $k$ pieces
-  $h = d/k \le \min(\tau, 1/4n)$,
-  $W(d) = \sum_j e^{-jh/\tau} E_j^T W(h) E_j$ with $E_j$ the undiscounted transition of
-  $\mathbf z$ over $jh$, taken from the closed-form CW matrices; pieces starting past $60\tau$
-  are skipped, since a held acceleration makes the cost grow like $s^4$ and
-  $e^{-x}x^4/24 < 10^{-20}$ beyond $x = 60$. SciPy 1.11, the oldest supported, computes one-radian blocks to only
-  $10^{-11}$ and quarter-radian ones to $4 \times 10^{-15}$, and powers of its one-piece
-  transition drift by $10^{-11}$ over a hundred pieces; with both choices the cost is good to
-  $3 \times 10^{-14}$ there and $10^{-15}$ on current SciPy. The duration is integrated as given,
-  since real-time latency makes it arbitrary. It is exact for the CW model only.
+  $\mathbf z = (\mathbf x_0, \mathbf a, 1)$, where $W$ comes from Van Loan's block exponential (Van
+  Loan, *Computing integrals involving the matrix exponential*, 1978): with
+  $F = \begin{bmatrix} A & B & 0 \\ 0 & 0 & 0 \\ 0 & 0 & 0\end{bmatrix} - \tfrac{1}{2\tau} I$ and
+  $C$ the cost matrix of $\mathbf z$,
+  $\exp\left(\begin{bmatrix} -F^T & C \\ 0 & F\end{bmatrix} d\right)$ has blocks $G_{12}$, $G_{22}$
+  and $W = G_{22}^T G_{12}$. The $\tfrac{1}{2\tau}$ shift folds the discount into the state; since
+  it makes the exponential grow as $e^{d/2\tau}$, and a long segment spans many orbits of CW motion,
+  a segment is integrated in $k$ pieces $h = d/k \le \min(\tau, 1/4n)$,
+  $W(d) = \sum_j e^{-jh/\tau} E_j^T W(h) E_j$ with $E_j$ the undiscounted transition of $\mathbf z$
+  over $jh$, taken from the closed-form CW matrices; pieces starting past $60\tau$ are skipped,
+  since a held acceleration makes the cost grow like $s^4$ and $e^{-x}x^4/24 < 10^{-20}$ beyond
+  $x = 60$. SciPy 1.11, the oldest supported, computes one-radian blocks to only $10^{-11}$ and
+  quarter-radian ones to $4 \times 10^{-15}$, and powers of its one-piece transition drift by
+  $10^{-11}$ over a hundred pieces; with both choices the cost is good to $3 \times 10^{-14}$ there
+  and $2 \times 10^{-15}$ on current SciPy. The duration is integrated as given, since real-time
+  latency makes it arbitrary. It is exact for the CW model only.
 
 ## Transitions
 
@@ -125,13 +125,13 @@ earlier results and is not aligned with the metrics.
 - It stays at 1e-10 on segments 100, 2000 and 5000 times longer than $\tau$, where one block
   exponential lost five digits or overflowed, and to 1e-12 on 1e4, 3e4 and 1e5 s segments
   without discounting or with $\tau$ = 1e5 s, where one block was up to 1e-3 off with SciPy 1.11.
+  A mean motion that is not positive is refused, and so is a time constant that is not positive
+  and finite.
 - It matches quadrature to 1e-13 on segments of 7.4 ms and 9.988 s, durations off any grid that
-  were 6e-8 off when rounded to 1 ns.
+  were up to 6e-8 off when rounded to 1 ns, and on a 300 s segment split into two pieces.
 - Under $\tau$ = 1000 s a 1e5 s segment with a held acceleration matches quadrature to 1e-13 (the
   former cut at a discount of 1e-17 lost 1.7e-12), and a 1e6 s segment under $\tau$ = 0.01 s, 1e8
   pieces long, costs what a 1 s segment does without building them.
-  A mean motion that is not positive is refused, and so is a time constant that is not positive
-  and finite.
 - A batch of transitions gives each row its own reward; invalid time constants and weights are
   rejected.
 
