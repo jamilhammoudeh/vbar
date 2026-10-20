@@ -14,7 +14,7 @@ import pytest
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DISC27, PDAgent, remote
-from vbar.agents.base import AgentView
+from vbar.agents.base import AgentView, agent_generator
 from vbar.agents.remote import AgentServer, RemoteAgentError, main, serve_agent
 from vbar.spacecraft import GaussianNav
 
@@ -127,7 +127,9 @@ def test_the_server_sends_only_what_an_in_process_agent_receives():
     seen = raw_session(handle)
     assert set(seen["reset"]) == {"type", "view", "seed", "spawn_key"}
     assert set(seen["reset"]["view"]) == {f.name for f in dataclasses.fields(AgentView)}
-    assert seen["reset"]["seed"] == 5 and seen["reset"]["spawn_key"] == []
+    # The seed is the hashed one behind an in-process agent's generator, not agent_seed 5.
+    assert seen["reset"]["seed"] == agent_generator(5).bit_generator.seed_seq.entropy
+    assert seen["reset"]["spawn_key"] == []
     assert set(seen["act"]) == {"type", "obs", "info"} and set(seen["act"]["info"]) == {"time_s"}
     assert seen["close"] == {"type": "close"}
 

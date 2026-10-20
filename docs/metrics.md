@@ -560,7 +560,7 @@ from vbar.metrics import Trace, negative_intervals, record_episode, total
 
 # Free drift that passes about 16 m from the target.
 config = ApproachConfig(start_state=(0.0, 150.0, 0.0, 0.0, -1.5, 0.0), max_steps=20)
-episode = record_episode(ApproachEnv(config), DriftAgent(), seed=0, agent_seed=0)
+episode = record_episode(ApproachEnv(config), DriftAgent(), seed=0, agent_seed=1)
 inside = negative_intervals(KeepOut(50.0), Trace(episode))
 print([(round(a, 2), round(b, 2)) for a, b in inside])  # [(67.29, 129.48)]
 print(round(total(inside), 2))  # 62.19 s inside the keep-out sphere
@@ -574,7 +574,7 @@ from vbar.agents import PDAgent
 from vbar.metrics import MetricSettings, evaluate, record_episode
 
 config = ApproachConfig(start_state=(-150.0, -400.0, 20.0, 0.0, 0.0, 0.0), max_steps=120)
-episode = record_episode(ApproachEnv(config), PDAgent(), seed=0, agent_seed=0)
+episode = record_episode(ApproachEnv(config), PDAgent(), seed=0, agent_seed=1)
 m = evaluate(episode, MetricSettings(plume_range=60.0))
 print(m["success"], m["failure_label"], m["time_to_complete"])  # True None 630.0
 print(round(m["delta_v"], 3), round(m["min_margin"]["keep_out"], 2))  # 2.718 54.26
@@ -591,7 +591,7 @@ from vbar.metrics import summarize
 runs = []
 for x0 in (-150.0, -100.0, -50.0, 0.0, 50.0, 100.0):
     config = ApproachConfig(start_state=(x0, -400.0, 20.0, 0.0, 0.0, 0.0), max_steps=120)
-    runs.append(evaluate(record_episode(ApproachEnv(config), PDAgent(), seed=0, agent_seed=0)))
+    runs.append(evaluate(record_episode(ApproachEnv(config), PDAgent(), seed=0, agent_seed=1)))
 keep_out = summarize("min_margin", [m["min_margin"] for m in runs])["keep_out"]
 print(round(keep_out["worst"], 2), round(keep_out["tail_mean"], 2))  # 54.26 54.26
 rate = summarize("success", [m["success"] for m in runs])
@@ -625,7 +625,7 @@ class Halving:
 
 config = ApproachConfig(start_state=(0.0, -400.0, 0.0, 0.0, 0.0, 0.0), max_steps=30)
 agent = FilteredAgent(PDAgent(), Halving())
-episode = record_episode(ApproachEnv(config), agent, seed=0, agent_seed=0)
+episode = record_episode(ApproachEnv(config), agent, seed=0, agent_seed=1)
 f = {**filter_metrics(episode), **filter_behaviour(episode)}
 print(f["intervention_rate"], round(f["intervention_size"], 5))  # 1.0 0.00486 (m/s^2)
 # Every PD command on its own would have stayed clear; one decision at rest with a row active.

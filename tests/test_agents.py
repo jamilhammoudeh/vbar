@@ -8,6 +8,7 @@ from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import LLMAgent, PDAgent, action_scale
 from vbar.agents.base import AgentView
 from vbar.agents.llm import text_model
+from vbar.metrics import record_episode
 from vbar.spacecraft import GaussianNav
 
 
@@ -33,8 +34,9 @@ def test_agents_receive_only_the_view_a_random_stream_and_the_time():
     assert view.goal["hold_point"] == (0.0, -100.0, 0.0)
     assert view.constraints == ({"type": "keep_out", "radius": 50.0},)
     assert spy.info_keys == {"time_s"}
-    # The stream is a root seeded by the agent seed alone, not a child of the episode seed.
-    assert rng.bit_generator.seed_seq.entropy == result["agent_seed"]
+    # The stream is a root seeded by a hash of the agent seed, not a child of the episode seed,
+    # so the agent cannot read the agent seed back from it.
+    assert rng.bit_generator.seed_seq.entropy != result["agent_seed"]
     assert rng.bit_generator.seed_seq.spawn_key == ()
 
 
@@ -83,6 +85,19 @@ def test_agent_stream_reveals_neither_the_sensor_noise_nor_the_start_state():
     # The runner's stream leaves the cheat with two independent noise draws, sqrt(2) x 10 m.
     spy = Spy()
     run_episode(ApproachEnv(ApproachConfig(max_steps=1)), spy, seed=7)
+    errors, start_error = cheat_errors(spy.reset_args[1], 7)
+    assert np.median(np.abs(errors[:, :3])) > 1.0 and start_error > 1.0
+
+
+@pytest.mark.parametrize("runner", ["run_episode", "record_episode"])
+def test_an_agent_seed_equal_to_the_episode_seed_reveals_nothing(runner):
+    # Its own seed sequence used to carry the agent seed, and so the episode seed, to the agent.
+    spy = Spy()
+    env = ApproachEnv(ApproachConfig(max_steps=1))
+    if runner == "run_episode":
+        run_episode(env, spy, seed=7, agent_seed=7)
+    else:
+        record_episode(env, spy, seed=7, agent_seed=7)
     errors, start_error = cheat_errors(spy.reset_args[1], 7)
     assert np.median(np.abs(errors[:, :3])) > 1.0 and start_error > 1.0
 

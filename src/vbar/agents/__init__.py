@@ -3,6 +3,7 @@ from .base import (
     Agent,
     DriftAgent,
     action_scale,
+    agent_generator,
     command_fraction,
     zero_action,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "Reply",
     "ToolCall",
     "action_scale",
+    "agent_generator",
     "belief_matches",
     "command_fraction",
     "parse_action",

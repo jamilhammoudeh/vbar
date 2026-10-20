@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .agents.base import agent_generator
+
 
 @dataclass(frozen=True, kw_only=True)
 class RealTime:
@@ -50,7 +52,7 @@ class Episode:
         self.started = time.perf_counter()
 
     def agent_rng(self) -> np.random.Generator:
-        return np.random.default_rng(self.agent_seed)
+        return agent_generator(self.agent_seed)
 
     def step(self, action, wall_s: float = 0.0, latency_s: float | None = None) -> np.ndarray:
         """Fly `action` and return the next observation.

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import operator
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -41,6 +43,19 @@ class AgentView:
         object.__setattr__(self, "goal", MappingProxyType(dict(self.goal)))
         constraints = tuple(MappingProxyType(dict(c)) for c in self.constraints)
         object.__setattr__(self, "constraints", constraints)
+
+
+def agent_generator(agent_seed: int) -> np.random.Generator:
+    """The agent's random stream for `agent_seed`.
+
+    An agent can read the seed sequence behind its generator, so the stream is seeded with a
+    hash of `agent_seed`: the agent never learns `agent_seed`, nor an episode seed equal to it.
+    """
+    seed = operator.index(agent_seed)
+    if seed < 0:
+        raise ValueError("agent_seed must not be negative")
+    digest = hashlib.sha256(b"vbar agent stream" + seed.to_bytes((seed.bit_length() + 7) // 8 or 1))
+    return np.random.default_rng(int.from_bytes(digest.digest()[:16]))
 
 
 def action_scale(view: AgentView) -> float:

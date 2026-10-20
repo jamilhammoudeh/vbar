@@ -26,8 +26,9 @@ A client may answer any message with `{"type": "error", "message": ...}`, which 
 `AgentView` field (`scenario_id`, `dt`, `max_steps`, `n`, `action_mode`, `max_accel`,
 `thrust_limit`, `mass_kg`, `goal`, `constraints`, `observation`, `frame`) with tuples as lists.
 `seed` and `spawn_key` are the agent's own random stream (`numpy.random.SeedSequence(seed,
-spawn_key=...)`), seeded independently of the episode, so they carry nothing about the start state
-or the noise. Nothing else crosses: no true state, no reward, no metrics.
+spawn_key=...)`), seeded from a hash of the agent seed and independently of the episode, so
+they carry nothing about the start state or the noise, nor the agent seed itself. Nothing else
+crosses: no true state, no reward, no metrics.
 
 Floats are written in Python's shortest round-trip form and read back to the same double, so a
 client computes on exactly the numbers an in-process agent would, and a deterministic agent flies

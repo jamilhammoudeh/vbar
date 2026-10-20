@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from ..agents.base import AgentView
+from ..agents.base import AgentView, agent_generator
 from ..constraints import Constraint
 from ..safety import FilteredAgent
 from ..scenarios.base import StepRecord
@@ -90,7 +90,7 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
     obs, info = env.reset(seed=seed)
     start = np.array(info["true_state"], dtype=float)
     first_obs = np.array(obs, dtype=float)
-    agent.reset(env.agent_view(), np.random.default_rng(agent_seed))
+    agent.reset(env.agent_view(), agent_generator(agent_seed))
     records = []
     terminated = truncated = False
     while not (terminated or truncated):

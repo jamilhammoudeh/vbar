@@ -16,7 +16,7 @@ import numpy as np
 
 from ..scenarios.approach import ApproachConfig, ApproachEnv
 from ..spacecraft import PerfectNav
-from .base import Agent, command_fraction
+from .base import Agent, agent_generator, command_fraction
 
 DIRECTIONS = (
     ("+x", 0, 1.0),
@@ -69,7 +69,7 @@ def sign_check(
         env = ApproachEnv(cfg)
         obs, _ = env.reset(seed=0)
         view = env.agent_view()
-        agent.reset(view, np.random.default_rng(agent_seed))
+        agent.reset(view, agent_generator(agent_seed))
         fraction = command_fraction(view, agent.act(obs, env.agent_info()))
         # Adding 0.0 turns -0.0 into 0.0 for display.
         commands[label] = (
