@@ -244,12 +244,27 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
     assert np.linalg.norm(r2 - r1) < 1e-11 * np.linalg.norm(r1)
 
 
-def test_a_near_radial_hyperbola_whose_terms_cancel_to_rounding_is_refused():
-    # 70 times escape speed through perigee: the radius terms near 2.6e31 cancel to nothing.
-    r0 = np.array([-43062279582.375, 37606472960.125, -47694531068.0])
-    v0 = np.array([-424534.578874588, 370747.86389541626, -470202.17639541626])
+@pytest.mark.parametrize(
+    ("r0", "v0", "t"),
+    [
+        # 73 times escape speed toward perigee: the radius terms near 2.6e31 cancel to nothing.
+        (
+            [-43062279582.375, 37606472960.125, -47694531068.0],
+            [-424534.578874588, 370747.86389541626, -470202.17639541626],
+            -101444.8594899719,
+        ),
+        # 53 times: a radius is left, quantized in steps of 2.75e11 m, and the state it gives is
+        # 1.6e10 m off a 7.0e6 m truth.
+        (
+            [-201621628729.06308, 414990402072.95374, -227003750080.8098],
+            [-221912.2466187907, 456753.83638921, -249848.75023459256],
+            -908552.2868494638,
+        ),
+    ],
+)
+def test_near_radial_hyperbolas_whose_terms_cancel_to_rounding_are_refused(r0, v0, t):
     with pytest.raises(ValueError, match="cancel to rounding"):
-        propagate_kepler(r0, v0, -101444.8594899719, MU)
+        propagate_kepler(np.array(r0), np.array(v0), t, MU)
 
 
 def test_a_near_radial_hyperbola_in_canonical_units_runs_back_without_overflow():

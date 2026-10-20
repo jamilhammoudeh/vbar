@@ -9,9 +9,12 @@ equatorial orbits only the sums argp + M and raan + argp + M are well defined.
 from __future__ import annotations
 
 import math
+import sys
 
 import numpy as np
 from numpy.typing import ArrayLike
+
+_EPS = sys.float_info.epsilon
 
 
 def solve_kepler(M: float, e: float) -> float:
@@ -199,10 +202,15 @@ def lagrange_coefficients(
     else:
         raise RuntimeError("universal kepler equation did not converge")
     _, r_norm, c2, c3 = residual_and_radius(chi)
-    if not r_norm > 0.0:
-        # Near-radial hyperbolas at tens of times escape speed, flown through perigee.
-        raise ValueError("the universal kepler terms cancel to rounding on this arc")
     z = alpha * chi * chi
+    # On near-radial hyperbolas toward perigee the residual's terms grow far beyond sqrt(mu) t
+    # and cancel; the state then carries about eps times the largest term over sqrt(mu) |t|,
+    # relative to the larger radius. Past 1e-6, or with no radius left, it is refused.
+    largest = max(
+        abs(chi * chi * chi * c3), abs(sigma0 * chi * chi * c2), abs(r0_norm * chi * (1.0 - z * c3))
+    )
+    if not r_norm > 0.0 or _EPS * largest > 1e-6 * sqrt_mu * abs(t):
+        raise ValueError("the universal kepler terms cancel to rounding on this arc")
     f = 1.0 - chi * chi * c2 / r0_norm
     g = t - chi * chi * chi * c3 / sqrt_mu
     f_dot = sqrt_mu * chi * (z * c3 - 1.0) / (r_norm * r0_norm)

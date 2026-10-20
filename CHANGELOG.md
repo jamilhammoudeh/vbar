@@ -133,9 +133,10 @@ release may change the public API, and every such change is listed under Changed
   alike: the universal anomaly is found by safeguarded Newton inside a bracket, and an elliptic time
   is reduced with an exact remainder. In 0.2.0 a few in a thousand random orbits with e above 0.89
   propagated over several periods, about one in five random hyperbolas flown back from far out, and
-  short arcs on hyperbolas within 1e-8 of escape speed raised "did not converge". Near-radial
-  hyperbolas at tens of times escape speed, whose terms can cancel to rounding, raise `ValueError`
-  where they raised `ZeroDivisionError`.
+  short arcs on hyperbolas within 1e-8 of escape speed raised "did not converge". Arcs whose
+  terms cancel past an estimated 1e-6 of the result (near-radial hyperbolas toward perigee at
+  high excess speed) raise `ValueError`; 0.2.0 raised `RuntimeError` or `ZeroDivisionError` on
+  them.
 
 ## [0.2.0] - 2026-10-16
 
