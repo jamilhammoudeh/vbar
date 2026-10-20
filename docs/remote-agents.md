@@ -27,8 +27,9 @@ A client may answer any message with `{"type": "error", "message": ...}`, which 
 `thrust_limit`, `mass_kg`, `goal`, `constraints`, `observation`, `frame`) with tuples as lists.
 `seed` and `spawn_key` are the agent's own random stream (`numpy.random.SeedSequence(seed,
 spawn_key=...)`), seeded from a hash of the agent seed and independently of the episode, so
-they carry nothing about the start state or the noise, nor the agent seed itself. Nothing else
-crosses: no true state, no reward, no metrics.
+they carry nothing about the start state or the noise; the agent seed can be found from them
+only by guessing it, which a drawn 128-bit seed defeats ([environment.md](environment.md)).
+Nothing else crosses: no true state, no reward, no metrics.
 
 Floats are written in Python's shortest round-trip form and read back to the same double, so a
 client computes on exactly the numbers an in-process agent would, and a deterministic agent flies
@@ -102,7 +103,7 @@ non-finite commands, invalid predictions) returns `isError` with the reason. Epi
 order of the seeds and cannot be abandoned, so a client cannot restart until it likes a start. Each
 command's wall time since the previous observation is the decision latency. Results stay on the
 server: `ToolServer.results` holds `run_episode`'s result for each finished episode (with
-`agent_seed` 0, since the client has no stream of ours), and the command line writes them to the
+a drawn `agent_seed` the client never uses), and the command line writes them to the
 `--out` file as they finish. When the session ends, because the input ends, the client stops reading
 the output or the server fails, an episode still running and every seed not yet flown are recorded
 too, with `completed` false, so leaving does not remove a bad episode from the results. The client
@@ -115,8 +116,8 @@ never sees the true state, the reward or the outcome.
 - The PD agent (clear path and target in the way, normalized and acceleration modes), an agent
   driven by its own random stream through 3 m of navigation noise, and a bang-off-bang agent in
   the discrete mode fly exactly the trajectories and commands of the same agents in process.
-- A hand-written client sees only the view, its seed (equal to the run's agent seed) and spawn
-  key, the observation and the time, then the close.
+- A hand-written client sees only the view, its seed (the hashed one behind an in-process
+  agent's generator) and spawn key, the observation and the time, then the close.
 - An error message from the client, a wrong protocol version and a silent client are reported.
 - The command-line host writes one result per seed; a client that answers two steps and then
   sends a line that is not JSON leaves an unfinished record of two steps, with the error, and an

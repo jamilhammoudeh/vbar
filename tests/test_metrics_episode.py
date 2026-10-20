@@ -35,7 +35,7 @@ def test_recorded_states_match_run_episode_for_the_same_seeds():
 
 def test_records_keep_the_raw_command_and_the_filter_result():
     env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=4))
-    ep = record_episode(env, FilteredAgent(PDAgent(), HalvingFilter()), seed=0, agent_seed=0)
+    ep = record_episode(env, FilteredAgent(PDAgent(), HalvingFilter()), seed=0, agent_seed=1)
     for rec in ep.records:
         assert np.allclose(rec.filtered, 0.5 * rec.command)
         assert rec.filter_result.intervened

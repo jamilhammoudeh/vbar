@@ -13,7 +13,7 @@ from vbar.rewards import Reward
 def test_metrics_and_environment_find_the_same_keep_out_violations(seed):
     # The metrics bracket roots on the rebuilt trajectory and the environment on each step's
     # samples; both locate boundaries to about 1e-9 s.
-    ep = record_episode(ApproachEnv(ApproachConfig()), PDAgent(), seed=seed, agent_seed=seed)
+    ep = record_episode(ApproachEnv(ApproachConfig()), PDAgent(), seed=seed, agent_seed=seed + 100)
     keep_out = ep.constraints[0]
     from_metrics = negative_intervals(keep_out, Trace(ep))
     from_env = merge(

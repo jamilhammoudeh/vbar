@@ -303,11 +303,11 @@ def test_tool_calls_with_odd_arguments_record_and_replay(tmp_path):
     recorder = RecordedModel(Scripted(*replies, ANSWER))
     environment = ApproachEnv(ApproachConfig(start_state=START, max_steps=1))
     first = LLMAgent(recorder, tools=CW_TOOLS, max_tool_rounds=4)
-    recorded = run_episode(environment, first, seed=0, agent_seed=0)
+    recorded = run_episode(environment, first, seed=0, agent_seed=1)
     assert all("error" in call["result"] for call in first.log[0]["tool_calls"])
     recorder.save(tmp_path / "odd.json")
     second = LLMAgent(ReplayModel.load(tmp_path / "odd.json"), tools=CW_TOOLS, max_tool_rounds=4)
-    replayed = run_episode(environment, second, seed=0, agent_seed=0)
+    replayed = run_episode(environment, second, seed=0, agent_seed=1)
     assert np.array_equal(recorded["states"], replayed["states"])
     assert first.log[0]["messages"] == second.log[0]["messages"]
 

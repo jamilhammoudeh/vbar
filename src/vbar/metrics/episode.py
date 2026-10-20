@@ -89,15 +89,19 @@ def _agent_log(agent, decisions: int) -> tuple[Mapping[str, Any], ...]:
 def record_episode(env, agent, seed: int | None = None, agent_seed: int | None = None) -> Episode:
     """Run one episode and return everything metrics need.
 
-    The agent sees what `vbar.run_episode` gives it: the view, its own random stream seeded by
-    `agent_seed` (drawn from the operating system when not given), the observations and the
-    agent-safe info. A `FilteredAgent`'s raw command and `FilterResult` go into each record, and
-    the agent's latency there excludes the filter's measured wall time; other agents' attributes
-    are not read.
+    The agent sees what `vbar.run_episode` gives it: the view, its own random stream seeded from
+    a hash of `agent_seed`, the observations and the agent-safe info. Seeds not given are drawn
+    (128 bits) and recorded, and `agent_seed` may not equal `seed`. A `FilteredAgent`'s raw
+    command and `FilterResult` go into each record, and the agent's latency there excludes the
+    filter's measured wall time; other agents' attributes are not read.
     """
     config = getattr(getattr(env, "unwrapped", env), "cfg", None)
     if getattr(config, "training", False):
         raise ValueError("scored runs need an environment built with training=False")
+    if seed is not None and agent_seed == seed:
+        raise ValueError("agent_seed must differ from seed")
+    if seed is None:
+        seed = secrets.randbits(128)
     if agent_seed is None:
         agent_seed = secrets.randbits(128)
     obs, info = env.reset(seed=seed)

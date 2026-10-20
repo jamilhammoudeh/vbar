@@ -124,7 +124,7 @@ class ToolServer:
             raise ToolError("the current episode has not ended")
         if self.next_seed >= len(self.seeds):
             raise ToolError("no episodes left")
-        self.episode = ScoredRun(self.env, self.seeds[self.next_seed], agent_seed=0)
+        self.episode = ScoredRun(self.env, self.seeds[self.next_seed])
         self.next_seed += 1
         self.since = time.perf_counter()
         return self._snapshot()
@@ -161,7 +161,7 @@ class ToolServer:
             self._record(self.episode)
             self.episode = None
         while self.next_seed < len(self.seeds):
-            self._record(ScoredRun(self.env, self.seeds[self.next_seed], agent_seed=0))
+            self._record(ScoredRun(self.env, self.seeds[self.next_seed]))
             self.next_seed += 1
 
     def _predict(self, name: str, args: dict) -> dict:

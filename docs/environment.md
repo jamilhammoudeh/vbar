@@ -82,7 +82,8 @@ After each step: distance to the hold point below `capture_radius` = 5 m and spe
 Agents get only the observation, `env.agent_view()` and `env.agent_info()`, which holds the time.
 `AgentView` is frozen and holds the scenario's public description: `scenario_id`, `dt`,
 `max_steps`, the mean motion `n`, `action_mode`, `max_accel`, `thrust_limit`, `mass_kg`, `goal`
-and `constraints` (read-only mappings), `observation` and `frame`.
+and `constraints` (read-only mappings of copied parameters, so an agent that changes one leaves
+the environment's constraint as it was), `observation` and `frame`.
 
 The Gymnasium `info` dict is for metrics and logging and holds the truth:
 
@@ -109,15 +110,22 @@ command, the spacecraft's `Actuation` and the step's segments, segment start sta
 constraint minima and violation intervals.
 
 `run_episode(env, agent, seed, agent_seed)` resets the environment, calls
-`agent.reset(view, rng)` with a generator seeded by a hash of `agent_seed` alone (so an agent
-reading its generator's seed learns neither `agent_seed` nor an episode seed equal to it), and
-returns the final metrics above plus `agent`, `seed`, `agent_seed`, `completed` (false only for
-an episode a remote session left unfinished), `wall_time_s`, the agent's decision times
-`latencies_s`, the true state history `states`, the actions `actions`, and
-`filter_interventions` when the agent is wrapped in a safety filter. `real_time` lets the clock
-run while the agent decides ([agents.md](agents.md)).
-Without an `agent_seed` one is drawn from the operating system and returned, so any run can be
-repeated. `run_many(env, agent, seeds, agent_seeds)` runs one episode per seed.
+`agent.reset(view, rng)` with a generator seeded by a hash of `agent_seed` alone, and returns the
+final metrics above plus `agent`, `seed`, `agent_seed`, `completed` (false only for an episode a
+remote session left unfinished), `wall_time_s`, the agent's decision times `latencies_s`, the true
+state history `states`, the actions `actions`, and `filter_interventions` when the agent is
+wrapped in a safety filter. `real_time` lets the clock run while the agent decides
+([agents.md](agents.md)). A seed not given is drawn from the operating system (128 bits) and
+returned, so any run can be repeated. `run_many(env, agent, seeds, agent_seeds)` runs one episode
+per seed.
+
+Seeds and cheating: the scenario is public, so an agent can rebuild the environment, reset it with
+candidate seeds and keep the one whose first observation matches its own; with that seed it knows
+the true state at every step. The same works on `agent_seed`, which an agent can find by hashing
+candidates until one gives its generator's seed. A small seed (0, 7, 12345) falls to either search
+in well under a second, a 128-bit seed to neither. Scored comparisons therefore use drawn seeds,
+or seeds the agent's authors never see, and `agent_seed` may not equal `seed` (both runners raise
+`ValueError`). Small fixed seeds remain fine for development and for examples.
 
 ## Reward
 
@@ -221,6 +229,9 @@ sign-convention check every agent passes before scoring is on [agents.md](agents
   streams from its own generator recovers neither the sensor noise nor the start state, while the
   same attack on a stream spawned from the episode seed recovers both to rounding; the same
   `agent_seed` repeats a run.
+- An agent that hashes candidate seeds finds an `agent_seed` of 12 and no drawn one; an agent that
+  resets a twin environment with seeds 0 to 199 finds episode seed 150 from its first observation
+  and no drawn seed; equal seeds are refused, and drawn seeds repeat the run.
 - The PD agent flies the same trajectory in normalized and acceleration modes, in thrust mode
   under the constant-thrust drive, and with observation channels on; the LLM agent's fractions are
   converted to each mode.

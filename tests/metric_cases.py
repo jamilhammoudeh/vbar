@@ -62,10 +62,12 @@ DOCKING_GOAL = {
 }
 
 
-def episode(agent=None, seed=0, agent_seed=1, extra=(), soft=(), goal=None, **config):
+def episode(agent=None, seed=0, agent_seed=None, extra=(), soft=(), goal=None, **config):
     config.setdefault("start_state", FLYBY)
     config.setdefault("max_steps", 20)
     env = GuardedApproach(ApproachConfig(**config), extra, soft, goal)
+    # The recorder refuses an agent seed equal to the episode seed.
+    agent_seed = seed + 1 if agent_seed is None else agent_seed
     return record_episode(env, agent or DriftAgent(), seed=seed, agent_seed=agent_seed)
 
 

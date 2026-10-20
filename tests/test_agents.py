@@ -4,8 +4,8 @@ import re
 import numpy as np
 import pytest
 
-from vbar import ApproachConfig, ApproachEnv, run_episode
-from vbar.agents import LLMAgent, PDAgent, action_scale
+from vbar import ApproachConfig, ApproachEnv, ScoredRun, run_episode
+from vbar.agents import LLMAgent, PDAgent, action_scale, agent_generator
 from vbar.agents.base import AgentView
 from vbar.agents.llm import text_model
 from vbar.metrics import record_episode
@@ -89,17 +89,60 @@ def test_agent_stream_reveals_neither_the_sensor_noise_nor_the_start_state():
     assert np.median(np.abs(errors[:, :3])) > 1.0 and start_error > 1.0
 
 
-@pytest.mark.parametrize("runner", ["run_episode", "record_episode"])
-def test_an_agent_seed_equal_to_the_episode_seed_reveals_nothing(runner):
-    # Its own seed sequence used to carry the agent seed, and so the episode seed, to the agent.
-    spy = Spy()
+@pytest.mark.parametrize("runner", ["run_episode", "record_episode", "ScoredRun"])
+def test_an_agent_seed_equal_to_the_episode_seed_is_refused(runner):
     env = ApproachEnv(ApproachConfig(max_steps=1))
-    if runner == "run_episode":
-        run_episode(env, spy, seed=7, agent_seed=7)
-    else:
-        record_episode(env, spy, seed=7, agent_seed=7)
-    errors, start_error = cheat_errors(spy.reset_args[1], 7)
-    assert np.median(np.abs(errors[:, :3])) > 1.0 and start_error > 1.0
+    with pytest.raises(ValueError, match="agent_seed must differ from seed"):
+        if runner == "run_episode":
+            run_episode(env, Spy(), seed=7, agent_seed=7)
+        elif runner == "record_episode":
+            record_episode(env, Spy(), seed=7, agent_seed=7)
+        else:
+            ScoredRun(env, seed=7, agent_seed=7)
+
+
+def test_a_small_agent_seed_is_found_by_hashing_candidates_and_a_drawn_one_is_not():
+    def candidates_matching(rng):
+        entropy = rng.bit_generator.seed_seq.entropy
+        return [
+            k for k in range(1000) if agent_generator(k).bit_generator.seed_seq.entropy == entropy
+        ]
+
+    env = ApproachEnv(ApproachConfig(max_steps=1))
+    spy = Spy()
+    run_episode(env, spy, seed=3, agent_seed=12)
+    assert candidates_matching(spy.reset_args[1]) == [12]
+    run_episode(env, spy, seed=3)
+    assert candidates_matching(spy.reset_args[1]) == []
+
+
+class SeedGuesser:
+    """Tries episode seeds on a twin environment until one reproduces the first observation."""
+
+    name = "seed-guesser"
+
+    def __init__(self, config, candidates):
+        self.config, self.candidates = config, candidates
+
+    def reset(self, view, rng=None):
+        self.guess = self.obs = None
+
+    def act(self, obs, info):
+        if self.obs is None:
+            self.obs = obs
+            twin = ApproachEnv(self.config)
+            hits = (s for s in self.candidates if np.array_equal(twin.reset(seed=s)[0], obs))
+            self.guess = next(hits, None)
+        return np.zeros(3)
+
+
+def test_a_small_episode_seed_is_found_from_the_first_observation_and_a_drawn_one_is_not():
+    config = ApproachConfig(max_steps=1, sensor=GaussianNav(**NOISE))
+    guesser = SeedGuesser(config, range(200))
+    run_episode(ApproachEnv(config), guesser, seed=150)
+    assert guesser.guess == 150
+    result = run_episode(ApproachEnv(config), guesser)
+    assert guesser.guess is None and result["seed"] >= 200
 
 
 class RandomAgent:
@@ -121,9 +164,10 @@ def test_agent_seed_reproduces_the_run_and_is_recorded():
     assert np.array_equal(first["actions"], again["actions"])
     assert np.array_equal(first["states"], again["states"])
     assert not np.array_equal(first["actions"], other["actions"])
-    drawn = run_episode(env, RandomAgent(), seed=3)
-    replayed = run_episode(env, RandomAgent(), seed=3, agent_seed=drawn["agent_seed"])
+    drawn = run_episode(env, RandomAgent())
+    replayed = run_episode(env, RandomAgent(), seed=drawn["seed"], agent_seed=drawn["agent_seed"])
     assert np.array_equal(drawn["actions"], replayed["actions"])
+    assert np.array_equal(drawn["states"], replayed["states"])
 
 
 def test_llm_prompt_is_built_from_the_observation_not_the_truth():

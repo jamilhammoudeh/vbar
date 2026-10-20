@@ -136,8 +136,10 @@ class BrakeAgent:
 motion, actuator limits, goal and constraints) and a random stream for the agent's own use. `obs`
 comes from the navigation sensor and `info` holds only the time, so a controller never sees the
 true state. The agent's stream is seeded by `run_episode(env, agent, seed, agent_seed)`
-independently of the episode seed; without an `agent_seed` one is drawn and returned in the
-result, so the run can be repeated.
+independently of the episode seed. Seeds not given are drawn (128 bits) and returned in the
+result, so the run can be repeated; scored comparisons keep them drawn, since an agent can find a
+small seed by matching its first observation against the public scenario
+([docs/environment.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/environment.md)).
 
 ### LLM agents
 

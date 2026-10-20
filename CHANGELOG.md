@@ -16,6 +16,9 @@ release may change the public API, and every such change is listed under Changed
 - `LLMAgent` calls `complete(messages, tools)` and accepts a `Reply` or text; wrap a
   `prompt -> text` function with `vbar.agents.text_model`. Options after `complete` are
   keyword-only.
+- `run_episode` without a `seed` draws a 128-bit one and returns it in `seed` (it was None), so
+  every run can be repeated and an agent cannot guess its episode; `run_episode` and `run_many`
+  raise `ValueError` for `agent_seed` equal to `seed`.
 
 ### Added
 
@@ -110,10 +113,12 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
-- An agent given an `agent_seed` equal to the episode seed could read it back from its own
-  generator and rebuild the start state and the sensor noise. The agent's stream is now seeded
+- An agent could read `agent_seed` back from its own generator and, when it equalled the
+  episode seed, rebuild the start state and the sensor noise. The agent's stream is now seeded
   from a hash of `agent_seed` (`vbar.agents.agent_generator`), so agents that draw random numbers
-  get different draws than in 0.2.0 for the same `agent_seed`.
+  get different draws than in 0.2.0 for the same `agent_seed`, and `agent_seed` may not equal
+  `seed`. A small seed can still be guessed, so seeds not given are drawn and recorded (see
+  Changed).
 - `propagate_kepler` and `lagrange_coefficients` converge on every conic: the universal anomaly
   is found by safeguarded Newton inside a bracket, and an elliptic time is reduced with an exact
   remainder. In 0.2.0 a few in a thousand random orbits with e above 0.89 propagated over several

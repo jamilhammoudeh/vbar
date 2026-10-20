@@ -49,7 +49,8 @@ def agent_generator(agent_seed: int) -> np.random.Generator:
     """The agent's random stream for `agent_seed`.
 
     An agent can read the seed sequence behind its generator, so the stream is seeded with a
-    hash of `agent_seed`: the agent never learns `agent_seed`, nor an episode seed equal to it.
+    hash of `agent_seed`. The agent can still find `agent_seed` by hashing candidates, which
+    works for a small seed and not for a 128-bit one.
     """
     seed = operator.index(agent_seed)
     if seed < 0:

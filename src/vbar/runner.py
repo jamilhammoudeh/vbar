@@ -32,19 +32,24 @@ class RealTime:
 class ScoredRun:
     """One scored episode, stepped by its caller; the reward never leaves it.
 
-    The run's agent stream is seeded by `agent_seed` alone, so it carries nothing about the
-    start state or the sensor noise; without one, a seed is drawn from the operating system and
-    returned in the result. Environments built for training (`training=True`) are refused.
+    A `seed` or `agent_seed` not given is drawn from the operating system (128 bits) and returned
+    in the result, so the run can be repeated. The agent stream is seeded from a hash of
+    `agent_seed` alone. An agent can still find a small `agent_seed` by trying candidates against
+    its generator, and a small `seed` by matching its first observation, so scored comparisons
+    use drawn seeds, and `agent_seed` may not equal `seed`. Environments built for training
+    (`training=True`) are refused.
     """
 
     def __init__(self, env, seed: int | None = None, agent_seed: int | None = None):
         config = getattr(getattr(env, "unwrapped", env), "cfg", None)
         if getattr(config, "training", False):
             raise ValueError("scored runs need an environment built with training=False")
+        if seed is not None and agent_seed == seed:
+            raise ValueError("agent_seed must differ from seed")
         self.env = env
-        self.seed = seed
+        self.seed = secrets.randbits(128) if seed is None else seed
         self.agent_seed = secrets.randbits(128) if agent_seed is None else agent_seed
-        self.obs, self.info = env.reset(seed=seed)
+        self.obs, self.info = env.reset(seed=self.seed)
         self.states = [self.info["true_state"]]
         self.actions: list[np.ndarray] = []
         self.latencies: list[float] = []
@@ -105,11 +110,11 @@ def run_episode(
 ) -> dict:
     """Run one episode. Returns final metrics plus the true trajectory and the actions.
 
-    The agent gets the scenario's `AgentView`, a random stream seeded by `agent_seed`, the
-    observations and the agent-safe info; the true states come from `info`. The agent's stream
-    is independent of `seed`, so it carries nothing about the start state or the sensor noise.
-    Without an `agent_seed` one is drawn from the operating system and returned in the result.
-    Environments built for training (`training=True`) are refused. `latencies_s` holds the
+    The agent gets the scenario's `AgentView`, a random stream seeded from a hash of
+    `agent_seed`, the observations and the agent-safe info; the true states come from `info`.
+    Seeds not given are drawn (128 bits) and returned in the result; small seeds can be guessed
+    by the agent, and `agent_seed` may not equal `seed` (`ScoredRun`). Environments built for
+    training (`training=True`) are refused. `latencies_s` holds the
     agent's wall-clock time per decision; with `real_time` the clock runs while it decides.
     """
     episode = ScoredRun(env, seed, agent_seed)
