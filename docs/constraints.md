@@ -208,6 +208,8 @@ entering the keep-out zone when its minimum margin is negative.
   the apex; it is continuous across the active range.
 - The sun-exclusion margin is checked looking into the Sun and from above, and the Sun direction
   turns from +y to +x in a quarter orbit.
+- Beyond the closing-speed term, each passive-speed rate bound equals the envelope's slope at
+  `rho_min` times the speed, to 1e-6 against a central difference, at 16, 20, 50 and 300 m.
 - The R-bar envelope gives 0.1225, 0.0612 and 0.0283 m/s at 50, 30 and 20 m (Fehse 5.7.2, from
   eq. 3.22); free drift from the envelope at 20, 50 and 300 m comes within 15 m of the target to
   1e-8 relative over 200001 samples of one orbit. The V-bar coast at 0.1 m/s and 400 km is 42.21 m

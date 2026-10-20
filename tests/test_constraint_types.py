@@ -317,3 +317,18 @@ def test_vector_parameters_given_as_lists_or_arrays_are_held_as_tuples():
     assert len({cone, zone, sun}) == 3
     with pytest.raises(ValueError, match="three components"):
         ZoneEntry([1000.0, 2000.0])
+
+
+@pytest.mark.parametrize("axis", ["vbar", "rbar"])
+@pytest.mark.parametrize("rho_min", [16.0, 20.0, 50.0, 300.0])
+def test_passive_speed_rate_bound_uses_the_envelope_slope_at_the_range_bound(axis, rho_min):
+    # Beyond the closing-speed term the bound is the envelope's slope at rho_min times the speed;
+    # the R-bar slope falls with range, so rho_min gives the largest one over the interval.
+    passive = PassiveSpeed(axis, 15.0, N400)
+    speed, accel = 0.3, 1e-3
+    envelope_term = passive.rate_bound(speed, accel, rho_min) - ClosingSpeedLimit(
+        0.0, 0.0
+    ).rate_bound(speed, accel, rho_min)
+    h = 1e-4
+    slope = (passive.speed_envelope(rho_min + h) - passive.speed_envelope(rho_min - h)) / (2 * h)
+    assert envelope_term == pytest.approx(slope * speed, rel=1e-6)
