@@ -245,26 +245,43 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
 
 
 @pytest.mark.parametrize(
-    ("r0", "v0", "t"),
+    ("r0", "v0", "t", "mu"),
     [
         # 73 times escape speed toward perigee: the radius terms near 2.6e31 cancel to nothing.
         (
             [-43062279582.375, 37606472960.125, -47694531068.0],
             [-424534.578874588, 370747.86389541626, -470202.17639541626],
             -101444.8594899719,
+            MU,
         ),
-        # 53 times: a radius is left, quantized in steps of 2.75e11 m, and the state it gives is
-        # 1.6e10 m off a 7.0e6 m truth.
+        # Ten times escape speed: a state 3e-3 off at the end, against an estimate of 4e-3 there.
         (
-            [-201621628729.06308, 414990402072.95374, -227003750080.8098],
-            [-221912.2466187907, 456753.83638921, -249848.75023459256],
-            -908552.2868494638,
+            [7748598854.9921875, -105275811173.00781, 34282050427.4375],
+            [-8088.16681227088, 109889.54576922953, -35784.45046169311],
+            958197.8516178454,
+            MU,
+        ),
+        # Canonical units, far out against |a|: returned unchecked, the end velocity was reversed.
+        (
+            [-2144361.5576695204, -8550373.989763737, -8516332.71536541],
+            [20.736314289089933, 82.68346431925966, 82.35427982968395],
+            103410.93068920661,
+            1.0,
         ),
     ],
 )
-def test_near_radial_hyperbolas_whose_terms_cancel_to_rounding_are_refused(r0, v0, t):
+def test_near_radial_hyperbolas_whose_terms_cancel_to_rounding_are_refused(r0, v0, t, mu):
     with pytest.raises(ValueError, match="cancel to rounding"):
-        propagate_kepler(np.array(r0), np.array(v0), t, MU)
+        propagate_kepler(np.array(r0), np.array(v0), t, mu)
+
+
+def test_free_fall_from_rest_is_not_refused():
+    # Zero speed at the start or after no time leaves nothing for the rounding check to scale.
+    r0, v0 = np.array([7000e3, 0.0, 0.0]), np.zeros(3)
+    assert np.array_equal(propagate_kepler(r0, v0, 0.0, MU)[0], r0)
+    r1, v1 = propagate_kepler(r0, v0, 60.0, MU)
+    assert r1[1:].tolist() == [0.0, 0.0] and r1[0] < 7000e3
+    assert v1 @ v1 == pytest.approx(2.0 * MU * (1.0 / r1[0] - 1.0 / 7000e3), rel=1e-12)
 
 
 def test_a_near_radial_hyperbola_in_canonical_units_runs_back_without_overflow():

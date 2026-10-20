@@ -204,12 +204,17 @@ def lagrange_coefficients(
     _, r_norm, c2, c3 = residual_and_radius(chi)
     z = alpha * chi * chi
     # On near-radial hyperbolas toward perigee the residual's terms grow far beyond sqrt(mu) t
-    # and cancel; the state then carries about eps times the largest term over sqrt(mu) |t|,
-    # relative to the larger radius. Past 1e-6, or with no radius left, it is refused.
+    # and cancel, so chi stands for a time off by about eps * largest / sqrt(mu), which moves the
+    # end position by that times the end speed. Past 1e-5 of the end radius, or with no finite
+    # positive radius (a bracket closed on an overflowed point), the state is refused. Where the
+    # terms can cancel (unbound arcs) v^2 > 2 mu / r, so the velocity's relative error is under
+    # half the position's.
     largest = max(
         abs(chi * chi * chi * c3), abs(sigma0 * chi * chi * c2), abs(r0_norm * chi * (1.0 - z * c3))
     )
-    if not r_norm > 0.0 or _EPS * largest > 1e-6 * sqrt_mu * abs(t):
+    late = _EPS * largest / sqrt_mu
+    speed = math.sqrt(max(mu * (2.0 / r_norm - alpha), 0.0)) if r_norm > 0.0 else 0.0
+    if not (0.0 < r_norm < math.inf and late * speed <= 1e-5 * r_norm):
         raise ValueError("the universal kepler terms cancel to rounding on this arc")
     f = 1.0 - chi * chi * c2 / r0_norm
     g = t - chi * chi * chi * c3 / sqrt_mu
