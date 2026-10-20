@@ -123,7 +123,8 @@ says a little about the true path ([environment.md](environment.md)).
   the discrete mode fly exactly the trajectories and commands of the same agents in process.
 - A hand-written client sees only the view, its seed (the hashed one behind an in-process
   agent's generator) and spawn key, the observation and the time, then the close.
-- Without `--seeds` the host draws a different 128-bit seed for each episode and records it.
+- Without `--seeds` the host draws a different 128-bit seed for each episode and records it;
+  `--episodes 0` is refused.
 - An error message from the client, a wrong protocol version and a silent client are reported.
 - The command-line host writes one result per seed; a client that answers two steps and then
   sends a line that is not JSON leaves an unfinished record of two steps, with the error, and an

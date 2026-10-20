@@ -300,6 +300,12 @@ def test_a_reset_connection_still_leaves_every_episode_recorded(tmp_path):
     assert [(r["seed"], r["completed"]) for r in results] == [(1, False), (2, False)]
 
 
+def test_the_host_refuses_fewer_than_one_episode(capsys):
+    with pytest.raises(SystemExit):
+        main(["--episodes", "0"])
+    assert "--episodes must be at least 1" in capsys.readouterr().err
+
+
 def test_the_host_draws_unguessable_seeds_unless_given_some(tmp_path):
     def client(stream, sock):
         stream.close()

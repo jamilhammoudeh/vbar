@@ -14,6 +14,7 @@ from vbar.agents.mcp import (
     METHOD_NOT_FOUND,
     PARSE_ERROR,
     ToolServer,
+    main,
 )
 from vbar.agents.tools import predict_coast
 
@@ -141,6 +142,13 @@ def test_command_line_server_speaks_json_rpc_on_stdio(tmp_path):
     (result,) = [json.loads(line) for line in out.read_text().splitlines()]
     assert result["seed"] == 4 and len(result["actions"]) == 3
     assert result["dv_used_mps"] == pytest.approx(0.06, rel=1e-3)
+
+
+@pytest.mark.parametrize("count", ["0", "-2"])
+def test_the_command_line_refuses_fewer_than_one_episode(count, capsys):
+    with pytest.raises(SystemExit):
+        main(["--episodes", count])
+    assert "--episodes must be at least 1" in capsys.readouterr().err
 
 
 def test_the_command_line_draws_unguessable_seeds_unless_given_some(tmp_path):

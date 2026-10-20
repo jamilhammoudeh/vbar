@@ -299,6 +299,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out", default="results.jsonl", help="JSON lines, one per episode")
     parser.add_argument("--name", default="mcp-client", help="agent name in the results")
     args = parser.parse_args(argv)
+    if args.episodes < 1:
+        parser.error("--episodes must be at least 1")
     # A small seed can be found by matching the first observation, so seeds are drawn.
     seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
     env = ApproachEnv(ApproachConfig(max_steps=args.max_steps))
