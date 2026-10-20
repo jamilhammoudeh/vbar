@@ -172,18 +172,22 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   Checked against a 60-digit reference from starts 6700 to 50 000 km out, the error mostly matches
   how far one ulp of rounding in the starting state moves the exact answer, which is as good as
   double precision allows. On arcs of up to $10^6$ s at up to three times escape speed it is below
-  $6 \times 10^{-13}$ of the larger radius. On ellipses it grows by a few $\varepsilon$ per
-  revolution, as the problem's own sensitivity does ($10^{-7}$ of the radius after $10^8$
-  revolutions); near-parabolic arcs of up to $10^{12}$ s stay within that sensitivity, up to
-  $2 \times 10^{-10}$. Near-radial hyperbolas through or toward perigee are the exception: there
-  the terms of the Kepler function grow far beyond $\sqrt\mu\, t$ and cancel, and the state carries
-  about $\varepsilon$ times the largest term over $\sqrt\mu\,|t|$. Flown back in from far out at
-  up to three times escape speed that is up to $3 \times 10^{-10}$ of the far radius, against a
-  sensitivity of a few $10^{-15}$; it grows with excess speed, to $4 \times 10^{-7}$ at 88 times
-  escape speed. The tests fly ellipses up to $e = 0.98$ over twenty periods, near-parabolic arcs of
-  one second against a Taylor step, near-radial hyperbolas and a year-long slow escape against an
-  integrator, near-parabolic hyperbolas over up to $10^{10}$ s, from perigee and from off it,
-  against their composed halves, and 1000 random hyperbolas out and back.
+  $10^{-12}$ of the larger radius. On ellipses it grows with the number of revolutions as that
+  sensitivity does: by 5 to 10 $\varepsilon$ per revolution on most arcs ($10^{-7}$ to
+  $2 \times 10^{-7}$ of the radius after $10^8$ revolutions), and by up to about 1300 $\varepsilon$
+  per revolution on arcs that start and end near perigee of an eccentric orbit. Near-parabolic arcs
+  of up to $10^{12}$ s stay within the sensitivity, up to $2 \times 10^{-10}$. Near-radial
+  hyperbolas through or toward perigee are the exception: there the terms of the Kepler function
+  grow far beyond $\sqrt\mu\, t$ and cancel, and the state carries about $\varepsilon$ times the
+  largest term over $\sqrt\mu\,|t|$. Flown back in from far out at up to three times escape speed
+  that is up to $3 \times 10^{-10}$ of the far radius, against a sensitivity of a few $10^{-15}$,
+  and it grows fast with excess speed: $2 \times 10^{-8}$ at nine times escape speed and $10^{-5}$
+  (16% of the near radius) at 25 times. Above about 70 times the radius itself can cancel to
+  nothing, and the call raises `ValueError`. The tests fly ellipses up to $e = 0.98$ over twenty
+  periods, near-parabolic arcs of one second against a Taylor step, near-radial hyperbolas and a
+  year-long slow escape against an integrator, near-parabolic hyperbolas over up to $10^{10}$ s,
+  from perigee and from off it, against their composed halves, and 1000 random hyperbolas out and
+  back; an arc at 70 times escape speed whose radius cancels is refused.
 
 ## J2 mean elements
 
