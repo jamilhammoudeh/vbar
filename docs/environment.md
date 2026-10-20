@@ -114,8 +114,8 @@ constraint minima and violation intervals.
 final metrics above plus `agent`, `seed`, `agent_seed`, `completed` (false only for an episode a
 remote session left unfinished), `wall_time_s`, the agent's decision times `latencies_s`, the true
 state history `states`, the actions `actions`, and `filter_interventions` when the agent is
-wrapped in a safety filter. `real_time` lets the clock run while the agent decides
-([agents.md](agents.md)). A seed not given is drawn from the operating system (128 bits) and
+wrapped in a safety filter. `real_time` lets the clock run while the agent decides, and the
+result records its setting under the same key ([agents.md](agents.md)). A seed not given is drawn from the operating system (128 bits) and
 returned, so any run can be repeated. `run_many(env, agent, seeds, agent_seeds)` runs one episode
 per seed.
 

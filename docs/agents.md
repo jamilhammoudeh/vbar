@@ -39,8 +39,9 @@ the older one's arrival time and the older never acts. Decisions still come ever
 latency longer than `dt` carries into the next step.
 
 Every result carries `latencies_s`, the wall time of each decision (metric A1), real time or
-not. `RealTime(latencies=result["latencies_s"], time_scale=s)` repeats a recorded run exactly,
-as transcript replay of an LLM agent needs. `env.record.agent_latency_s` holds the simulated
+not, and `real_time`: None, or the `time_scale` and whether the latencies were replayed.
+`RealTime(latencies=result["latencies_s"], time_scale=s)` repeats a recorded run exactly, as
+transcript replay of an LLM agent needs. `env.record.agent_latency_s` holds the simulated
 latency of the last step.
 
 `ScoredRun(env, seed, agent_seed)` is the loop `run_episode` steps, for callers that drive an
@@ -122,7 +123,8 @@ steps left. Every call's prompt, reply, tokens, cost and latency go to its `log`
 
 `tests/test_real_time.py`:
 
-- A run with recorded latencies of 3.7 s flies exactly the trajectory of a 3.7 s actuation delay.
+- A run with recorded latencies of 3.7 s flies exactly the trajectory of a 3.7 s actuation delay,
+  and its result records the replayed clock where the delayed run records none.
 - A PD agent that sleeps 10 ms per decision at `time_scale` 200 gets a latency of at least 2 s,
   recorded in the step record, and the previous command acts for exactly that long in the step.
 - A command overtaken by a newer one never acts; negative latencies, a negative time scale and a

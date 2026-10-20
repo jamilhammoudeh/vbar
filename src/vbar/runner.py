@@ -40,7 +40,13 @@ class ScoredRun:
     (`training=True`) are refused.
     """
 
-    def __init__(self, env, seed: int | None = None, agent_seed: int | None = None):
+    def __init__(
+        self,
+        env,
+        seed: int | None = None,
+        agent_seed: int | None = None,
+        real_time: RealTime | None = None,
+    ):
         config = getattr(getattr(env, "unwrapped", env), "cfg", None)
         if getattr(config, "training", False):
             raise ValueError("scored runs need an environment built with training=False")
@@ -49,6 +55,7 @@ class ScoredRun:
         self.env = env
         self.seed = secrets.randbits(128) if seed is None else seed
         self.agent_seed = secrets.randbits(128) if agent_seed is None else agent_seed
+        self.real_time = real_time
         self.obs, self.info = env.reset(seed=self.seed)
         self.states = [self.info["true_state"]]
         self.actions: list[np.ndarray] = []
@@ -86,6 +93,13 @@ class ScoredRun:
             "agent": agent_name,
             "seed": self.seed,
             "agent_seed": self.agent_seed,
+            # The clock setting changes the trajectory, so it is part of the record.
+            "real_time": None
+            if self.real_time is None
+            else {
+                "time_scale": self.real_time.time_scale,
+                "replayed": self.real_time.latencies is not None,
+            },
             "captured": info["captured"],
             "keep_out_violated": info["keep_out_violated"],
             "violation_steps": info["violation_steps"],
@@ -117,7 +131,7 @@ def run_episode(
     training (`training=True`) are refused. `latencies_s` holds the
     agent's wall-clock time per decision; with `real_time` the clock runs while it decides.
     """
-    episode = ScoredRun(env, seed, agent_seed)
+    episode = ScoredRun(env, seed, agent_seed, real_time)
     agent.reset(env.agent_view(), episode.agent_rng())
     replay = None if real_time is None else real_time.latencies
     while not episode.done:

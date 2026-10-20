@@ -40,6 +40,9 @@ def test_recorded_latencies_act_like_an_actuation_delay():
     )
     assert np.array_equal(delayed["states"], timed["states"])
     assert np.array_equal(timed["latencies_s"], [3.7] * steps)
+    # Same keys, different trajectory: the clock setting is recorded with the result.
+    assert delayed["real_time"] is None
+    assert timed["real_time"] == {"time_scale": 1.0, "replayed": True}
 
 
 def test_wall_time_scaled_into_simulated_latency():
