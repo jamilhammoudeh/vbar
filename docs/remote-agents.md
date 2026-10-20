@@ -109,7 +109,8 @@ a drawn `agent_seed` the client never uses), and the command line writes them to
 `--out` file as they finish. When the session ends, because the input ends, the client stops reading
 the output or the server fails, an episode still running and every seed not yet flown are recorded
 too, with `completed` false, so leaving does not remove a bad episode from the results. The client
-never receives the true state, the reward or the outcome.
+never receives the true state, the reward or the outcome, though the time each step takes still
+says a little about the true path ([environment.md](environment.md)).
 
 ## How it is tested
 

@@ -30,7 +30,9 @@ and it passes `gymnasium.utils.env_checker.check_env` (tested in `tests/test_reg
 - **Observation:** the sensor's navigated state $[x, y, z, \dot x, \dot y, \dot z]$, exact by
   default, followed by the channels listed in `observation_channels`, always in this order:
   - `t_remaining`: time left in the episode (s);
-  - `propellant_fraction`: propellant left over propellant at the start;
+  - `propellant_fraction`: propellant left over propellant at the start. It is exact, so under
+    execution error it reveals each burn's delivered delta-v through the rocket equation; turn
+    it off when that error is meant to stay hidden from the agent;
   - `pending_commands`: $\lceil \text{delay} / \Delta t\rceil$ slots of (s until the command takes
     effect, command in action units): the command in effect first, then those not yet in effect,
     zero-filled at the front. With these the next state follows from the observation and the new
@@ -126,6 +128,15 @@ candidates until one gives its generator's seed. A small seed (0, 7, 12345) fall
 in well under a second, a 128-bit seed to neither. Scored comparisons therefore use drawn seeds,
 or seeds the agent's authors never see, and `agent_seed` may not equal `seed` (both runners raise
 `ValueError`). Small fixed seeds remain fine for development and for examples.
+
+Two more limits on what isolation means. An agent running in the same Python process can reach
+the environment through introspection (the caller's frame holds it), so the view and the agent
+stream keep honest agents from seeing the truth by accident, not a determined one; untrusted agents
+run in their own process through the agent server or the tool server
+([remote-agents.md](remote-agents.md)). And a step takes longer when the true path comes close to a
+constraint boundary, since the environment then refines the in-step minimum and searches for
+violation intervals: an agent timing the gaps between its decisions learns something about the
+true trajectory, in process or through either server. The servers do not pad step times.
 
 ## Reward
 
