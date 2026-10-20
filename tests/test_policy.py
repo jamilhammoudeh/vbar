@@ -49,3 +49,10 @@ def test_policy_agent_flies_in_every_continuous_mode():
         PolicyAgent(p),
     )
     assert np.allclose(normalized["states"], accel["states"], rtol=0.0, atol=1e-9)
+
+
+@pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])
+def test_policy_agent_refuses_modes_without_a_continuous_command(mode):
+    env = ApproachEnv(ApproachConfig(action_mode=mode, max_steps=2))
+    with pytest.raises(ValueError, match=f"'{mode}' takes no continuous command"):
+        run_episode(env, PolicyAgent(policy()))

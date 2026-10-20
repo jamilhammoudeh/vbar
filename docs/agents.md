@@ -119,7 +119,8 @@ steps left. Every call's prompt, reply, tokens, cost and latency go to its `log`
   `true` as steps, a 400-digit fraction, 3000 levels of nesting, more than `max_rows` steps and a
   negative segment paired with a long one; a 2000-row plan with 5 steps left is rejected after
   predicting exactly 5 steps, and a negative number of steps left predicts none.
-- The plan agent rejects the discrete mode, and the verifier unknown constraint types.
+- The plan agent rejects the discrete and burn-and-coast modes, and the verifier unknown
+  constraint types.
 
 `tests/test_real_time.py`:
 

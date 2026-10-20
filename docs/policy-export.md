@@ -66,7 +66,8 @@ it):
 - The policy normalizes before the first layer (shifting the mean shifts its input), its
   outputs stay within $(-1, 1)$ for tanh and within $[-1, 1]$ for the clip, and layer shapes are
   checked.
-- The policy agent flies the same trajectory in normalized and acceleration modes.
+- The policy agent flies the same trajectory in normalized and acceleration modes; it and the
+  ONNX agent refuse the discrete and burn-and-coast modes.
 - Round trip: over 500 observations at the approach scenario's scale, the float32 export
   reproduces the numpy policy computed in float32 to 2e-6 and in float64 to 2e-5, for tanh and for
   ReLU with clipping; the float64 export reproduces it to 1e-12.

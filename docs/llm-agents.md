@@ -118,7 +118,8 @@ In real time the model's latency changes the trajectory; replay it with the reco
 `tests/test_llm.py` with stand-in models:
 
 - The model receives one user message per decision with the observed position and the time, and
-  an empty tool list.
+  an empty tool list; the discrete and burn-and-coast modes are refused before the model is
+  called.
 - Tokens and cost follow the declared price per decision and in total; without a price the cost
   is `None`.
 - A custom template is filled from the observation; a template with an unknown field is refused.

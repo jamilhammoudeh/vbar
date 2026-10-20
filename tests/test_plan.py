@@ -146,9 +146,10 @@ def test_llm_planner_sends_the_verdict_back_and_reads_segments():
     assert parse_plan("no plan").shape == (0, 3)
 
 
-def test_plan_agent_rejects_the_discrete_mode():
-    view = ApproachEnv(ApproachConfig(action_mode="disc27")).agent_view()
-    with pytest.raises(ValueError, match="disc27"):
+@pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])
+def test_plan_agent_rejects_modes_without_a_continuous_command(mode):
+    view = ApproachEnv(ApproachConfig(action_mode=mode)).agent_view()
+    with pytest.raises(ValueError, match=mode):
         PlanAgent(rollout()).reset(view)
     with pytest.raises(ValueError, match="cannot check"):
         PlanVerifier(dataclasses.replace(view, constraints=({"type": "cone"},)))

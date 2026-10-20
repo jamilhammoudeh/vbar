@@ -307,3 +307,9 @@ def test_a_command_too_large_for_a_float_is_a_tool_error():
     call(server, "start_episode")
     result, _ = call(server, "command", ax=int("9" * 400), ay=0, az=0)
     assert result["isError"]
+
+
+@pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])
+def test_the_tool_server_refuses_modes_without_a_continuous_command(mode):
+    with pytest.raises(ValueError, match=f"'{mode}' takes no continuous command"):
+        ToolServer(ApproachEnv(ApproachConfig(action_mode=mode)), [0])

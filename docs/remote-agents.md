@@ -141,6 +141,7 @@ never receives the true state, the reward or the outcome.
 
 `tests/test_mcp.py`:
 
+- The server refuses the discrete and burn-and-coast modes.
 - The handshake negotiates the protocol version, notifications get no answer, the six tools are
   listed, an unknown method and a line that is not JSON get their error codes.
 - A PD controller flying through `start_episode` and `command` calls produces exactly the

@@ -342,3 +342,10 @@ def test_replies_nested_past_the_limit_are_refused_on_every_python(depth):
 def test_brackets_inside_strings_do_not_count_as_nesting():
     assert json_depth('{"note": "[[[[{{{{", "v": [1, [2]]}') == 3
     assert json_depth(r'{"q": "an escaped \" [ quote"}') == 1
+
+
+@pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])
+def test_llm_agent_refuses_modes_without_a_continuous_command(mode):
+    environment = ApproachEnv(ApproachConfig(action_mode=mode, max_steps=2))
+    with pytest.raises(ValueError, match=f"'{mode}' takes no continuous command"):
+        run_episode(environment, LLMAgent(text_model(lambda prompt: ANSWER.text)))

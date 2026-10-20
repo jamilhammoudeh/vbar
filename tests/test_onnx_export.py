@@ -47,3 +47,11 @@ def test_latency_profile_reports_the_machine_and_the_timings():
     assert {"machine", "processor", "cpu_count", "python", "onnxruntime"} <= set(report)
     with pytest.raises(ValueError, match="unknown profile"):
         profile_latency(export_onnx(policy()), observations(5), profile="flight")
+
+
+@pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])
+def test_onnx_agent_refuses_modes_without_a_continuous_command(mode):
+    agent = OnnxAgent(export_onnx(policy()))
+    env = ApproachEnv(ApproachConfig(action_mode=mode, max_steps=2))
+    with pytest.raises(ValueError, match=f"'{mode}' takes no continuous command"):
+        run_episode(env, agent)
