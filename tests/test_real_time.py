@@ -43,7 +43,9 @@ def test_recorded_latencies_act_like_an_actuation_delay():
 
 
 def test_wall_time_scaled_into_simulated_latency():
-    env = ApproachEnv(ApproachConfig(start_state=START, max_steps=2))
+    # A 120 s step keeps the scaled latency inside the step even when a slow runner sleeps
+    # 0.01 s for 0.5 s; macOS CI runners overshot a 10 s step.
+    env = ApproachEnv(ApproachConfig(start_state=START, max_steps=2, dt=120.0))
     result = run_episode(env, Slow(0.01), real_time=RealTime(time_scale=200.0))
     latency = 200.0 * result["latencies_s"][-1]
     assert latency >= 2.0
