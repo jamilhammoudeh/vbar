@@ -138,13 +138,17 @@ class SeedGuesser:
         return np.zeros(3)
 
 
-def test_a_small_episode_seed_is_found_from_the_first_observation_and_a_drawn_one_is_not():
+@pytest.mark.parametrize("runner", ["run_episode", "record_episode"])
+def test_a_small_episode_seed_is_found_from_the_first_observation_and_a_drawn_one_is_not(runner):
     config = ApproachConfig(max_steps=1, sensor=GaussianNav(**NOISE))
     guesser = SeedGuesser(config, range(200))
-    run_episode(ApproachEnv(config), guesser, seed=150)
+    run = run_episode if runner == "run_episode" else record_episode
+    run(ApproachEnv(config), guesser, seed=150)
     assert guesser.guess == 150
-    result = run_episode(ApproachEnv(config), guesser)
-    assert guesser.guess is None and result["seed"] >= 200
+    drawn = run(ApproachEnv(config), guesser)
+    seed = drawn["seed"] if runner == "run_episode" else drawn.seed
+    # A 128-bit draw falls below 2**64 with probability 2**-64.
+    assert guesser.guess is None and seed >= 2**64
 
 
 @dataclasses.dataclass(frozen=True)
@@ -237,9 +241,11 @@ class OneBuffer:
 
 
 def test_recorded_actions_are_the_commands_flown_when_an_agent_reuses_its_array():
+    flown = [[0.0, -1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
     result = run_episode(ApproachEnv(ApproachConfig(max_steps=3)), OneBuffer(), seed=0)
-    assert result["actions"].tolist() == [[0.0, -1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
-    assert result["dv_used_mps"] > 0.0
+    assert result["actions"].tolist() == flown and result["dv_used_mps"] > 0.0
+    episode = record_episode(ApproachEnv(ApproachConfig(max_steps=3)), OneBuffer(), seed=0)
+    assert [r.command.tolist() for r in episode.records] == flown
 
 
 def test_llm_prompt_is_built_from_the_observation_not_the_truth():
