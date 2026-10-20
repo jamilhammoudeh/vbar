@@ -50,6 +50,12 @@ release may change the public API, and every such change is listed under Changed
   from an episode-level exceedance probability.
 - `vbar.solvers.HillScaling`: nondimensional units for Hill-frame problems (length L, time 1/n,
   acceleration n^2 L) with conversions of states, accelerations and durations.
+- `vbar.solvers.project`: the exact projection of a three-axis command onto up to 32 linear rows
+  under a box or ball thrust limit, in a diagonal weighted norm, by enumeration of active sets.
+  `Projection` gives the multipliers, the active rows and faces, and a status of "feasible",
+  "infeasible_certified" (with a verified Farkas certificate from the sum-of-infeasibilities phase
+  I and the conflicting rows named) or "solver_failed"; when infeasible, the least-violation
+  command.
 - A second-order in-step certificate for the keep-out sphere: `KeepOut.curvature_bound` and
   `KeepOut.second_order_bounds`, a chord bound on the squared range, and `segment_minimum` and
   `segment_minima` report the larger of it and the Lipschitz bound. A constraint may define

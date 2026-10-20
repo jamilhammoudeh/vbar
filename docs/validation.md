@@ -362,6 +362,21 @@ per-draw truncation level for an episode-level exceedance probability (3 sigma p
 94.6% of 1080-draw episodes outside the bounded model; 1e-3 needs 4.91 and 5.04 sigma for 1080
 and 2160 draws).
 
+## Published examples behind the solvers
+
+The projection of [solvers.md](solvers.md) is checked against the cases below.
+
+**Boyd and Vandenberghe, *Convex Optimization*** (Cambridge University Press, 2004)
+
+- Exercise 4.3: the QP with $P = [[13, 12, -2], [12, 17, 6], [-2, 6, 12]]$,
+  $q = (-22, -14.5, 13)$ and $-1 \le x_i \le 1$, solved as a projection through the Cholesky
+  factor of $P$, gives $x^* = (1, 0.5, -1)$, $p^* = -21.625$ and multipliers 1 on $x_1 \le 1$, 2
+  on $x_3 \ge -1$ and 0 on the other four bounds, to 1e-12.
+- Sec. 8.1.1: the projection onto a halfspace, $u_0 + \max(0, b - a \cdot u_0)\,a/|a|^2$, on 200
+  random instances to 1e-12.
+- Exercise 5.26: a feasible set that is a single point, where Slater's condition fails; its
+  analogue, a row tangent to the thrust ball, is solved and reported without finite multipliers.
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -417,8 +432,10 @@ and 2160 draws).
 - Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design* (2nd ed.,
   Nob Hill, 2017): bounds hold only for the model they are computed on (sec. 8.10), and the
   preparation and feedback split of real-time iteration (sec. 8.9).
-- Boyd and Vandenberghe, *Convex Optimization* (2004): the conditioning argument for nondimensional
-  units (secs. 9.3 and 9.5).
+- Boyd and Vandenberghe, *Convex Optimization* (2004): the KKT conditions behind the active-set
+  projection (sec. 5.5.3), Farkas certificates of infeasibility (sec. 5.8.3), projection onto a
+  halfspace (sec. 8.1.1), the sum-of-infeasibilities phase I and its conflicting rows
+  (sec. 11.4.1), and the conditioning argument for nondimensional units (secs. 9.3 and 9.5).
 - Ames, Coogan, Egerstedt, Notomista, Sreenath and Tabuada, "Control Barrier Functions: Theory and
   Applications" (ECC 2019): safety filters, the activity of their rows, and the conservatism of
   safe sets under bounded inputs.
