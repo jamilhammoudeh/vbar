@@ -50,14 +50,15 @@ agent.close()                        # sends close
 
 `python -m vbar.agents.remote --port 5555 --episodes 3 --out results.jsonl` hosts the default
 approach scenario for one client and writes one JSON line per episode with the result of
-`run_episode` (arrays as lists). Each episode's seed is drawn (128 bits) and recorded in its
-result; `--seeds` repeats given seeds instead. A client that can guess the seed can rebuild the
-true state from its first observation, so scored sessions keep the drawn seeds. However the session fails (a bad hello, a disconnect or reset, a
-line that is not JSON, not UTF-8 or too deeply nested to parse, an action the server cannot use),
-the episode being flown is written with `completed` false and the error, and so is every seed not
-yet flown; a failed hello records every seed unflown. The records are also written when the host
-itself is interrupted (Ctrl+C) before the interrupt goes on. Real-time runs ([agents.md](agents.md))
-work through the server too; the measured latency then includes the network.
+`run_episode` (arrays as lists). Each episode's seed is drawn (128 bits) and recorded in its result;
+`--seeds` repeats given seeds instead. A client that can guess the seed can rebuild the true state
+from its first observation, so scored sessions keep the drawn seeds. However the session fails (a
+bad hello, a disconnect or reset, a line that is not JSON, not UTF-8 or too deeply nested to parse,
+an action the server cannot use), the episode being flown is written with `completed` false and the
+error, and so is every seed not yet flown; a failed hello records every seed unflown. The records
+are also written when the host itself is interrupted (Ctrl+C) before the interrupt goes on.
+Real-time runs ([agents.md](agents.md)) work through the server too; the measured latency then
+includes the network.
 
 ## Clients
 
@@ -81,15 +82,16 @@ there; MATLAB agents that need randomness seed their own generator from it.
 
 ## Tool server for LLM harnesses
 
-LLM harnesses that call tools through the Model Context Protocol can fly V-BAR episodes
-directly: `python -m vbar.agents.mcp --episodes 3 --out results.jsonl` serves the approach
-scenario over stdio, with drawn seeds as above (`--seeds` repeats given ones), JSON-RPC 2.0 with one message per line, and a harness adds it as a stdio
-tool server. `ToolServer(env, seeds)` is the same server in Python; its `handle(message)` answers
-one message and `serve(stdin, stdout)` runs the loop. It answers `initialize` (protocol versions
-2025-06-18, 2025-03-26 and 2024-11-05; the client's choice when supported), `ping`, `tools/list`
-and `tools/call`, ignores notifications, and returns JSON-RPC errors for unknown methods (-32601),
-unknown tools and `params` or `arguments` that are not objects (-32602), lines that are not JSON
-(-32700) and failures inside the server (-32603); after an error it goes on answering.
+LLM harnesses that call tools through the Model Context Protocol can fly V-BAR episodes directly:
+`python -m vbar.agents.mcp --episodes 3 --out results.jsonl` serves the approach scenario over
+stdio, with drawn seeds as above (`--seeds` repeats given ones), JSON-RPC 2.0 with one message per
+line, and a harness adds it as a stdio tool server. `ToolServer(env, seeds)` is the same server in
+Python; its `handle(message)` answers one message and `serve(stdin, stdout)` runs the loop. It
+answers `initialize` (protocol versions 2025-06-18, 2025-03-26 and 2024-11-05; the client's choice
+when supported), `ping`, `tools/list` and `tools/call`, ignores notifications, and returns JSON-RPC
+errors for unknown methods (-32601), unknown tools and `params` or `arguments` that are not objects
+(-32602), lines that are not JSON (-32700) and failures inside the server (-32603); after an error
+it goes on answering.
 
 | Tool | Arguments | Returns |
 |---|---|---|

@@ -111,23 +111,24 @@ The Gymnasium `info` dict is for metrics and logging and holds the truth:
 command, the spacecraft's `Actuation` and the step's segments, segment start states, samples,
 constraint minima and violation intervals.
 
-`run_episode(env, agent, seed, agent_seed)` resets the environment, calls
-`agent.reset(view, rng)` with a generator seeded by a hash of `agent_seed` alone, and returns the
-final metrics above plus `agent`, `seed`, `agent_seed`, `completed` (false only for an episode a
-remote session left unfinished), `wall_time_s`, the agent's decision times `latencies_s`, the true
-state history `states`, the actions `actions`, and `filter_interventions` when the agent is
-wrapped in a safety filter. `real_time` lets the clock run while the agent decides, and the
-result records its setting under the same key ([agents.md](agents.md)). A seed not given is drawn from the operating system (128 bits) and
-returned, so any run can be repeated. `run_many(env, agent, seeds, agent_seeds)` runs one episode
-per seed.
+`run_episode(env, agent, seed, agent_seed)` resets the environment, calls `agent.reset(view, rng)`
+with a generator seeded by a hash of `agent_seed` alone, and returns the final metrics above plus
+`agent`, `seed`, `agent_seed`, `completed` (false only for an episode a remote session left
+unfinished), `wall_time_s`, the agent's decision times `latencies_s`, the true state history
+`states`, the actions `actions`, and `filter_interventions` when the agent is wrapped in a safety
+filter. `real_time` lets the clock run while the agent decides, and the result records its setting
+under the same key ([agents.md](agents.md)). A seed not given is drawn from the operating system
+(128 bits) and returned, so any run can be repeated. `run_many(env, agent, seeds, agent_seeds)` runs
+one episode per seed.
 
 Seeds and cheating: the scenario is public, so an agent can rebuild the environment, reset it with
 candidate seeds and keep the one whose first observation matches its own; with that seed it knows
 the true state at every step. The same works on `agent_seed`, which an agent can find by hashing
 candidates until one gives its generator's seed. A small seed (0, 7, 12345) falls to either search
-in well under a second, a 128-bit seed to neither. Scored comparisons therefore use drawn seeds,
-or seeds the agent's authors never see, and `agent_seed` may not equal `seed` (both runners raise
-`ValueError`). Small fixed seeds remain fine for development and for examples.
+in about a second, a 128-bit seed to neither. Scored comparisons therefore use drawn seeds, or seeds
+the agent's authors never see, and `agent_seed` may not equal `seed` (`run_episode`, `ScoredRun` and
+`record_episode` raise `ValueError`). Small fixed seeds remain fine for development and for
+examples.
 
 Two more limits on what isolation means. An agent running in the same Python process can reach
 the environment through introspection (the caller's frame holds it), so the view and the agent
@@ -242,7 +243,8 @@ sign-convention check every agent passes before scoring is on [agents.md](agents
   `agent_seed` repeats a run.
 - An agent that hashes candidate seeds finds an `agent_seed` of 12 and no drawn one; an agent that
   resets a twin environment with seeds 0 to 199 finds episode seed 150 from its first observation
-  and no drawn seed; equal seeds are refused, and drawn seeds repeat the run.
+  and no drawn seed, through `run_episode` and `record_episode`; equal seeds are refused, and drawn
+  seeds repeat the run.
 - An agent that overwrites every list and array in its view's constraints, a user constraint
   holding a list among them, leaves the environment's constraints unchanged.
 - An agent that writes every command into one array has each step's command recorded.

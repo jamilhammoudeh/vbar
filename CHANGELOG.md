@@ -33,7 +33,8 @@ release may change the public API, and every such change is listed under Changed
   Vector parameters are held as tuples, and the agent's view gets copies of every parameter.
 - `FilterResult` with a status, slack, conflicting constraints and compute time; `FilteredAgent`
   keeps the last command, result and measured filter time.
-- `vbar.metrics`: `record_episode` returns an `Episode` with every step record, and
+- `vbar.metrics`: `record_episode` returns an `Episode` with every step record (drawing and
+  recording seeds not given, and refusing `agent_seed` equal to `seed`, as `run_episode` does), and
   `evaluate(episode, settings, bounds, report, posterior)` returns every metric keyed by the names
   in `METRICS`: mission metrics with docking contact and hold dwell, efficiency, the optimality gap
   against oracle bounds, constraint margins with violation depth and duration in continuous time,
@@ -81,9 +82,10 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.scenarios.ApproachVectorEnv`: many approach episodes stepped as one batch on the exact
   Clohessy-Wiltshire path, with Gymnasium's vector API and same-step autoreset.
 - `vbar.agents.sign_check.sign_check`: the sign-convention self-check run before scoring.
-- Real-time runs: `run_episode(..., real_time=RealTime(...))` applies the agent's decision
-  time as latency; every result has `latencies_s` and the clock setting in `real_time`; `vbar.ScoredRun` steps a scored episode;
-  `BaseEnv.step` and `Spacecraft.apply` take a per-command latency.
+- Real-time runs: `run_episode(..., real_time=RealTime(...))` applies the agent's decision time as
+  latency; every result has `latencies_s` and the clock setting in `real_time`; `vbar.ScoredRun`
+  steps a scored episode, with the same seed rules as `run_episode`; `BaseEnv.step` and
+  `Spacecraft.apply` take a per-command latency.
 - `LLMAgent` prompt templates (`prompt=`), token counts and cost from a declared `Price`, and
   `usage()` totals.
 - LLM tool calling (`LLMAgent(tools=...)`, `ToolCall`) with Clohessy-Wiltshire coast and
