@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import string
 import time
@@ -250,15 +251,30 @@ def first_json(text: str, pattern: str = r"\{.*?\}") -> Any:
 
 
 def parse_belief(text: str) -> dict[str, Any] | None:
-    """Extract "range_m" (number) and "closing" (true or false) from a reply's JSON, or None."""
-    data = first_json(text)
-    try:
-        range_m, closing = float(data["range_m"]), data["closing"]
-    except REPLY_ERRORS:
+    """The first JSON object in a reply with a finite number `range_m` and a boolean `closing`.
+
+    Objects are read in order and those without both are skipped, so a belief may follow the
+    command in its own object; quoted numbers do not count. The agent and metric A5 both use it.
+    """
+    if not isinstance(text, str):
         return None
-    if not np.isfinite(range_m) or not isinstance(closing, bool):
-        return None
-    return {"range_m": range_m, "closing": closing}
+    for match in re.finditer(r"\{[^{}]*\}", text):
+        if json_depth(match.group(0)) > MAX_JSON_DEPTH:
+            continue
+        try:
+            data = json.loads(match.group(0))
+        except (ValueError, RecursionError):
+            continue
+        range_m, closing = data.get("range_m"), data.get("closing")
+        if isinstance(range_m, bool) or not isinstance(range_m, int | float):
+            continue
+        try:
+            range_m = float(range_m)
+        except OverflowError:
+            continue
+        if math.isfinite(range_m) and isinstance(closing, bool):
+            return {"range_m": range_m, "closing": closing}
+    return None
 
 
 def belief_matches(belief: Mapping[str, Any] | None, obs: np.ndarray) -> bool:

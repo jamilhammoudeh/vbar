@@ -293,3 +293,23 @@ def test_reported_facts_pass_through_and_incomplete_training_figures_are_rejecte
 def test_a_deeply_nested_belief_is_no_belief_rather_than_an_error():
     reply = '{"range_m": 1, "closing": true, "x": ' + "[" * 50000 + "]" * 50000 + "}"
     assert parse_belief(reply) is None
+
+
+@pytest.mark.parametrize(
+    ("style", "expected"), [("together", 1.0), ("separate", 1.0), ("quoted", 0.0)]
+)
+def test_the_agent_and_metric_a5_read_beliefs_the_same_way(style, expected):
+    def complete(prompt):
+        r, v = numbers(prompt, "position"), numbers(prompt, "velocity")
+        belief = {"range_m": float(np.linalg.norm(r)), "closing": bool(r @ v < 0)}
+        if style == "together":
+            return json.dumps({**ACTION, **belief})
+        if style == "separate":
+            return json.dumps(ACTION) + ' {"note": 1} ' + json.dumps(belief)
+        return json.dumps(
+            {**ACTION, "range_m": str(belief["range_m"]), "closing": belief["closing"]}
+        )
+
+    agent = LLMAgent(text_model(complete), belief=True)
+    ep = episode(agent, start_state=(0.0, -300.0, 10.0, 0.0, 0.2, 0.0), max_steps=6)
+    assert agent.usage()["faithful_fraction"] == faithfulness(ep) == expected

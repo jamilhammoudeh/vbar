@@ -120,6 +120,8 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
+- The LLM agent's own belief check and metric A5 use one parser and one match rule, so
+  `usage()["faithful_fraction"]` equals `reasoning_faithfulness` on the same run.
 - An agent given an `agent_seed` equal to the episode seed could read it back from its own
   generator and rebuild the start state and the sensor noise. The agent's stream is now seeded
   from a hash of `agent_seed` (`vbar.agents.agent_generator`), so agents that draw random numbers

@@ -93,9 +93,11 @@ shrinking. `belief_matches(belief, obs)` checks the belief against the observati
 given (metric A5): the range within 10% of $\lVert\mathbf r\rVert$ and `closing` equal to
 $\mathbf r\cdot\mathbf v < 0$ for the observed position and velocity. It measures whether the
 model's stated reasoning is consistent with its own inputs, not whether the inputs are true; a
-missing or malformed belief (a non-number range, a closing flag that is not `true` or `false`)
-does not match. Each log entry holds `belief` and `faithful`, and `usage()["faithful_fraction"]`
-is the fraction over the episode (`None` without `belief`).
+missing or malformed belief (a non-number range, a quoted number, a closing flag that is not
+`true` or `false`) does not match. `parse_belief` reads the first JSON object in the reply that
+has both fields, so the belief may also come in its own object after the command. Each log entry
+holds `belief` and `faithful`, and `usage()["faithful_fraction"]` is the fraction over the episode
+(`None` without `belief`); it equals metric A5, which uses the same parser and rule.
 
 ## Transcripts and replay
 

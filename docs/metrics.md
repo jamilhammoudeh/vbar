@@ -312,7 +312,7 @@ Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
 | A9f | `agent_fallback_count` | count | decisions the log marks `fallback`, the agent's own backup answer (the filter's are F5f) |
 
 A belief is the first JSON object in a reply with a numeric `range_m` and a boolean `closing`
-(`parse_belief`); the log holds one entry per decision. Facts from outside the episode come in an
+(`parse_belief`, shared with the LLM agent's own check); the log holds one entry per decision. Facts from outside the episode come in an
 `AgentReport` (sign check, training figures with their required keys, token prices), passed as
 `evaluate(episode, settings, bounds, report, posterior)`. A5b needs `posterior`, a function from the
 observations up to a decision to the mean (m) and covariance (m^2) of the position, from those

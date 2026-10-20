@@ -9,17 +9,15 @@ figures are reported by the harness that ran them.
 
 from __future__ import annotations
 
-import json
 import math
 import numbers
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
-from ..agents.llm import MAX_JSON_DEPTH, json_depth
+from ..agents.llm import belief_matches, parse_belief
 from .episode import Episode
 
 Posterior = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
@@ -52,21 +50,6 @@ class AgentReport:
                 raise ValueError(f"{name} needs {sorted(set(keys) - set(given))}")
 
 
-def parse_belief(text: str) -> dict[str, Any] | None:
-    """The first JSON object in a reply with a numeric `range_m` and a boolean `closing`."""
-    for match in re.finditer(r"\{[^{}]*\}", text):
-        if json_depth(match.group(0)) > MAX_JSON_DEPTH:
-            continue
-        try:
-            data = json.loads(match.group(0))
-        except (ValueError, RecursionError):
-            continue
-        range_m, closing = data.get("range_m"), data.get("closing")
-        if isinstance(range_m, int | float) and isinstance(closing, bool):
-            return {"range_m": float(range_m), "closing": closing}
-    return None
-
-
 def _decision_observations(ep: Episode) -> list[np.ndarray]:
     """The observation each decision was made on: the first one, then each step's."""
     if ep.first_obs is None:
@@ -85,12 +68,7 @@ def faithfulness(ep: Episode) -> float:
         return math.nan
     hits = 0
     for entry, obs in zip(ep.agent_log, _decision_observations(ep), strict=True):
-        belief = parse_belief(str(entry.get("reply", "")))
-        if belief is None:
-            continue
-        rho = float(np.linalg.norm(obs[:3]))
-        closing = float(obs[:3] @ obs[3:6]) < 0.0
-        hits += abs(belief["range_m"] - rho) <= 0.1 * rho and belief["closing"] == closing
+        hits += belief_matches(parse_belief(str(entry.get("reply", ""))), obs)
     return hits / len(ep.agent_log)
 
 
