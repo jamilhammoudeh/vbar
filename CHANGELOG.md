@@ -48,6 +48,8 @@ release may change the public API, and every such change is listed under Changed
   rejection at a level in sigma, per axis for the first and last and on the norm of each
   three-dimensional draw for `RangeScaledNav`; `vbar.scenarios.per_draw_level` derives the level
   from an episode-level exceedance probability.
+- `vbar.solvers.HillScaling`: nondimensional units for Hill-frame problems (length L, time 1/n,
+  acceleration n^2 L) with conversions of states, accelerations and durations.
 - A second-order in-step certificate for the keep-out sphere: `KeepOut.curvature_bound` and
   `KeepOut.second_order_bounds`, a chord bound on the squared range, and `segment_minimum` and
   `segment_minima` report the larger of it and the Lipschitz bound. A constraint may define

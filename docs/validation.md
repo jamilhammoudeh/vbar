@@ -417,6 +417,8 @@ and 2160 draws).
 - Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design* (2nd ed.,
   Nob Hill, 2017): bounds hold only for the model they are computed on (sec. 8.10), and the
   preparation and feedback split of real-time iteration (sec. 8.9).
+- Boyd and Vandenberghe, *Convex Optimization* (2004): the conditioning argument for nondimensional
+  units (secs. 9.3 and 9.5).
 - Ames, Coogan, Egerstedt, Notomista, Sreenath and Tabuada, "Control Barrier Functions: Theory and
   Applications" (ECC 2019): safety filters, the activity of their rows, and the conservatism of
   safe sets under bounded inputs.
