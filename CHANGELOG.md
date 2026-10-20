@@ -20,6 +20,9 @@ release may change the public API, and every such change is listed under Changed
 - S5 divides by the speed the scenario's closing-rate law allows, so it also scores range-rate
   tables, and no longer raises for a limit with v0 <= 0; the plume range is the scenario's unless
   the settings give one.
+- `LLMAgent` calls `complete(messages, tools)` and accepts a `Reply` or text; wrap a
+  `prompt -> text` function with `vbar.agents.text_model`. Options after `complete` are
+  keyword-only.
 
 ### Added
 
@@ -58,6 +61,71 @@ release may change the public API, and every such change is listed under Changed
   safety metrics, and `clopper_pearson` the exact interval of a rate. The card template has a
   Summary field and a table of rate resolution against episode count.
 - `allowed_speed(rho)` on `ClosingSpeedLimit` and `GateTable`, and `MetricSettings.stall_speed`.
+- `vbar.rewards`: training rewards with per-second discounting, terms tied to the metrics (time,
+  fuel, time in violation, violation entries, a success bonus that needs success without a hard
+  violation), potential-based progress shaping and an exactly integrated quadratic cost.
+- `vbar.constraints.violation_intervals` and `SegmentTrace.violations`: the intervals inside each
+  step where a constraint's margin is negative.
+- `EnvConfig.reward` selects a library reward and adds the step's `discount` to `info`;
+  `BaseEnv.transition` builds the step's `Transition`; `SegmentTrace.starts` holds the state at
+  each segment's start. Without it the approach scenario keeps its legacy reward.
+- `action_mode="disc27"`: 27 bang-off-bang commands as a `Discrete(27)` action, with its own
+  scenario ID suffix; `vbar.agents.command_fraction` and `zero_action` for every mode. The drift
+  agent handles every mode; the PD and LLM agents reject the discrete one.
+- `action_mode="impulse_coast"`: a one-step burn and a coast of chosen length as one decision,
+  discounted by its duration.
+- `EnvConfig.training` and `reset(options=...)` with `"start_state"`, `"start_pos_range"` and
+  `"start_vel_range"` for training; `run_episode` refuses such environments.
+- `vbar.training.FilteredEnv`: a safety filter inside the training loop, reporting the executed
+  action and whether the filter intervened.
+- `vbar.constraints.segment_minima`: the certified in-step minimum for a batch of segments;
+  `interval_bounds` accepts stacked samples.
+- `vbar.dynamics.cw_states`: Clohessy-Wiltshire states for many durations at once.
+- `vbar.scenarios.ApproachVectorEnv`: many approach episodes stepped as one batch on the exact
+  Clohessy-Wiltshire path, with Gymnasium's vector API and same-step autoreset.
+- `vbar.agents.sign_check.sign_check`: the sign-convention self-check run before scoring.
+- Real-time runs: `run_episode(..., real_time=RealTime(...))` applies the agent's decision
+  time as latency; every result has `latencies_s`; `vbar.Episode` steps a scored episode;
+  `BaseEnv.step` and `Spacecraft.apply` take a per-command latency.
+- `LLMAgent` prompt templates (`prompt=`), token counts and cost from a declared `Price`, and
+  `usage()` totals.
+- LLM tool calling (`LLMAgent(tools=...)`, `ToolCall`) with Clohessy-Wiltshire coast and
+  transfer tools computed from the agent's own observation (`vbar.agents.tools`).
+- `RecordedModel` and `ReplayModel`: record an LLM run's requests and replies and replay it
+  exactly without the model.
+- `LLMAgent(belief=True)`: the model reports its range and closing belief, checked against the
+  observation (`belief_matches`, `faithful_fraction`).
+- `vbar.agents.plan`: plan submission with an external CW verifier (`PlanVerifier`, `Verdict`),
+  `PlanAgent` with revision from the verdict, and `LLMPlanner`.
+- `vbar.agents.remote`: an agent server with a JSON-lines TCP protocol, a Python client
+  (`serve_agent`), a command-line host, and a MATLAB client in `clients/matlab/`.
+- `vbar.agents.mcp`: a Model Context Protocol tool server over stdio for LLM harnesses
+  (`python -m vbar.agents.mcp`).
+- `vbar.agents.policy`: MLP policies with observation normalization and action squashing, ONNX
+  export with both built in, an ONNX agent and latency profiles; optional `onnx` extra.
+- Every `run_episode` result has `completed`; the agent and tool servers record episodes a
+  client leaves unfinished, and the tool server answers `params` or `arguments` that are not
+  objects, null included, with a JSON-RPC error.
+- `RemoteAgent.act` refuses actions of the wrong form with `RemoteAgentError`; the tool server
+  answers a tool name that is not a string with -32602.
+- The agent server bounds each whole message by its timeout and lines by 1 MiB, accepts only an
+  integer protocol, and the command-line host records every episode even when interrupted.
+- LLM tools return an error for results that are not finite and for numbers too large for a
+  float; such a reply counts as a parse failure. The Python agent client converts actions as
+  the environment does. The tool server refuses request ids that are not strings, finite
+  numbers or null.
+- `parse_plan` takes `max_rows` (a million by default) and refuses steps that are not whole numbers
+  of at least zero, where it used to truncate or skip them; the verifier predicts at most the
+  steps left; replies too deeply nested are parse failures.
+
+### Fixed
+
+- `propagate_kepler` and `lagrange_coefficients` converge at high eccentricity over many periods:
+  an elliptic time is reduced to one period and the universal anomaly is solved inside a bracket.
+  Before, a few in a thousand random orbits with e above 0.89, propagated over several periods,
+  raised "did not converge".
+- LLM replies nested more than 32 levels deep are parse failures on every Python version; on 3.13
+  and later, deeper replies used to parse and the belief parser accepted them.
 
 ## [0.2.0] - 2026-10-16
 
