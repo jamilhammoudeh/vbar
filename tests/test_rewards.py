@@ -270,3 +270,19 @@ def test_quadratic_cost_integrates_the_exact_duration(tau, duration):
     a = np.array([3e-4, -1e-3, 2e-4])
     found = QuadraticCost(N, Q_COST, R_COST)(X_COST[None], a[None], np.array([duration]), tau)
     assert float(found[0]) == pytest.approx(quadrature_cost(a, duration, tau), rel=1e-13)
+
+
+def test_quadratic_cost_keeps_the_tail_of_a_cost_growing_under_discount():
+    # A held acceleration makes the cost grow like s^4; dropping pieces once the discount fell
+    # below 1e-17 lost 1.7e-12 here.
+    a = np.array([1e-3, -2e-3, 5e-4])
+    found = QuadraticCost(N, Q_COST, R_COST)(X_COST[None], a[None], np.array([1e5]), 1000.0)
+    assert float(found[0]) == pytest.approx(quadrature_cost(a, 1e5, 1000.0), rel=1e-13)
+
+
+def test_quadratic_cost_of_a_long_segment_under_a_short_time_constant_is_cheap():
+    # 1e8 pieces of 0.01 s, all but the first few thousand discounted to nothing.
+    cost = QuadraticCost(N, Q_COST, R_COST)
+    a = np.array([3e-4, -1e-3, 2e-4])
+    long, short = (cost(X_COST[None], a[None], np.array([d]), 0.01)[0] for d in (1e6, 1.0))
+    assert long == pytest.approx(short, rel=1e-15)

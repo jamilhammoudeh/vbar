@@ -66,8 +66,9 @@ $s$ is the time from the start of the step and $d$ the distance to the goal.
   a long segment spans many orbits of CW motion, a segment is integrated in $k$ pieces
   $h = d/k \le \min(\tau, 1/4n)$,
   $W(d) = \sum_j e^{-jh/\tau} E_j^T W(h) E_j$ with $E_j$ the undiscounted transition of
-  $\mathbf z$ over $jh$, taken from the closed-form CW matrices; pieces whose discount is below
-  $10^{-17}$ are skipped. SciPy 1.11, the oldest supported, computes one-radian blocks to only
+  $\mathbf z$ over $jh$, taken from the closed-form CW matrices; pieces starting past $60\tau$
+  are skipped, since a held acceleration makes the cost grow like $s^4$ and
+  $e^{-x}x^4/24 < 10^{-20}$ beyond $x = 60$. SciPy 1.11, the oldest supported, computes one-radian blocks to only
   $10^{-11}$ and quarter-radian ones to $4 \times 10^{-15}$, and powers of its one-piece
   transition drift by $10^{-11}$ over a hundred pieces; with both choices the cost is good to
   $3 \times 10^{-14}$ there and $10^{-15}$ on current SciPy. The duration is integrated as given,
@@ -126,6 +127,9 @@ earlier results and is not aligned with the metrics.
   without discounting or with $\tau$ = 1e5 s, where one block was up to 1e-3 off with SciPy 1.11.
 - It matches quadrature to 1e-13 on segments of 7.4 ms and 9.988 s, durations off any grid that
   were 6e-8 off when rounded to 1 ns.
+- Under $\tau$ = 1000 s a 1e5 s segment with a held acceleration matches quadrature to 1e-13 (the
+  former cut at a discount of 1e-17 lost 1.7e-12), and a 1e6 s segment under $\tau$ = 0.01 s, 1e8
+  pieces long, costs what a 1 s segment does without building them.
   A mean motion that is not positive is refused.
 - A batch of transitions gives each row its own reward; invalid time constants and weights are
   rejected.
