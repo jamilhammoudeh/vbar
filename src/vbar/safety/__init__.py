@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..agents.base import AgentView
+from ..agents.base import CONTINUOUS_MODES, AgentView
 
 FILTER_STATUSES = ("feasible", "infeasible_certified", "solver_failed")
 
@@ -85,6 +85,8 @@ class FilteredAgent:
         self.name = f"{agent.name}+{safety_filter.name}"
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        if view.action_mode not in CONTINUOUS_MODES:
+            raise ValueError(f"filters need a continuous action mode, not {view.action_mode!r}")
         self.agent.reset(view, rng)
         self.filter.reset(view)
         self.interventions = 0

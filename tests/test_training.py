@@ -5,8 +5,9 @@ from gymnasium.utils.env_checker import check_env
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DISC27, DriftAgent, LLMAgent, PDAgent, command_fraction, zero_action
 from vbar.agents.llm import text_model
+from vbar.metrics import record_episode
 from vbar.rewards import Reward
-from vbar.safety import PassThroughFilter
+from vbar.safety import FilteredAgent, PassThroughFilter
 from vbar.spacecraft import GaussianNav
 from vbar.training import FilteredEnv
 
@@ -203,3 +204,13 @@ def test_scored_runs_refuse_an_environment_built_for_training():
     with pytest.raises(ValueError, match="training=False"):
         run_episode(ApproachEnv(ApproachConfig(training=True)), PDAgent(), seed=0)
     check_env(ApproachEnv(ApproachConfig(training=True)), skip_render_check=True)
+
+
+@pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])
+def test_filtered_agent_refuses_discrete_modes_before_flying(mode):
+    env = ApproachEnv(ApproachConfig(start_state=START, action_mode=mode))
+    agent = FilteredAgent(DriftAgent(), PassThroughFilter())
+    with pytest.raises(ValueError, match="continuous action mode"):
+        record_episode(env, agent, seed=0, agent_seed=1)
+    with pytest.raises(ValueError, match="continuous action mode"):
+        run_episode(env, agent, seed=0, agent_seed=1)

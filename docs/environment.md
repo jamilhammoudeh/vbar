@@ -159,7 +159,8 @@ action in the view's action mode. Provided:
   wall time. A bare action is wrapped as `feasible`, intervened when a component moved by more
   than `tol` (1e-6), with the measured time. After each decision `last_command` and `last_result`
   hold the agent's command and the result, and `last_filter_s` the filter's measured time, for
-  the step record ([metrics.md](metrics.md)). Only the pass-through filter exists so far.
+  the step record ([metrics.md](metrics.md)). It refuses the discrete and burn-and-coast action
+  modes at `reset`, before anything is flown. Only the pass-through filter exists so far.
 
 `vbar.agents.action_scale(view)` gives the action units per fraction of a full command. The
 sign-convention check every agent passes before scoring is on [agents.md](agents.md).
