@@ -2,11 +2,11 @@
 
 Code: `vbar.constraints` (`Constraint`, the constraint types below, `segment_minimum`,
 `segment_minima`, `interval_bounds`, `range_lower_bounds`, `violation_intervals`,
-`sampled_negative_intervals`). A
-constraint's margin is $\ge 0$ where it holds and $< 0$ where it is violated, in the constraint's
-units, as in the quantitative semantics of signal temporal logic (Donzé and Maler, 2010). The
-environment finds each constraint's lowest margin over every constant-acceleration segment of a
-step, not only at the step's samples ([environment.md](environment.md)).
+`sampled_negative_intervals`). A constraint's margin is $\ge 0$ where it holds and $< 0$ where it is
+violated, in the constraint's units, as in the quantitative semantics of signal temporal logic
+(Donzé and Maler, 2010). The environment finds each constraint's lowest margin over every
+constant-acceleration segment of a step, not only at the step's samples
+([environment.md](environment.md)).
 
 ## Constraints
 
