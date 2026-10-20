@@ -170,6 +170,22 @@ def test_random_hyperbolas_run_back_to_their_start():
         assert np.linalg.norm(r2 - r0) < 1e-10 * np.linalg.norm(r1)
 
 
+@pytest.mark.parametrize("excess", [-1e-4, -1e-6, -1e-10, -1e-12, 1e-10, 1e-12])
+def test_one_second_near_parabolic_arcs_match_a_taylor_step(excess):
+    # At perigee, with speed (1 + excess) times escape speed: the period of the ellipses is
+    # up to 1e18 s, so reducing a negative time by a whole period loses the time itself.
+    r_p = 7000e3
+    r0 = np.array([r_p, 0.0, 0.0])
+    v0 = np.array([0.0, (1.0 + excess) * math.sqrt(2.0 * MU / r_p), 0.0])
+    accel = -MU * r0 / r_p**3
+    jerk = -MU * v0 / r_p**3
+    for t in (-1.0, 1.0):
+        r1, _ = propagate_kepler(r0, v0, t, MU)
+        # The series through the jerk leaves out a fourth-order term of about 4e-7 m.
+        taylor = r0 + v0 * t + accel * t**2 / 2.0 + jerk * t**3 / 6.0
+        assert np.linalg.norm(r1 - taylor) < 1e-5
+
+
 @pytest.mark.parametrize("e", [0.9, 0.9477, 0.98])
 def test_universal_propagation_over_many_periods_matches_the_mean_anomaly(e):
     elements = np.array([10818400.0, e, 5.187, 2.41, 1.479, 0.089])

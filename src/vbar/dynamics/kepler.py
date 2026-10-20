@@ -103,7 +103,7 @@ def lagrange_coefficients(
 
     r(t) = f r0 + g v0 and v(t) = f_dot r0 + g_dot v0 on any conic, including hyperbolas.
     Universal-variable form after Bate, Mueller and White, Fundamentals of Astrodynamics, ch. 4.
-    On an ellipse `t` is reduced to one period first, since the coefficients are periodic.
+    On an ellipse `t` is first reduced to within half a period, since the coefficients are periodic.
     """
     r0 = np.asarray(r0, dtype=float)
     v0 = np.asarray(v0, dtype=float)
@@ -123,10 +123,12 @@ def lagrange_coefficients(
 
     if alpha > 0.0:
         period = 2.0 * math.pi / (sqrt_mu * alpha**1.5)
-        t -= math.floor(t / period) * period
-        # F(chi) - sqrt(mu) t rises with chi (dF/dchi is the radius), from below zero at chi = 0
-        # to above it one period of chi later, so the root is bracketed.
-        lo, hi = 0.0, 2.0 * math.pi / math.sqrt(alpha)
+        # math.remainder is exact, so a short arc keeps every digit of t however long the period.
+        t = math.remainder(t, period)
+        # F(chi) - sqrt(mu) t rises with chi (dF/dchi is the radius) and |t| <= P/2, so the root
+        # lies within one period of chi on the side of t.
+        chi_period = 2.0 * math.pi / math.sqrt(alpha)
+        lo, hi = (0.0, chi_period) if t >= 0.0 else (-chi_period, 0.0)
         chi = sqrt_mu * t * alpha
     else:
         if t == 0.0:

@@ -155,7 +155,9 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   *Fundamentals of Astrodynamics*, ch. 4). The Stumpff functions use their series below
   $|z| = 0.1$, where the closed forms cancel. Hyperbolic starting values follow Vallado,
   *Fundamentals of Astrodynamics and Applications*, algorithm 8. On an ellipse the time is first
-  reduced to one period, since the coefficients are periodic. The universal anomaly is found by
+  reduced to within half a period with an exact remainder, since the coefficients are periodic;
+  subtracting whole periods instead loses a short arc's time entirely when the period is long
+  (near-parabolic ellipses have periods up to $10^{18}$ s). The universal anomaly is found by
   Newton's method inside a bracket (the Kepler function rises with it at the rate of the radius),
   with a bisection whenever a step leaves the bracket; plain Newton from the elliptic starting
   value failed at $e \gtrsim 0.9$ over many periods. It stops when the step falls below
