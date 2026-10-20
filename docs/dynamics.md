@@ -174,20 +174,23 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   double precision allows. On arcs of up to $10^6$ s at up to three times escape speed it is below
   $10^{-12}$ of the larger radius. On ellipses it grows with the number of revolutions as that
   sensitivity does: by 5 to 10 $\varepsilon$ per revolution on most arcs ($10^{-7}$ to
-  $2 \times 10^{-7}$ of the radius after $10^8$ revolutions), and by up to about 1300 $\varepsilon$
-  per revolution on arcs that start and end near perigee of an eccentric orbit. Near-parabolic arcs
-  of up to $10^{12}$ s stay within the sensitivity, up to $2 \times 10^{-10}$. Near-radial
-  hyperbolas through or toward perigee are the exception: there the terms of the Kepler function
+  $2 \times 10^{-7}$ of the radius after $10^8$ revolutions), and much faster on arcs that start and
+  end near perigee of an eccentric orbit, about $5 \times 10^3\,\varepsilon$ per revolution at
+  $e = 0.9$ and $4 \times 10^5\,\varepsilon$ at $e = 0.98$, still within the sensitivity.
+  Near-parabolic arcs of up to $10^{12}$ s stay within the sensitivity, up to $2 \times 10^{-10}$.
+  Near-radial hyperbolas toward perigee are the exception: there the terms of the Kepler function
   grow far beyond $\sqrt\mu\, t$ and cancel, and the state carries about $\varepsilon$ times the
-  largest term over $\sqrt\mu\,|t|$. Flown back in from far out at up to three times escape speed
-  that is up to $3 \times 10^{-10}$ of the far radius, against a sensitivity of a few $10^{-15}$,
-  and it grows fast with excess speed: $2 \times 10^{-8}$ at nine times escape speed and $10^{-5}$
-  (16% of the near radius) at 25 times. Above about 70 times the radius itself can cancel to
-  nothing, and the call raises `ValueError`. The tests fly ellipses up to $e = 0.98$ over twenty
-  periods, near-parabolic arcs of one second against a Taylor step, near-radial hyperbolas and a
-  year-long slow escape against an integrator, near-parabolic hyperbolas over up to $10^{10}$ s,
-  from perigee and from off it, against their composed halves, and 1000 random hyperbolas out and
-  back; an arc at 70 times escape speed whose radius cancels is refused.
+  largest term over $\sqrt\mu\,|t|$, relative to the larger radius. Flown back in from far out at up
+  to three times escape speed over up to $10^6$ s that is up to $3 \times 10^{-10}$, against a
+  sensitivity of a few $10^{-15}$; it grows fast with excess speed and with the starting radius over
+  $|a|$, to $1.6 \times 10^{-7}$ at nine times escape speed. The solver computes that estimate at
+  the solution and raises `ValueError` when it exceeds $10^{-6}$, or when no positive radius is
+  left; the estimate is up to about 20 times above the actual error, so a few arcs near $10^{-7}$
+  are refused too. The tests fly ellipses up to $e = 0.98$ over twenty periods, near-parabolic arcs
+  of one second against a Taylor step, near-radial hyperbolas and a year-long slow escape against an
+  integrator, near-parabolic hyperbolas over up to $10^{10}$ s, from perigee and from off it,
+  against their composed halves, and 1000 random hyperbolas out and back; near-radial arcs at 53 and
+  73 times escape speed are refused.
 
 ## J2 mean elements
 
