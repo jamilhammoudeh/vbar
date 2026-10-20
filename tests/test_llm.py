@@ -319,10 +319,23 @@ def test_a_reply_without_text_is_a_parse_failure():
     assert result["dv_used_mps"] == 0.0 and agent.usage()["parse_failures"] == 2
 
 
+def nested_belief(depth):
+    """A belief reply whose outer object and arrays nest `depth` levels."""
+    inner = depth - 1
+    return '{"range_m": 1, "closing": true, "x": ' + "[" * inner + "]" * inner + "}"
+
+
+def test_replies_nested_32_levels_parse():
+    reply = nested_belief(32)
+    assert json_depth(reply) == 32
+    assert first_json(reply)["closing"] is True
+    assert parse_belief(reply) == {"range_m": 1.0, "closing": True}
+
+
 @pytest.mark.parametrize("depth", [33, 3000, 50000])
 def test_replies_nested_past_the_limit_are_refused_on_every_python(depth):
     # 50000 levels make json.loads raise on every supported Python; 3000 parse on 3.13.
-    reply = '{"range_m": 1, "closing": true, "x": ' + "[" * depth + "]" * depth + "}"
+    reply = nested_belief(depth)
     assert first_json(reply) is None and parse_belief(reply) is None
 
 
