@@ -85,7 +85,7 @@ release may change the public API, and every such change is listed under Changed
   Clohessy-Wiltshire path, with Gymnasium's vector API and same-step autoreset.
 - `vbar.agents.sign_check.sign_check`: the sign-convention self-check run before scoring.
 - Real-time runs: `run_episode(..., real_time=RealTime(...))` applies the agent's decision
-  time as latency; every result has `latencies_s`; `vbar.Episode` steps a scored episode;
+  time as latency; every result has `latencies_s`; `vbar.ScoredRun` steps a scored episode;
   `BaseEnv.step` and `Spacecraft.apply` take a per-command latency.
 - `LLMAgent` prompt templates (`prompt=`), token counts and cost from a declared `Price`, and
   `usage()` totals.

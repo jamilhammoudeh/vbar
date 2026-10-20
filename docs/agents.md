@@ -2,7 +2,7 @@
 
 Code: `vbar.agents` (`Agent`, `AgentView`, `PDAgent`, `DriftAgent`, `LLMAgent`),
 `vbar.agents.sign_check`, `vbar.agents.plan` (`PlanAgent`, `PlanVerifier`, `Verdict`,
-`LLMPlanner`), `vbar.runner` (`RealTime`, `Episode`). The agent interface and the
+`LLMPlanner`), `vbar.runner` (`RealTime`, `ScoredRun`). The agent interface and the
 built-in agents are described with the environment ([environment.md](environment.md)); this page
 covers the tools around them.
 
@@ -43,7 +43,7 @@ not. `RealTime(latencies=result["latencies_s"], time_scale=s)` repeats a recorde
 as transcript replay of an LLM agent needs. `env.record.agent_latency_s` holds the simulated
 latency of the last step.
 
-`Episode(env, seed, agent_seed)` is the loop `run_episode` steps, for callers that drive an
+`ScoredRun(env, seed, agent_seed)` is the loop `run_episode` steps, for callers that drive an
 episode themselves (the agent servers): it refuses training environments, seeds the agent's
 stream, never returns the reward, and builds the same result.
 

@@ -271,7 +271,7 @@ def main(argv: list[str] | None = None) -> None:
     """
     import time
 
-    from ..runner import Episode
+    from ..runner import ScoredRun
     from ..scenarios import ApproachConfig, ApproachEnv
 
     parser = argparse.ArgumentParser(description=main.__doc__)
@@ -291,13 +291,13 @@ def main(argv: list[str] | None = None) -> None:
         out.flush()
 
     agent: RemoteAgent | None = None
-    episode: Episode | None = None
+    episode: ScoredRun | None = None
     written, reason = 0, "the session ended"
     with open(args.out, "w", encoding="utf-8") as out:
         try:
             agent = server.accept()
             for seed in args.seeds:
-                episode = Episode(env, seed)
+                episode = ScoredRun(env, seed)
                 agent.reset(env.agent_view(), episode.agent_rng())
                 while not episode.done:
                     t0 = time.perf_counter()
@@ -317,7 +317,7 @@ def main(argv: list[str] | None = None) -> None:
             # Also on an interrupt: the episode being flown and every seed left are written.
             name = agent.name if agent is not None else "unknown"
             for k, seed in enumerate(args.seeds[written:]):
-                flown = episode if k == 0 and episode is not None else Episode(env, seed)
+                flown = episode if k == 0 and episode is not None else ScoredRun(env, seed)
                 write(out, {**flown.result(name), "error": reason})
             if agent is not None:
                 agent.close()

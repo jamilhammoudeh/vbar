@@ -29,7 +29,7 @@ class RealTime:
             raise ValueError("time_scale must be finite and not negative")
 
 
-class Episode:
+class ScoredRun:
     """One scored episode, stepped by its caller; the reward never leaves it.
 
     The run's agent stream is seeded by `agent_seed` alone, so it carries nothing about the
@@ -112,7 +112,7 @@ def run_episode(
     Environments built for training (`training=True`) are refused. `latencies_s` holds the
     agent's wall-clock time per decision; with `real_time` the clock runs while it decides.
     """
-    episode = Episode(env, seed, agent_seed)
+    episode = ScoredRun(env, seed, agent_seed)
     agent.reset(env.agent_view(), episode.agent_rng())
     replay = None if real_time is None else real_time.latencies
     while not episode.done:

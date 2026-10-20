@@ -23,7 +23,7 @@ from typing import IO, Any
 import numpy as np
 
 from .. import __version__
-from ..runner import Episode
+from ..runner import ScoredRun
 from .base import action_scale
 from .remote import view_to_dict
 from .tools import CW_TOOLS, call_tool
@@ -66,7 +66,7 @@ class ToolServer:
         self.agent_name = agent_name
         self.on_result = on_result
         self.results: list[dict] = []
-        self.episode: Episode | None = None
+        self.episode: ScoredRun | None = None
         self.next_seed = 0
         self.since = time.perf_counter()
         self.tools: dict[str, tuple[str, dict[str, Any], Callable[[dict], dict]]] = {
@@ -114,7 +114,7 @@ class ToolServer:
             "episode": self.next_seed,
         }
 
-    def _running(self) -> Episode:
+    def _running(self) -> ScoredRun:
         if self.episode is None:
             raise ToolError("no episode is running; call start_episode")
         return self.episode
@@ -124,7 +124,7 @@ class ToolServer:
             raise ToolError("the current episode has not ended")
         if self.next_seed >= len(self.seeds):
             raise ToolError("no episodes left")
-        self.episode = Episode(self.env, self.seeds[self.next_seed], agent_seed=0)
+        self.episode = ScoredRun(self.env, self.seeds[self.next_seed], agent_seed=0)
         self.next_seed += 1
         self.since = time.perf_counter()
         return self._snapshot()
@@ -149,7 +149,7 @@ class ToolServer:
         self.since = time.perf_counter()
         return {"episode_over": False, **self._snapshot()}
 
-    def _record(self, episode: Episode) -> None:
+    def _record(self, episode: ScoredRun) -> None:
         result = episode.result(self.agent_name)
         self.results.append(result)
         if self.on_result is not None:
@@ -161,7 +161,7 @@ class ToolServer:
             self._record(self.episode)
             self.episode = None
         while self.next_seed < len(self.seeds):
-            self._record(Episode(self.env, self.seeds[self.next_seed], agent_seed=0))
+            self._record(ScoredRun(self.env, self.seeds[self.next_seed], agent_seed=0))
             self.next_seed += 1
 
     def _predict(self, name: str, args: dict) -> dict:

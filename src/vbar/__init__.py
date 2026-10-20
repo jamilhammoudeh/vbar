@@ -2,10 +2,10 @@
 
 from gymnasium.envs.registration import register
 
-from .runner import Episode, RealTime, run_episode, run_many
+from .runner import RealTime, ScoredRun, run_episode, run_many
 from .scenarios import ApproachConfig, ApproachEnv
 
 __version__ = "0.2.0"
-__all__ = ["ApproachConfig", "ApproachEnv", "Episode", "RealTime", "run_episode", "run_many"]
+__all__ = ["ApproachConfig", "ApproachEnv", "RealTime", "ScoredRun", "run_episode", "run_many"]
 
 register(id="vbar/Approach-v0", entry_point="vbar.scenarios.approach:ApproachEnv")
