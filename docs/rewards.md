@@ -70,8 +70,8 @@ $s$ is the time from the start of the step and $d$ the distance to the goal.
   $10^{-17}$ are skipped. SciPy 1.11, the oldest supported, computes one-radian blocks to only
   $10^{-11}$ and quarter-radian ones to $4 \times 10^{-15}$, and powers of its one-piece
   transition drift by $10^{-11}$ over a hundred pieces; with both choices the cost is good to
-  $3 \times 10^{-14}$ there and $5 \times 10^{-16}$ on current SciPy. It is exact for the CW
-  model only.
+  $3 \times 10^{-14}$ there and $10^{-15}$ on current SciPy. The duration is integrated as given,
+  since real-time latency makes it arbitrary. It is exact for the CW model only.
 
 ## Transitions
 
@@ -124,6 +124,8 @@ earlier results and is not aligned with the metrics.
 - It stays at 1e-10 on segments 100, 2000 and 5000 times longer than $\tau$, where one block
   exponential lost five digits or overflowed, and to 1e-12 on 1e4, 3e4 and 1e5 s segments
   without discounting or with $\tau$ = 1e5 s, where one block was up to 1e-3 off with SciPy 1.11.
+- It matches quadrature to 1e-13 on segments of 7.4 ms and 9.988 s, durations off any grid that
+  were 6e-8 off when rounded to 1 ns.
   A mean motion that is not positive is refused.
 - A batch of transitions gives each row its own reward; invalid time constants and weights are
   rejected.

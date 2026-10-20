@@ -90,7 +90,7 @@ class QuadraticCost:
         drift by 1e-11 over a hundred pieces. Pieces whose discount has fallen below 1e-17 add
         nothing and are skipped.
         """
-        key = (round(float(duration), 9), tau)
+        key = (float(duration), tau)
         if key not in self._matrices:
             d = key[0]
             longest = 0.25 / self.n if tau is None else min(tau, 0.25 / self.n)
