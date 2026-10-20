@@ -115,7 +115,8 @@ def lagrange_coefficients(
     t = float(t)
     sqrt_mu = math.sqrt(mu)
     sigma0 = float(r0 @ v0) / sqrt_mu
-    alpha = 2.0 / r0_norm - float(v0 @ v0) / mu
+    v_sq = float(v0 @ v0)
+    alpha = 2.0 / r0_norm - v_sq / mu
 
     def residual_and_radius(chi: float) -> tuple[float, float, float, float]:
         z = alpha * chi * chi
@@ -137,10 +138,16 @@ def lagrange_coefficients(
             return math.copysign(math.inf, chi), math.inf, c2, c3
         return residual, r_norm, c2, c3
 
+    drift = 0.0
     if alpha > 0.0:
         period = 2.0 * math.pi / (sqrt_mu * alpha**1.5)
         # math.remainder is exact, so a short arc keeps every digit of t however long the period.
-        t = math.remainder(t, period)
+        reduced = math.remainder(t, period)
+        # The whole periods taken off carry the period's rounding, 1.5 times alpha's, which is up
+        # to eps (2 / r0 + v0^2 / mu) / alpha and grows as the two terms cancel toward perigee
+        # of an eccentric orbit. The drift is that time over eps.
+        drift = abs(t - reduced) * 1.5 * (2.0 / r0_norm + v_sq / mu) / alpha
+        t = reduced
         # F(chi) - sqrt(mu) t rises with chi (dF/dchi is the radius) and |t| <= P/2, so the root
         # lies within one period of chi on the side of t.
         chi_period = 2.0 * math.pi / math.sqrt(alpha)
@@ -204,16 +211,17 @@ def lagrange_coefficients(
     _, r_norm, c2, c3 = residual_and_radius(chi)
     z = alpha * chi * chi
     # The residual is known to about eps times its largest term, so chi stands for a time off by
-    # that over sqrt(mu), and the time error times the end speed moves the end position. Past
-    # 1e-5 of the end radius, or with no finite positive radius (a bracket closed on an
-    # overflowed point), the state is refused. On near-radial arcs toward perigee from far out
-    # the terms grow far beyond sqrt(mu) t and cancel; on arcs that fall to perigee from far out
-    # little cancels but the end speed is high. The estimate is not a bound, for the position or
-    # for the velocity, which also carries the radius's own rounding.
+    # that over sqrt(mu), to which the drift of the whole periods taken off t is added. The time
+    # error times the end speed moves the end position. Past 1e-5 of the end radius, or with no
+    # finite positive radius (a bracket closed on an overflowed point), the state is refused.
+    # On near-radial arcs toward perigee from far out the terms grow far beyond sqrt(mu) t and
+    # cancel; on arcs that fall to perigee from far out, or reach it after many periods of an
+    # eccentric ellipse, little cancels but the end speed is high. The estimate is not a bound,
+    # for the position or for the velocity, which also carries the radius's own rounding.
     largest = max(
         abs(chi * chi * chi * c3), abs(sigma0 * chi * chi * c2), abs(r0_norm * chi * (1.0 - z * c3))
     )
-    late = _EPS * largest / sqrt_mu
+    late = _EPS * (largest / sqrt_mu + drift)
     speed = math.sqrt(max(mu * (2.0 / r_norm - alpha), 0.0)) if r_norm > 0.0 else 0.0
     if not (0.0 < r_norm < math.inf and late * speed <= 1e-5 * r_norm):
         raise ValueError("rounding may move the kepler end state by more than 1e-5 of its radius")

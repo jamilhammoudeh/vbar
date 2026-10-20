@@ -307,6 +307,18 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
             92156939776371.02,
             MU,
         ),
+        # An ellipse with 1 - e = 1e-6 from apogee over 100.5 periods: each period taken off
+        # carries the period's rounding. Estimated 3e-4; unchecked, 1.4e-4 off.
+        (
+            [-13999993000000.0, 0.0, 0.0],
+            [0.0, -0.005335866786596964, 0.0],
+            585765922087444.6,
+            MU,
+        ),
+        # 1e6 periods from a 7000 km perigee at e = 0.98, where 2 / r0 and v0^2 / mu cancel to
+        # 1 / 100 of either, so the period is known to about 300 eps. Estimated 2.1e-4;
+        # unchecked, 3.5e-5 off, and one ulp of the starting speed moves it 1.6e-4.
+        ([7e6, 0.0, 0.0], [0.0, 10618.238182916357, 0.0], 2060691819383.197, MU),
         # |a| = 1e-6 over 1e301: the bracket closes on an overflowed point, an infinite radius.
         ([1.0, 0.0, 0.0], [0.0, math.sqrt(1e6 + 2.0), 0.0], 1e301, 1.0),
     ],
@@ -331,6 +343,8 @@ def test_arcs_whose_estimated_end_error_passes_the_threshold_are_refused(r0, v0,
             [-69056.50777751184, 163121.61335238256, 81799.98800402135],
             -45078.528613785245,
         ),
+        # 1e4 periods from a 7000 km perigee at e = 0.98: estimated 2.1e-6, 3.5e-7 off.
+        ([7e6, 0.0, 0.0], [0.0, 10618.238182916357, 0.0], 20606918193.83197),
         # Nearly at rest: vis-viva's argument can round below zero; the speed is then zero.
         (
             [5539197.509528515, 62879444.171807274, 36954234.60342952],
