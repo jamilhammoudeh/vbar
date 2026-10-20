@@ -24,7 +24,7 @@ class MetricSettings:
     Thrust within `plume_range` (m, None for the scenario's own) is scored with the Gaussian plume
     of 1-sigma angle `plume_sigma` (rad); exhaust within `plume_half_angle` of the line of sight
     to the target violates the plume constraint; forces act on `plume_target_area` (m^2).
-    `composite_weights` replace the composite score's draft infraction weights, and a failed run
+    `composite_weights` replace the composite score's default infraction weights, and a failed run
     whose chatter exceeds `oscillation_threshold` (1/s) is labelled an oscillation. A filter holds
     the chaser stalled when it moves slower than `stall_speed` (m/s) with a safety row active.
     """

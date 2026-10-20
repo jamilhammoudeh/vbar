@@ -338,7 +338,7 @@ $$
 
 $n_j$ counts infractions of type $j$: one per contiguous interval, in continuous time, with a
 constraint's margin below zero (merged across steps, so a long violation counts once), and one for
-a timeout without success. Draft weights `WEIGHTS`: keep-out entry 0.7, approach-cone violation
+a timeout without success. Default weights `WEIGHTS`: keep-out entry 0.7, approach-cone violation
 0.5, speed and closing-speed breach 0.3 each, timeout 0.4 (`composite_weights` in the settings
 replaces them). Constraints without a weight are counted in the breakdown but do not lower the
 score. The weights are a convention, not a measurement, so C1 is reported only with its breakdown

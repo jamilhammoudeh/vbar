@@ -4,7 +4,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 `tests/test_metrics_composite.py` and `tests/test_metrics_taxonomy.py`.
 
 ## C1 composite_score (v1)
-- Definition: completion / (1 + sum_j w_j n_j), completion 1 on success else M5; n_j one per contiguous violation interval and one per timeout; draft weights keep-out 0.7, cone 0.5, speed and closing speed 0.3, timeout 0.4.
+- Definition: completion / (1 + sum_j w_j n_j), completion 1 on success else M5; n_j one per contiguous violation interval and one per timeout; default weights keep-out 0.7, cone 0.5, speed and closing speed 0.3, timeout 0.4.
 - Summary: interquartile mean across episodes.
 - Why it matters: one number that combines completion and infractions, never reported without its breakdown.
 - Known-answer tests: 1 for a clean success; the flyby's progress over 2.1; the formula with custom weights.
