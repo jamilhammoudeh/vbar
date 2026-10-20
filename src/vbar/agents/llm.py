@@ -210,7 +210,7 @@ class ReplayModel:
 REPLY_ERRORS = (ValueError, KeyError, TypeError, OverflowError, RecursionError)
 
 # Deeper replies are refused before parsing: how deep `json.loads` goes before raising
-# RecursionError differs between Python versions (about 1000 on 3.12, over 10000 on 3.13).
+# RecursionError differs between Python versions and builds (some stop short of 3000 levels).
 MAX_JSON_DEPTH = 32
 
 

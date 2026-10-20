@@ -334,7 +334,7 @@ def test_replies_nested_32_levels_parse():
 
 @pytest.mark.parametrize("depth", [33, 3000, 50000])
 def test_replies_nested_past_the_limit_are_refused_on_every_python(depth):
-    # 50000 levels make json.loads raise on every supported Python; 3000 parse on 3.13.
+    # 50000 levels make json.loads raise on every supported Python; 3000 parse on some builds.
     reply = nested_belief(depth)
     assert first_json(reply) is None and parse_belief(reply) is None
 
