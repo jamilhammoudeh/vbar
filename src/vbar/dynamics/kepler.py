@@ -206,9 +206,9 @@ def lagrange_coefficients(
     # On near-radial hyperbolas toward perigee the residual's terms grow far beyond sqrt(mu) t
     # and cancel, so chi stands for a time off by about eps * largest / sqrt(mu), which moves the
     # end position by that times the end speed. Past 1e-5 of the end radius, or with no finite
-    # positive radius (a bracket closed on an overflowed point), the state is refused. Where the
-    # terms can cancel (unbound arcs) v^2 > 2 mu / r, so the velocity's relative error is under
-    # half the position's.
+    # positive radius (a bracket closed on an overflowed point), the state is refused. The
+    # velocity also carries the radius's own rounding; on unbound arcs its relative error was
+    # measured within 6 times this estimate.
     largest = max(
         abs(chi * chi * chi * c3), abs(sigma0 * chi * chi * c2), abs(r0_norm * chi * (1.0 - z * c3))
     )

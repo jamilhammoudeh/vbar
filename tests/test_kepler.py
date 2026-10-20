@@ -254,7 +254,7 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
             -101444.8594899719,
             MU,
         ),
-        # Ten times escape speed: a state 3e-3 off at the end, against an estimate of 4e-3 there.
+        # 19 times escape speed: a state 3e-3 off at the end, against an estimate of 4e-3 there.
         (
             [7748598854.9921875, -105275811173.00781, 34282050427.4375],
             [-8088.16681227088, 109889.54576922953, -35784.45046169311],
@@ -268,11 +268,42 @@ def test_an_outbound_near_parabolic_arc_flown_far_back_stays_finite():
             103410.93068920661,
             1.0,
         ),
+        # Just past the threshold: estimated 3.4e-5 of the end radius, 2.7e-5 off.
+        (
+            [21601713162736.074, 10158077848490.854, -6871578556309.546],
+            [-83.46701687549394, -39.249851939921626, 26.55113829280097],
+            256517939840.39578,
+            MU,
+        ),
+        # |a| = 1e-6 over 1e301: the bracket closes on an overflowed point, an infinite radius.
+        ([1.0, 0.0, 0.0], [0.0, math.sqrt(1e6 + 2.0), 0.0], 1e301, 1.0),
     ],
 )
 def test_near_radial_hyperbolas_whose_terms_cancel_to_rounding_are_refused(r0, v0, t, mu):
     with pytest.raises(ValueError, match="cancel to rounding"):
         propagate_kepler(np.array(r0), np.array(v0), t, mu)
+
+
+@pytest.mark.parametrize(
+    ("r0", "v0", "t"),
+    [
+        # Just inside the threshold: estimated 2.3e-6 of the end radius, 3.3e-6 off.
+        (
+            [-3172277925966.012, -7330152259582.755, -9205154186468.893],
+            [20.699405175995018, 47.82991754335562, 60.06447753336198],
+            150064180943.9222,
+        ),
+        # Nearly at rest: vis-viva's argument rounds below zero and the speed is taken as zero.
+        (
+            [5539197.509528515, 62879444.171807274, 36954234.60342952],
+            [-5.805750965800457e-05, -0.0006590528557638296, -0.00038732520887766543],
+            -0.010332882417905993,
+        ),
+    ],
+)
+def test_arcs_inside_the_rounding_threshold_are_returned(r0, v0, t):
+    r1, v1 = propagate_kepler(np.array(r0), np.array(v0), t, MU)
+    assert np.all(np.isfinite(r1)) and np.all(np.isfinite(v1))
 
 
 def test_free_fall_from_rest_is_not_refused():
