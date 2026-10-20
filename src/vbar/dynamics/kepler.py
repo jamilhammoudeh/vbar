@@ -171,7 +171,9 @@ def lagrange_coefficients(
             # The residual is at its rounding floor (far out on a hyperbola, where it is the
             # difference of large terms) and the bracket has closed on the root.
             break
-        newton = chi - residual / r_norm
+        # A radius that is not positive is rounding left after its terms cancelled; only the
+        # bracket can be trusted then.
+        newton = chi - residual / r_norm if r_norm > 0.0 else math.nan
         if abs(newton - chi) < 1e-12 * max(1.0, abs(chi)):
             chi = newton
             break
@@ -197,6 +199,9 @@ def lagrange_coefficients(
     else:
         raise RuntimeError("universal kepler equation did not converge")
     _, r_norm, c2, c3 = residual_and_radius(chi)
+    if not r_norm > 0.0:
+        # Near-radial hyperbolas at tens of times escape speed, flown through perigee.
+        raise ValueError("the universal kepler terms cancel to rounding on this arc")
     z = alpha * chi * chi
     f = 1.0 - chi * chi * c2 / r0_norm
     g = t - chi * chi * chi * c3 / sqrt_mu
