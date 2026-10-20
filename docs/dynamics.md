@@ -154,18 +154,26 @@ Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.
   coefficients $f, g, \dot f, \dot g$, valid on any conic (Bate, Mueller and White,
   *Fundamentals of Astrodynamics*, ch. 4). The Stumpff functions use their series below
   $|z| = 0.1$, where the closed forms cancel. Hyperbolic starting values follow Vallado,
-  *Fundamentals of Astrodynamics and Applications*, algorithm 8. On an ellipse the time is first
-  reduced to within half a period with an exact remainder, since the coefficients are periodic;
-  subtracting whole periods instead loses a short arc's time entirely when the period is long
-  (near-parabolic ellipses have periods up to $10^{18}$ s). The universal anomaly is found by
-  Newton's method inside a bracket (the Kepler function rises with it at the rate of the radius),
-  with a bisection whenever a step leaves the bracket; plain Newton from the elliptic starting
-  value failed at $e \gtrsim 0.9$ over many periods. It stops when the step falls below
-  $10^{-12}$ of the anomaly or the bracket closes to rounding. The second case occurs far out on
-  near-radial hyperbolas, where the terms of the Kepler function reach $10^{17}$ and their
-  difference never gets below its rounding; the returned state then carries that rounding, about
-  $10^{-12}$ of the radius. The tests fly ellipses up to $e = 0.98$ over twenty periods and 500
-  random hyperbolas up to $10^6$ s out and back.
+  *Fundamentals of Astrodynamics and Applications*, algorithm 8, except where its logarithm's
+  argument is at most 1 (short near-radial arcs, where it gives the wrong sign) or negative; the
+  short-arc value $\sqrt\mu\, t / r_0$ is used then. On an ellipse the time is first reduced to
+  within half a period with an exact remainder, since the coefficients are periodic; subtracting
+  whole periods instead loses a short arc's time entirely when the period is long (near-parabolic
+  ellipses have periods up to $10^{18}$ s). The universal anomaly is then bracketed (the Kepler
+  function rises with it at the rate of the radius) and found by safeguarded Newton (Press et
+  al., *Numerical Recipes*, 3rd ed., sec. 9.4): a bisection whenever a step leaves the bracket or
+  is not half the step before last, and at most a doubling while one side of the bracket is open,
+  since a far step can reach where the Stumpff functions overflow. Plain Newton failed at
+  $e \gtrsim 0.9$ over many periods and on near-radial hyperbolas. It stops when the step falls
+  below $10^{-12}$ of the anomaly or the bracket closes to rounding.
+
+  In a check against a 60-digit reference, starting 6700 to 50 000 km out, the error is below
+  $3 \times 10^{-13}$ of the larger radius on random, near-radial, near-parabolic and parabolic
+  arcs of up to $10^6$ s either way. Flown back in along a near-radial hyperbola from far out, the terms of the Kepler
+  function reach $10^{19}$ and their difference never gets below its rounding: the state carries
+  that rounding, up to $3 \times 10^{-10}$ of the far radius. The tests fly ellipses up to
+  $e = 0.98$ over twenty periods, near-parabolic arcs of one second against a Taylor step,
+  near-radial hyperbolas against an integrator, and 1000 random hyperbolas out and back.
 
 ## J2 mean elements
 

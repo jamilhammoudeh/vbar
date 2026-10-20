@@ -114,11 +114,11 @@ release may change the public API, and every such change is listed under Changed
   generator and rebuild the start state and the sensor noise. The agent's stream is now seeded
   from a hash of `agent_seed` (`vbar.agents.agent_generator`), so agents that draw random numbers
   get different draws than in 0.2.0 for the same `agent_seed`.
-- `propagate_kepler` and `lagrange_coefficients` converge at high eccentricity over many periods:
-  an elliptic time is reduced to one period and the universal anomaly is solved inside a bracket.
-  Before, a few in a thousand random orbits with e above 0.89, propagated over several periods,
-  raised "did not converge", as did about one in five random hyperbolas flown back from far out,
-  where the solver now stops when the bracket closes to rounding.
+- `propagate_kepler` and `lagrange_coefficients` converge on every conic: the universal anomaly
+  is found by safeguarded Newton inside a bracket, and an elliptic time is reduced with an exact
+  remainder. In 0.2.0 a few in a thousand random orbits with e above 0.89 propagated over several
+  periods, about one in five random hyperbolas flown back from far out, and short arcs on
+  hyperbolas within 1e-8 of escape speed raised "did not converge".
 
 ## [0.2.0] - 2026-10-16
 

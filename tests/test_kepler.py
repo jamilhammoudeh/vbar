@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import pytest
+from scipy.integrate import solve_ivp
 
 from vbar.dynamics.bodies import EARTH
 from vbar.dynamics.kepler import (
@@ -156,18 +157,49 @@ def test_near_radial_hyperbola_runs_back_to_its_start():
     assert np.linalg.norm(r2 - r0) < 1e-12 * np.linalg.norm(r1)
 
 
-def test_random_hyperbolas_run_back_to_their_start():
+def random_hyperbola(rng, radial):
+    """A hyperbolic state 6700 to 50 000 km out, moving within 1 deg of radial if `radial`."""
+    r0 = rng.normal(size=3)
+    r0 *= rng.uniform(6.7e6, 5e7) / np.linalg.norm(r0)
+    direction = rng.normal(size=3)
+    if radial:
+        offset = direction / np.linalg.norm(direction) * math.radians(rng.uniform(0.0, 1.0))
+        direction = rng.choice([-1.0, 1.0]) * r0 / np.linalg.norm(r0) + offset
+    v_escape = math.sqrt(2.0 * MU / np.linalg.norm(r0))
+    v0 = direction * v_escape * rng.uniform(1.0001, 3.0) / np.linalg.norm(direction)
+    return r0, v0
+
+
+@pytest.mark.parametrize("radial", [False, True])
+def test_random_hyperbolas_run_back_to_their_start(radial):
+    # Flown back in along a near-radial arc, the residual's terms reach 1e19 and cancel, so the
+    # return carries their rounding: up to 3e-10 of the far radius in 8000 trials.
+    bound = 1e-9 if radial else 1e-10
     rng = np.random.default_rng(1)
     for _ in range(500):
-        r0 = rng.normal(size=3)
-        r0 *= rng.uniform(6.7e6, 5e7) / np.linalg.norm(r0)
-        v_escape = math.sqrt(2.0 * MU / np.linalg.norm(r0))
-        v0 = rng.normal(size=3)
-        v0 *= v_escape * rng.uniform(1.0001, 3.0) / np.linalg.norm(v0)
-        t = rng.uniform(-1e6, 1e6)
+        r0, v0 = random_hyperbola(rng, radial)
+        t = rng.choice([-1.0, 1.0]) * 10.0 ** rng.uniform(0.0, 6.0)
         r1, v1 = propagate_kepler(r0, v0, t, MU)
         r2, _ = propagate_kepler(r1, v1, -t, MU)
-        assert np.linalg.norm(r2 - r0) < 1e-10 * np.linalg.norm(r1)
+        assert np.linalg.norm(r2 - r0) < bound * np.linalg.norm(r1)
+
+
+def two_body(t, y):
+    return np.r_[y[3:], -MU * y[:3] / np.linalg.norm(y[:3]) ** 3]
+
+
+def test_near_radial_hyperbolic_arcs_match_an_integrator():
+    rng = np.random.default_rng(4)
+    # An outbound arc whose hyperbolic starting value has the wrong sign.
+    cases = [([3676020.27, -19137178.82, 4609418.25], [1942.23, -10111.18, 2435.40], 294.0)]
+    for _ in range(10):
+        r0, v0 = random_hyperbola(rng, radial=True)
+        cases.append((r0, v0, rng.choice([-1.0, 1.0]) * 10.0 ** rng.uniform(0.0, 3.0)))
+    for r0, v0, t in cases:
+        r1, _ = propagate_kepler(r0, v0, t, MU)
+        start = np.r_[r0, v0]
+        reference = solve_ivp(two_body, (0.0, t), start, "DOP853", rtol=1e-12, atol=1e-6).y[:3, -1]
+        assert np.linalg.norm(r1 - reference) < 1e-9 * np.linalg.norm(reference)
 
 
 @pytest.mark.parametrize("excess", [-1e-4, -1e-6, -1e-10, -1e-12, 1e-10, 1e-12])

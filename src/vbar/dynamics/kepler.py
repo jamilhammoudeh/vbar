@@ -131,19 +131,22 @@ def lagrange_coefficients(
         lo, hi = (0.0, chi_period) if t >= 0.0 else (-chi_period, 0.0)
         chi = sqrt_mu * t * alpha
     else:
-        if t == 0.0:
-            chi = 0.0
-        elif alpha == 0.0:
-            chi = sqrt_mu * t / r0_norm
-        else:
+        chi = sqrt_mu * t / r0_norm
+        if alpha < 0.0 and t != 0.0:
             # Starting value for hyperbolas from Vallado, Fundamentals of Astrodynamics, alg. 8.
+            # Near-radial arcs can make its logarithm's argument at most 1 (a start of the
+            # wrong sign) or negative; the short-arc value above is kept then.
             a = 1.0 / alpha
             direction = math.copysign(1.0, t)
             denominator = sigma0 * sqrt_mu + direction * math.sqrt(-mu * a) * (
                 1.0 - r0_norm * alpha
             )
-            chi = direction * math.sqrt(-a) * math.log(-2.0 * mu * alpha * t / denominator)
+            if denominator != 0.0:
+                argument = -2.0 * mu * alpha * t / denominator
+                if 1.0 < argument < math.inf:
+                    chi = direction * math.sqrt(-a) * math.log(argument)
         lo, hi = (0.0, math.inf) if t >= 0.0 else (-math.inf, 0.0)
+    step_before_last = last_step = math.inf
     for _ in range(200):
         residual, r_norm, _, _ = residual_and_radius(chi)
         if residual < 0.0:
@@ -155,18 +158,28 @@ def lagrange_coefficients(
             # The residual is at its rounding floor (far out on a hyperbola, where it is the
             # difference of large terms) and the bracket has closed on the root.
             break
-        step = chi - residual / r_norm
-        if abs(step - chi) < 1e-12 * max(1.0, abs(chi)):
-            chi = step
+        newton = chi - residual / r_norm
+        if abs(newton - chi) < 1e-12 * max(1.0, abs(chi)):
+            chi = newton
             break
-        if not lo < step < hi:
-            # A Newton step that leaves the bracket overshot; bisect, or widen an open side.
-            if math.isinf(hi):
-                step = 2.0 * max(chi, 1.0)
-            elif math.isinf(lo):
-                step = 2.0 * min(chi, -1.0)
-            else:
-                step = 0.5 * (lo + hi)
+        # Safeguarded Newton (Press et al., Numerical Recipes, 3rd ed., sec. 9.4): bisect when a
+        # step leaves the bracket or is not half the step before last; while a side is open, at
+        # most double chi, since a step from a far start can reach where the Stumpff functions
+        # overflow.
+        limit = 2.0 * max(abs(chi), 1.0)
+        if (
+            lo < newton < hi
+            and abs(newton) <= limit
+            and 2.0 * abs(newton - chi) <= step_before_last
+        ):
+            step = newton
+        elif math.isinf(hi):
+            step = limit
+        elif math.isinf(lo):
+            step = -limit
+        else:
+            step = 0.5 * (lo + hi)
+        step_before_last, last_step = last_step, abs(step - chi)
         chi = step
     else:
         raise RuntimeError("universal kepler equation did not converge")
