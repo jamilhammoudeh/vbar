@@ -102,11 +102,13 @@ release may change the public API, and every such change is listed under Changed
   bounds each message by its timeout and each line by 1 MiB, accepts only an integer protocol and
   records episodes a client leaves unfinished; the host records every episode even when
   interrupted; `RemoteAgent.act` refuses actions of the wrong form with `RemoteAgentError`; the
-  Python client converts actions as the environment does.
+  Python client converts actions as the environment does. The host draws each episode's seed and
+  records it unless `--seeds` is given.
 - `vbar.agents.mcp`: a Model Context Protocol tool server over stdio for LLM harnesses
   (`python -m vbar.agents.mcp`). It records episodes a client leaves unfinished and answers
   `params` or `arguments` that are not objects, tool names that are not strings and request ids
-  that are not strings, finite numbers or null with JSON-RPC errors.
+  that are not strings, finite numbers or null with JSON-RPC errors. Its command line draws seeds
+  the same way.
 - `vbar.agents.policy`: MLP policies with observation normalization and action squashing, ONNX
   export with both built in, an ONNX agent and latency profiles; optional `onnx` extra.
 - Every `run_episode` result has `completed`.

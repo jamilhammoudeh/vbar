@@ -143,6 +143,16 @@ def test_command_line_server_speaks_json_rpc_on_stdio(tmp_path):
     assert result["dv_used_mps"] == pytest.approx(0.06, rel=1e-3)
 
 
+def test_the_command_line_draws_unguessable_seeds_unless_given_some(tmp_path):
+    out = tmp_path / "results.jsonl"
+    argv = ["--episodes", "2", "--max-steps", "1", "--out", str(out)]
+    command = [sys.executable, "-m", "vbar.agents.mcp", *argv]
+    subprocess.run(command, input="", capture_output=True, text=True, timeout=120, check=True)
+    seeds = [json.loads(line)["seed"] for line in out.read_text().splitlines()]
+    # Both episodes are recorded unfinished; 128-bit draws fall below 2**64 with probability 2**-64.
+    assert len(set(seeds)) == 2 and min(seeds) >= 2**64
+
+
 @pytest.mark.parametrize(
     "message",
     [

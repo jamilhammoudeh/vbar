@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 import sys
 import time
 from collections.abc import Callable, Iterable
@@ -290,11 +291,16 @@ def main(argv: list[str] | None = None) -> None:
     from ..scenarios import ApproachConfig, ApproachEnv
 
     parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("--seeds", type=int, nargs="+", default=[0])
+    parser.add_argument(
+        "--seeds", type=int, nargs="+", help="seeds to repeat; by default drawn and recorded"
+    )
+    parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
     parser.add_argument("--max-steps", type=int, default=ApproachConfig().max_steps)
     parser.add_argument("--out", default="results.jsonl", help="JSON lines, one per episode")
     parser.add_argument("--name", default="mcp-client", help="agent name in the results")
     args = parser.parse_args(argv)
+    # A small seed can be found by matching the first observation, so seeds are drawn.
+    seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
     env = ApproachEnv(ApproachConfig(max_steps=args.max_steps))
     with open(args.out, "w", encoding="utf-8") as out:
 
@@ -303,7 +309,7 @@ def main(argv: list[str] | None = None) -> None:
             out.write(json.dumps(plain) + "\n")
             out.flush()
 
-        ToolServer(env, args.seeds, args.name, on_result=write).serve()
+        ToolServer(env, seeds, args.name, on_result=write).serve()
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import secrets
 import socket
 import time
 from collections.abc import Mapping
@@ -277,10 +278,15 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5555)
-    parser.add_argument("--seeds", type=int, nargs="+", default=[0])
+    parser.add_argument(
+        "--seeds", type=int, nargs="+", help="seeds to repeat; by default drawn and recorded"
+    )
+    parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
     parser.add_argument("--out", default="results.jsonl", help="JSON lines, one per episode")
     parser.add_argument("--timeout", type=float, default=60.0)
     args = parser.parse_args(argv)
+    # A small seed can be found by matching the first observation, so seeds are drawn.
+    seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
     server = AgentServer(args.host, args.port, args.timeout)
     print(f"waiting for an agent on {args.host}:{server.address[1]}", flush=True)
     env = ApproachEnv(ApproachConfig())
@@ -296,7 +302,7 @@ def main(argv: list[str] | None = None) -> None:
     with open(args.out, "w", encoding="utf-8") as out:
         try:
             agent = server.accept()
-            for seed in args.seeds:
+            for seed in seeds:
                 episode = ScoredRun(env, seed)
                 agent.reset(env.agent_view(), episode.agent_rng())
                 while not episode.done:
@@ -316,7 +322,7 @@ def main(argv: list[str] | None = None) -> None:
         finally:
             # Also on an interrupt: the episode being flown and every seed left are written.
             name = agent.name if agent is not None else "unknown"
-            for k, seed in enumerate(args.seeds[written:]):
+            for k, seed in enumerate(seeds[written:]):
                 flown = episode if k == 0 and episode is not None else ScoredRun(env, seed)
                 write(out, {**flown.result(name), "error": reason})
             if agent is not None:

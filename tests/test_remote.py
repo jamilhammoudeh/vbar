@@ -235,13 +235,13 @@ def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
     assert "error" in results[0]
 
 
-def host_with(client, tmp_path, timeout=10.0):
+def host_with(client, tmp_path, timeout=10.0, episodes=("--seeds", "1", "2")):
     """Run the command-line host for seeds 1 and 2 against `client(stream, sock)`."""
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
-    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(timeout)]
+    argv = ["--port", str(port), *episodes, "--out", str(out), "--timeout", str(timeout)]
     host = threading.Thread(target=main, args=(argv,))
     host.start()
     for _ in range(100):
@@ -298,6 +298,17 @@ def test_a_reset_connection_still_leaves_every_episode_recorded(tmp_path):
 
     results = host_with(client, tmp_path)
     assert [(r["seed"], r["completed"]) for r in results] == [(1, False), (2, False)]
+
+
+def test_the_host_draws_unguessable_seeds_unless_given_some(tmp_path):
+    def client(stream, sock):
+        stream.close()
+        sock.close()
+
+    results = host_with(client, tmp_path, episodes=("--episodes", "2"))
+    seeds = [r["seed"] for r in results]
+    # 128-bit draws: below 2**64 with probability 2**-64 each.
+    assert len(set(seeds)) == 2 and min(seeds) >= 2**64
 
 
 class Hops:

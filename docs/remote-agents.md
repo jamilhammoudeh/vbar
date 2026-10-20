@@ -48,9 +48,11 @@ result = run_episode(env, agent, seed=0)
 agent.close()                        # sends close
 ```
 
-`python -m vbar.agents.remote --port 5555 --seeds 0 1 2 --out results.jsonl` hosts the default
+`python -m vbar.agents.remote --port 5555 --episodes 3 --out results.jsonl` hosts the default
 approach scenario for one client and writes one JSON line per episode with the result of
-`run_episode` (arrays as lists). However the session fails (a bad hello, a disconnect or reset, a
+`run_episode` (arrays as lists). Each episode's seed is drawn (128 bits) and recorded in its
+result; `--seeds` repeats given seeds instead. A client that can guess the seed can rebuild the
+true state from its first observation, so scored sessions keep the drawn seeds. However the session fails (a bad hello, a disconnect or reset, a
 line that is not JSON, not UTF-8 or too deeply nested to parse, an action the server cannot use),
 the episode being flown is written with `completed` false and the error, and so is every seed not
 yet flown; a failed hello records every seed unflown. The records are also written when the host
@@ -80,8 +82,8 @@ there; MATLAB agents that need randomness seed their own generator from it.
 ## Tool server for LLM harnesses
 
 LLM harnesses that call tools through the Model Context Protocol can fly V-BAR episodes
-directly: `python -m vbar.agents.mcp --seeds 0 1 2 --out results.jsonl` serves the approach
-scenario over stdio, JSON-RPC 2.0 with one message per line, and a harness adds it as a stdio
+directly: `python -m vbar.agents.mcp --episodes 3 --out results.jsonl` serves the approach
+scenario over stdio, with drawn seeds as above (`--seeds` repeats given ones), JSON-RPC 2.0 with one message per line, and a harness adds it as a stdio
 tool server. `ToolServer(env, seeds)` is the same server in Python; its `handle(message)` answers
 one message and `serve(stdin, stdout)` runs the loop. It answers `initialize` (protocol versions
 2025-06-18, 2025-03-26 and 2024-11-05; the client's choice when supported), `ping`, `tools/list`
@@ -107,7 +109,7 @@ a drawn `agent_seed` the client never uses), and the command line writes them to
 `--out` file as they finish. When the session ends, because the input ends, the client stops reading
 the output or the server fails, an episode still running and every seed not yet flown are recorded
 too, with `completed` false, so leaving does not remove a bad episode from the results. The client
-never sees the true state, the reward or the outcome.
+never receives the true state, the reward or the outcome.
 
 ## How it is tested
 
@@ -118,6 +120,7 @@ never sees the true state, the reward or the outcome.
   the discrete mode fly exactly the trajectories and commands of the same agents in process.
 - A hand-written client sees only the view, its seed (the hashed one behind an in-process
   agent's generator) and spawn key, the observation and the time, then the close.
+- Without `--seeds` the host draws a different 128-bit seed for each episode and records it.
 - An error message from the client, a wrong protocol version and a silent client are reported.
 - The command-line host writes one result per seed; a client that answers two steps and then
   sends a line that is not JSON leaves an unfinished record of two steps, with the error, and an
@@ -154,7 +157,8 @@ never sees the true state, the reward or the outcome.
   answered; a tool that fails inside gets -32603; a session that ends after one command of three
   episodes records all three, unfinished, and so does a client that stops reading its replies.
 - `python -m vbar.agents.mcp` in a subprocess answers five requests on stdio and writes the
-  episode's result.
+  episode's result; without `--seeds` it records two episodes under two different drawn 128-bit
+  seeds.
 
 ## Example
 
