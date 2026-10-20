@@ -48,6 +48,14 @@ release may change the public API, and every such change is listed under Changed
   rejection at a level in sigma, per axis for the first and last and on the norm of each
   three-dimensional draw for `RangeScaledNav`; `vbar.scenarios.per_draw_level` derives the level
   from an episode-level exceedance probability.
+- A second-order in-step certificate for the keep-out sphere: `KeepOut.curvature_bound` and
+  `KeepOut.second_order_bounds`, a chord bound on the squared range, and `segment_minimum` and
+  `segment_minima` report the larger of it and the Lipschitz bound. A constraint may define
+  `second_order_bounds(states, h, speed, accel)` to get the same treatment. On 200 coasting flybys
+  sampled 20 times per 10 s the certified gap falls from 1.76 m to 4.9e-5 m at the median.
+  `min_margin_bound` (S1b) is version 2 for it; the golden metric fixtures were regenerated, and
+  a refined minimum may now be reported from its sample when the bound shows the sample is within
+  the constraint's resolution of the true minimum.
 - `vbar/Approach-v0` registered with Gymnasium on import, so `gymnasium.make` builds the approach
   scenario; it passes Gymnasium's environment checker.
 - `py.typed` marker, so type checkers use the package's annotations.

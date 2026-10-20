@@ -54,7 +54,7 @@ CATALOGUE = (
     MetricInfo("E5", "duty_cycle", "fraction"),
     MetricInfo("E6", "chatter", "1/s"),
     MetricInfo("S1", "min_margin", "per constraint", summary="lower_tail"),
-    MetricInfo("S1b", "min_margin_bound", "per constraint", summary="lower_tail"),
+    MetricInfo("S1b", "min_margin_bound", "per constraint", version=2, summary="lower_tail"),
     MetricInfo("S2", "violation_depth", "per constraint", summary="upper_tail"),
     MetricInfo("S3", "violation_duration", "s", summary="upper_tail"),
     MetricInfo("S4", "passive_safety_margin", "m", summary="lower_tail"),

@@ -44,13 +44,13 @@
  "min_margin": {
   "approach_cone": -59.99999940351974,
   "closing_speed_limit": -1.0136198500868647,
-  "keep_out": -33.54988339549064,
+  "keep_out": -33.549832513206596,
   "speed_limit": -1.2274890606449682
  },
  "min_margin_bound": {
   "approach_cone": -60.01125172428685,
   "closing_speed_limit": -1.0302806239900304,
-  "keep_out": -33.936409450807496,
+  "keep_out": -33.54991249862009,
   "speed_limit": -1.2309797353014524
  },
  "min_time_to_keep_out": 0.0,
@@ -92,7 +92,7 @@
  "violation_depth": {
   "approach_cone": 59.99999940351974,
   "closing_speed_limit": 1.0136198500868647,
-  "keep_out": 33.54988339549064,
+  "keep_out": 33.549832513206596,
   "speed_limit": 1.2274890606449682
  },
  "violation_duration": {

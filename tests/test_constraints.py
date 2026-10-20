@@ -1,3 +1,5 @@
+from functools import cache
+
 import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
@@ -116,7 +118,10 @@ def test_certified_bound_lies_below_the_exact_minimum_within_l_h_over_2(seed):
     state, accel, duration = random_flyby(seed)
     found, _ = detected_minimum(state, accel, duration)
     exact = closest_approach(state, accel, duration) - 50.0
-    assert found.lower_bound <= exact <= found.margin + 1e-9
+    # 1e-6 m below: the closed-form reference and the model's propagation differ by a few 1e-9 m,
+    # and the second-order bound is tight enough to see that.
+    assert found.lower_bound <= exact + 1e-6
+    assert exact <= found.margin + 1e-9
     # Never looser than the plan's form min_i m_i - L h / 2 with the largest interval L.
     m = CWDynamics(N)
     m.reset(state)
@@ -319,3 +324,245 @@ def test_batched_minimum_uses_the_range_bound_as_the_scalar_one_does():
         )
         assert np.isfinite(bound[k])
         assert bound[k] == pytest.approx(found.lower_bound, rel=1e-12, abs=1e-12)
+
+
+def flyby(rng, coast, duration=None):
+    """A pass aimed near the target from 20 to 200 m at 0.5 to 20 m/s, 5 to 30 s unless given."""
+    position = rng.normal(size=3)
+    position *= rng.uniform(20.0, 200.0) / np.linalg.norm(position)
+    direction = -position / np.linalg.norm(position) + rng.normal(scale=0.3, size=3)
+    state = np.r_[position, rng.uniform(0.5, 20.0) * direction / np.linalg.norm(direction)]
+    accel = np.zeros(3) if coast else rng.uniform(-0.02, 0.02, 3)
+    return state, accel, duration if duration is not None else rng.uniform(5.0, 30.0)
+
+
+@cache
+def flyby_tables():
+    rng = np.random.default_rng(7)
+    dense = [(*flyby(rng, True, 10.0), 20) for _ in range(200)]
+    thrusting = [(*flyby(rng, k % 2 == 0), 20) for k in range(200)]
+    coarse = [(*flyby(rng, True, 10.0), 5) for _ in range(200)]
+    return {"dense": dense, "thrusting": thrusting, "coarse": coarse}
+
+
+@cache
+def random_segments():
+    """CW segments up to 60 s at up to 20 m/s, half passing within 5 m of the target."""
+    rng = np.random.default_rng(11)
+    segments = []
+    for k in range(320):
+        u = rng.normal(size=3)
+        u /= np.linalg.norm(u)
+        w = rng.normal(size=3)
+        w -= (w @ u) * u
+        miss = rng.uniform(0.0, 5.0) if k % 2 else rng.uniform(5.0, 150.0)
+        speed, duration = rng.uniform(0.5, 20.0), rng.uniform(1.0, 60.0)
+        position = miss * w / np.linalg.norm(w) - u * speed * rng.uniform(-0.2, 1.2) * duration
+        accel = rng.uniform(-0.02, 0.02, 3) if k % 3 == 0 else np.zeros(3)
+        samples = int(rng.choice([2, 3, 4, 5, 6, 10, 20]))
+        segments.append((np.r_[position, speed * u], accel, duration, samples))
+    return segments
+
+
+FLYBY_TABLES = ("dense", "thrusting", "coarse")
+ALL_TABLES = (*FLYBY_TABLES, "random")
+
+
+def cases(table):
+    return random_segments() if table == "random" else flyby_tables()[table]
+
+
+@cache
+def exact_margins(table):
+    """Exact minimum keep-out margin of each segment from the closed-form CW solution.
+
+    A 2001-point grid, then four 201-point grids each spanning the two intervals around the lowest
+    point; the last spacing is below 1e-11 s.
+    """
+    margins = []
+    rows = cases(table)
+    for start in range(0, len(rows), 25):
+        chunk = rows[start : start + 25]
+        states = np.array([c[0] for c in chunk])
+        accels = np.array([c[1] for c in chunk])
+        lo, hi = np.zeros(len(chunk)), np.array([c[2] for c in chunk])
+        best = np.full(len(chunk), np.inf)
+        index = np.arange(len(chunk))
+        for points in (2001, 201, 201, 201, 201):
+            t = lo[:, None] + (hi - lo)[:, None] * np.linspace(0.0, 1.0, points)
+            phi, gamma = cw_discrete(N, t)
+            r = np.einsum("cpij,cj->cpi", phi[..., :3, :], states)
+            r += np.einsum("cpij,cj->cpi", gamma[..., :3, :], accels)
+            rho = np.linalg.norm(r, axis=-1)
+            k = np.argmin(rho, axis=1)
+            best = np.minimum(best, rho[index, k])
+            lo, hi = t[index, np.maximum(k - 1, 0)], t[index, np.minimum(k + 1, points - 1)]
+        margins.append(best - KEEP_OUT.radius)
+    return np.concatenate(margins)
+
+
+class FirstOrderKeepOut:
+    """The keep-out constraint without its second-order bound."""
+
+    name = "keep_out"
+    resolution = KeepOut.resolution
+
+    def __init__(self, radius):
+        self.keep_out = KeepOut(radius)
+
+    def margin(self, state, t=0.0):
+        return self.keep_out.margin(state, t)
+
+    def rate_bound(self, speed, accel, rho_min=0.0):
+        return self.keep_out.rate_bound(speed, accel, rho_min)
+
+
+def certified(table, constraint=KEEP_OUT):
+    """Lower bound from `segment_minimum` on each segment, sampled by the CW model."""
+    found = []
+    for state, accel, duration, samples in cases(table):
+        m = CWDynamics(N)
+        m.reset(state)
+        _, sampled = m.advance(accel, duration, n_samples=samples)
+        times = np.linspace(0.0, duration, samples)
+        thrust = float(np.linalg.norm(accel))
+        found.append(
+            segment_minimum(constraint, m.state_in_last_segment, times, sampled, thrust, N)
+        )
+    return np.array([f.lower_bound for f in found])
+
+
+@cache
+def lower_bounds(table):
+    return certified(table)
+
+
+@cache
+def first_order_lower_bounds(table):
+    return certified(table, FirstOrderKeepOut(KEEP_OUT.radius))
+
+
+def test_curvature_bound_is_twice_speed_squared_plus_extent_times_acceleration():
+    assert KEEP_OUT.curvature_bound(3.0, 0.01, 100.0) == pytest.approx(20.0, rel=1e-15)
+    curvature = KEEP_OUT.curvature_bound(
+        np.array([0.0, 3.0]), np.array([0.02, 0.0]), np.array([50.0, 10.0])
+    )
+    assert np.allclose(curvature, [2.0, 18.0], rtol=1e-15, atol=0.0)
+
+
+@pytest.mark.parametrize("table", ALL_TABLES)
+def test_certified_bound_lies_below_the_exact_minimum_on_every_segment(table):
+    # 1e-6 m: the closed form and the model's propagation differ by about 1e-9 m.
+    assert np.all(lower_bounds(table) <= exact_margins(table) + 1e-6)
+
+
+# Ceilings about 1.5 times the gaps of the second-order bound alone on these flybys (median
+# 4.9e-5 m and maximum 0.019 m dense, maximum 0.143 m thrusting, 1.24 m coarse); the first-order
+# bound alone leaves 1.76 m median and 5.02 m maximum on the dense table.
+@pytest.mark.parametrize(
+    ("table", "median", "maximum"),
+    [("dense", 1e-4, 0.03), ("thrusting", np.inf, 0.2), ("coarse", np.inf, 1.5)],
+)
+def test_certified_bound_is_within_the_tightness_table_of_the_exact_minimum(table, median, maximum):
+    gap = exact_margins(table) - lower_bounds(table)
+    assert np.median(gap) <= median
+    assert gap.max() <= maximum
+
+
+def test_first_order_bound_alone_misses_the_tightness_table():
+    gap = exact_margins("dense") - first_order_lower_bounds("dense")
+    assert np.median(gap) > 0.1
+
+
+@pytest.mark.parametrize("table", ALL_TABLES)
+def test_certified_bound_is_never_below_the_first_order_bound(table):
+    assert np.all(lower_bounds(table) >= first_order_lower_bounds(table) - 1e-12)
+
+
+@pytest.mark.parametrize("samples", [2, 20])
+def test_certified_bound_is_exact_on_a_straight_line_pass(samples):
+    # With n = 0 and no thrust, f = |r|^2 is quadratic in time with f'' = 2 |v|^2, and the speed
+    # bound is the constant speed exactly, so the curvature bound equals f'' and the chord minus
+    # M s (h - s) / 2 is f itself; its minimum is the closest approach, 5 m at t = 5 s.
+    r0, v = np.array([0.0, 60.0, 5.0]), np.array([0.0, -12.0, 0.0])
+
+    def state_at(tau):
+        return np.r_[r0 + v * tau, v]
+
+    times = np.linspace(0.0, 10.0, samples)
+    states = np.array([state_at(t) for t in times])
+    found = segment_minimum(KEEP_OUT, state_at, times, states, 0.0, 0.0)
+    assert found.lower_bound == pytest.approx(5.0 - KEEP_OUT.radius, abs=1e-9)
+
+
+def test_second_order_bound_is_minus_infinity_on_coarse_samples():
+    # 1000 s between samples puts the speed and acceleration bounds out of their regime.
+    m = CWDynamics(N)
+    m.reset([0.0, 400.0, 0.0, 0.3, 0.0, 0.0])
+    _, sampled = m.advance(np.zeros(3), 2000.0, n_samples=3)
+    times = np.linspace(0.0, 2000.0, 3)
+    speed, accel = interval_bounds(sampled, times[1], 0.0, N)
+    assert np.all(KEEP_OUT.second_order_bounds(sampled, times[1], speed, accel) == -np.inf)
+    found = segment_minimum(KEEP_OUT, m.state_in_last_segment, times, sampled, 0.0, N)
+    assert found.lower_bound == -np.inf
+
+
+def test_second_order_bound_is_minus_infinity_on_each_interval_with_an_infinite_bound():
+    states = np.array([[0.0, 400.0 + 10.0 * k, 0.0, 0.0, 10.0, 0.0] for k in range(4)])
+    speed = np.array([np.inf, 10.0, 10.0])
+    accel = np.array([1e-4, np.inf, 1e-4])
+    bounds = KEEP_OUT.second_order_bounds(states, 1.0, speed, accel)
+    assert bounds[0] == -np.inf and bounds[1] == -np.inf
+    assert 349.0 < bounds[2] <= 420.0 - KEEP_OUT.radius
+
+
+def test_second_order_bound_without_motion_is_the_margin_and_divides_by_nothing():
+    states = np.array([[0.0, 400.0, 0.0, 0.0, 0.0, 0.0]] * 2)
+    with np.errstate(all="raise"):
+        bounds = KEEP_OUT.second_order_bounds(states, 1.0, np.zeros(1), np.zeros(1))
+    assert np.array_equal(bounds, [350.0])
+
+
+def test_second_order_bounds_on_stacked_trajectories_equal_the_bounds_on_each():
+    trajectories = []
+    for seed in range(4):
+        state, accel, _ = random_flyby(seed)
+        m = CWDynamics(N)
+        m.reset(state)
+        trajectories.append(m.advance(accel, 10.0, n_samples=20)[1])
+    stacked = np.array(trajectories)
+    thrust = np.array([[0.0], [0.01], [0.02], [0.03]])
+    speed, accel = interval_bounds(stacked, 10.0 / 19, thrust, N)
+    bounds = KEEP_OUT.second_order_bounds(stacked, 10.0 / 19, speed, accel)
+    assert bounds.shape == (4, 19)
+    for k, samples in enumerate(trajectories):
+        one_speed, one_accel = interval_bounds(samples, 10.0 / 19, float(thrust[k, 0]), N)
+        one = KEEP_OUT.second_order_bounds(samples, 10.0 / 19, one_speed, one_accel)
+        assert np.array_equal(bounds[k], one)
+
+
+def test_halved_curvature_bound_is_caught_by_the_soundness_check(monkeypatch):
+    curvature_bound = KeepOut.curvature_bound
+    monkeypatch.setattr(
+        KeepOut, "curvature_bound", lambda self, *args: 0.5 * curvature_bound(self, *args)
+    )
+    assert any(np.any(certified(t) > exact_margins(t) + 1e-6) for t in FLYBY_TABLES)
+
+
+def test_doubled_curvature_bound_stays_sound_and_is_caught_by_the_tightness_table(monkeypatch):
+    curvature_bound = KeepOut.curvature_bound
+    monkeypatch.setattr(
+        KeepOut, "curvature_bound", lambda self, *args: 2.0 * curvature_bound(self, *args)
+    )
+    bounds = {t: certified(t) for t in FLYBY_TABLES}
+    assert all(np.all(bounds[t] <= exact_margins(t) + 1e-6) for t in FLYBY_TABLES)
+    # The doubled bound leaves a largest dense gap of 1.90 m against the 0.03 m ceiling.
+    assert (exact_margins("dense") - bounds["dense"]).max() > 0.03
+
+
+def test_batched_minimum_reports_the_scalar_second_order_bound():
+    flybys = cases("dense")
+    states = np.array([f[0] for f in flybys])
+    accels = np.array([f[1] for f in flybys])
+    _, _, bound = batched(states, accels, 10.0, 20)
+    assert np.allclose(bound, lower_bounds("dense"), rtol=0.0, atol=1e-9)

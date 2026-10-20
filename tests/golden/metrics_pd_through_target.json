@@ -50,7 +50,7 @@
  "min_margin_bound": {
   "approach_cone": -60.00086617371607,
   "closing_speed_limit": -93.51368744512638,
-  "keep_out": -49.99841316328067,
+  "keep_out": -49.990064591059884,
   "speed_limit": -0.7278567503403505
  },
  "min_time_to_keep_out": 0.0,

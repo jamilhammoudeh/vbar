@@ -13,6 +13,8 @@ of length h whose margin changes at most L per second, the margin never falls be
 more than the constraint's `resolution` below the best value found is refined with a bounded
 Brent search, which finds the true minimum when the refined interval holds a single dip.
 Refinement does not tighten the bound, which can stay up to L h / 2 below the reported minimum.
+A constraint may also give a second-order bound per interval (`KeepOut` does, from a curvature
+bound on |r|^2); the certificate is then the larger of the two on each interval.
 """
 
 from __future__ import annotations
@@ -41,6 +43,13 @@ _NATURAL_MARGIN = 2.0
 
 
 class Constraint(Protocol):
+    """A margin on the relative state with a bound on its rate of change.
+
+    A constraint may also define `second_order_bounds(states, h, speed, accel)`, one lower bound
+    on the margin per sample interval, which `segment_minimum` and `segment_minima` combine with
+    the first-order bound.
+    """
+
     @property
     def name(self) -> str: ...
 
@@ -81,6 +90,68 @@ class KeepOut:
     def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
         # |d rho / dt| = |r . v| / rho <= |v|.
         return speed
+
+    def curvature_bound(
+        self, speed: float | np.ndarray, accel: float | np.ndarray, extent: float | np.ndarray
+    ) -> float | np.ndarray:
+        """Upper bound on the second derivative of |r|^2 (m^2/s^2) over an interval.
+
+        Parameters
+        ----------
+        speed : float or ndarray
+            Bound on |v| (m/s).
+        accel : float or ndarray
+            Bound on |dv/dt| (m/s^2).
+        extent : float or ndarray
+            Bound on |r| (m).
+
+        Returns
+        -------
+        float or ndarray
+            2 (speed^2 + extent accel), since d^2 |r|^2 / dt^2 = 2 (|v|^2 + r . dv/dt).
+        """
+        return 2.0 * (speed * speed + extent * accel)
+
+    def second_order_bounds(
+        self, states: np.ndarray, h: float, speed: np.ndarray, accel: np.ndarray
+    ) -> np.ndarray:
+        """Lower bound on the margin (m) over each interval between consecutive samples.
+
+        With f = |r|^2 and f'' <= M on an interval of length h, f - M s^2 / 2 is concave, so f
+        lies above its chord minus M s (h - s) / 2, a convex quadratic whose minimum over the
+        interval is closed form. This is the second-order Taylor inclusion of Kochenderfer et
+        al., Algorithms for Validation, sections 9.2 and 9.3, taken on f rather than on the
+        margin, since rho'' is unbounded near the origin. Exact for straight-line motion.
+
+        Parameters
+        ----------
+        states : ndarray, shape (..., m, 6)
+            Samples `h` s apart, Hill frame (m, m/s).
+        h : float
+            Sample spacing (s), positive.
+        speed, accel : ndarray, shape (..., m - 1)
+            Bounds on |v| (m/s) and |dv/dt| (m/s^2) over each interval, as `interval_bounds`
+            returns them.
+
+        Returns
+        -------
+        ndarray, shape (..., m - 1)
+            The bounds; -inf where `speed` or `accel` is infinite.
+        """
+        r = np.asarray(states)[..., :3]
+        f = np.sum(r * r, axis=-1)
+        f0, f1 = f[..., :-1], f[..., 1:]
+        finite = np.isfinite(speed) & np.isfinite(accel)
+        v, a = np.where(finite, speed, 0.0), np.where(finite, accel, 0.0)
+        extent = np.sqrt(np.maximum(f0, f1)) + 0.5 * h * v
+        curvature = np.asarray(self.curvature_bound(v, a, extent))
+        slope = (f1 - f0) / h - 0.5 * curvature * h
+        curved = curvature > 0.0
+        # Without curvature the quadratic is the chord, lowest at an end.
+        s = np.where(curved, np.clip(-slope / np.where(curved, curvature, 1.0), 0.0, h), 0.0)
+        f_low = np.minimum(np.minimum(f0, f1), f0 + s * slope + 0.5 * curvature * s * s)
+        bounds = np.sqrt(np.maximum(f_low, 0.0)) - self.radius
+        return np.where(finite, bounds, -np.inf)
 
 
 def closing_speed(state: np.ndarray) -> np.ndarray:
@@ -433,7 +504,9 @@ def segment_minimum(
 
     `times` (s from the segment start, evenly spaced) and `states` are samples of the segment,
     `state_at(tau)` gives the state `tau` s into it, `thrust` (m/s^2) is the magnitude of the
-    segment's thrust acceleration, `n` the mean motion and `t0` the segment's start time.
+    segment's thrust acceleration, `n` the mean motion and `t0` the segment's start time. A
+    constraint with `second_order_bounds` gets the larger of its bound and the Lipschitz bound on
+    each interval.
     """
     margins = constraint.margin(states, t0 + times)
     k = int(np.argmin(margins))
@@ -450,6 +523,9 @@ def segment_minimum(
         ]
     )
     bounds = 0.5 * (margins[:-1] + margins[1:] - rates * h)
+    second_order = getattr(constraint, "second_order_bounds", None)
+    if second_order is not None:
+        bounds = np.maximum(bounds, second_order(states, h, speed, accel))
     for i in np.argsort(bounds):
         if bounds[i] >= best - constraint.resolution:
             break
@@ -497,6 +573,9 @@ def segment_minima(
         np.asarray(rate_bound(speed, accel, rho_min=rho_min), dtype=np.float64), speed.shape
     )
     bounds = 0.5 * (margins[:, :-1] + margins[:, 1:] - rates * h)
+    second_order = getattr(constraint, "second_order_bounds", None)
+    if second_order is not None:
+        bounds = np.maximum(bounds, second_order(states, h, speed, accel))
     # The best value only falls during refinement, so these are all the intervals it can visit.
     owner, column = np.nonzero(bounds < (best - constraint.resolution)[:, None])
     if owner.size:

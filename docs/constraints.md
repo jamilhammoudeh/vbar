@@ -16,7 +16,8 @@ $|\dot{\mathbf v}|$ and a lower bound on the range, and a `resolution` in margin
 $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
 
 - `KeepOut(radius)`: stay outside a sphere around the target. Margin $\rho - r_{\text{ko}}$ (m),
-  rate bound $|d\rho/dt| = |\mathbf r \cdot \mathbf v| / \rho \le |\mathbf v|$, resolution 1 mm.
+  rate bound $|d\rho/dt| = |\mathbf r \cdot \mathbf v| / \rho \le |\mathbf v|$, resolution 1 mm;
+  it also carries the second-order certificate below.
 - `SpeedLimit(v0, v1)`: margin $v_0 + v_1\rho - |\mathbf v|$ (m/s), the distance-dependent limit of
   Dunlap et al., "Comparing Run Time Assurance Approaches for Safe Spacecraft Docking" (2021),
   eq. 14, which uses $v_0$ = 0.2 m/s and $v_1 = 4n$. Rate bound $|v_1| V + A$, resolution
@@ -126,9 +127,58 @@ falls below the samples on either side.
 
 **What is guaranteed.** `lower_bound` is a valid lower bound on the margin of the simulated
 trajectory over the segment. The reported `margin` is the lowest value found: the true minimum
-whenever each refined interval holds a single dip. Refinement does not tighten the bound, which
-can stay up to $\tfrac12 L h$ below the reported minimum; over 200 coasting flybys at 0.5 to
-20 m/s sampled 20 times per 10 s the gap has a median of 1.7 m and a maximum of 5.1 m.
+whenever each refined interval holds a single dip. Refinement does not tighten the bound. The
+Lipschitz bound can stay up to $\tfrac12 L h$ below the reported minimum: over 200 coasting flybys
+at 0.5 to 20 m/s sampled 20 times per 10 s its gap to the exact minimum has a median of 1.76 m and
+a maximum of 5.02 m. The keep-out sphere therefore also carries the second-order bound below, and
+its certificate is the larger of the two on each interval.
+
+## The second-order certificate for the keep-out sphere
+
+A constraint may define `second_order_bounds(states, h, speed, accel)`, one lower bound on its
+margin per sample interval from a curvature argument; `segment_minimum` and `segment_minima` then
+take the larger of it and the Lipschitz bound on each interval. `KeepOut` has one. Its margin
+$\rho - r_{\text{ko}}$ has an unbounded second derivative near the origin, so the bound is taken on
+$f = |\mathbf r|^2$, whose second derivative is $f'' = 2(|\mathbf v|^2 + \mathbf r \cdot
+\dot{\mathbf v})$. With the interval's bounds $V$ and $A$ from above and $R = \max(\rho_i,
+\rho_{i+1}) + \tfrac12 V h$ on the range,
+
+$$
+f'' \le M = 2\,(V^2 + R A)
+$$
+
+(`curvature_bound(speed, accel, extent)`). Then $f - \tfrac12 M s^2$ is concave in the time $s$
+from the interval's start, so $f$ lies above its chord minus $\tfrac12 M s (h - s)$, a convex
+quadratic in $s$ whose minimum over $[0, h]$ is closed form:
+
+$$
+f(s) \ge f_i + s\,\frac{f_{i+1} - f_i}{h} - \tfrac12 M s (h - s), \qquad
+m \ge \sqrt{\max(0, f_{\text{lb}})} - r_{\text{ko}}
+$$
+
+with $f_{\text{lb}}$ the quadratic's minimum. This is a second-order Taylor inclusion (Kochenderfer,
+Katz, Corso and Moss, *Algorithms for Validation*, sections 9.2 and 9.3), whose width shrinks with
+$h^2$ where the Lipschitz inclusion shrinks with $h$. The bound is exact for a straight-line pass
+with $n = 0$ and no thrust, where $f'' = 2|\mathbf v|^2$ and $V$ is the exact speed. It follows the
+validity rule of the speed and acceleration bounds: where those are infinite the bound is $-\infty$,
+never the finite value $-r_{\text{ko}}$.
+
+Measured against exact minima from the closed-form solution, with the same 200-flyby generator
+(0.5 to 20 m/s aimed near the target from 20 to 200 m):
+
+| Case | Lipschitz bound, gap median / max | Second-order bound, gap median / max |
+|---|---|---|
+| 200 coasting flybys, 10 s, 20 samples | 1.76 m / 5.02 m | 4.9e-5 m / 0.019 m |
+| 200 flybys, half thrusting at up to 0.02 m/s^2 per axis, 5 to 30 s, 20 samples | 3.17 m / 13.1 m | 2.1e-3 m / 0.143 m |
+| 200 coasting flybys, 10 s, 5 samples | 5.28 m / 20.6 m | 1.4e-14 m / 1.24 m |
+
+Neither bound replaces the other. The second-order bound was never below the Lipschitz bound on
+these 8400 intervals, but on 1500 random segments of 1 to 60 s at 0.1 to 20 m/s with 2 to 20
+samples, half of them thrusting at up to 0.05 m/s^2 per axis, it was the looser of the two on 105
+segments, nearly all with 2 to 6 samples or passing within a few metres of the origin, and the
+reported gap there has a median of 0.8 m and a maximum of 98 m (sound on all 1500). Where neither
+bound certifies a margin to the constraint's resolution, the interval has to be sampled more
+finely. Other constraint types keep the Lipschitz bound alone.
 
 ## Batches of segments
 
@@ -199,6 +249,17 @@ entering the keep-out zone when its minimum margin is negative.
 - Over 10 flybys the range bound lies below the range of 1901 dense samples on every interval,
   and it is zero when the speed bound is infinite.
 - Bounds on four stacked trajectories with different thrust equal the bounds on each one.
+- The second-order keep-out bound: on the three flyby tables above and on 320 random segments
+  (1 to 60 s, 0.5 to 20 m/s, 2 to 20 samples, half passing within 5 m of the target) the certified
+  bound lies below the exact minimum of the closed-form solution on every segment, is never below
+  the Lipschitz bound, and keeps to the table's gaps with headroom (median 1e-4 m and maximum
+  0.03 m dense, 0.2 m thrusting, 1.5 m coarse), which the Lipschitz bound alone misses; a
+  straight-line pass with $n = 0$ sampled at 2 and 20 points gives the exact closest approach to
+  1e-9 m; 1000 s between samples gives $-\infty$, as does any interval with an infinite speed or
+  acceleration bound; a stationary chaser gives the margin without dividing by zero; stacked
+  trajectories give the bounds of each; halving the curvature bound makes the certificate unsound
+  on the flyby tables and doubling it breaks the tightness table while staying sound, so both
+  mutations fail the suite; the batched minimum reports the same bound as the scalar one.
 - `tests/test_constraint_types.py`: for every constraint type, over 12 flybys (coasting and
   thrusting at 0.1 to 3 m/s) the certificate is finite and lies below the minimum of 4001 dense
   samples, and the refined minimum is within 1e-6 of it. Hand-built states check each margin

@@ -18,8 +18,9 @@ named. Power as in the mission cards.
 - Validity: not yet measured.
 - Changelog: v1, first version.
 
-## S1b min_margin_bound (v1)
-- Definition: certified lower bound on S1 from the Lipschitz argument per sample interval.
+## S1b min_margin_bound (v2)
+- Definition: certified lower bound on S1, per sample interval the larger of the Lipschitz bound and, for the keep-out sphere, the second-order bound on the squared range.
+- Changelog: v1, the Lipschitz bound alone; v2, the keep-out sphere adds the second-order bound, which closes the gap to S1 from metres to millimetres on dense samples.
 - Summary: the unsafe tail across episodes (lowest value, 5th percentile, mean at or below it), never the interquartile mean.
 - Why it matters: S1 is the lowest value found; S1b is a value the trajectory provably never went below.
 - Known-answer tests: S1b <= S1 for the flyby; the certificate lies below the dense minimum for 12 flybys of every constraint type (`tests/test_constraint_types.py`).

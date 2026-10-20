@@ -16,8 +16,9 @@ the published examples below. Each test names its source in a comment next to th
   end of an array, the cache key's rounding, the switch point between a series and its closed
   form, settings of the reference integrator). In `vbar.constraints` they catch 131 of 194: most
   survivors are in the arithmetic of the certified in-step bound, because the tests check that
-  the bound never exceeds the true minimum but not how tight it is. A weekly CI run repeats this
-  for the core modules.
+  the bound never exceeds the true minimum but not how tight it is; the keep-out sphere's
+  second-order bound now has a tightness table, and halving or doubling its curvature bound fails
+  the suite. A weekly CI run repeats this for the core modules.
 
 ## Published examples reproduced
 
@@ -399,6 +400,9 @@ and 2160 draws).
 - Alfriend et al. (eqs 11.1 to 11.3): the thrust execution error model.
 - Brent, *Algorithms for Minimization without Derivatives* (Prentice-Hall, 1973): the bounded
   scalar minimization that refines the in-step constraint minimum.
+- Kochenderfer, Katz, Corso and Moss, *Algorithms for Validation* (secs. 9.2 and 9.3): the
+  second-order Taylor inclusion behind the keep-out sphere's in-step certificate, taken on the
+  squared range.
 - Donzé and Maler (FORMATS 2010): constraint margins as the signed distance to violation of
   signal temporal logic.
 - Van Loan, "Computing integrals involving the matrix exponential" (*IEEE Transactions on

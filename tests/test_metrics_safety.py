@@ -141,7 +141,12 @@ def test_safety_metrics_do_not_depend_on_the_decision_step():
     for dt in (4.0, 25.0):
         m = safety_metrics(episode(extra=extra, dt=dt, max_steps=int(200 / dt)))
         for name in ("keep_out", "speed_limit", "closing_speed_limit", "approach_cone"):
-            assert m["min_margin"][name] == pytest.approx(reference["min_margin"][name], abs=1e-6)
+            # A minimum is resolved to the constraint's resolution: an interval whose certified
+            # bound is within it of the best sample is not refined, and the samples move with dt.
+            resolution = 1e-3 if name in ("keep_out", "approach_cone") else 1e-5
+            assert m["min_margin"][name] == pytest.approx(
+                reference["min_margin"][name], abs=resolution
+            )
             assert m["violation_duration"][name] == pytest.approx(
                 reference["violation_duration"][name], abs=1e-5
             )
