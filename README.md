@@ -164,13 +164,13 @@ A reply that cannot be parsed counts as a parse failure and the spacecraft coast
 The prompt is configurable, the agent can offer tools (coast and transfer predictions from its
 own observation), every run can be recorded and replayed without the model, and an optional
 belief check measures whether the model's stated reasoning matches its inputs
-([docs/llm-agents.md](docs/llm-agents.md)). The simulation clock is paused while the model
+([docs/llm-agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/llm-agents.md)). The simulation clock is paused while the model
 answers, unless the run is in real time.
 
 Agents can also run in another process or language through the agent server (with Python and
 MATLAB clients), LLM harnesses can fly episodes through a Model Context Protocol tool server
-([docs/remote-agents.md](docs/remote-agents.md)), and planners can submit whole plans to an
-external verifier ([docs/agents.md](docs/agents.md)). Every agent should pass the
+([docs/remote-agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/remote-agents.md)), and planners can submit whole plans to an
+external verifier ([docs/agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/agents.md)). Every agent should pass the
 sign-convention check, `vbar.agents.sign_check.sign_check(agent)`, before it is scored.
 
 ### Reinforcement learning
@@ -191,7 +191,7 @@ obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 
 Train with a library reward, whose terms follow the benchmark metrics and whose discount is
 declared per second, so the task does not change with the step length
-([docs/rewards.md](docs/rewards.md)):
+([docs/rewards.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/rewards.md)):
 
 ```python
 from vbar import ApproachConfig, ApproachEnv
@@ -207,12 +207,13 @@ print(round(info["discount"], 6))  # discount this transition by exp(-dt / tau)
 Without `reward` the scenario returns its legacy shaped reward (progress toward the hold point,
 minus delta-v, minus a penalty for each step in the keep-out zone, plus a bonus on capture), which
 is not aligned with the metrics and is not the benchmark score; score agents with `vbar.metrics`.
-`ApproachVectorEnv` steps many copies as one batch ([docs/vector-env.md](docs/vector-env.md));
+`ApproachVectorEnv` steps many copies as one batch ([docs/vector-env.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/vector-env.md));
 the discrete bang-off-bang and burn-and-coast action modes, training-only starts and a safety
-filter in the training loop are on [docs/training.md](docs/training.md), and trained networks
-export to ONNX with their normalization built in ([docs/policy-export.md](docs/policy-export.md)).
-Rewards and `info` come from the true state: score trained policies with `run_episode`, which
-passes them only the observation and the time and refuses environments built for training.
+filter in the training loop are on [docs/training.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/training.md), and trained networks
+export to ONNX with their normalization built in ([docs/policy-export.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/policy-export.md)).
+Rewards and `info` come from the true state, so fly trained policies for scoring through
+`run_episode` or `vbar.metrics.record_episode`, which pass them only the observation and the time
+and refuse environments built for training.
 
 ## Dynamics
 
@@ -256,7 +257,8 @@ KSPDG.
 How each part is built, with its equations, methods, assumptions and limits, is in
 [docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part:
 frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
-spacecraft, sensors, constraints, the environment, metrics, and validation.
+spacecraft, sensors, constraints, the environment, metrics, rewards, training interfaces, the
+vectorized environment, agent tools, LLM agents, remote agents, policy export, and validation.
 
 ## Tests
 
