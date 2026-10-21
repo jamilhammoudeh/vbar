@@ -254,13 +254,41 @@ Also included, each documented in [docs/](https://github.com/jamilhammoudeh/vbar
 Earth uses the WGS 84 constants; a Kerbin body with KSP's values is available for comparison with
 KSPDG.
 
+## Scenario catalogue
+
+Beyond the approach above, `vbar.scenarios` holds seventeen scenarios built from specs: the
+V-bar, R-bar and orbit-normal approaches with a dwell at the hold point, docking as a contact
+event with mechanism windows and corridors (with on-axis, Shuttle-corridor and Sun-window
+variants), an offset port, an inertially pointing target, the run time assurance docking task,
+inspection under lighting and shadow, the ISS-class closing and R-bar acquisition, a berthing
+box, and the Shuttle's flown profiles (ORBT, the pitch-manoeuvre hold, the twice-orbital-rate
+transition, the V-bar final approach, the HST grapple approach and the separation fly-around).
+Each has `:nav1` and `:nav2` variants and a Gymnasium ID:
+
+```python
+import gymnasium as gym
+
+from vbar.scenarios import SCENARIOS, make, seeds
+
+print(sorted(SCENARIOS))
+env = make("docking:axis")
+print(env.scenario_id)
+env.reset(seed=seeds("docking:axis", "validation", 10).seed(0))
+env = gym.make("vbar/ApproachRbar-v1")
+```
+
+Identifiers name every option that changes a result, seeds come in train, validation and hidden
+test splits, and suites list the runs a report must cover in full
+([docs/scenarios.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/scenarios.md)).
+
 ## Documentation
 
 How each part is built, with its equations, methods, assumptions and limits, is in
 [docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part:
 frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
-spacecraft, sensors, constraints, the environment, metrics, rewards, training interfaces, the
-vectorized environment, agent tools, LLM agents, remote agents, policy export, and validation.
+spacecraft, sensors, constraints, the environment, scenarios, metrics, rewards, training
+interfaces, the vectorized environment, agent tools, LLM agents, remote agents, policy export,
+and validation.
 
 ## Tests
 

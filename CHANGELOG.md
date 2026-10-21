@@ -22,6 +22,25 @@ release may change the public API, and every such change is listed under Changed
 
 ### Added
 
+- The scenario catalogue (`vbar.scenarios`): `ScenarioSpec` with typed dispersions, target
+  attitude modes (`Passive`, `FixedOffset`, `InertialPointing`, `Tumbling`, `Maneuvering`,
+  `Misbriefed`), the kinds `HoldPointEnv`, `DockingEnv`, `InspectionEnv`, `BerthingEnv` and
+  `DepartureEnv`, identifiers that name every result-changing option
+  (`vbar:{scenario}:{dynamics}:{actuator}:{cost}:v{n}` plus variants and `field=value` tokens),
+  `make`, `register`, `parse_id`, tags, entry-point plugins (`vbar.scenarios`, `vbar.agents`,
+  `vbar.filters`), seed splits with a hidden test key (`seeds`, `VBAR_HIDDEN_SEED_KEY`) and
+  fixed suites (`SUITES`). Seventeen scenarios with their `:nav1` and `:nav2` variants:
+  `approach-vbar`, `approach-rbar`, `approach-hbar`, `docking` v2 (contact as an event in the
+  step, mechanism presets, corridor and lighting variants), `docking-offset`, `inertial-target`,
+  `docking-afrl`, `inspection`, `closing`, `rbar-acquisition`, `berthing-box`, `orbt-rbar`,
+  `rpm-hold`, `torva`, `vbar-final-shuttle`, `hst-rbar-grapple` and `separation-flyaround`, all
+  registered with Gymnasium as `vbar/<Name>-v<n>`.
+- `BaseEnv` hooks for scenarios: an episode draw before the start state, a command limit (thrust
+  inhibit windows), segment splitting at a target's burns and an event time that ends a step
+  early with the unflown propellant given back.
+- `bound` on `GaussianNav`, `RangeScaledNav` and `ExecutionError`: Gaussian draws truncated by
+  rejection at a level in sigma; `vbar.scenarios.per_draw_level` derives the level from an
+  episode-level exceedance probability.
 - `vbar/Approach-v0` registered with Gymnasium on import, so `gymnasium.make` builds the approach
   scenario; it passes Gymnasium's environment checker.
 - `py.typed` marker, so type checkers use the package's annotations.

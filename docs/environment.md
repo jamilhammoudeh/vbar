@@ -219,8 +219,12 @@ sign-convention check every agent passes before scoring is on [agents.md](agents
 
 - `info` carries the true state. A training loop or evaluator that hands `info` to an agent breaks
   the separation; `run_episode` passes only `agent_info()`.
-- `scenario_id` names the scenario, the dynamics model and the thruster layout, not the sensor,
-  delay or other options.
+- This scenario's `scenario_id` names the scenario, the dynamics model and the thruster layout,
+  not the sensor, delay or other options; the catalogue scenarios of
+  [scenarios.md](scenarios.md) carry every result-changing option in theirs.
+- `BaseEnv` offers scenario kinds four hooks, all no-ops here: an episode draw before the start
+  state, a command limit (thrust inhibit windows), segment splitting at a target's burns and an
+  event that ends a step early inside a segment ([scenarios.md](scenarios.md)).
 
 ## How it is tested
 

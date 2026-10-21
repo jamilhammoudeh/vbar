@@ -165,11 +165,18 @@ def public_spec(constraint: Constraint) -> dict[str, Any]:
     """A constraint's type and parameters, as agents may see them.
 
     The parameters are copies, so an agent changing them leaves the environment's constraint as
-    it was, whatever types the constraint holds.
+    it was, whatever types the constraint holds. Fields a constraint names in `private_fields`
+    (the target mode a moving constraint follows, which may differ from the briefing) are left
+    out.
     """
     params: dict[str, Any] = {}
+    hidden = set(getattr(constraint, "private_fields", ()))
     if is_dataclass(constraint):
-        params = {f.name: copy.deepcopy(getattr(constraint, f.name)) for f in fields(constraint)}
+        params = {
+            f.name: copy.deepcopy(getattr(constraint, f.name))
+            for f in fields(constraint)
+            if f.name not in hidden
+        }
     params.pop("name", None)
     return {"type": constraint.name, **params}
 

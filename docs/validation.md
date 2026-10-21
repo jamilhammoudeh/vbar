@@ -317,6 +317,50 @@ ed., 2018), sec. 3.4
 **Sign-convention self-check**: the PD agent passes in every
 continuous mode, ISS-style axes and a flipped radial axis are caught.
 
+## Published examples behind the scenarios
+
+**Goodman, *History of Space Shuttle Rendezvous*** (NASA JSC-63400 Rev 3, 2011; tables in the
+LVLH frame of its appendix G in ft and ft/s, converted with `iss_to_hill`; n at 185 n.mi.).
+
+- p. 137 (derived): the twice-orbital-rate circle needs only the radial hover force, and the
+  closed loop from the +R-bar reaches the +V-bar after T/8 keeping the range to 1e-9 m; after
+  thrust loss the free ellipse never comes closer than the circle; the quarter lap costs 5.500 nR
+  against 4.422 nR at the inertial rate, with break-even near 200 deg.
+- Tables 25.8 and 25.4: T/8 = 685.4 s against the flown 690 s; the pitch manoeuvre's 480 s; the
+  final approach rates 0.200 and 0.10 ft/s.
+- Table 24.3 and fig. 9.3: the gate time constants, 1000 s inside 500 ft on the HST profiles
+  (600 s at 120 ft), 200 and 100 s on the dual-coelliptic profile; the closing-speed law
+  0.2 + 4 n rho is 3.2 to 11.0 times the ORBT gates.
+- p. 244: the measured contact speed 0.113 ft/s = 0.0344 m/s fits only the `apds` window.
+- pp. 140 to 141 and 241 (derived): the R-bar free drift through the pitch manoeuvre stays within
+  581 to 605 ft and the closing speed that returns to the start radius is 0.318 ft/s.
+- Fig. 25.22: the flown V-bar rates sit inside the passive-speed envelope by factors 3.84 to 1.03.
+
+**Fehse, *Automated Rendezvous and Docking of Spacecraft*** (Cambridge, 2003), in addition to the
+examples behind the metrics:
+
+- Eqs 3.29 to 3.32 and 3.44 to 3.48: a 2700 m V-bar transfer at 400 km costs 0.3241 m/s
+  (tangential two-impulse), 1.5273 m/s (radial) and 7.082 m/s (forced straight line over one
+  orbit; the printed "44x" ratio is 21.85).
+- Eqs 3.33 and 3.38 to 3.39: the tangential and radial fly-arounds to a point 500 m below cost
+  2 n dz = 1.1314 m/s and 3 n dz = 1.697 m/s.
+- Section 5.3.1: 0.414 m of radial drift in 120 s from rest 15 m below the V-bar (the berthing
+  box); the lateral speed r n on the axis of an inertially pointing target.
+- Section 5.7.3: a port 20 m along-track on a target pitched 30 deg sits 20 tan(30 deg) =
+  11.547 m off the V-bar.
+
+**Montenbruck and Gill**, section 3.4: with the Sun in the orbit plane a 500 km target is in
+eclipse 37.8% of each orbit, 23.1% at beta = 60 deg.
+
+**Rawlings, Mayne and Diehl, *Model Predictive Control*** (2nd ed., 2022), sections 2.9 and 3.1:
+the hold-box audit (a stationary dispersion of 0.22 m and 8.2 mm/s per axis for raw 1 m, 1 mm/s
+noise into a 10 m, 0.1 m/s LQR at 10 s steps) and the undetectable along-track position bias.
+
+**Kochenderfer, Katz, Corso and Moss, *Algorithms for Validation*** (2026), section 8.1: the
+per-draw truncation level for an episode-level exceedance probability (3 sigma per draw leaves
+94.6% of 1080-draw episodes outside the bounded model; 1e-3 needs 4.91 and 5.04 sigma for 1080
+and 2160 draws).
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -330,6 +374,14 @@ continuous mode, ISS-style axes and a flipped radial axis are caught.
   form given by Schaub and Junkins: the first-order J2 mean-osculating element map.
 - NIMA TR8350.2, *Department of Defense World Geodetic System 1984*: Earth's GM, radius and J2,
   and its spin rate and flattening.
+- Goodman, *History of Space Shuttle Rendezvous* (NASA JSC-63400 Rev 3, 2011): the flown gate
+  tables, corridors, holds, contact speed and separation profile behind the Shuttle-practice
+  scenarios.
+- Fehse, *Automated Rendezvous and Docking of Spacecraft* (Cambridge, 2003), chapters 2, 3, 5, 7
+  and 8: the mission phases, hold points, approach corridors, contact conditions and berthing box
+  behind the scenario catalogue.
+- Dunlap, Hibbard, Mote and Hobbs, "Comparing Run Time Assurance Approaches for Safe Spacecraft
+  Docking" (2021), eq. 14: the distance-dependent speed limit of `docking-afrl`.
 - Montenbruck and Gill, *Satellite Orbits* (Springer, 2000): the Harris-Priester density model
   (sec. 3.5.2), the geodetic height iteration (eqs 5.83 to 5.88), cannonball and flat-plate solar
   pressure (eqs 3.69 to 3.75), drag in a co-rotating atmosphere (eq 3.97), the conical shadow

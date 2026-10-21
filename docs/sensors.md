@@ -29,10 +29,10 @@ resemble a real sensor and are not valid inside about 20 m, where 1 m is 5% of t
 
 `bound`, in units of sigma, truncates every draw of the noise and the bias by rejection (a draw
 outside the bound is drawn again), so the error never exceeds `bound` sigma per axis and a
-robust certificate has a bounded set to work with. The same option is on `RangeScaledNav` and on
-the thrust execution error ([spacecraft.md](spacecraft.md)); the level that gives a stated
-exceedance probability per episode comes from `vbar.scenarios.per_draw_level`
-([scenarios.md](scenarios.md)).
+certificate for bounded disturbances has a bounded set to work with. The same option is on
+`RangeScaledNav` and on the thrust execution error ([spacecraft.md](spacecraft.md)); the level
+that gives a stated exceedance probability per episode comes from
+`vbar.scenarios.per_draw_level` ([scenarios.md](scenarios.md)).
 
 ## Range-scaled errors in the sensor frame
 
