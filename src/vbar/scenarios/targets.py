@@ -1063,6 +1063,9 @@ class LightingWindow:
             raise ValueError("active_range must be finite and positive")
         object.__setattr__(self, "window", (lo, hi))
         object.__setattr__(self, "axis", tuple(float(c) for c in self.axis))
+        # The window is an angle in the orbit plane, undefined for an axis along the normal.
+        if not len(self.axis) == 3 or not float(np.hypot(self.axis[0], self.axis[1])) > 0.0:
+            raise ValueError("the approach axis needs a component in the orbit plane")
         object.__setattr__(self, "port", tuple(float(c) for c in self.port))
         object.__setattr__(self, "sun0", tuple(float(c) for c in self.sun0))
 

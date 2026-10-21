@@ -186,6 +186,20 @@ def test_lighting_window_opens_only_near_the_port_inside_the_window_on_the_day_s
     assert np.any(values > 0.0) and np.any(values < 0.0)
 
 
+def test_a_lighting_window_needs_an_axis_with_an_in_plane_part():
+    # An axis along the orbit normal has no in-plane angle to the Sun: refused, not NaN.
+    with pytest.raises(ValueError):
+        LightingWindow(
+            (0.2, 1.2),
+            (0.0, 0.0, 1.0),
+            (0.0, 0.0, 2.0),
+            10.0,
+            (1.0, 0.0, 0.0),
+            N,
+            EARTH.radius + 500e3,
+        )
+
+
 def test_a_target_burn_is_the_opposite_acceleration_on_the_relative_state():
     burn = (100.0, 50.0, (0.0, 4e-4, 0.0))
     mode = Maneuvering(schedule=(burn,))
