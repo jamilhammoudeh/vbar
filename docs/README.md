@@ -24,5 +24,5 @@ and how it is tested.
 | [llm-agents.md](llm-agents.md) | LLM agents: the model function, the prompt and its fields, parsing, tool calling and the built-in tools, tokens and cost, reasoning faithfulness, transcript replay |
 | [remote-agents.md](remote-agents.md) | agents in another process or language: the agent server, its JSON-lines protocol, the Python and MATLAB clients, the tool server for LLM harnesses |
 | [policy-export.md](policy-export.md) | neural policies with normalization and squashing, ONNX export, the ONNX agent, latency profiles |
-| [solvers.md](solvers.md) | nondimensional Hill-frame units, the exact projection of a command onto linear rows under a box or ball thrust limit, its multipliers, the phase I certificate of infeasibility |
+| [solvers.md](solvers.md) | nondimensional Hill-frame units, the exact projection of a command onto linear rows under a box or ball thrust limit, its multipliers, the phase I certificate of infeasibility, stage-structured horizon problems and their Riccati solve, the primal-dual interior-point method and its statuses |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |
