@@ -401,6 +401,10 @@ below.
   random instances to 1e-12.
 - Exercise 5.26: a feasible set that is a single point, where Slater's condition fails; its
   analogue, a row tangent to the thrust ball, is solved and reported without finite multipliers.
+- Sec. 8.1.1 and exercise 8.3(c): the halfspace projection and the three regimes of the
+  second-order cone projection, exact on hand cases; appendix B.1: the exact projection out of a
+  keep-out sphere by a root search on the multiplier matches a direction search to 1e-9 relative
+  (measured 5e-14) on 200 random cases, including the hard case.
 
 **Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design*** (2nd
 ed., Nob Hill, 2017)
