@@ -181,6 +181,28 @@ def test_seed_splits_are_deterministic_distinct_and_unguessable():
         SeedSplit("approach-vbar", "secret", 1)
 
 
+def test_public_seeds_can_be_enumerated_and_hidden_ones_cannot(monkeypatch):
+    # An agent that knows the public keys hashes them with the agent label for each index until
+    # it reproduces its own agent seed: it finds a validation episode at once and no test one.
+    from vbar.scenarios.seeds import derive_seed, split_key
+
+    public = [split_key("train"), split_key("validation")]
+
+    def search(agent_seed):
+        for key in public:
+            for k in range(500):
+                if derive_seed(key, "docking", k, "agent") == agent_seed:
+                    return k
+        return None
+
+    assert search(seeds("docking", "validation", 40).agent_seed(37)) == 37
+    monkeypatch.setenv(HIDDEN_KEY_VARIABLE, "3" * 32)
+    hidden = seeds("docking", "test", 5)
+    assert all(search(hidden.agent_seed(k)) is None for k in range(5))
+    listed = {derive_seed(key, "docking", k) for key in public for k in range(500)}
+    assert listed.isdisjoint(hidden)
+
+
 def test_test_split_needs_the_hidden_key(monkeypatch):
     monkeypatch.delenv(HIDDEN_KEY_VARIABLE, raising=False)
     with pytest.raises(ValueError):

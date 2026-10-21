@@ -66,11 +66,17 @@ pass `gymnasium.utils.env_checker.check_env`. A behaviour change bumps the versi
 
 `seeds(scenario, split, count)` gives the first `count` seeds of a scenario in the `train`,
 `validation` or `test` split. Each seed is the first 128 bits of SHA-256 over a key, the scenario
-name, a stream label and the index, so it is the same on every platform and release and cannot
-be found by matching a first observation ([environment.md](environment.md)). The train and
+name, a stream label and the index, so it is the same on every platform and release. The train and
 validation keys are public and fixed in the code; the test key is never in the repository and
 comes from the environment variable `VBAR_HIDDEN_SEED_KEY`. `pairs()` adds an agent seed per
 episode from a different stream label, so `agent_seed` never equals `seed`.
+
+The public keys make every train and validation seed public: an agent can list them, reset a twin
+of the scenario with each and keep the one whose first observation matches its own, or hash the
+public key with the agent label until it reproduces its own stream, and in either case know the
+true state at every step ([environment.md](environment.md)). Public splits are for development and
+for numbers reported as development results; scored comparisons use the test split, whose seeds
+neither search finds without the key.
 
 ## Suites
 

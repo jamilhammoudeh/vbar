@@ -1,10 +1,11 @@
 """Seed splits: train, validation and hidden test seeds derived from a key, scenario and index.
 
-Every seed is 128 bits, so an agent cannot find its episode by trying seeds against its first
-observation (`docs/environment.md`). The train and validation keys are public and fixed here;
-the test key is never in this repository and comes from the environment variable
-`VBAR_HIDDEN_SEED_KEY` (the hex string the benchmark's maintainers keep). The same scenario and
-index give the same seed on every platform and release.
+Every seed is 128 bits, so it cannot be guessed, but the train and validation keys are public
+and fixed here, so those seeds can be listed: an agent can find its episode among them by its
+first observation, or its index by hashing the public key with the agent label. Scored
+comparisons use the test split, whose key is never in this repository and comes from the
+environment variable `VBAR_HIDDEN_SEED_KEY` (the hex string the benchmark's maintainers keep).
+The same scenario and index give the same seed on every platform and release.
 """
 
 from __future__ import annotations
