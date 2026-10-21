@@ -166,13 +166,15 @@ action in the view's action mode. Provided:
   the hold point, $\mathbf a = -\mathbf a_{\text{CW}} - \omega_n^2(\boldsymbol\rho - \boldsymbol\rho_{\text{hold}}) - 2\zeta\omega_n\dot{\boldsymbol\rho}$,
   with $\omega_n$ = 0.01 rad/s and $\zeta$ = 1 by default, clipped to the thrust limit per axis
   and converted to the action mode (in thrust mode, the thrust at the initial mass). It ignores the
-  keep-out zone, so it is the unfiltered baseline.
+  keep-out zone, so it is the unfiltered baseline. A goal without a hold point (a docking port)
+  is refused at `reset` with a `ValueError`.
 - `DriftAgent`: no thrust.
 - `LLMAgent(complete, name=...)`: formats a prompt with the frame, goal, keep-out radius, mean
   motion, observed state, step length and thrust limit, calls `complete(messages, tools)`, and
   parses a JSON reply `{"ax": ..., "ay": ..., "az": ...}` of fractions, which it converts to the
   action mode. An unparseable reply is logged as a parse failure and the spacecraft coasts. Its
-  prompt, tokens, cost and the rest are on [llm-agents.md](llm-agents.md).
+  prompt, tokens, cost and the rest are on [llm-agents.md](llm-agents.md). A goal without a hold
+  point or a view without a keep-out radius is refused at `reset` with a `ValueError`.
 - `FilteredAgent(agent, safety_filter)` (`vbar.safety`): wraps an agent with a filter that has
   `reset(view)` and `filter(obs, action)`, and counts the steps where the filter changed the
   command. The filter returns the action or a `FilterResult`: the action, whether it intervened,

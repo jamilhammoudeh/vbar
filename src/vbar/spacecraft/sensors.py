@@ -18,8 +18,9 @@ def bounded_normal(rng: np.random.Generator, size: int, bound: float | None) -> 
     """Standard normal draws, drawn again while outside `bound` sigma when it is set.
 
     The truncation is by rejection, so the density inside the bound keeps its shape. A bound
-    makes a Gaussian error model bounded, which a robust certificate needs; derive it from an
-    episode-level exceedance probability with `vbar.scenarios.per_draw_level`.
+    makes a Gaussian error model bounded, which a certificate for bounded disturbances needs;
+    derive it from an episode-level exceedance probability with
+    `vbar.scenarios.per_draw_level`.
     """
     draw = rng.standard_normal(size)
     if bound is not None:

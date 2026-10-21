@@ -48,8 +48,8 @@ def around(a, b, radius, step=ARC_STEP):
     if angle < 1e-9:
         return [radius * ua]
     if math.pi - angle < 1e-6:
-        helper = np.array([0.0, 0.0, 1.0]) if abs(ua[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
-        mid = np.cross(ua, helper)
+        side = np.array([0.0, 0.0, 1.0]) if abs(ua[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+        mid = np.cross(ua, side)
         mid /= np.linalg.norm(mid)
         return [radius * ua, *around(radius * mid, radius * ub, radius, step)[0:]]
     count = max(1, math.ceil(angle / step))

@@ -1041,7 +1041,8 @@ class LightingWindow:
     Raises
     ------
     ValueError
-        If `window` is not 0 <= low < high <= pi or `active_range` is not finite and positive.
+        If `window` is not 0 <= low < high <= pi, `active_range` is not finite and positive, or
+        `axis` has no component in the orbit plane.
     """
 
     window: tuple[float, float]
