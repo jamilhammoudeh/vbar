@@ -1,7 +1,7 @@
 # Solvers
 
 Code: `vbar.solvers` (`HillScaling`, `Rows`, `ActuatorSet`, `project`, `Projection`, `StageQP`,
-`riccati_solve`). The
+`riccati_solve`, `IPMSettings`, `HorizonSolution`, `solve_horizon`). The
 optimization problems that safety filters and horizon methods solve, built on numpy and scipy only,
 deterministic and with a defined status for every outcome.
 
@@ -242,7 +242,7 @@ matches the dense KKT solve to about 1e-15 with or without the step.
 - $Q_k$ and $P$ are symmetric positive semidefinite and every $H_{uu}$ of the recursion is
   positive definite; a Cholesky failure raises `ValueError` naming the stage. Definiteness of $Q_k$
   is not checked beyond that.
-- The rows are ignored; a method that enforces them calls this solve for each of its steps.
+- The rows are ignored; `solve_horizon` handles them.
 - The inputs are never condensed. On CW with 60 s steps the condensed Hessian of 200 stages has a
   condition number above 1e10, while the stage-wise solve is unaffected.
 
@@ -295,4 +295,176 @@ qp = StageQP(
 x, u, y = riccati_solve(qp)
 print(x.shape, u.shape, y.shape)  # (41, 6) (40, 3) (40, 6)
 print(np.abs(u).max().round(4))  # 0.3252, the largest input (m/s^2)
+```
+
+## Interior-point method for horizon problems
+
+`solve_horizon(qp, settings=None, warm=None)` solves a `StageQP` with its rows by a primal-dual
+interior-point method (Boyd and Vandenberghe, *Convex Optimization*, sec. 11.7, Algorithm 11.2)
+with Mehrotra's predictor-corrector step (Nocedal and Wright, *Numerical Optimization*, 2nd ed.,
+sec. 16.6). The rows carry slacks, $C z - e = s$ with $s > 0$, and multipliers $\lambda > 0$. The
+method is infeasible-start: neither the dynamics nor the rows need to hold at the start, which is
+`warm = (x, u)` or the zero-thrust rollout from $x_0$; a row that holds starts with its own value as
+slack, a violated row with slack 1, and the products $\lambda_i s_i$ start equal to the size of the
+objective's terms per row, so the start does not depend on the units of the states, inputs or
+costs. A start far from the dynamics made the first Newton steps chase that residual with thrust
+far beyond the box, cutting the step to a few percent and crawling for dozens of iterations,
+which the rollout start avoids.
+
+### Method
+
+Each iteration linearizes the perturbed KKT conditions
+
+$$
+\nabla f(w) + E^T y - C^T \lambda = 0, \qquad Ew = f, \qquad Cw - e - s = 0, \qquad
+\lambda_i s_i = \tau,
+$$
+
+eliminates $\Delta s = C\Delta w + r_s$ and
+$\Delta\lambda = -(\lambda \circ s - \tau + \lambda \circ \Delta s)/s$, and is left with an
+equality-constrained QP in $\Delta w$ whose stage Hessians gain $C_k^T \operatorname{diag}(\lambda_k
+/ s_k) C_k$ and whose right-hand sides are the current residuals. That QP has the stage structure,
+so `riccati_solve` solves it: one backward sweep of the Hessians per iteration, linear in $N$. The
+predictor solves with $\tau = 0$; with $\mu = s^T\lambda / m$ and $\mu_{\text{aff}}$ the value after
+the largest feasible predictor step, the corrector targets $\tau = \sigma\mu$ with
+$\sigma = (\mu_{\text{aff}}/\mu)^3$ and adds $\Delta s_{\text{aff}} \circ \Delta\lambda_{\text{aff}}$
+to the complementarity residual. The corrector reuses the predictor's factorization, so it costs
+one more gradient sweep and rollout.
+
+The step starts at $\min(1, 0.99\,\alpha_{\max})$, with $\alpha_{\max}$ the largest step keeping
+$s$ and $\lambda$ nonnegative, and backtracks by $\beta$ until the residual norm falls by the
+factor $1 - \alpha\,t$ (Boyd and Vandenberghe, sec. 11.7.3, and sec. 9.2 for the defaults). Each
+component of that norm is divided by the size of the terms it sums at the current iterate, and the
+complementarity part by $\mu$; the weights are fixed during the search, so the Newton step stays a
+descent direction and the search does not depend on the problem's units. The
+corrected step need not be a descent direction for that norm, so it gets one backtrack; if it
+still fails, the plain step toward $\tau = \mu / \mu_{\text{IPM}}$, Boyd's $t = \mu_{\text{IPM}} m /
+s^T\lambda$, which is a descent direction, replaces it, since backtracking the corrected step
+further can stall.
+
+The iterate counts as converged when every component of the primal residual (initial state,
+dynamics and slack definitions) and of the dual residual is at most `tol_feas` times the sum of
+the magnitudes of the terms that component sums, for example
+$|A_k||x_k| + |B_k||u_k| + |c_k| + |x_{k+1}|$ for a dynamics row, and when every row is
+complementary to `tol_gap`: either its slack is at most `tol_gap` times its terms
+$\sum_j |C_{ij} z_j| + |e_i|$ (it is active), or its multiplier moves the components it enters by
+at most `tol_gap` of the row's scale (it is inactive),
+
+$$
+\lambda_i \max_j \frac{C_{ij}^2}{|C_{ij}|\,\sigma_j + Q_{jj} \sum_l |C_{il} z_l|} \le
+\text{tol\_gap},
+$$
+
+with $\sigma_j$ the cost and dynamics terms of stationarity component $j$; on an axis the plan does
+not use, where both terms in the denominator vanish, $Q_{jj}$ times the row's terms with $|e_i|$
+replaces them. A row whose terms and bound are both only rounding, such as $u_z \le 0$ where the
+plan never thrusts cross-track, has no scale of its own and is judged against the largest row's
+terms; without that, a row the optimum touches with zero slack and zero multiplier never counts
+as complementary. A single bound on the products $\lambda_i s_i$ would not do: multipliers of
+active rows span orders of magnitude, and a weakly active row stays visibly short of its bound
+while its product is small. No test has a
+floor of 1 or an absolute scale, so a problem and the same problem with every cost multiplied by
+$k$, or posed in `HillScaling` units, take the same steps and stop at the same iterate; the tests
+solve the 40-stage approach with an active box for $k$ from 1e-9 to 1e6 and in Hill units and
+require the same plan to 1e-6.
+
+### Statuses and outputs
+
+`IPMSettings(tol_feas=1e-8, tol_gap=1e-8, max_iter=60, mu=10.0, alpha=0.01, beta=0.5)` sets the
+tolerances and the step. `HorizonSolution` holds:
+
+- "converged": `x` (N+1, nx), `u` (N, nu), `objective`, and `multipliers`, the row multipliers
+  ($\ge 0$) of the stage rows in stage order followed by the terminal rows.
+- "iteration_cap": `max_iter` steps were taken. `x` and `u` are None: an iterate of an
+  infeasible-start method satisfies the dynamics only at convergence and is not a plan (Rawlings,
+  Mayne and Diehl, sec. 6.1.2).
+- "infeasible_certified": the primal residual did not halve in ten iterations while above its
+  tolerance, and the sum-of-infeasibilities LP over the horizon (Boyd and Vandenberghe,
+  sec. 11.4.1), $\min \sum t$ subject to $Cw + t \ge e$, $t \ge 0$ and the dynamics, by
+  `scipy.optimize.linprog` (HiGHS) on sparse matrices, has a dual that verifies as a Farkas
+  certificate (sec. 5.8.3). The check recomputes the dynamics multipliers from $\lambda$ by a
+  backward recursion and requires the input components of $C^T\lambda + E^Ty$ to cancel and
+  $e^T\lambda + f^Ty > 0$, each to 1e-9 of the magnitude of the terms summed. `certificate` holds
+  $\lambda$, ordered as `multipliers`, and `conflicting` its support (entries above 1e-9 of the
+  largest) as (stage, row) pairs, stage N for terminal rows.
+- "solver_failed": a stall without a verified certificate, or a numerical breakdown.
+
+Every status reports `iterations`, the residuals and the gap $s^T\lambda$ at the last iterate, and
+`elapsed_s`; `objective` is nan unless converged. Equal inputs give bitwise equal outputs.
+`ValueError` is raised only for a warm start of the wrong shape and for an input block that is not
+positive definite.
+
+### Assumptions and limits
+
+- Convex problems: the same definiteness as `riccati_solve`.
+- Iterations: the tests assert at most 40 on the 10-stage approach with its thrust box active over
+  part of the horizon (the example below takes 10) and on 100 stages of 20 s, and that the 40-stage
+  approach at 10 s steps from 300 m, the costliest case in the tests, converges within the default
+  cap of 60; a warm start that breaks the dynamics converges to the same plan as the cold start.
+- Rows that the optimum touches with zero slack and zero multiplier (not strictly complementary)
+  converge, but slowly, since the method's convergence is only linear there; the tests require
+  such rows on the 10-stage approach to converge within the default cap of 60.
+- A stall on a feasible problem gives "solver_failed", not a plan.
+
+### Validation
+
+The tests in `tests/test_solvers_ipm.py` check:
+
+- Without rows, and with a box that is never touched, the solution equals `riccati_solve` to 1e-9.
+- A thrust box active over part of a 10-stage CW approach: KKT residuals of the assembled problem,
+  complementarity and multiplier signs below 1e-7, and the objective within 1e-8 relative of
+  `scipy.optimize.minimize` (SLSQP) on the condensed problem as an independent solve; at most 40
+  iterations there and on 100 stages.
+- An unreachable terminal row: "infeasible_certified", with the certificate verified by Farkas'
+  lemma in the test against the assembled matrices and naming the terminal row.
+- `max_iter=3` gives "iteration_cap" with no plan; the same solve in `HillScaling` units maps to
+  the SI plan to 1e-9; bitwise determinism; a warm start at the solution returns it.
+- Rows that the optimum touches with slack 0 and 1e-9 give a defined status, and when converged
+  the unconstrained optimum to 1e-5.
+- Hypothesis: random problems of 2 to 6 stages with rows that hold with slack at the
+  unconstrained optimum converge to it with KKT residuals below 1e-6.
+
+```python
+from dataclasses import replace
+
+import numpy as np
+
+from vbar.dynamics import EARTH, cw_discrete, mean_motion
+from vbar.solvers import IPMSettings, StageQP, solve_horizon
+
+n, a_max = 10, 0.02
+a, b = cw_discrete(mean_motion(EARTH.radius + 500e3), np.full(n, 20.0))
+hold = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])
+cost = np.zeros((9, 9))
+cost[:6, :6] = np.diag([1e-2] * 3 + [1.0] * 3)
+cost[6:, 6:] = 1e2 * np.eye(3)
+grad = np.zeros(9)
+grad[:6] = -cost[:6, :6] @ hold
+terminal = np.diag([1.0] * 3 + [100.0] * 3)
+box = np.zeros((n, 6, 9))  # |u_i| <= a_max as rows C z >= e
+box[:, :3, 6:] = np.eye(3)
+box[:, 3:, 6:] = -np.eye(3)
+qp = StageQP(
+    x0=np.array([0.0, -150.0, 0.0, 0.0, 0.0, 0.0]),
+    A=a,
+    B=b,
+    c=np.zeros((n, 6)),
+    Q=np.repeat(cost[None], n, axis=0),
+    q=np.repeat(grad[None], n, axis=0),
+    P=terminal,
+    p=-terminal @ hold,
+    C=box,
+    e=np.full((n, 6), -a_max),
+    C_N=None,
+    e_N=None,
+)
+sol = solve_horizon(qp)
+print(sol.status, sol.iterations)  # converged 10
+print((np.abs(sol.u).max(axis=1) > 0.999 * a_max).sum())  # 4 stages at the thrust limit
+print(solve_horizon(qp, IPMSettings(max_iter=3)).status)  # iteration_cap
+
+reach = np.zeros((1, 6))
+reach[0, 1] = 1.0  # y_N >= 5000 m, beyond 200 s at 0.02 m/s^2
+sol = solve_horizon(replace(qp, C_N=reach, e_N=np.array([5000.0])))
+print(sol.status, sol.conflicting[-1])  # infeasible_certified (10, 0)
 ```

@@ -390,6 +390,13 @@ ed., Nob Hill, 2017)
 - Sec. 8.8.4: condensing is avoided; at 200 stages of 60 s the condensed Hessian's condition
   number exceeds 1e10 while the stage-wise solve matches the sparse solve to 1e-9.
 
+**Boyd and Vandenberghe**, additional items for the horizon solver:
+
+- Sec. 11.7, Algorithm 11.2: on a 10-stage CW approach with an active thrust box the objective
+  matches SLSQP on the condensed problem to 1e-8 relative, with KKT residuals below 1e-7.
+- Sec. 11.4.1 with sec. 5.8.3: an unreachable terminal row is certified infeasible, and the
+  certificate verifies by Farkas' lemma against the assembled matrices.
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -445,11 +452,14 @@ ed., Nob Hill, 2017)
 - Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design* (2nd ed.,
   Nob Hill, 2017): bounds hold only for the model they are computed on (sec. 8.10), the
   preparation and feedback split of real-time iteration (sec. 8.9), the Riccati recursion for
-  stage-structured QPs (sec. 8.8.3).
+  stage-structured QPs (sec. 8.8.3) and why an infeasible-start iterate is not a plan (sec. 6.1.2).
+- Nocedal and Wright, *Numerical Optimization* (2nd ed., Springer, 2006), sec. 16.6: Mehrotra's
+  predictor-corrector step used by the horizon solver.
 - Boyd and Vandenberghe, *Convex Optimization* (2004): the KKT conditions behind the active-set
   projection (sec. 5.5.3), Farkas certificates of infeasibility (sec. 5.8.3), projection onto a
   halfspace (sec. 8.1.1), the sum-of-infeasibilities phase I and its conflicting rows
-  (sec. 11.4.1), and the conditioning argument for nondimensional units (secs. 9.3 and 9.5).
+  (sec. 11.4.1), the primal-dual interior-point method and its line search (secs. 11.7 and 9.2),
+  and the conditioning argument for nondimensional units (secs. 9.3 and 9.5).
 - Ames, Coogan, Egerstedt, Notomista, Sreenath and Tabuada, "Control Barrier Functions: Theory and
   Applications" (ECC 2019): safety filters, the activity of their rows, and the conservatism of
   safe sets under bounded inputs.

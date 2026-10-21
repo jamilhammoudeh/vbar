@@ -3,9 +3,11 @@
 `HillScaling` gives nondimensional units for Hill-frame problems. `project` projects a three-axis
 command onto linear rows under a box or ball thrust limit, exactly, with multipliers and a
 certificate of infeasibility. `StageQP` holds a horizon problem with the dynamics as equality
-rows and `riccati_solve` solves it without its rows at a cost linear in the horizon.
+rows and `riccati_solve` solves it without its rows at a cost linear in the horizon;
+`solve_horizon` solves it with its rows by a primal-dual interior-point method.
 """
 
+from .ipm import HorizonSolution, IPMSettings, solve_horizon
 from .qp import ActuatorSet, Projection, Rows, project
 from .scaling import HillScaling
 from .stage import StageQP, riccati_solve
@@ -15,7 +17,10 @@ __all__ = [
     "HillScaling",
     "Projection",
     "Rows",
+    "HorizonSolution",
+    "IPMSettings",
     "StageQP",
     "project",
     "riccati_solve",
+    "solve_horizon",
 ]

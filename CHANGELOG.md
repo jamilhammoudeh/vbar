@@ -60,6 +60,11 @@ release may change the public API, and every such change is listed under Changed
   equality rows, solved without their rows by a backward Riccati recursion (one-triangle Cholesky
   of each stage's input block, the cost to go kept symmetric) at a cost linear in the horizon;
   returns states, inputs and dynamics multipliers.
+- `vbar.solvers.solve_horizon`, `IPMSettings` and `HorizonSolution`: a primal-dual interior-point
+  method with Mehrotra's predictor-corrector step for horizon QPs with stage and terminal rows,
+  each Newton step solved by the Riccati recursion. Statuses "converged", "iteration_cap" (no
+  plan), "infeasible_certified" (a Farkas certificate from the sum-of-infeasibilities LP, verified
+  in numpy, with the conflicting (stage, row) pairs) and "solver_failed".
 - `HillScaling.stage`: a horizon problem in Hill-frame units with the same objective value.
 - A second-order in-step certificate for the keep-out sphere: `KeepOut.curvature_bound` and
   `KeepOut.second_order_bounds`, a chord bound on the squared range, and `segment_minimum` and
