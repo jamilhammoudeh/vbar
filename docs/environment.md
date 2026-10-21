@@ -35,7 +35,9 @@ and it passes `gymnasium.utils.env_checker.check_env` (tested in `tests/test_reg
     it off when that error is meant to stay hidden from the agent;
   - `pending_commands`: $\lceil \text{delay} / \Delta t\rceil$ slots of (s until the command takes
     effect, command in action units): the command in effect first, then those not yet in effect,
-    zero-filled at the front. With these the next state follows from the observation and the new
+    zero-filled at the front. Each command is echoed as issued, after the thrust limits and
+    minimum impulse bit, in action units at the time it was issued, so the mass change since then
+    does not show in it. With these the next state follows from the observation and the new
     action alone.
 
   `AgentView.observation` names every entry.

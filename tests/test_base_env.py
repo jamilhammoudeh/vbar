@@ -5,6 +5,7 @@ import pytest
 from gymnasium.utils.env_checker import check_env
 
 from vbar.constraints import KeepOut
+from vbar.conventions import G0
 from vbar.dynamics import cw_discrete
 from vbar.scenarios import ApproachConfig, ApproachEnv, BaseEnv, EnvConfig
 from vbar.spacecraft import ExecutionError, GaussianNav, GaussMarkovNav, RangeScaledNav
@@ -292,3 +293,92 @@ def test_violation_across_a_segment_boundary_is_one_interval_per_step():
     # Each crossing lies within the 0.01 s grid cell where the dense samples change sign.
     assert ts[inside[0] - 1] <= entry <= ts[inside[0]]
     assert ts[inside[-1]] <= exit_ <= ts[inside[-1] + 1]
+
+
+def mixed_units_env(action_mode, drive, delay):
+    """Approach with execution error, a delay and a mass that falls fast enough to see."""
+    cfg = ApproachConfig(
+        max_steps=14,
+        action_mode=action_mode,
+        drive=drive,
+        delay_s=delay,
+        isp=220.0,
+        mass_kg=500.0,
+        propellant_kg=100.0,
+        thrust_limit="box",
+        execution=ExecutionError(scale_sigma=0.2, noise_sigma=0.05),
+        sensor=GaussianNav(5.0, 0.05),
+        observation_channels=("pending_commands",),
+    )
+    return ApproachEnv(cfg)
+
+
+@pytest.mark.parametrize("drive", ["accel", "thrust"])
+@pytest.mark.parametrize("action_mode", ["normalized", "accel", "thrust"])
+def test_pending_commands_echo_the_issued_command_in_every_mode_and_drive(action_mode, drive):
+    # A 25 s delay over 10 s steps keeps three slots: the command in effect and two queued.
+    env = mixed_units_env(action_mode, drive, delay=25.0)
+    env.reset(seed=3)
+    commands = env.action_space.high * np.random.default_rng(1).uniform(-0.5, 0.5, (12, 3))
+    commands[2::3] = 0.0
+    for k, command in enumerate(commands):
+        obs, _, _, _, _ = env.step(command)
+        slots = obs[6:].reshape(3, 4)
+        for m in range(min(k + 1, 3)):
+            issued, echoed = commands[k - m], slots[-1 - m, 1:]
+            moving = issued != 0.0
+            assert np.all(echoed[~moving] == 0.0)
+            assert np.allclose(echoed[moving] / issued[moving], 1.0, rtol=0.0, atol=1e-12)
+
+
+def test_rejected_step_leaves_pending_commands_echo_aligned():
+    env = mixed_units_env("accel", "thrust", delay=25.0)
+    env.reset(seed=3)
+    commands = env.action_space.high * np.random.default_rng(1).uniform(-0.5, 0.5, (5, 3))
+    for command in commands[:3]:
+        env.step(command)
+    with pytest.raises(ValueError):
+        env.step(commands[3], latency_s=-1.0)
+    obs, _, _, _, _ = env.step(commands[4])
+    slots = obs[6:].reshape(3, 4)
+    issued = commands[[1, 2, 4]]
+    # A misaligned slot echoes its command times one step's mass ratio, about 1 + 3e-5.
+    assert np.allclose(slots[:, 1:] / issued, 1.0, rtol=0.0, atol=1e-12)
+
+
+class PendingMassCheat:
+    """Reads the mass history, and so each burn's delivered delta-v, from the echoed commands."""
+
+    def __init__(self, mass, exponent, exhaust_speed):
+        self.mass = mass
+        self.exponent = exponent
+        self.exhaust_speed = exhaust_speed
+
+    def delivered_dv(self, issued, echoed):
+        """Delivered delta-v 1-norm (m/s) over the last step, from the echo/issue ratio."""
+        ratio = float(np.mean(echoed / issued))
+        mass = self.mass * ratio**self.exponent
+        dv = self.exhaust_speed * np.log(self.mass / mass)
+        self.mass = mass
+        return dv
+
+
+@pytest.mark.parametrize(
+    ("action_mode", "drive", "exponent"), [("accel", "thrust", -1), ("thrust", "accel", 1)]
+)
+def test_pending_commands_reveal_no_delivered_delta_v(action_mode, drive, exponent):
+    env = mixed_units_env(action_mode, drive, delay=10.0)
+    _, info = env.reset(seed=3)
+    cheat = PendingMassCheat(500.0, exponent, 220.0 * G0)
+    commands = env.action_space.high * np.random.default_rng(1).uniform(-0.5, 0.5, (12, 3))
+    errors, dv_before = [], info["dv_axes_mps"]
+    for command in commands:
+        obs, _, _, _, info = env.step(command)
+        dv_true = info["dv_axes_mps"] - dv_before
+        dv_before = info["dv_axes_mps"]
+        guess = cheat.delivered_dv(command, obs[7:10])
+        if dv_true > 0.0:
+            errors.append(abs(guess - dv_true) / dv_true)
+    # Taking the commanded delta-v as delivered is off by the 20 % scale error; 0.01 is an
+    # order of magnitude below that and far above the rounding a working cheat reaches.
+    assert np.median(errors) > 0.01

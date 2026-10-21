@@ -201,6 +201,7 @@ class BaseEnv(gym.Env):
         self.observation_space = spaces.Box(-1e7, 1e7, shape=shape, dtype=np.float64)
         self.state = np.zeros(6)
         self.t = 0.0
+        self.issue_scales: list[float] = []
 
     def _sample_start(self, rng: np.random.Generator) -> np.ndarray:
         raise NotImplementedError
@@ -273,6 +274,7 @@ class BaseEnv(gym.Env):
             self.state = np.asarray(self._sample_start(self.np_random), dtype=float)
         self.dynamics.reset(self.state)
         self.spacecraft.reset(self.rngs["actuator"])
+        self.issue_scales = []
         self.sensor.reset(self.rngs["sensor"])
         self.t = 0.0
         self.steps = 0
@@ -296,9 +298,16 @@ class BaseEnv(gym.Env):
             fraction = command[:3]
         else:
             fraction = command / self._action_scale()
+        # The scale moves with the mass in some modes, so the echo uses the one at issue: an
+        # echo at the current mass would reveal the mass drop and so the delivered delta-v. The
+        # scale is recorded only once `apply` has accepted the command, so a rejected step leaves
+        # the record aligned with the queue.
+        scale = self._action_scale()
         actuation = self.spacecraft.apply(fraction, self.cfg.dt, latency_s)
+        self.issue_scales.append(scale)
         if coast_steps:
             coast = self.spacecraft.apply(np.zeros(3), coast_steps * self.cfg.dt, latency_s)
+            self.issue_scales.append(1.0)
             actuation = _joined(actuation, coast)
         trace = self._fly(actuation)
         self.t += (1 + coast_steps) * self.cfg.dt
@@ -430,11 +439,16 @@ class BaseEnv(gym.Env):
             parts.append(np.array([craft.propellant / (craft.initial_mass - craft.dry_mass)]))
         if "pending_commands" in channels:
             acting = [(0.0, self.spacecraft.in_effect()), *self.spacecraft.pending()]
+            # Commands enter the spacecraft's queue in issue order, so the last scales match the
+            # queued entries; the zero in effect before the first command has none.
+            del self.issue_scales[: -len(acting)]
+            scales = [1.0] * (len(acting) - len(self.issue_scales)) + self.issue_scales
             slots = np.zeros((self.pending_slots, 4))
             # Padding goes first, so the entries stay in order of the time they take effect.
-            recent = acting[max(len(acting) - self.pending_slots, 0) :]
-            for k, (wait, u) in enumerate(recent[::-1]):
-                slots[-1 - k] = [wait, *(u * self._action_scale())]
+            start = max(len(acting) - self.pending_slots, 0)
+            recent = list(zip(acting[start:], scales[start:], strict=True))
+            for k, ((wait, u), scale) in enumerate(recent[::-1]):
+                slots[-1 - k] = [wait, *(u * scale)]
             parts.append(slots.ravel())
         return np.concatenate(parts)
 

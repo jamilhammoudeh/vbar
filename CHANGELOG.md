@@ -142,6 +142,13 @@ release may change the public API, and every such change is listed under Changed
   domain error on most of the hyperbolas, and returned most of the near-parabolic ellipses flown
   from apogee to perigee, off by up to 7.5e-2 of the perigee radius at 1 - e = 1e-9 and up to twice
   it at 1e-10.
+- The `pending_commands` channel echoed each queued command as the stored thrust fraction scaled
+  at the current mass, so in `accel` mode with the thrust drive, or `thrust` mode with the
+  acceleration drive, the slot showed the mass change since the command was issued and hence the
+  delivered delta-v of each burn. Slots now hold the command as issued, in action units at the
+  time it was issued; matching mode and drive pairs are unchanged.
+- `run_episode` copied an `interventions` attribute from any agent into `filter_interventions`;
+  only `FilteredAgent`'s own count is reported now.
 
 ## [0.2.0] - 2026-10-16
 
