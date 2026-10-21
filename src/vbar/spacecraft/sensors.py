@@ -14,6 +14,24 @@ from numpy.typing import ArrayLike
 from scipy.linalg import expm
 
 
+def bounded_normal(rng: np.random.Generator, size: int, bound: float | None) -> np.ndarray:
+    """Standard normal draws, drawn again while outside `bound` sigma when it is set.
+
+    The truncation is by rejection, so the density inside the bound keeps its shape. A bound
+    makes a Gaussian error model bounded, which a robust certificate needs; derive it from an
+    episode-level exceedance probability with `vbar.scenarios.per_draw_level`.
+    """
+    draw = rng.standard_normal(size)
+    if bound is not None:
+        if not bound > 0.0:
+            raise ValueError("bound must be positive, in units of sigma")
+        outside = np.abs(draw) > bound
+        while np.any(outside):
+            draw[outside] = rng.standard_normal(int(np.sum(outside)))
+            outside = np.abs(draw) > bound
+    return draw
+
+
 class Sensor(Protocol):
     name: str
 
@@ -40,7 +58,8 @@ class GaussianNav:
     `sigma_pos` (m) and `sigma_vel` (m/s) are the 1-sigma noise per Hill axis, drawn afresh at
     each observation; `bias_pos` and `bias_vel` are the 1-sigma of a bias drawn once per
     episode. The defaults are the synthetic `:nav1` track (1 m, 1 mm/s, no bias), which is not
-    meant to resemble any real sensor and is not valid inside about 20 m.
+    meant to resemble any real sensor and is not valid inside about 20 m. `bound` (in sigma)
+    truncates every draw, noise and bias, so the error never exceeds bound sigma per axis.
     """
 
     name = "gaussian"
@@ -51,20 +70,24 @@ class GaussianNav:
         sigma_vel: float = 1e-3,
         bias_pos: float = 0.0,
         bias_vel: float = 0.0,
+        bound: float | None = None,
     ):
         if min(sigma_pos, sigma_vel, bias_pos, bias_vel) < 0.0:
             raise ValueError("noise levels must not be negative")
+        if bound is not None and not bound > 0.0:
+            raise ValueError("bound must be positive, in units of sigma")
         self.sigma = np.repeat([sigma_pos, sigma_vel], 3)
         self.bias_sigma = np.repeat([bias_pos, bias_vel], 3)
+        self.bound = bound
         self.bias = np.zeros(6)
         self.rng = np.random.default_rng()
 
     def reset(self, rng: np.random.Generator) -> None:
         self.rng = rng
-        self.bias = self.bias_sigma * rng.standard_normal(6)
+        self.bias = self.bias_sigma * bounded_normal(rng, 6, self.bound)
 
     def observe(self, true_state: ArrayLike, t: float) -> np.ndarray:
-        noise = self.sigma * self.rng.standard_normal(6)
+        noise = self.sigma * bounded_normal(self.rng, 6, self.bound)
         return np.asarray(true_state, dtype=float) + self.bias + noise
 
 
@@ -76,7 +99,7 @@ class RangeScaledNav:
     navigation is good to about 1% of range (Automated Rendezvous and Docking of Spacecraft, 2.4
     and 5.3.2), and `c_range` models camera ranging from pattern size. Velocity errors are
     isotropic with max(floor_vel, k_vel rho); the velocity defaults (0.05 m/s at 500 m, 1 mm/s
-    at 10 m) are synthetic, not taken from a sensor.
+    at 10 m) are synthetic, not taken from a sensor. `bound` (in sigma) truncates every draw.
     """
 
     name = "range_scaled"
@@ -89,11 +112,15 @@ class RangeScaledNav:
         c_range: float = 0.0,
         k_vel: float = 1e-4,
         floor_vel: float = 1e-4,
+        bound: float | None = None,
     ):
         if min(k_range, k_lateral, floor, c_range, k_vel, floor_vel) < 0.0:
             raise ValueError("noise coefficients must not be negative")
+        if bound is not None and not bound > 0.0:
+            raise ValueError("bound must be positive, in units of sigma")
         self.k_range, self.k_lateral, self.floor, self.c_range = k_range, k_lateral, floor, c_range
         self.k_vel, self.floor_vel = k_vel, floor_vel
+        self.bound = bound
         self.rng = np.random.default_rng()
 
     def reset(self, rng: np.random.Generator) -> None:
@@ -109,12 +136,12 @@ class RangeScaledNav:
         state = np.asarray(true_state, dtype=float)
         rho = float(np.linalg.norm(state[:3]))
         along, across, sigma_vel = self.sigmas(rho)
-        draw = self.rng.standard_normal(3)
+        draw = bounded_normal(self.rng, 3, self.bound)
         noise = across * draw
         if rho > 0.0:
             los = state[:3] / rho
             noise += (along - across) * (draw @ los) * los
-        return state + np.r_[noise, sigma_vel * self.rng.standard_normal(3)]
+        return state + np.r_[noise, sigma_vel * bounded_normal(self.rng, 3, self.bound)]
 
 
 class GaussMarkovNav:

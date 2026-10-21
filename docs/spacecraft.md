@@ -90,8 +90,8 @@ and `in_effect()` the one acting now, both as limited, never as delivered.
 
 ## Execution error
 
-`ExecutionError(scale_bias, scale_sigma, noise_sigma, misalignment)` perturbs each burn, one per
-command (Alfriend et al., eqs 11.1 to 11.3):
+`ExecutionError(scale_bias, scale_sigma, noise_sigma, misalignment, bound)` perturbs each burn,
+one per command (Alfriend et al., eqs 11.1 to 11.3):
 
 $$
 \mathbf u_{\text{delivered}} = R\,\bigl(\mathbf u\,(1 + \delta) + \mathbf w\bigr), \qquad
@@ -125,7 +125,7 @@ flags `saturated`, `below_mib` and `empty`.
 | `min_impulse` | 0 N s | minimum impulse bit |
 | `delay` | 0 s | actuation delay |
 | `drive` | `"accel"` | hold the acceleration (`"accel"`) or the thrust (`"thrust"`) over a burn |
-| `execution` | none | an `ExecutionError` |
+| `execution` | none | an `ExecutionError`; its `bound` (in sigma, optional) truncates the scale and noise draws by rejection, as for the sensors ([sensors.md](sensors.md)) |
 
 `max_accel`, `isp` and `mass` must be positive, `min_impulse` and `delay` not negative.
 

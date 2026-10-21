@@ -21,6 +21,7 @@ from numpy.typing import ArrayLike
 from scipy.spatial.transform import Rotation
 
 from ..conventions import G0
+from .sensors import bounded_normal
 
 LAYOUTS = ("box", "ball")
 DRIVES = ("accel", "thrust")
@@ -54,19 +55,25 @@ class ExecutionError:
     `noise_sigma` per axis, in fractions of a full command; `R` rotates by the fixed rotation
     vector `misalignment` (rad, Hill axes). A burn is one command; coasting is never perturbed,
     and the delivered command is not limited again, since a scale bias means the thrusters
-    deliver more or less than their rating.
+    deliver more or less than their rating. `bound` (in sigma) truncates the scale and noise
+    draws, so the error is bounded.
     """
 
     scale_bias: float = 0.0
     scale_sigma: float = 0.0
     noise_sigma: float = 0.0
     misalignment: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    bound: float | None = None
+
+    def __post_init__(self):
+        if self.bound is not None and not self.bound > 0.0:
+            raise ValueError("bound must be positive, in units of sigma")
 
     def apply(self, command: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         if not np.any(command):
             return command
-        delta = self.scale_bias + self.scale_sigma * rng.standard_normal()
-        noisy = command * (1.0 + delta) + self.noise_sigma * rng.standard_normal(3)
+        delta = self.scale_bias + self.scale_sigma * bounded_normal(rng, 1, self.bound)[0]
+        noisy = command * (1.0 + delta) + self.noise_sigma * bounded_normal(rng, 3, self.bound)
         return Rotation.from_rotvec(self.misalignment).apply(noisy)
 
 

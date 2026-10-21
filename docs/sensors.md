@@ -27,6 +27,13 @@ $$
 The defaults, 1 m and 1 mm/s with no bias, are the synthetic `:nav1` track. They are not meant to
 resemble a real sensor and are not valid inside about 20 m, where 1 m is 5% of the range.
 
+`bound`, in units of sigma, truncates every draw of the noise and the bias by rejection (a draw
+outside the bound is drawn again), so the error never exceeds `bound` sigma per axis and a
+robust certificate has a bounded set to work with. The same option is on `RangeScaledNav` and on
+the thrust execution error ([spacecraft.md](spacecraft.md)); the level that gives a stated
+exceedance probability per episode comes from `vbar.scenarios.per_draw_level`
+([scenarios.md](scenarios.md)).
+
 ## Range-scaled errors in the sensor frame
 
 `RangeScaledNav(k_range, k_lateral, floor, c_range, k_vel, floor_vel)` scales white position noise
@@ -102,8 +109,8 @@ is the `:nav2` track.
 
 | Sensor | Parameters and defaults |
 |---|---|
-| `GaussianNav` | `sigma_pos` 1 m, `sigma_vel` 1e-3 m/s, `bias_pos` 0 m, `bias_vel` 0 m/s; none negative |
-| `RangeScaledNav` | `k_range` 0.01, `k_lateral` 0.01, `floor` 0.01 m, `c_range` 0 1/m, `k_vel` 1e-4 1/s, `floor_vel` 1e-4 m/s; none negative |
+| `GaussianNav` | `sigma_pos` 1 m, `sigma_vel` 1e-3 m/s, `bias_pos` 0 m, `bias_vel` 0 m/s; none negative; `bound` none (sigma, positive) |
+| `RangeScaledNav` | `k_range` 0.01, `k_lateral` 0.01, `floor` 0.01 m, `c_range` 0 1/m, `k_vel` 1e-4 1/s, `floor_vel` 1e-4 m/s; none negative; `bound` none |
 | `GaussMarkovNav` | `sigma_pos` 0.04 m, `sigma_vel` 4e-4 m/s, `damping` 1; all positive |
 
 ## Assumptions and limits
