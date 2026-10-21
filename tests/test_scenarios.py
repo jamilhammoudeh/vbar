@@ -71,7 +71,7 @@ def test_the_reference_controller_succeeds_and_the_metrics_agree(name):
     assert math.isfinite(metrics["composite_score"])
 
 
-def unconstrained(name):
+def unconstrained(name, **config):
     """The scenario with its constraints removed, so a run costs no in-step refinement."""
     spec = get(name)
     kind = entry_class(spec)
@@ -80,7 +80,19 @@ def unconstrained(name):
         def _constraints(self):
             return ()
 
-    return Unconstrained(spec)
+    return Unconstrained(spec, config)
+
+
+def test_a_dwell_broken_between_samples_restarts_the_clock():
+    # From 4.95 m off the hold point at 0.045 m/s outward, braking at 0.009 m/s^2 for one step
+    # crosses the 5 m ball's edge at 5.06 m mid-step and ends back inside at 4.95 m and 0.045 m/s:
+    # the step ends inside the ball, but the dwell does not count it.
+    env = unconstrained("approach-vbar", training=True)
+    env.reset(seed=0, options={"start_state": (4.95, -100.0, 0.0, 0.045, 0.0, 0.0)})
+    _, _, _, _, info = env.step(np.array([-0.45, 0.0, 0.0]))
+    assert info["captured"] and info["dwell_s"] == 0.0
+    _, _, _, _, info = env.step(np.zeros(3))
+    assert info["dwell_s"] == pytest.approx(env.cfg.dt)
 
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
@@ -109,9 +121,10 @@ def test_the_same_seed_repeats_the_episode_and_other_seeds_differ(name):
                 break
         return np.array(states), dict(env.draw, constraints=env.agent_view().constraints)
 
-    first, draw_a = fly(7)
-    second, draw_b = fly(7)
-    other, _ = fly(8)
+    steps = 5 if name == "docking:lit" else 15
+    first, draw_a = fly(7, steps)
+    second, draw_b = fly(7, steps)
+    other, _ = fly(8, steps)
     assert np.array_equal(first, second)
     assert draw_a["constraints"] == draw_b["constraints"]
     assert not np.array_equal(first[: len(other)], other[: len(first)])
@@ -175,10 +188,18 @@ def test_contact_is_an_event_inside_the_step_and_ends_it_there():
     assert info["contact_axial_speed_mps"] == pytest.approx(0.08, abs=2e-3)
     # Past the plane by a nanometre, toward the target (+y), so the record shows the crossing.
     assert -2.0 + 1e-9 < info["true_state"][1] < -2.0 + 1e-7
-    env.reset(seed=0, options={"start_state": (0.0, -3.5, 0.0, 0.0, 0.08, 0.0)})
+    # From 0.2 m out the crossing comes 2.5 s into a 5 s step thrusting across the axis: only
+    # the flown part counts, in delta-v and in propellant by the rocket equation.
+    env.reset(seed=0, options={"start_state": (0.0, -2.2, 0.0, 0.0, 0.08, 0.0)})
+    mass = env.spacecraft.mass
     _, _, done, _, info = env.step(np.array([0.0, 0.0, 1.0]))
     flown = info["time_s"]
-    assert info["dv_used_mps"] == pytest.approx(env.cfg.max_accel * flown, rel=1e-6)
+    assert done and 2.0 < flown < 3.0
+    dv = env.cfg.max_accel * flown
+    assert info["dv_used_mps"] == pytest.approx(dv, rel=1e-6)
+    burned = mass * -math.expm1(-dv / (env.cfg.isp * 9.80665))
+    assert info["propellant_used_kg"] == pytest.approx(burned, rel=1e-9)
+    assert env.spacecraft.mass == pytest.approx(mass - burned, rel=1e-12)
 
 
 def test_a_contact_too_fast_or_off_axis_is_recorded_but_not_a_success():
@@ -206,15 +227,16 @@ def test_a_crossing_of_the_port_plane_far_from_the_port_is_not_a_contact():
 
 
 def test_the_hold_dwell_must_be_unbroken():
-    env = make("approach-vbar", training=True)
+    # The dwell logic needs no constraints, and without them a step costs milliseconds.
+    env = unconstrained("approach-vbar", training=True)
     rest = (0.0, -100.0, 0.0, 0.0, 0.0, 0.0)
     env.reset(seed=0, options={"start_state": rest})
     steps = 0
-    done = False
-    while not done:
+    done = trunc = False
+    while not (done or trunc) and steps < 100:
         _, _, done, trunc, info = env.step(np.zeros(3))
         steps += 1
-    assert info["success"] and steps == 60 and info["dwell_s"] == pytest.approx(600.0)
+    assert done and info["success"] and steps == 60 and info["dwell_s"] == pytest.approx(600.0)
     # Leaving the ball for one step restarts the clock.
     env.reset(seed=0, options={"start_state": rest})
     for _ in range(30):
@@ -383,6 +405,18 @@ def test_a_misbriefed_target_is_not_revealed_by_the_view():
     assert "Misbriefed" not in public and "inertial" not in public and "0.7" not in public
     assert all("target" not in c for c in view.constraints)
     assert env.port_at(0.0) != pytest.approx((0.0, -2.0, 0.0))
+
+
+def test_a_departure_whose_drift_comes_back_within_the_body_is_not_clear():
+    # 768 m out and moving away, but the free drift passes 15 m from the centre of the 30 m body
+    # within the next orbit: past the clear range, and still not a departure.
+    env = make("separation-flyaround", training=True)
+    start = (667.47856, 379.90829, 0.0, -0.64444, -1.19533, 0.0)
+    env.reset(seed=1, options={"start_state": start})
+    _, _, done, _, info = env.step(np.zeros(3))
+    assert info["range_to_target_m"] > env.params.clear_range
+    assert not done and not info["success"]
+    assert info["drift_margin_m"] == pytest.approx(15.0 - env.params.body_radius, abs=0.05)
 
 
 def test_a_target_burn_moves_the_relative_state_in_the_departure_variant():
