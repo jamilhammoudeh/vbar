@@ -1,4 +1,4 @@
-"""Discrete LQR design on the zero-order-hold CW model.
+"""Discrete LQR design on the zero-order-hold CW model, and the LQR baseline agent.
 
 Gains follow u = -K x with K = (R + Gamma' P Gamma)^-1 (Gamma' P Phi + S'), P the stabilizing
 solution of the discrete Riccati equation with cross term S (Rawlings, Mayne and Diehl, Model
@@ -9,10 +9,16 @@ Every matrix is in SI units of the Hill frame unless stated.
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+
 import numpy as np
 from numpy.linalg import LinAlgError
 from numpy.typing import ArrayLike
 from scipy.linalg import expm, solve_discrete_are
+
+from ..dynamics import cw_discrete, cw_system
+from .base import AgentView, action_scale
 
 # The scaled Riccati residual sits at 1e-14 for steps from 1e-6 s to 1e4 s; a solve that lost
 # the stabilizing solution (an unstabilizable pair gives 1e-5) is far above this.
@@ -20,6 +26,12 @@ RICCATI_TOL = 1e-10
 # A negative eigenvalue of the sampled stage cost beyond this fraction of its largest is a loss
 # of positive semidefiniteness in the exponential rather than rounding, and is clipped.
 COST_EIGENVALUE_TOL = 1e-12
+# The closed-form CW step and the exponential of the CW system agree to 1e-15 at ordinary steps;
+# a larger gap means the sampled cost would be built for another model than the one flown.
+MODEL_TOL = 1e-12
+# Waits are whole multiples of dt up to the rounding of the environment's clock.
+ALIGNMENT_TOL = 1e-6
+STAGE_COSTS = ("sampled", "discrete")
 
 
 def _cost_scales(q: np.ndarray, r: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -293,3 +305,234 @@ def steady_state_input(phi: ArrayLike, gamma: ArrayLike, xs: ArrayLike) -> np.nd
     if mismatch > 1e-9 * size:
         raise ValueError("hold point is not a steady state")
     return us
+
+
+@dataclass(frozen=True, kw_only=True)
+class LQRConfig:
+    """Weights of the LQR baseline.
+
+    The continuous cost is the integral over time of |r / pos_scale|^2 + |v / vel_scale|^2 +
+    |u / accel_scale|^2, with r and v the deviation from the hold point (Hill frame) and u the
+    commanded acceleration.
+
+    Parameters
+    ----------
+    pos_scale_m : float
+        Position error that costs 1 (m).
+    vel_scale_mps : float
+        Velocity error that costs 1 (m/s).
+    accel_scale_mps2 : float or None
+        Command that costs 1 (m/s^2); None uses the view's `max_accel`, so the weights follow
+        the scenario's thrust.
+    stage_cost : {"sampled", "discrete"}
+        "sampled" minimizes the continuous cost exactly over zero-order-hold steps, with the
+        stage cost by Van Loan's method, so the law does not depend on `dt`; "discrete" sums the
+        same quadratic once per step.
+    rate_weight : float
+        Weight on |(u_k - u_{k-1}) / accel_scale|^2 per step; 0 turns it off.
+
+    Raises
+    ------
+    ValueError
+        If a scale is not positive, `stage_cost` is not one of the two, or `rate_weight` is
+        negative.
+    """
+
+    pos_scale_m: float = 10.0
+    vel_scale_mps: float = 0.01
+    accel_scale_mps2: float | None = None
+    stage_cost: str = "sampled"
+    rate_weight: float = 0.0
+
+    def __post_init__(self):
+        if not self.pos_scale_m > 0.0:
+            raise ValueError("pos_scale_m must be positive")
+        if not self.vel_scale_mps > 0.0:
+            raise ValueError("vel_scale_mps must be positive")
+        if self.accel_scale_mps2 is not None and not self.accel_scale_mps2 > 0.0:
+            raise ValueError("accel_scale_mps2 must be positive")
+        if self.stage_cost not in STAGE_COSTS:
+            raise ValueError(f"stage_cost must be one of {STAGE_COSTS}")
+        if not self.rate_weight >= 0.0:
+            raise ValueError("rate_weight must not be negative")
+
+    @classmethod
+    def alfriend(cls, n: float) -> LQRConfig:
+        """Scales that give Q = diag(1, 1, 1, n^-2, n^-2, n^-2) and R = I / n^4 in SI units.
+
+        A metre, a metre per radian of orbit and a metre per radian squared cost the same
+        (Alfriend et al., Spacecraft Formation Flying, section 10.1.2), so the gains scale with
+        the orbit and carry over between bodies.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion of the target orbit (rad/s).
+
+        Returns
+        -------
+        LQRConfig
+            Config with these scales and the other fields at their defaults.
+        """
+        return cls(pos_scale_m=1.0, vel_scale_mps=n, accel_scale_mps2=n**2)
+
+
+def _pending_slots(names: tuple[str, ...]) -> list[list[int]]:
+    """Observation indices of (wait, x, y, z) of each pending-command slot, in slot order."""
+    count = sum(1 for name in names if re.fullmatch(r"pending_\d+_t", name))
+    return [[names.index(f"pending_{j}_{c}") for c in "txyz"] for j in range(count)]
+
+
+def _check_zero_order_hold(
+    a: np.ndarray, b: np.ndarray, phi: np.ndarray, gamma: np.ndarray, dt: float
+) -> None:
+    """Raise if expm([[A, B], [0, 0]] dt) differs from the closed-form step (phi, gamma)."""
+    big = np.zeros((9, 9))
+    big[:6, :6] = a
+    big[:6, 6:] = b
+    e = expm(big * dt)
+    for block, ref in ((e[:6, :6], phi), (e[:6, 6:], gamma)):
+        if not np.max(np.abs(block - ref)) <= MODEL_TOL * np.max(np.abs(ref)):
+            raise ValueError("cw step and system matrices disagree")
+
+
+class LQRAgent:
+    """Discrete LQR regulator to the hold point on the CW model, with target-input feedforward.
+
+    The command is u = us - K (z - zs) (Hill frame, m/s^2): z is the observed state followed
+    by the commands not yet acting on it, zs the hold point at rest followed by copies of us, and
+    us the constant input that holds it (Rawlings, Mayne and Diehl, Model Predictive Control,
+    2nd ed., sections 1.2.5 and 1.5.1). Each pending-command slot adds one step of delay to the
+    model; with a rate weight and no delay the agent keeps its own last command as a state. The
+    command is clipped per axis (box layout) or scaled onto the ball (ball layout) at
+    `max_accel`, then issued in the view's action mode. Constraints are not handled.
+
+    Parameters
+    ----------
+    config : LQRConfig, optional
+        Weights; the defaults of `LQRConfig` when omitted.
+    name : str
+        Name in results.
+    """
+
+    def __init__(self, config: LQRConfig | None = None, name: str = "lqr"):
+        self.config = LQRConfig() if config is None else config
+        self.name = name
+
+    def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        """Design the gain for the view's orbit, step, thrust and delay.
+
+        Parameters
+        ----------
+        view : AgentView
+            Scenario description; uses `n`, `dt`, `max_accel`, `thrust_limit`, `action_mode`,
+            `mass_kg`, `goal["hold_point"]` (Hill frame, m) and the observation names.
+        rng : numpy.random.Generator, optional
+            Unused; the law is deterministic.
+
+        Raises
+        ------
+        ValueError
+            If the action mode takes no continuous command, the thrust layout is unknown, the
+            hold point needs more than `max_accel` of steady thrust, or the design fails (see
+            `dlqr`).
+        """
+        cfg = self.config
+        self.scale = action_scale(view)
+        if view.thrust_limit not in ("box", "ball"):
+            raise ValueError(f"unknown thrust limit {view.thrust_limit!r}")
+        self.view = view
+        accel_scale = view.max_accel if cfg.accel_scale_mps2 is None else cfg.accel_scale_mps2
+        phi, gamma = cw_discrete(view.n, view.dt)
+        qc = np.diag([cfg.pos_scale_m**-2] * 3 + [cfg.vel_scale_mps**-2] * 3)
+        rc = np.eye(3) / accel_scale**2
+        if cfg.stage_cost == "sampled":
+            a, b = cw_system(view.n)
+            _check_zero_order_hold(a, b, phi, gamma, view.dt)
+            q, r, s = sampled_data_cost(a, b, qc, rc, view.dt)
+        else:
+            q, r, s = qc, rc, np.zeros((6, 3))
+
+        self.slots = _pending_slots(view.observation)
+        d = len(self.slots)
+        phi_z, gamma_z = delay_augmented(phi, gamma, d)
+        q_z = np.zeros(phi_z.shape)
+        q_z[:6, :6] = q
+        s_z = np.zeros(gamma_z.shape)
+        if d:
+            # The cross term pairs x_k with the input acting on it, u_{k-d}, and the input weight
+            # moves to u_k: the infinite sum changes only by the already committed inputs.
+            q_z[:6, 6:9] = s
+            q_z[6:9, :6] = s.T
+        else:
+            s_z[:] = s
+        r_z = r
+        self.own_last = cfg.rate_weight > 0.0 and d == 0
+        if cfg.rate_weight > 0.0:
+            rd = cfg.rate_weight * np.eye(3) / accel_scale**2
+            if self.own_last:
+                phi_z, gamma_z, q_z, r_z, s_z = rate_augmented(phi_z, gamma_z, q_z, r_z, s_z, rd)
+            else:
+                # u_{k-1} is already the newest pending slot.
+                q_z[-3:, -3:] += rd
+                s_z[-3:] -= rd
+                r_z = r + rd
+        self.k, _ = dlqr(phi_z, gamma_z, q_z, r_z, s_z)
+
+        xs = np.array([*view.goal["hold_point"], 0.0, 0.0, 0.0], dtype=float)
+        self.us = steady_state_input(phi, gamma, xs)
+        if view.thrust_limit == "box":
+            size = float(np.max(np.abs(self.us)))
+        else:
+            size = float(np.linalg.norm(self.us))
+        if size > view.max_accel:
+            raise ValueError(
+                f"hold point needs {size:.2e} m/s^2 of steady thrust, above max_accel "
+                f"{view.max_accel}"
+            )
+        self.zs = np.concatenate([xs, np.tile(self.us, (len(phi_z) - 6) // 3)])
+        self.last = np.zeros(3)
+
+    def act(self, obs: np.ndarray, info: dict) -> np.ndarray:
+        """Command toward the hold point.
+
+        Parameters
+        ----------
+        obs : numpy.ndarray
+            Observation in the order of the view's names: the Hill state (m, m/s) first, then
+            the pending-command slots if enabled.
+        info : dict
+            Unused.
+
+        Returns
+        -------
+        numpy.ndarray, shape (3,)
+            Command in the view's action mode.
+
+        Raises
+        ------
+        ValueError
+            If a pending command's wait is not a whole number of steps.
+        """
+        view = self.view
+        obs = np.asarray(obs, dtype=float)
+        parts = [obs[:6]]
+        if self.slots:
+            pending = obs[self.slots]
+            steps = pending[:, 0] / view.dt
+            if np.any(np.abs(steps - np.round(steps)) > ALIGNMENT_TOL):
+                raise ValueError("pending commands are not aligned to the decision step")
+            # Each command is echoed in the action units of its issue, which are the units this
+            # agent sent it in, so max_accel / scale gives back the acceleration it asked for.
+            parts.append((pending[:, 1:] * (view.max_accel / self.scale)).ravel())
+        elif self.own_last:
+            parts.append(self.last)
+        u = self.us - self.k @ (np.concatenate(parts) - self.zs)
+        if view.thrust_limit == "box":
+            u = np.clip(u, -view.max_accel, view.max_accel)
+        else:
+            size = np.linalg.norm(u)
+            if size > view.max_accel:
+                u = u * (view.max_accel / size)
+        self.last = u
+        return u / view.max_accel * self.scale
