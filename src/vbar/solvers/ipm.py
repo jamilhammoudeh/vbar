@@ -574,7 +574,7 @@ def _phase_one(qp: StageQP, rows: _Rows) -> np.ndarray | None:
     m = rows.total
     res = linprog(
         np.concatenate([np.zeros(nw), np.ones(m)]),
-        A_ub=sparse.hstack([-g_mat, -sparse.eye_array(m)], format="csc"),
+        A_ub=sparse.hstack([-g_mat, -sparse.identity(m, format="coo")], format="csc"),
         b_ub=-rows.e,
         A_eq=sparse.hstack([e_mat, sparse.coo_array((e_mat.shape[0], m))], format="csc"),
         b_eq=f,

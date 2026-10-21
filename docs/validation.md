@@ -383,10 +383,10 @@ ed., Nob Hill, 2017)
 
 - Sec. 8.8.3, eqs. (8.51) to (8.54): the Riccati recursion equals the sparse KKT solve of the
   whole horizon to 1e-10 relative on exact CW with 40 time-varying stages, affine terms and
-  $R = 10^3 I$; the same recursion solving the unsymmetrized stage system by LU is off by 33% in
-  $u$ on that problem (our case, recomputed with our constants), and the test asserts it is off by
-  more than 10%, while the shipped one-triangle Cholesky recursion keeps $P_k$ symmetric to
-  rounding.
+  $R = 10^3 I$; the same recursion solving the unsymmetrized stage system by LU is off by 6.7% to
+  33% in $u$ on that problem depending on the BLAS build (our case, recomputed with our constants),
+  and the test asserts it is off by more than 1%, while the shipped one-triangle Cholesky recursion
+  keeps $P_k$ symmetric to rounding.
 - Sec. 8.8.4: condensing is avoided; at 200 stages of 60 s the condensed Hessian's condition
   number exceeds 1e10 while the stage-wise solve matches the sparse solve to 1e-9.
 

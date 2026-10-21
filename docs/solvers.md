@@ -233,9 +233,11 @@ with rows pass its barrier terms and residuals through the same sweep.
 
 The symmetrization is cheap and keeps $P_k$ exactly symmetric. Its effect depends on how the stage
 system is solved: rounding leaves $P_k$ slightly asymmetric, and on cheap-control problems in SI
-units a recursion that solves the asymmetric $H_{uu}$ by LU is off by 33% in $u$ on our 40-stage
-CW test problem, while this implementation, which factors one triangle of $H_{uu}$ by Cholesky,
-matches the dense KKT solve to about 1e-15 with or without the step.
+units a recursion that solves the asymmetric $H_{uu}$ by LU is off by percent to tens of percent
+in $u$ on our 40-stage CW test problem (33% with OpenBLAS, 6.7% on the oldest-dependency job, since
+the rounding that seeds the asymmetry depends on the BLAS), while this implementation, which
+factors one triangle of $H_{uu}$ by Cholesky, matches the dense KKT solve to about 1e-15 with or
+without the step.
 
 ### Assumptions and limits
 
@@ -255,7 +257,8 @@ assembled and solved by a sparse LU, which eliminates nothing:
   $Q = \operatorname{diag}(10^{-2} \times 3, 1 \times 3)$ and $R = 10^3 I$: states and inputs to
   1e-10 relative, dynamics multipliers to 1e-9.
 - The same recursion solving the unsymmetrized stage system by LU, written in the test, is off by
-  more than 10% in $u$ on that problem (33% measured), so the agreement above is not automatic;
+  more than 1% in $u$ on that problem (6.7% to 33% measured across BLAS builds), so the agreement
+  above is not automatic;
   the module's $P_k$ stays symmetric to rounding at every stage.
 - `HillScaling.stage`: the problem solved in SI and in Hill units gives the same states, inputs,
   objective and row values to 1e-9 relative, with the dynamics multipliers mapped by $D^{-1}$.

@@ -151,14 +151,16 @@ def test_riccati_duals_are_the_dynamics_multipliers():
     assert relative(y, y_ref) < 1e-9
 
 
-def test_lu_solve_of_the_asymmetric_stage_system_is_off_by_more_than_ten_percent():
+def test_lu_solve_of_the_asymmetric_stage_system_is_off_by_more_than_one_percent():
     # The same problem as the dense comparison, by the recursion that neither re-symmetrizes P
     # nor reads one triangle of the input block: rounding asymmetry in P, solved by LU, moves u by
-    # 33% (6% to 33% over other seeds of the same construction), so the agreement to 1e-10 above
-    # is a property of the solver and not of the problem.
+    # percent to tens of percent (33% with OpenBLAS on this machine, 6.7% with numpy 1.26 and scipy
+    # 1.11 on the oldest-dependency job, 6% to 33% over other seeds), so the agreement to 1e-10
+    # above is a property of the solver and not of the problem. The rounding that seeds the
+    # asymmetry depends on the BLAS, so the threshold is well below every value seen.
     qp = cw_stage_qp(DTS_40)
     _, u_ref, _ = dense_kkt(qp)
-    assert relative(unsymmetrized_riccati(qp), u_ref) > 0.1
+    assert relative(unsymmetrized_riccati(qp), u_ref) > 0.01
 
 
 def test_cost_to_go_matrices_are_exactly_symmetric_at_every_stage():
