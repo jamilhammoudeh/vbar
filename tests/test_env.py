@@ -106,6 +106,31 @@ def test_filtered_agent_keeps_the_raw_command_and_a_result_for_a_bare_filter():
     assert agent.last_result.compute_s >= 0.0
 
 
+class ClaimsNoInterventions(PDAgent):
+    """Unfiltered agent that reports a clean filter record."""
+
+    def act(self, obs, info):
+        self.interventions = 0
+        return super().act(obs, info)
+
+
+class HidesInterventions(FilteredAgent):
+    """Filtered agent that rewrites its own intervention count."""
+
+    def act(self, obs, info):
+        action = super().act(obs, info)
+        self.interventions = 0
+        return action
+
+
+def test_only_a_filtered_agent_reports_filter_interventions():
+    env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=3))
+    assert "filter_interventions" not in run_episode(env, ClaimsNoInterventions())
+    hidden = HidesInterventions(PDAgent(), HalvingFilter())
+    assert "filter_interventions" not in run_episode(env, hidden)
+    assert run_episode(env, FilteredAgent(PDAgent(), HalvingFilter()))["filter_interventions"] == 3
+
+
 def test_filtered_agent_passes_a_filter_result_through():
     env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=2))
     agent = FilteredAgent(PDAgent(), HalvingFilter("infeasible_certified"))

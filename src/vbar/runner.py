@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .agents.base import agent_generator
+from .safety import FilteredAgent
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -149,7 +150,8 @@ def run_episode(
             latency = real_time.time_scale * wall
         episode.step(action, wall, latency)
     result = episode.result(agent.name)
-    if hasattr(agent, "interventions"):
+    # Any agent, a subclass included, can set `interventions`; only FilteredAgent's own count holds.
+    if type(agent) is FilteredAgent:
         result["filter_interventions"] = agent.interventions
     return result
 
