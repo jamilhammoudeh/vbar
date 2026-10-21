@@ -76,11 +76,19 @@ def test_rotating_cone_equals_the_fixed_cone_turned_by_the_attitude():
     rng = np.random.default_rng(1)
     states = np.concatenate([rng.uniform(-60, 60, (200, 3)), rng.uniform(-0.1, 0.1, (200, 3))], 1)
     assert np.allclose(rotating.margin(states, t), fixed.margin(states, t), atol=1e-9)
-    # The rate bound covers the cone's own motion: sample the margin's time derivative.
-    state = np.array([-30.0, -20.0, 5.0, 0.0, 0.0, 0.0])
+    # The rate bound covers the cone's own motion: a chaser at rest inside the active range sees
+    # the margin change only because the cone turns, at up to the attitude rate times its reach.
     h = 1e-3
-    rate = (rotating.margin(state, t + h) - rotating.margin(state, t)) / h
-    assert abs(rate) <= rotating.rate_bound(0.0, 0.0)
+    near = []
+    while len(near) < 400:
+        d = rng.normal(size=3)
+        d *= rng.uniform(1.0, active) / np.linalg.norm(d)
+        near.append(np.concatenate([np.asarray(fixed.apex) + d, np.zeros(3)]))
+    near = np.array(near)
+    rates = np.abs(rotating.margin(near, t + h) - rotating.margin(near, t)) / h
+    assert np.max(rates) <= rotating.rate_bound(0.0, 0.0)
+    # The bound is not loose by more than the reach's factor: points far out turn fastest.
+    assert np.max(rates) > 0.5 * target.rate_bound(N) * active
     with pytest.raises(ValueError):
         RotatingCone(half, axis, apex, math.inf, target, N)
 
