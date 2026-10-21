@@ -405,6 +405,9 @@ below.
   second-order cone projection, exact on hand cases; appendix B.1: the exact projection out of a
   keep-out sphere by a root search on the multiplier matches a direction search to 1e-9 relative
   (measured 5e-14) on 200 random cases, including the hard case.
+- Sec. 4.3.1 and eqs. 4.37 and 4.38: support functions of box, ball and ellipsoid error sets equal
+  the maximum over the set to 1e-12, the chance margin uses $\Phi^{-1}(\eta)$ with $\Phi^{-1}(1 -
+  10^{-6}) = 4.753$ and refuses $\eta < 0.5$.
 
 **Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design*** (2nd
 ed., Nob Hill, 2017)

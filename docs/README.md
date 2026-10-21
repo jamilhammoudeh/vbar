@@ -56,4 +56,5 @@ and how it is tested.
 | [expert-datasets.md](expert-datasets.md) | the oracle expert agent and expert trajectory datasets: open-loop flight of the verified fuel plan, NPZ files with a dataset card, byte-for-byte regeneration from validation seeds, and the generation script |
 | [reproductions.md](reproductions.md) | published results rebuilt from their papers: Ariba et al.'s LP glideslope and Hablani's standard glideslope on their V-bar case, the axis mapping, what matches and what does not |
 | [safety-filters.md](safety-filters.md) | closed-form projections, the exact projection out of a keep-out sphere |
+| [safety-filters.md](safety-filters.md) | closed-form projections, the exact projection out of a keep-out sphere, bounded and Gaussian error sets with their halfspace, chance and keep-out margins, execution-bias offsets |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |
