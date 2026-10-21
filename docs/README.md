@@ -57,4 +57,5 @@ and how it is tested.
 | [reproductions.md](reproductions.md) | published results rebuilt from their papers: Ariba et al.'s LP glideslope and Hablani's standard glideslope on their V-bar case, the axis mapping, what matches and what does not |
 | [safety-filters.md](safety-filters.md) | closed-form projections, the exact projection out of a keep-out sphere |
 | [safety-filters.md](safety-filters.md) | closed-form projections, the exact projection out of a keep-out sphere, bounded and Gaussian error sets with their halfspace, chance and keep-out margins, execution-bias offsets |
+| [safety-filters.md](safety-filters.md) | closed-form projections, the exact projection out of a keep-out sphere, bounded and Gaussian error sets with their halfspace, chance and keep-out margins, execution-bias offsets, control barrier functions for the keep-out sphere, speed limits and the approach cone, free-drift and braking backup barriers |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |

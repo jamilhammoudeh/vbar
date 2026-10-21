@@ -3,7 +3,8 @@
 Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`,
 `keep_out_projection`, `KeepOutProjection`) and `vbar.safety.tightening` (`BoxError`, `BallError`,
 `EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `ecbf_bias`,
-`first_order_bias`).
+`first_order_bias`) and `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`, `ClosingSpeedCbf`,
+`ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`).
 
 A safety filter sits between an agent and the spacecraft and changes a command only when it would
 lead out of a safe set. This page starts with the building blocks the filters use: closed-form
@@ -134,6 +135,174 @@ $\delta a_{\max} / (p_1 p_2)$ in m, the amount by which the barrier must be move
 first-order barrier $\dot h = -\gamma h - \delta a$, `first_order_bias(da_max, gamma)` returns
 $\delta a_{\max} / \gamma$ in the barrier's units. Poles and gains must be positive.
 
+## Control barrier functions
+
+A control barrier function $h(x)$ is nonnegative on a safe set of Hill-frame states
+$x = (r, v)$. A filter keeps the state in the set by requiring a condition on the commanded
+acceleration $u$ that limits how fast $h$ may fall (Ames et al., *Control Barrier Functions:
+Theory and Applications*, ECC 2019). Every barrier below with a `row(x, a_cw)` method returns that
+condition as one linear row $a \cdot u \ge b$, with $a_{cw}(x)$ the natural acceleration of the
+dynamics at $x$ (for Clohessy-Wiltshire, `cw_rhs(0.0, x, n, np.zeros(3))[3:]`). The rows go to
+`vbar.solvers.project`, which finds the nearest command under the thrust limit.
+
+With $\rho = |r|$, $\hat r = r / \rho$ and $\dot\rho = \hat r \cdot v$, the range has
+$\ddot\rho = (|v|^2 - \dot\rho^2)/\rho + \hat r \cdot (a_{cw} + u)$.
+
+### Keep-out sphere
+
+`KeepOutEcbf(radius, poles)` is the exponential control barrier function (sec. IV, Definition 7)
+for $h = \rho - R$, which has relative degree 2. With real poles $p_1, p_2 > 0$ the condition
+$\ddot h + (p_1 + p_2) \dot h + p_1 p_2 h \ge 0$ is the row
+
+$$
+\hat r \cdot u \ge -\frac{|v|^2 - \dot\rho^2}{\rho} - \hat r \cdot a_{cw}
+  - (p_1 + p_2)\dot\rho - p_1 p_2 (\rho - R).
+$$
+
+`gains` returns $(p_1 p_2, p_1 + p_2)$, for which the closed loop $\ddot h = -p_1 p_2 h -
+(p_1 + p_2)\dot h$ has eigenvalues $-p_1, -p_2$ (sec. IV.B prints them as $p_i$).
+`contains(x)` is the set from which the continuous-time condition keeps $h \ge 0$:
+$h \ge 0$ and $\dot\rho + \max(p_1, p_2)\, h \ge 0$. Theorem 8 prints the eigenvalue condition
+with the wrong sign; as printed, a closing start would need a positive eigenvalue. The pole order
+along the chain is free, so the faster pole decides: from $h_0 = 10$ m closing at 0.5 m/s, the
+double pole 0.04 1/s crosses zero at 100 s (lowest $-0.0168$ m at 125 s), while the poles
+(0.04, 0.5) stay safe.
+
+Poles must be real and positive, otherwise `ValueError`: the comparison step after eq. 18 holds
+only for real closed-loop poles.
+
+### Speed limits
+
+Speed constraints have relative degree 1, so they use the first-order condition
+$\dot s \ge -\gamma s$ (sec. II, Definition 2):
+
+- `SpeedCbf(v0, v1, gamma)`: $s = v_0 + v_1 \rho - |v|$, row
+  $-\hat v \cdot u \ge \hat v \cdot a_{cw} - v_1 \dot\rho - \gamma s$. `row` returns None below
+  $|v| = 10^{-9}$ m/s, where $\hat v$ is undefined and $s \ge v_0 > 0$.
+- `ClosingSpeedCbf(v0, v1, gamma)`: $s = v_0 + v_1 \rho - c$ with the closing speed
+  $c = \max(0, -\dot\rho)$, row $\hat r \cdot u \ge -(|v|^2 - \dot\rho^2)/\rho - \hat r \cdot
+  a_{cw} - v_1 \dot\rho - \gamma s$ while closing; None when $\dot\rho \ge 0$.
+
+$v_0$ and $\gamma$ must be positive and $v_1$ nonnegative.
+
+### Approach cone
+
+`ConeEcbf(half_angle, axis, apex, active_range, poles)` is the exponential barrier for
+$h_c = a \cdot (r - p) - \cos\theta\, |r - p|$, with unit axis $a$, apex $p$ and half-angle
+$\theta$. With $d = r - p$ and $g = a - \cos\theta\, \hat d$ the gradient, the row is
+
+$$
+g \cdot u \ge \cos\theta \frac{|v_\perp|^2}{|d|} - g \cdot a_{cw} - (p_1 + p_2)\dot h_c
+  - p_1 p_2 h_c,
+$$
+
+where $v_\perp$ is the part of $v$ normal to $d$; the first term is the curvature of $|d|$. On the
+cone surface $|g| = \sin\theta$ (0.173648 at 10 degrees), so $h_c$ is the signed distance to the
+surface scaled by $\sin\theta$. `row` returns the condition within `active_range` of the apex,
+including outside the cone, where it drives $h_c$ back up, and None beyond it or at the apex.
+
+On the surface with $h_c = \dot h_c = 0$ and a lateral speed $v_{lat}$ the row needs
+$g \cdot u \ge \cos\theta\, v_{lat}^2 / |d|$, and a ball of radius $a_{\max}$ offers at most
+$a_{\max} \sin\theta$. `infeasible_radius(v_lat, a_max)` returns the distance inside which that
+fails, $\cot\theta\, v_{lat}^2 / a_{\max}$: 0.028, 0.255 and 0.709 m for 0.01, 0.03 and 0.05 m/s
+at 10 degrees and 0.02 m/s^2. A box contains the ball, so the radius holds for both thrust
+limits.
+
+### Assumptions and limits
+
+- The conditions are continuous-time. Under a command held for a step $\Delta t$ they can fail.
+  For the double pole $p$ on a double integrator, the set $\dot h + p h \ge 0$ stops being
+  invariant at $p \Delta t = (\sqrt5 - 1)/2 = 0.618$, and $h$ first dips below zero between samples
+  at $p \Delta t = 0.786578$, the root of $2s^4 + 4s^3 - 6s^2 + 1$. On Clohessy-Wiltshire head-on
+  the first failing step is $0.78658/p$ within 0.3% for $p$ = 0.05 and 0.1 1/s. So under sample
+  and hold the rows need $\max(p_1, p_2)\, \Delta t$ below about 0.6.
+- When the nominal command pushes into the barrier the state rides $h = 0$, and the held command
+  misses the change of the CW acceleration over the step. The state can then dip below $h = 0$ by
+  an amount that grows with the tangential speed and the step and falls with the poles, at any
+  gain, so a command that rides the boundary needs a buffer on $R$ or a check of the held step.
+- A row says nothing about the thrust limit. Under the limit it can be infeasible: one row
+  $a \cdot u \ge b$ is feasible exactly when $b \le a_{\max} |a|_1$ (box) or
+  $b \le a_{\max} |a|_2$ (ball).
+- All guarantees assume the dynamics that produced $a_{cw}$.
+
+## Evading-maneuver barriers
+
+A barrier can also be built from a backup command $\beta$ that is known to be safe: $h(x)$ is
+the margin that $\beta$ keeps from $x$, and $\beta$ is then a safe command everywhere on
+$h \ge 0$ (sec. III, eq. 12 and Theorem 4). These barriers have no row. A filter checks a
+candidate command on the exact held segment and searches toward $\beta$. Both
+classes give `value(x)`, `contains(x)`, `horizon(x)` and `backup(x, actuator)`.
+
+### Free drift
+
+`PassiveBarrier(radius, n, grid=5.0, t_cap=None)` uses $\beta = 0$, which every thrust limit
+contains. $h_p(x)$ is the lowest keep-out margin of the unforced CW motion from $x$. In the CW
+solution the along-track position is
+
+$$
+y(\tau) = y_0 - \frac{2 v_{x0}}{n} + \left(6 x_0 + \frac{4 v_{y0}}{n}\right)\sin n\tau
+  + \frac{2 v_{x0}}{n} \cos n\tau - (6 n x_0 + 3 v_{y0})\,\tau,
+$$
+
+whose periodic part is at most $B = 6|x_0| + |y_0| + 4|v_{x0}|/n + 4|v_{y0}|/n$. Past
+$(R + B)/|6 n x_0 + 3 v_{y0}|$ the range exceeds $R$ for good, so the drift is evaluated on the
+horizon
+
+$$
+T(x) = \min\!\left(t_{\text{cap}},\ \frac{R + B}{|6 n x_0 + 3 v_{y0}|} + \text{grid}\right),
+$$
+
+with $t_{\text{cap}}$ ten orbits by default. `horizon(x)` returns $T(x)$ and whether $T <
+t_{\text{cap}}$, in which case the sign of $h_p$ holds for all time. On a closed relative orbit ($6
+n x_0 + 3 v_{y0} = 0$, for example a hold point on V-bar) the minimum repeats every orbit, the
+horizon is capped, and the sign holds for $t_{\text{cap}}$ only.
+
+The drift is sampled every `grid` seconds with one product of the stored transition matrices, and
+each sample interval gets the larger of the first-order bound and the second-order bound on
+$|r|^2$ that `vbar.constraints.segment_minimum` uses, at zero thrust. `value(x)` is the lowest of
+these, so $h_p \ge 0$ certifies the drift up to the horizon; a negative value bounds the deepest
+incursion from below. `grid` must be short enough for the in-step bounds to exist (below about
+350 s at 500 km; at 5 s their gain is 0.011). `value` also takes a stack of states, shape (k, 6).
+
+`gradient(x)` is the gradient of the exact drift minimum by the envelope theorem,
+$\nabla h_p = \Phi_r(\tau^*)^T \hat r(\tau^*)$, with $\tau^*$ the minimiser found from the samples
+and refined by a bounded scalar search. It raises `ValueError` on a closed relative orbit
+($|6 n x_0 + 3 v_{y0}| < 10^{-9}$ m/s), where the minimiser is not unique and $h_p$ is not smooth,
+and when $\tau^*$ is at 0 or at the end of the horizon, where the minimum is not stationary.
+
+
+### Braking
+
+`BrakingBarrier(radius, a_b, rho_cap, v_cap)` is the keep-out analogue of the survey's
+lane-keeping barrier (sec. V.B):
+
+$$
+h_b = \rho - R - \frac{\max(0, -\dot\rho)^2}{2 a_b}.
+$$
+
+Its backup is full outward braking along $\hat r$, $\beta = a_{\max} \hat r / \max_i |\hat r_i|$
+for a box and $a_{\max} \hat r$ for a ball, so $\hat r \cdot \beta \ge a_{\max}$. While closing at
+$c = -\dot\rho$, $\dot h_b = \dot\rho + (c / a_b)\ddot\rho \ge \dot\rho + c = 0$ as long as
+$\ddot\rho \ge a_b$. `braking_deceleration(a_max, layout, v_cap, dt, radius, rho_cap, n)` returns
+the $a_b$ for which that holds under a command held for `dt` in the region $\rho \le
+\rho_{\text{cap}}$, $|v| \le v_{\text{cap}}$:
+
+$$
+a_b = a_{\max}\left(1 - k \frac{v_{\text{cap}}\, \Delta t}{R}\right)
+  - \left(3 n^2 \rho_{\text{cap}} + 2 n v_{\text{cap}}\right),
+\qquad k = \sqrt3 \text{ (box)},\ 1 \text{ (ball)}.
+$$
+
+Outside the keep-out $\hat r$ turns by at most $v_{\text{cap}} t / R$ within a step, which costs at
+most $|\beta|\, v_{\text{cap}} \Delta t / R$ of the braking, and the CW terms take at most
+$3 n^2 \rho + 2 n |v|$. For a box of 0.02 m/s^2, $v_{\text{cap}} = 0.3$ m/s, $\Delta t = 10$ s,
+$\rho_{\text{cap}} = 2$ km and 500 km, $a_b = 0.00991$ m/s^2. The value may be zero or negative
+(at $\rho_{\text{cap}} = 20$ km the CW terms alone exceed 0.02 m/s^2); `BrakingBarrier` refuses
+$a_b \le 0$. `contains(x)` requires $h_b \ge 0$ inside the region.
+
+$L_g h_b$ vanishes at $\dot\rho = 0$, so a first-order row on $h_b$ would put no condition on $u$
+there, and a whole held step of inward thrust leaves the set. The class therefore has no `row`.
+
 ## Validation
 
 The tests in `tests/test_safety_projections.py` check:
@@ -175,6 +344,41 @@ The tests in `tests/test_safety_tightening.py` check:
   the steady state of the barrier dynamics integrated numerically for the poles (0.05, 0.05),
   (0.03, 0.08) and (0.02, 0.5); `first_order_bias` likewise.
 
+The tests in `tests/test_safety_barriers.py` check:
+
+- The closed loop with `gains` has eigenvalues $-p_1, -p_2$ for the poles (0.05, 0.05),
+  (0.02, 0.1) and (1, 3), to 1e-9 (Ames et al., sec. IV.B, with the sign corrected).
+- The corrected start condition of Theorem 8: from $h_0 = 10$ m, $\dot h_0 = -0.5$ m/s the poles
+  (0.06, 0.06), (0.05, 0.08), (0.04, 0.5) and (0.5, 0.04) are accepted by `contains` and keep
+  $h \ge 0$ for 600 s; the double pole 0.04 is rejected, and its closed form crosses zero at
+  100.0 s with minimum $-0.0168$ m at 125 s, to 1e-6 m. A property test compares `contains`
+  with the condition on drawn starts and poles; complex, zero, negative and NaN poles raise.
+- Each row equals $\ddot h + k_1 \dot h + k_0 h$ (or $\dot s + \gamma s$) along the held
+  segment by fourth-order differences of the exact CW solution, to 1e-6 relative, and matches a
+  hand computation at one state to 1e-12; the speed rows are dropped below 1e-9 m/s and while
+  not closing, tested just inside and outside each limit.
+- The cone: on the surface $|g| = \sin 10^\circ = 0.173648$ and the free $\ddot h_c =
+  -\cos\theta\, v^2/\rho = -1.77265 \cdot 10^{-4}$ m/s^2 at 5 m and 0.03 m/s, to 1e-5; the row
+  matches the differences on 20 states inside the cone; the infeasible radii are 0.028, 0.255 and
+  0.709 m.
+- The free-drift value lies below the drift margin sampled every second over the horizon, and
+  within $5\,(|v|_{\max} + 0.05)$ m of it, on 50 approach-vbar starts; past the horizon no
+  violation is missed. The horizon formula is checked on a decided and a capped state.
+- The envelope gradient matches central differences of the refined drift minimum to 1e-6
+  relative on 5 states (measured 1.1e-7); a closed relative orbit, a minimum at $\tau = 0$ and a
+  minimum at the horizon end raise.
+- The periodic bound $B$ holds on 1000 random states within 2 km and 1 m/s and on drawn states
+  within 5 km and 2 m/s.
+- `braking_deceleration` equals the formula for both layouts and 0.00991 m/s^2 for the approach
+  box; zero, negative and NaN $a_b$ raise, and so does the value at $\rho_{\text{cap}} = 20$ km.
+  Under the backup held for 10 s, $h_b$ does not fall on 100 closing states inside the region,
+  for box and ball.
+- The sample-and-hold thresholds of the double integrator, found by bisection over starts on the
+  boundary of the set, are $(\sqrt5 - 1)/2 = 0.618034$ for the set and 0.786578, the root of
+  $2s^4 + 4s^3 - 6s^2 + 1$, for $h$, to 1e-4; both lie above 0.6. On CW
+  head-on with a reckless inward command, the row through `project` holds at $0.5$ and $0.997$
+  times $0.78658/p$ and fails at $1.003$ times it, for $p$ = 0.05 and 0.1 1/s.
+
 ```python
 import numpy as np
 
@@ -195,4 +399,31 @@ error = EllipsoidError.from_gaussian(cov, 3.0)
 print(round(halfspace_margin(a, error), 6), f"{error.exceedance:.4f}")  # 3.0 0.1736
 print(round(chance_margin(a, cov, 1.0 - 1e-6), 3))  # 4.753
 print(round(ecbf_bias(2e-4, (0.05, 0.05)), 6))  # 0.08
+```
+
+```python
+import numpy as np
+
+from vbar.dynamics import cw_rhs, mean_motion
+from vbar.safety.barriers import KeepOutEcbf, PassiveBarrier, braking_deceleration
+from vbar.solvers import ActuatorSet, Rows, project
+
+n = mean_motion(6378137.0 + 500e3)  # rad/s, 500 km circular
+box = ActuatorSet(0.02, "box")  # m/s^2 per axis
+u_nom = np.array([0.0, -0.02, 0.0])  # m/s^2, straight at the target
+
+x = np.array([0.0, 60.0, 0.0, 0.0, -0.3, 0.0])  # m and m/s, closing along V-bar
+ecbf = KeepOutEcbf(radius=50.0, poles=(0.05, 0.05))
+a, b = ecbf.row(x, cw_rhs(0.0, x, n, np.zeros(3))[3:])
+u = project(u_nom, Rows(a[None], np.array([b]), ("keep_out",)), box).u
+print(ecbf.contains(x), u.round(6))  # True [0.    0.005 0.   ]
+
+x = np.array([0.0, 80.0, 0.0, 0.0, 0.0, 0.0])  # holding on V-bar, 80 m out
+passive = PassiveBarrier(radius=50.0, n=n)
+print(round(passive.value(x), 3), passive.horizon(x)[1])  # 29.998 False
+
+a_b = braking_deceleration(
+    a_max=0.02, layout="box", v_cap=0.3, dt=10.0, radius=50.0, rho_cap=2000.0, n=n
+)
+print(round(a_b, 5))  # 0.00991
 ```

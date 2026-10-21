@@ -871,6 +871,32 @@ Optimization*, 2004, sections 4.3 and 5.1.3).
   costate's sign flipped it spreads by 1.77 times that term (independent)
   (`test_hamiltonian_is_constant_along_the_indirect_optimum`).
 
+## Published examples behind the safety filters
+
+**Ames, Coogan, Egerstedt, Notomista, Sreenath and Tabuada, "Control Barrier Functions: Theory
+and Applications"** (ECC 2019, arXiv:1903.11199v1)
+
+- Sec. IV.B: the exponential barrier's closed loop with gains $(p_1 p_2, p_1 + p_2)$ has
+  eigenvalues $-p_1, -p_2$ (printed as $p_i$), for (0.05, 0.05), (0.02, 0.1) and (1, 3), to 1e-9.
+- Theorem 8, with the sign of its eigenvalue condition reversed: from $h_0 = 10$ m,
+  $\dot h_0 = -0.5$ m/s the condition is $\max(p_1, p_2) \ge 0.05$ 1/s; the double pole 0.04
+  crosses zero at 100.0 s with minimum $-0.0168$ m at 125 s (closed form, to 1e-6 m), while
+  (0.04, 0.5) stays safe.
+- Sec. IV.A, after eq. 18: complex poles are refused, since the comparison bound needs real
+  closed-loop poles.
+- Sec. III, eq. 12 and Theorem 4, with the backup $\beta = 0$ on CW (our case, recomputed at
+  500 km with WGS 84): the envelope-theorem gradient of the free-drift minimum matches central
+  differences to 1e-6 relative on 5 states; the periodic along-track bound
+  $6|x_0| + |y_0| + 4|v_{x0}|/n + 4|v_{y0}|/n$ holds on 1000 random states.
+- Sec. V.B, the lane-keeping barrier's keep-out analogue (ours): under full outward braking held
+  for 10 s the braking barrier does not fall on 100 closing states, for box and ball, with
+  $a_b = 0.00991$ m/s^2 for the approach box.
+- Our cases, from Definition 7 under sample and hold: the double-integrator thresholds
+  $(\sqrt5 - 1)/2$ and 0.786578 (root of $2s^4 + 4s^3 - 6s^2 + 1$) to 1e-4, and the first failing
+  CW head-on step at $0.78658/p$ within 0.3% for $p$ = 0.05 and 0.1 1/s; the cone barrier's
+  $|\nabla h_c| = \sin 10^\circ$ and curvature term $-1.77265 \cdot 10^{-4}$ m/s^2 at 5 m and
+  0.03 m/s, to 1e-5.
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -935,8 +961,9 @@ Optimization*, 2004, sections 4.3 and 5.1.3).
   (sec. 11.4.1), the primal-dual interior-point method and its line search (secs. 11.7 and 9.2),
   and the conditioning argument for nondimensional units (secs. 9.3 and 9.5).
 - Ames, Coogan, Egerstedt, Notomista, Sreenath and Tabuada, "Control Barrier Functions: Theory and
-  Applications" (ECC 2019): safety filters, the activity of their rows, and the conservatism of
-  safe sets under bounded inputs.
+  Applications" (ECC 2019): safety filters, exponential and evading-maneuver control barrier
+  functions (secs. III and IV), the activity of their rows, and the conservatism of safe sets
+  under bounded inputs.
   Automatic Control* 23, 1978): the added covariance of the `:nav2` error between observations
   and the integrated quadratic reward.
 - Ng, Harada and Russell, "Policy invariance under reward transformations" (ICML 1999):
