@@ -17,6 +17,7 @@ nothing an agent holds is derived from the episode seed.
 from __future__ import annotations
 
 import copy
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, cast
@@ -32,6 +33,9 @@ from ..rewards import Reward, Transition
 from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
 ACTION_MODES = ("normalized", "accel", "thrust", "disc27", "impulse_coast")
+# An event time this far (s) past a segment's end still counts as the end: root searches land a
+# rounding step either side of it.
+_EVENT_TOL = 1e-9
 SCALAR_CHANNELS = ("t_remaining", "propellant_fraction")
 CHANNELS = (*SCALAR_CHANNELS, "pending_commands")
 STREAMS = ("sensor", "actuator", "target")
@@ -130,6 +134,33 @@ def _joined(first: Actuation, second: Actuation) -> Actuation:
     )
 
 
+def _cut(
+    actuation: Actuation, flown: float, mass_before: float, craft: Spacecraft, layout: str
+) -> Actuation:
+    """The part of `actuation` flown in its first `flown` s, with the rocket equation redone."""
+    pieces: list[tuple[float, np.ndarray]] = []
+    left = flown
+    for duration, accel in actuation.segments:
+        if left <= 0.0:
+            break
+        pieces.append((min(duration, left), accel))
+        left -= duration
+    dv_l2 = sum(float(np.linalg.norm(a)) * d for d, a in pieces)
+    dv_l1 = sum(float(np.sum(np.abs(a))) * d for d, a in pieces)
+    spent = dv_l1 if layout == "box" else dv_l2
+    burned = mass_before * -math.expm1(-spent / craft.exhaust_speed)
+    propellant = min(burned, actuation.propellant_kg)
+    return Actuation(
+        tuple(pieces),
+        dv_l2,
+        dv_l1,
+        propellant,
+        actuation.saturated,
+        actuation.below_mib,
+        actuation.empty,
+    )
+
+
 def public_spec(constraint: Constraint) -> dict[str, Any]:
     """A constraint's type and parameters, as agents may see them.
 
@@ -206,6 +237,25 @@ class BaseEnv(gym.Env):
     def _sample_start(self, rng: np.random.Generator) -> np.ndarray:
         raise NotImplementedError
 
+    def _draw_episode(self, rng: np.random.Generator) -> None:
+        """Draw the episode's dispersed parameters, before the start state is chosen."""
+
+    def _limit_command(self, fraction: np.ndarray) -> np.ndarray:
+        """The command the scenario lets through now (thrust inhibit windows)."""
+        return fraction
+
+    def _split_actuation(self, actuation: Actuation) -> Actuation:
+        """Cut the step's segments where the scenario's own forces change (target burns)."""
+        return actuation
+
+    def _event_time(self, tau: np.ndarray, samples: np.ndarray, t0: float) -> float | None:
+        """Time (s from the segment's start) at which an event ends the step early, or None.
+
+        `tau` and `samples` are the segment's sampled times and states; the state at any
+        time in it is `self.dynamics.state_in_last_segment`.
+        """
+        return None
+
     def _constraints(self) -> tuple[Constraint, ...]:
         return ()
 
@@ -268,6 +318,7 @@ class BaseEnv(gym.Env):
         self.rngs = {
             name: np.random.default_rng(s) for name, s in zip(STREAMS, children, strict=True)
         }
+        self._draw_episode(self.np_random)
         if "start_state" in self.options:
             self.state = np.array(self.options["start_state"], dtype=float).reshape(6)
         else:
@@ -298,6 +349,8 @@ class BaseEnv(gym.Env):
             fraction = command[:3]
         else:
             fraction = command / self._action_scale()
+        fraction = self._limit_command(fraction)
+        mass_before = self.spacecraft.mass
         # The scale moves with the mass in some modes, so the echo uses the one at issue: an
         # echo at the current mass would reveal the mass drop and so the delivered delta-v. The
         # scale is recorded only once `apply` has accepted the command, so a rejected step leaves
@@ -309,8 +362,16 @@ class BaseEnv(gym.Env):
             coast = self.spacecraft.apply(np.zeros(3), coast_steps * self.cfg.dt, latency_s)
             self.issue_scales.append(1.0)
             actuation = _joined(actuation, coast)
-        trace = self._fly(actuation)
-        self.t += (1 + coast_steps) * self.cfg.dt
+        actuation = self._split_actuation(actuation)
+        trace, flown = self._fly(actuation)
+        if flown is None:
+            self.t += (1 + coast_steps) * self.cfg.dt
+        else:
+            # An event ended the step early: only the part flown counts, and the propellant the
+            # spacecraft already spent on the rest is given back.
+            actuation = _cut(actuation, flown, mass_before, self.spacecraft, self.cfg.thrust_limit)
+            self.spacecraft.mass = mass_before - actuation.propellant_kg
+            self.t += flown
         self.steps += 1 + coast_steps
         self.dv_l2 += actuation.dv_l2
         self.dv_l1 += actuation.dv_l1
@@ -369,18 +430,20 @@ class BaseEnv(gym.Env):
             terminal=terminated,
         )
 
-    def _fly(self, actuation: Actuation) -> SegmentTrace:
+    def _fly(self, actuation: Actuation) -> tuple[SegmentTrace, float | None]:
         """Propagate each constant-acceleration segment and check constraints within it.
 
         Each segment is its own `advance` call, so no integrator steps across a thrust change.
         Discontinuities inside a dynamics model's own forces (shadow entry and exit) are the
-        model's to split.
+        model's to split. Returns the trace and, when `_event_time` ended the step early, the
+        time flown (s); None otherwise.
         """
         t0 = self.t
         segments, times, states = [], [], []
         minima: dict[str, SegmentMinimum] = {}
         violations: dict[str, list[tuple[float, float]]] = {c.name: [] for c in self.constraints}
         starts = []
+        flown: float | None = None
         for duration, accel in actuation.segments:
             if duration <= 0.0:
                 continue
@@ -389,6 +452,19 @@ class BaseEnv(gym.Env):
             self.state, sampled = self.dynamics.advance(accel, duration, n_samples=count)
             samples = cast(np.ndarray, sampled)
             tau = np.linspace(0.0, duration, count)
+            stop = self._event_time(tau, samples, t0)
+            if stop is not None:
+                if not 0.0 < stop <= duration + _EVENT_TOL:
+                    raise ValueError("an event time must lie inside the segment")
+                # An event at the segment's end (a root search may land a rounding step past
+                # it) ends the step there without truncating the segment.
+                if stop < duration:
+                    keep = int(np.searchsorted(tau, stop))
+                    tau = np.append(tau[:keep], stop)
+                    samples = np.vstack([samples[:keep], self.dynamics.state_in_last_segment(stop)])
+                    self.state = samples[-1].copy()
+                    duration = stop
+                flown = t0 - self.t + duration
             thrust = float(np.linalg.norm(accel))
             for c in self.constraints:
                 state_at = self.dynamics.state_in_last_segment
@@ -410,7 +486,9 @@ class BaseEnv(gym.Env):
             times.append(t0 + tau)
             states.append(samples)
             t0 += duration
-        return SegmentTrace(
+            if flown is not None:
+                break
+        trace = SegmentTrace(
             tuple(segments),
             np.concatenate(times),
             np.concatenate(states),
@@ -418,6 +496,7 @@ class BaseEnv(gym.Env):
             {name: tuple(spans) for name, spans in violations.items()},
             np.array(starts),
         )
+        return trace, flown
 
     def _observation_names(self) -> tuple[str, ...]:
         names = ["x", "y", "z", "vx", "vy", "vz"]

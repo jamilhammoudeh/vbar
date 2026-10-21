@@ -238,7 +238,7 @@ class ApproachVectorEnv(vector.VectorEnv):
         env.dynamics.reset(env.state)
         env.t = float(self.t[i])
         segments = ((float(tau), accel), (self.cfg.dt - float(tau), np.zeros(3)))
-        return env._fly(Actuation(segments, 0.0, 0.0, 0.0))
+        return env._fly(Actuation(segments, 0.0, 0.0, 0.0))[0]
 
     def _state_at(self, start: np.ndarray, accel: np.ndarray):
         """state_at(rows, tau): the states `tau` s into the step of the copies `rows`."""
