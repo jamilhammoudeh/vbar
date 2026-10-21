@@ -169,6 +169,75 @@ def gravity_gradient(r: ArrayLike, body: Body, j2: bool = False) -> np.ndarray:
     return grad
 
 
+def _hill_rate_derivative(
+    r: np.ndarray, v: np.ndarray, a: np.ndarray, a_dot: np.ndarray
+) -> np.ndarray:
+    """Time derivative of the `hill_frame` angular velocity along the orbit (r, v, a, a_dot)."""
+    h_vec = np.cross(r, v)
+    h = np.linalg.norm(h_vec, axis=-1)
+    z = h_vec / h[..., None]
+    r_norm = np.linalg.norm(r, axis=-1)
+    r_norm_dot = np.sum(r * v, axis=-1) / r_norm
+    h_vec_dot = np.cross(r, a)
+    h_dot = np.sum(z * h_vec_dot, axis=-1)
+    z_dot = (h_vec_dot - h_dot[..., None] * z) / h[..., None]
+    a_z = np.sum(a * z, axis=-1)
+    # omega = (|r| (a . z) / h, 0, h / |r|^2) in Hill axes; differentiate each factor.
+    w_x_dot = (
+        r_norm_dot * a_z + r_norm * (np.sum(a_dot * z, axis=-1) + np.sum(a * z_dot, axis=-1))
+    ) / h - r_norm * a_z * h_dot / h**2
+    w_z_dot = h_dot / r_norm**2 - 2.0 * h * r_norm_dot / r_norm**3
+    return np.stack([w_x_dot, np.zeros_like(w_x_dot), w_z_dot], axis=-1)
+
+
+def relative_acceleration(
+    rel_state: ArrayLike, target_state: ArrayLike, body: Body, j2: bool = False
+) -> np.ndarray:
+    """Hill-frame acceleration (m/s^2) of a coasting chaser relative to its target.
+
+    Parameters
+    ----------
+    rel_state : array_like, shape (..., 6)
+        Chaser state [x, y, z, vx, vy, vz] in the target's Hill frame (m, m/s).
+    target_state : array_like, shape (..., 6)
+        Target inertial position and velocity (m, m/s), body-centred with z along the spin
+        axis; broadcasts against `rel_state`.
+    body : Body
+        Central body.
+    j2 : bool
+        Add the body's J2 to the gravity of both spacecraft.
+
+    Returns
+    -------
+    numpy.ndarray, shape (..., 3)
+        Second time derivative of the Hill position with no thrust: the gravity difference
+        rotated into the Hill axes, minus the Coriolis, centripetal and Euler terms of the
+        rotating frame. It is the acceleration `TwoBodyDynamics` integrates between burns
+        and differs from the Clohessy-Wiltshire terms by the second-order gravity remainder
+        and, with J2, by the frame's out-of-plane rate and its derivative.
+
+    References
+    ----------
+    Schaub and Junkins, Analytical Mechanics of Space Systems, eq 13.12 (the exact relative
+    equations of motion in the rotating frame).
+    """
+    rel = np.asarray(rel_state, dtype=float)
+    target = np.asarray(target_state, dtype=float)
+    r_t, v_t = target[..., :3], target[..., 3:]
+    a_t = gravity(r_t, body, j2)
+    a_t_dot = np.einsum("...ij,...j->...i", gravity_gradient(r_t, body, j2), v_t)
+    C, omega = hill_frame(r_t, v_t, a_t)
+    omega_dot = _hill_rate_derivative(r_t, v_t, a_t, a_t_dot)
+    rho, rho_dot = rel[..., :3], rel[..., 3:]
+    da = differential_gravity(r_t, np.einsum("...ij,...j->...i", C, rho), body, j2)
+    return (
+        np.einsum("...ji,...j->...i", C, da)
+        - 2.0 * np.cross(omega, rho_dot)
+        - np.cross(omega, np.cross(omega, rho))
+        - np.cross(omega_dot, rho)
+    )
+
+
 def circular_orbit(body: Body, altitude: float, inclination: float = 0.0):
     """Inertial position and velocity at the ascending node (on +x) of a circular orbit.
 

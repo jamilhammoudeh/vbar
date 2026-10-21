@@ -140,6 +140,44 @@ Under J2 the target's mean argument of latitude advances faster, by
 $\tfrac{3}{2} J_2 (R/a)^2 (4\cos^2 i - 1)\,n$ (7.6e-4 n at 500 km and 51.6 deg). A controller
 that uses `n` sees that difference as model error.
 
+### Relative acceleration without thrust
+
+`relative_acceleration(rel_state, target_state, body, j2=False)` returns the second time
+derivative of the Hill position $\boldsymbol\rho$ (m/s^2) of a coasting chaser, given the Hill
+state `[x, y, z, vx, vy, vz]` (m, m/s) and the target's inertial `[r, v]` (m, m/s, body-centred,
+z along the spin axis). It is the exact relative equation of motion in the rotating frame
+(Schaub and Junkins, Analytical Mechanics of Space Systems, eq 13.12):
+
+$$
+\ddot{\boldsymbol\rho} = C^T\left(\mathbf g(\mathbf r + \delta\mathbf r) - \mathbf g(\mathbf r)\right)
+- 2\,\boldsymbol\omega\times\dot{\boldsymbol\rho}
+- \boldsymbol\omega\times(\boldsymbol\omega\times\boldsymbol\rho)
+- \dot{\boldsymbol\omega}\times\boldsymbol\rho
+$$
+
+with $C$ and $\boldsymbol\omega$ the target's Hill frame and its rate ([frames.md](frames.md))
+and $\dot{\boldsymbol\omega}$ the rate's derivative along the target orbit, taken analytically
+from the gravity gradient. It is the acceleration `TwoBodyDynamics` integrates between burns
+and the model term a feedback-linearizing controller cancels. Without J2 on a circular target
+it differs from the Clohessy-Wiltshire terms by the second-order remainder of differential
+gravity, at most $3\mu\rho^2/(r - \rho)^4$ (5.3e-7 m/s^2 at 1 km and 500 km). With `j2=True`
+the frame also rotates out of plane, and $\dot{\boldsymbol\omega}\times\boldsymbol\rho$ is
+about 1e-3 of the acceleration at 1 km; leaving it out fails the check against the integrator.
+Both states may be stacked as `(..., 6)` and broadcast against each other.
+
+```python
+import numpy as np
+
+from vbar.dynamics import EARTH, TwoBodyDynamics, relative_acceleration
+
+model = TwoBodyDynamics(altitude=500e3, inclination=np.radians(51.6), j2=True)
+rel = np.array([0.0, -1000.0, 0.0, 0.0, 0.0, 0.0])
+model.reset(rel)
+f = relative_acceleration(rel, model.target_state(), EARTH, j2=True)
+coast, _ = model.advance(np.zeros(3), 1e-3)
+assert np.linalg.norm((coast[3:] - rel[3:]) / 1e-3 - f) < 1e-5 * np.linalg.norm(f)
+```
+
 ## Kepler propagation
 
 Code: `vbar.dynamics.kepler`. Classical elements are `[a, e, i, raan, argp, M]`.

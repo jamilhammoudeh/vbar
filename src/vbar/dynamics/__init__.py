@@ -11,7 +11,7 @@ from .cw import (
     mean_motion,
     propagate,
 )
-from .models import CWDynamics, Dynamics, TwoBodyDynamics, make_dynamics
+from .models import CWDynamics, Dynamics, TwoBodyDynamics, make_dynamics, relative_acceleration
 
 __all__ = [
     "EARTH",
@@ -32,4 +32,5 @@ __all__ = [
     "make_dynamics",
     "mean_motion",
     "propagate",
+    "relative_acceleration",
 ]
