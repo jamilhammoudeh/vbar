@@ -17,7 +17,6 @@ from vbar.agents import DriftAgent, PDAgent
 from vbar.metrics import contact, evaluate, record_episode
 from vbar.scenarios import SCENARIOS, get, make
 from vbar.scenarios.registry import entry_class
-from vbar.scenarios.targets import sunlit
 from vbar.spacecraft import ExecutionError, GaussianNav
 
 # One seed per scenario and variant; the reference succeeds on every seed tried, these are the
@@ -283,18 +282,27 @@ def test_the_j2_rung_draws_the_argument_of_latitude():
 
 
 def test_inspection_counts_lit_facing_points_within_range_and_outside_the_glare():
-    env = make("inspection", training=True)
-    env.reset(seed=1, options={"start_state": (0.0, 60.0, 0.0, 0.0, 0.0, 0.0)})
-    seen = env.inspected(env.state, 0.0)
+    # The Sun along +x at t = 0, so the target is on the day side. A chaser 60 m out, 20 deg off
+    # the anti-Sun line, looks within 30 deg of the Sun: points it faces are lit, but glare hides
+    # them all. 60 deg off the line it sees exactly the facing, lit points.
+    from vbar.scenarios.targets import sun_direction
+
+    env = make("inspection")
+    env.reset(seed=1)
+    env.sun0 = sun_direction(0.0, 0.0)
+    assert env.target_lit(0.0) == 1.0
     normals = env.normals(0.0)
-    sun = env.sun0
-    facing = normals[:, 1] > 0.0
-    lit = normals @ sun > 0.0
-    day = bool(sunlit(env.sun0, env.n, 0.0, env.orbit_radius))
-    assert np.array_equal(seen, facing & lit & day)
-    assert 0.0 <= env.inspectable_coverage() <= 1.0
-    far = np.array([0.0, 250.0, 0.0, 0.0, 0.0, 0.0])
+    lit = normals @ env.sun0 > 0.0
+    for off, glare in ((20.0, True), (60.0, False)):
+        a = math.radians(off)
+        r = 60.0 * np.array([-math.cos(a), math.sin(a), 0.0])
+        facing = normals @ r - env.params.target_radius > 0.0
+        assert np.any(facing & lit)
+        seen = env.inspected(np.concatenate([r, np.zeros(3)]), 0.0)
+        assert np.array_equal(seen, np.zeros_like(seen) if glare else facing & lit)
+    far = np.array([-250.0 * math.cos(1.0), 250.0 * math.sin(1.0), 0.0, 0.0, 0.0, 0.0])
     assert not np.any(env.inspected(far, 0.0))
+    assert 0.0 <= env.inspectable_coverage() <= 1.0
 
 
 @pytest.mark.parametrize("name", ["docking", "docking-offset", "vbar-final-shuttle"])
