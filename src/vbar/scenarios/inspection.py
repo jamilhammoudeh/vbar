@@ -20,6 +20,7 @@ from typing import Any, ClassVar
 import numpy as np
 
 from ..constraints import Constraint, KeepOut
+from ..dynamics import get_body
 from ..metrics.settings import MetricSettings
 from .base import StepRecord
 from .scenario import ScenarioEnv, ScenarioParams
@@ -191,7 +192,7 @@ class InspectionEnv(ScenarioEnv):
         offsets = r[..., None, :] - p.target_radius * normals
         facing = np.sum(normals * offsets, axis=-1) > 0.0
         lit = (np.sum(normals * sun[..., None, :], axis=-1) > 0.0) & (
-            sunlit(self.sun0, self.n, times, self.orbit_radius)[..., None] > 0.0
+            self.target_lit(times)[..., None] > 0.0
         )
         look = -r
         with np.errstate(invalid="ignore", divide="ignore"):
@@ -202,10 +203,23 @@ class InspectionEnv(ScenarioEnv):
 
     @property
     def orbit_radius(self) -> float:
-        """Target's distance from the body's centre (m)."""
-        body = getattr(self.dynamics, "body", None)
-        radius = body.radius if body is not None else 6_378_137.0
-        return radius + self.cfg.altitude_m
+        """Target's distance from the configured central body's centre (m)."""
+        return get_body(self.cfg.body).radius + self.cfg.altitude_m
+
+    def target_lit(self, t) -> np.ndarray:
+        """1 where the target is outside the central body's shadow cylinder at `t` (s), else 0.
+
+        Parameters
+        ----------
+        t : float or array_like
+            Times since the episode start (s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape of `t`.
+        """
+        return sunlit(self.sun0, self.n, t, self.orbit_radius, get_body(self.cfg.body))
 
     def reset(self, *, seed=None, options=None):
         """Start an episode with the inspected points and violation record cleared.
@@ -249,7 +263,7 @@ class InspectionEnv(ScenarioEnv):
         normals = self.normals(times)
         sun = sun_at(self.sun0, self.n, times)
         lit = (np.sum(normals * sun[:, None, :], axis=-1) > 0.0) & (
-            sunlit(self.sun0, self.n, times, self.orbit_radius)[:, None] > 0.0
+            self.target_lit(times)[:, None] > 0.0
         )
         return np.any(lit, axis=0)
 

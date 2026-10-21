@@ -19,6 +19,7 @@ import numpy as np
 from scipy.optimize import brentq
 
 from ..constraints import ApproachCone, ClosingSpeedLimit, Constraint, GateTable, SpeedLimit
+from ..dynamics import get_body
 from ..metrics.settings import MetricSettings
 from .base import StepRecord
 from .scenario import ScenarioEnv, ScenarioParams
@@ -273,7 +274,9 @@ class DockingEnv(ScenarioEnv):
             out.append(ClosingSpeedLimit(*p.closing_limit))
         if p.lighting is not None:
             low, high, active = p.lighting
-            radius = self.dynamics.body.radius if hasattr(self.dynamics, "body") else 6_378_137.0
+            # The configured central body, whatever the dynamics model carries: the CW model
+            # has no body of its own.
+            body = get_body(self.cfg.body)
             out.append(
                 LightingWindow(
                     (low, high),
@@ -282,7 +285,8 @@ class DockingEnv(ScenarioEnv):
                     active,
                     self._sun0(),
                     self.n,
-                    radius + self.cfg.altitude_m,
+                    body.radius + self.cfg.altitude_m,
+                    body,
                 )
             )
         return tuple(out)

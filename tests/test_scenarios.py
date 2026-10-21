@@ -297,6 +297,26 @@ def test_inspection_counts_lit_facing_points_within_range_and_outside_the_glare(
     assert not np.any(env.inspected(far, 0.0))
 
 
+def test_lighting_follows_the_configured_central_body():
+    # Kerbin (radius 600 km) at 80 km: with the Sun in the orbit plane the shadow cylinder hides
+    # the target for asin(600 / 680) / pi = 34.4% of each orbit, whatever the dynamics model.
+    from vbar.dynamics import KERBIN
+    from vbar.scenarios.targets import sun_direction
+
+    radius = KERBIN.radius + 80e3
+    for dynamics in ("cw", "twobody"):
+        env = make("inspection", body="kerbin", altitude_m=80e3, dynamics=dynamics)
+        env.reset(seed=1)
+        env.sun0 = sun_direction(0.0, 0.0)
+        times = np.linspace(0.0, 2 * math.pi / env.n, 20001)[:-1]
+        shadow = 1.0 - np.mean(env.target_lit(times))
+        assert shadow == pytest.approx(math.asin(KERBIN.radius / radius) / math.pi, abs=2e-3)
+    lit = make("docking:lit", body="kerbin", altitude_m=80e3)
+    lit.reset(seed=2)
+    window = next(c for c in lit.constraints if c.name == "lighting_window")
+    assert window.body is KERBIN and window.orbit_radius == pytest.approx(radius)
+
+
 def test_an_agent_sees_the_coverage_count_but_not_which_points():
     env = make("inspection")
     env.reset(seed=1)
