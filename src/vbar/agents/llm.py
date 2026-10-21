@@ -330,6 +330,11 @@ class LLMAgent:
             raise ValueError(f"unknown prompt fields {sorted(unknown)}, expected {PROMPT_FIELDS}")
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        # The prompt states a hold point and a keep-out radius; refuse a goal without them now,
+        # not at the first decision.
+        keep_out = [c for c in view.constraints if c["type"] == "keep_out" and "radius" in c]
+        if "hold_point" not in view.goal or not keep_out:
+            raise ValueError("the LLM agent's prompt needs a hold point and a keep-out radius")
         self.view = view
         self.scale = action_scale(view)
         self.log = []

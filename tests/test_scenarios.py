@@ -297,6 +297,23 @@ def test_inspection_counts_lit_facing_points_within_range_and_outside_the_glare(
     assert not np.any(env.inspected(far, 0.0))
 
 
+@pytest.mark.parametrize("name", ["docking", "docking-offset", "vbar-final-shuttle"])
+def test_built_in_agents_refuse_a_docking_goal_at_reset(name):
+    from vbar.agents import LLMAgent
+    from vbar.agents.llm import text_model
+
+    view = make(name).agent_view()
+    with pytest.raises(ValueError):
+        PDAgent().reset(view, np.random.default_rng(0))
+    with pytest.raises(ValueError):
+        LLMAgent(text_model(lambda prompt: "{}")).reset(view, np.random.default_rng(0))
+    # The run time assurance task has a hold point but no keep-out sphere.
+    with pytest.raises(ValueError):
+        LLMAgent(text_model(lambda prompt: "{}")).reset(
+            make("docking-afrl").agent_view(), np.random.default_rng(0)
+        )
+
+
 def test_lighting_follows_the_configured_central_body():
     # Kerbin (radius 600 km) at 80 km: with the Sun in the orbit plane the shadow cylinder hides
     # the target for asin(600 / 680) / pi = 34.4% of each orbit, whatever the dynamics model.

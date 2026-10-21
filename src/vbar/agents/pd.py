@@ -33,6 +33,8 @@ class PDAgent:
         self.name = name
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        if "hold_point" not in view.goal:
+            raise ValueError("the PD agent flies to a hold point and this goal has none")
         self.n = view.n
         self.hold = np.array(view.goal["hold_point"], dtype=float)
         self.max_accel = view.max_accel

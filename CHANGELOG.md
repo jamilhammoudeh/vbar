@@ -8,6 +8,9 @@ release may change the public API, and every such change is listed under Changed
 
 ### Changed
 
+- `PDAgent` and `LLMAgent` raise `ValueError` at `reset` for a goal without a hold point (and,
+  for the LLM agent, without a keep-out radius), instead of a `KeyError` at reset or at the
+  first decision.
 - `Constraint.rate_bound(speed, accel, rho_min=0.0)` takes a lower bound on the range;
   `segment_minimum` passes it by keyword, so a constraint written as `rate_bound(speed, accel)`
   raises `TypeError`. Add the `rho_min` parameter (it may be ignored).
