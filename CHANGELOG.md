@@ -55,7 +55,8 @@ release may change the public API, and every such change is listed under Changed
   `Projection` gives the multipliers, the active rows and faces, and a status of "feasible",
   "infeasible_certified" (with a verified Farkas certificate from the sum-of-infeasibilities phase
   I and the conflicting rows named) or "solver_failed"; when infeasible, the least-violation
-  command.
+  command in the actuator set (none or a box), or under a ball limit the unlimited one scaled onto
+  the ball.
 - `vbar.solvers.StageQP` and `riccati_solve`: stage-structured horizon QPs with the dynamics as
   equality rows, solved without their rows by a backward Riccati recursion (one-triangle Cholesky
   of each stage's input block, the cost to go kept symmetric) at a cost linear in the horizon;

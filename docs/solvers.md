@@ -114,7 +114,8 @@ chosen so that $A^T\lambda = 0$ and $b^T\lambda > 0$ over rows and faces togethe
 names the rows, faces and "ball" in its support (entries above 1e-9 of the largest), the
 constraints that cannot hold together. The returned command is the one nearest
 $u_{\text{nom}}$ in the actuator set among those that violate no row more than the phase I point
-does; with a ball it is then scaled onto the ball. `phase1_margin` is the sum of the remaining
+does; with a ball the search ignores the limit and the result is scaled onto the ball, which can
+violate the rows more than the phase I point. `phase1_margin` is the sum of the remaining
 violations $(b_i - a_i \cdot u)/|a_i|$ in command units.
 
 ### Statuses and outputs

@@ -137,7 +137,9 @@ class Projection:
     ----------
     u : ndarray, shape (3,)
         The projected command. When infeasible, the command nearest u_nom among those in the
-        actuator set that violate no row more than the phase I point does.
+        actuator set (none or a box) that violate no row more than the phase I point does; under
+        a ball limit the search ignores the limit and the result is scaled onto the ball, which
+        can violate the rows more than the phase I point.
     status : str
         "feasible", "infeasible_certified" (proven by `certificate`) or "solver_failed" (no
         answer and no proof).
