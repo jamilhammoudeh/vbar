@@ -135,9 +135,9 @@ the clipped depth is the larger term only within $R + d_r$ of the centre, which 
 the turning plane adds; `LightingWindow` requires, within `active_range` of the port, the Sun's
 in-plane angle from the approach axis to lie in a window and the target to be on the day side,
 as the robustness $\max((d - R_c) / R_c, w(t))$ with $w$ the least angular margin to the window's
-edges and the lit margin $(p - R_E) / R_E$, where $p$ is the target's distance from the shadow
-cylinder's axis on the night side and that distance plus $r s_x$ on the day side, continuous
-across the terminator.
+edges and the lit margin $(p - R_B) / R_B$, where $R_B$ is the configured central body's radius
+and $p$ the target's distance from its shadow cylinder's axis on the night side, and that distance
+plus $r s_x$ on the day side, continuous across the terminator.
 `sunlit` is the cylindrical shadow of [perturbations.md](perturbations.md) at the target's
 position; at 500 km with the Sun in the orbit plane the target is in eclipse 37.8% of each orbit,
 23.1% at beta = 60 deg (Montenbruck and Gill, *Satellite Orbits*, section 3.4).
@@ -195,11 +195,13 @@ own treatment of the activation.
 Fibonacci lattice, equal weights). A point with outward normal $\mathbf n_i$ at $\mathbf p_i$ is
 imaged at time $t$ when the chaser faces it, $\mathbf n_i \cdot (\mathbf r - \mathbf p_i) > 0$,
 the Sun lights it, $\mathbf n_i \cdot \hat{\mathbf s}(t) > 0$ with the target outside the
-Earth's shadow, the range is within 200 m and the Sun is more than 30 deg from the camera's line
-of sight. The Sun's elevation above the orbit plane (beta, positive toward +z) is dispersed over
-$\pm 75$ deg, since $|\beta| \le i + 23.44$ deg (Fehse 5.4.1), with its in-plane phase. Points
-whose normal never faces the Sun during the episode cannot be imaged by anyone, so success is a
-coverage of 95% of the points lit at some time in the episode (sampled every minute at reset);
+central body's shadow (the configured `body`: on Kerbin at 80 km the target is in shadow 34.4% of
+each orbit at beta = 0), the range is within 200 m and the Sun is more than 30 deg from the
+camera's line of sight. The Sun's elevation above the orbit plane (beta, positive toward +z) is
+dispersed over $\pm 75$ deg, since $|\beta| \le i + 23.44$ deg (Fehse 5.4.1), with its in-plane
+phase. Points whose normal never faces the Sun during the episode cannot be imaged by anyone, so
+success is a coverage of 95% of the points lit at some time in the episode (sampled every minute at
+reset);
 `info` reports both fractions, the coverage per m/s of delta-v and the time to the goal. The
 imaged count is in the agent's `info` under `coverage`, since the camera knows what it has
 imaged; the set itself is not. The points follow the target mode, so the inertially pointing and
@@ -296,7 +298,8 @@ Katz, Corso and Moss, *Algorithms for Validation*, section 8.1).
   misbriefed attitude cannot be detected from the relative state.
 - The goal's port and axis are their Hill-frame values at t = 0, and the mission metrics judge
   contact there, so for a turning port (`inertial-target`) the environment's `info["success"]`
-  is the verdict; the metrics' contact entries are not valid there. The departure metric scores only the arrival in the clear zone.
+  is the verdict; the metrics' contact entries are not valid there. The departure metric scores
+  only the arrival in the clear zone.
 - The GO time of `closing` is public in the zone constraint; a GO revealed at the event needs the
   supervisory channel.
 - `docking-afrl` keeps this benchmark's exact propagation; the published benchmark integrates
