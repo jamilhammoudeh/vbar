@@ -173,10 +173,11 @@ Measured against exact minima from the closed-form solution, with the same 200-f
 | 200 coasting flybys, 10 s, 5 samples | 5.28 m / 20.6 m | 1.4e-14 m / 1.24 m |
 
 Neither bound replaces the other. The second-order bound was never below the Lipschitz bound on
-these 8400 intervals, but on 1500 random segments of 1 to 60 s at 0.1 to 20 m/s with 2 to 20
-samples, half of them thrusting at up to 0.05 m/s^2 per axis, it was the looser of the two on 105
-segments, nearly all with 2 to 6 samples or passing within a few metres of the origin, and the
-reported gap there has a median of 0.8 m and a maximum of 98 m (sound on all 1500). Where neither
+these 8400 intervals, but on the 320 random segments of the test suite (1 to 60 s at 0.5 to
+20 m/s with 2 to 20 samples, a third thrusting at up to 0.02 m/s^2 per axis, half aimed within
+5 m of the target and 103 passing there) it is the looser of the two on 23 segments, with 2 to 6 samples or passes close
+to the origin, and the reported gap over those 320 has a median of 0.20 m, a 95th percentile of
+23 m and a maximum of 102 m (sound on all 320, and above the Lipschitz bound on 297). Where neither
 bound certifies a margin to the constraint's resolution, the interval has to be sampled more
 finely. Other constraint types keep the Lipschitz bound alone.
 
