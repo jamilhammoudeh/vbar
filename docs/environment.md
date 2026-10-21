@@ -221,9 +221,6 @@ sign-convention check every agent passes before scoring is on [agents.md](agents
   the separation; `run_episode` passes only `agent_info()`.
 - `scenario_id` names the scenario, the dynamics model and the thruster layout, not the sensor,
   delay or other options.
-- Pending commands are reported in action units at the current mass, so in thrust mode with the
-  constant-acceleration drive, or acceleration mode with the constant-thrust drive, they drift
-  from the issued values as propellant burns.
 
 ## How it is tested
 
