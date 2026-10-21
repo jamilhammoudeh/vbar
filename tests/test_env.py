@@ -5,7 +5,8 @@ from gymnasium.utils.env_checker import check_env
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DriftAgent, LLMAgent, PDAgent, parse_action
 from vbar.agents.llm import text_model
-from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter
+from vbar.metrics import record_episode
+from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter, run_filter
 
 
 def test_gymnasium_api_compliance():
@@ -92,18 +93,48 @@ class HalvingFilter:
 
     def filter(self, obs, action):
         if self.status == "feasible":
-            return 0.5 * action
+            return FilterResult(0.5 * action, True)
         return FilterResult(0.5 * action, True, self.status, slack=0.1, conflicting=("keep_out",))
 
 
-def test_filtered_agent_keeps_the_raw_command_and_a_result_for_a_bare_filter():
+def test_filtered_agent_keeps_the_raw_command_and_the_filter_result():
     env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=3))
     agent = FilteredAgent(PDAgent(), HalvingFilter())
     r = run_episode(env, agent)
     assert r["filter_interventions"] == 3
     assert agent.last_result.status == "feasible" and agent.last_result.intervened
     assert np.allclose(agent.last_result.action, 0.5 * agent.last_command)
-    assert agent.last_result.compute_s >= 0.0
+    assert agent.last_filter_s >= 0.0
+
+
+class BareFilter:
+    """Returns the halved command as a bare array, which the interface refuses."""
+
+    name = "bare"
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        return 0.5 * action
+
+
+def test_a_filter_returning_a_bare_array_is_refused():
+    with pytest.raises(TypeError, match="expected FilterResult"):
+        run_filter(BareFilter(), np.zeros(6), np.ones(3))
+    env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=3))
+    with pytest.raises(TypeError, match="expected FilterResult"):
+        run_episode(env, FilteredAgent(PDAgent(), BareFilter()), seed=0, agent_seed=1)
+
+
+def test_the_pass_through_filter_reports_no_intervention_in_every_record():
+    result, _ = run_filter(PassThroughFilter(), np.zeros(6), np.array([0.3, -0.2, 0.0]))
+    assert isinstance(result, FilterResult) and not result.intervened and not result.active
+    assert result.status == "feasible" and np.array_equal(result.action, [0.3, -0.2, 0.0])
+    env = ApproachEnv(ApproachConfig(start_state=(0, 400, 0, 0, 0, 0), max_steps=4))
+    ep = record_episode(env, FilteredAgent(PDAgent(), PassThroughFilter()), seed=0, agent_seed=1)
+    assert all(not rec.filter_result.intervened for rec in ep.records)
+    assert all(np.array_equal(rec.filtered, rec.command) for rec in ep.records)
 
 
 class ClaimsNoInterventions(PDAgent):

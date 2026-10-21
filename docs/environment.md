@@ -124,9 +124,10 @@ constraint minima and violation intervals.
 with a generator seeded by a hash of `agent_seed` alone, and returns the final metrics above plus
 `agent`, `seed`, `agent_seed`, `completed` (false only for an episode a remote session left
 unfinished), `wall_time_s`, the agent's decision times `latencies_s`, its time in `reset`
-`reset_s`, the true state history
-`states`, the actions `actions`, and `filter_interventions` when the agent is wrapped in a safety
-filter. `real_time` lets the clock run while the agent decides, and the result records its setting
+`reset_s`, the true state history `states`, the actions `actions`, and `filter_interventions`
+when the agent is a `FilteredAgent` (the class itself: a subclass, or another agent with an
+`interventions` attribute, gets no entry, since it could report any count). `real_time` lets the
+clock run while the agent decides, and the result records its setting
 under the same key ([agents.md](agents.md)). A seed not given is drawn from the operating system
 (128 bits) and returned, so any run can be repeated. `run_many(env, agent, seeds, agent_seeds)` runs
 one episode per seed.
@@ -204,15 +205,23 @@ action in the view's action mode. Provided:
   prompt, tokens, cost and the rest are on [llm-agents.md](llm-agents.md). A goal without a hold
   point or a view without a keep-out radius is refused at `reset` with a `ValueError`.
 - `FilteredAgent(agent, safety_filter)` (`vbar.safety`): wraps an agent with a filter that has
-  `reset(view)` and `filter(obs, action)`, and counts the steps where the filter changed the
-  command. The filter returns the action or a `FilterResult`: the action, whether it intervened,
-  a status (`feasible`, `infeasible_certified` when a certificate proves no safe action exists,
-  `solver_failed` when it found neither), the accepted slack, the conflicting constraints and its
-  wall time. A bare action is wrapped as `feasible`, intervened when a component moved by more
-  than `tol` (1e-6), with the measured time. After each decision `last_command` and `last_result`
-  hold the agent's command and the result, and `last_filter_s` the filter's measured time, for
-  the step record ([metrics.md](metrics.md)). It refuses the discrete and burn-and-coast action
-  modes at `reset`, before anything is flown. Only the pass-through filter exists so far.
+  `reset(view)` and `filter(obs, action)`. The filter gets copies of the observation and the
+  agent's command and returns a `FilterResult`; anything else, a bare action included, raises
+  `TypeError`. The result holds the action to fly, `intervened` (the filter's own report that it
+  changed the command), a status (`feasible`, `infeasible_certified` when a certificate proves no
+  safe action exists, `solver_failed` when it found neither), the accepted slack, the conflicting
+  constraints and `compute_s`, which `run_filter` sets to the measured wall time whatever the
+  filter reported. Optional fields say more when the filter knows
+  it: `active` that a safety row was active even if the action did not move, `recovering`,
+  `fallback_level`, `certificate`, `certificate_horizon` and `iterations` (None when not
+  reported). The wrapper counts the reported interventions in `interventions` and never decides
+  one itself. After each decision `last_command` and `last_result` hold the agent's command and
+  the result, and `last_filter_s` the filter's measured time, for the step record
+  ([metrics.md](metrics.md)); `run_episode` and `record_episode` read this bookkeeping only from a
+  `FilteredAgent` itself. The filter metrics judge interventions from the flown change and
+  `active`, not from `intervened`. It refuses the discrete and burn-and-coast action modes at
+  `reset`, before anything is flown. Only the pass-through filter exists so far; it returns the
+  command unchanged with `intervened` false.
 
 `vbar.agents.action_scale(view)` gives the action units per fraction of a full command. The
 sign-convention check every agent passes before scoring is on [agents.md](agents.md).
@@ -287,6 +296,15 @@ sign-convention check every agent passes before scoring is on [agents.md](agents
 - The PD agent flies the same trajectory in normalized and acceleration modes, in thrust mode
   under the constant-thrust drive, and with observation channels on; the LLM agent's fractions are
   converted to each mode.
+
+`tests/test_env.py`:
+
+- `FilteredAgent` keeps the agent's command and the filter's result, and counts the reported
+  interventions; a filter returning a bare array raises `TypeError` in `run_filter` and in a
+  run. The pass-through filter returns a feasible result that did not intervene, and every
+  record carries it with the command flown unchanged.
+- An agent that is not a `FilteredAgent` but sets `interventions`, and a `FilteredAgent`
+  subclass, get no `filter_interventions` from `run_episode`.
 
 ## Example
 

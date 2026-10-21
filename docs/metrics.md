@@ -329,7 +329,7 @@ filter defect counted apart. Inside the commit zone (`commit_radius`) the filter
 | F4 | `filter_dependence` | difference of rates | paired by seed: success rate with the filter minus without |
 | F5 | `infeasible_steps` | count | decisions outside the commit zone with status `infeasible_certified` |
 | F5b | `solver_failures` | count | decisions outside the commit zone with status `solver_failed` |
-| F6, F6p | `filter_compute_median`, `filter_compute_p95` | s | median and 95th percentile of the filter's compute time |
+| F6, F6p | `filter_compute_median`, `filter_compute_p95` | s | median and 95th percentile of the filter's compute time, measured around the call (v2) |
 | F7 | `filter_conservatism` | fraction | share of a declared region's viable states (a reference set) that the filter's safe set leaves out; from `filter_conservatism`, not per episode |
 | F8 | `unnecessary_intervention_rate` | fraction | share of active decisions whose own command, held for the step then left to drift over the drift horizon, stays clear of the collision radius; only the collision sphere is judged, so an intervention for the cone, a speed law or the plume counts as unnecessary |
 | F9 | `reentry_time` | s | mean length of the stretches where the filter reported `recovering`, infinite if the episode ends inside one |
@@ -536,7 +536,8 @@ asks for 385 episodes for a half-width of 0.03 at that rate, where the exact hal
   F1 = 1 and 50 s of stall time; one that reports an active row without moving the action gives F1
   = 1; a pass-through filter gives F1 = 0 and F2 NaN, and no filter gives NaN throughout. Scripted
   statuses are counted apart (4 certified, 2 solver failures in 8), and none are counted inside a
-  commit zone; F6 is the median and 95th percentile of scripted compute times. F3 equals the
+  commit zone; F6 is the median and 95th percentile of the measured compute times of a filter that
+  sleeps known durations, and a filter's own report never replaces the measurement. F3 equals the
   trimmed mean of the per-seed delta-v differences over 5 seeds, in any order of the runs, and
   unpaired runs are rejected.
 - Filter behaviour: zeroing full thrust 100 m behind the target was needed (its held command coasts

@@ -17,6 +17,16 @@ release may change the public API, and every such change is listed under Changed
   (doi:10.5067/GFL1B-ASJ04, CC0) checks the two-body, J2 and drag rungs over ten orbits against a bound
   stated before the run; `docs/flight-data.md` documents it.
 
+### Changed
+
+- A safety filter's `filter(obs, action)` must return a `FilterResult`; `run_filter`,
+  `FilteredAgent` and `vbar.training.FilteredEnv` raise `TypeError` for a bare action, and the
+  two wrappers no longer take `tol` or decide `intervened` from the change in the command. Wrap
+  the action in `FilterResult(action, intervened)` and drop `tol`. `run_filter` takes
+  `(safety_filter, obs, command)` and sets the result's `compute_s` to the measured wall time,
+  whatever the filter reported. `PassThroughFilter.filter` returns
+  `FilterResult(action, intervened=False)`.
+
 ## [0.4.0] - 2026-10-30
 
 ### Added

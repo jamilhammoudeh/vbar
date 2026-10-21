@@ -116,25 +116,25 @@ power figures need real filters and are not given.
 - Validity: not applicable.
 - Changelog: v1, first version.
 
-## F6 filter_compute_median (v1)
-- Definition: median of the filter's compute time per decision (s).
+## F6 filter_compute_median (v2)
+- Definition: median of the filter's compute time per decision (s), measured around the filter call.
 - Summary: interquartile mean across episodes.
 - Why it matters: a filter must run within the control cycle.
-- Known-answer tests: 0.003 s for scripted times 0.001 to 0.004 and 0.1 s.
+- Known-answer tests: a filter sleeping 0, 2 and 20 ms in turn gets the median and 95th percentile of the measured times, at least the slept time per decision; a filter that reports 0 s while sleeping 10 ms, or a large time without sleeping, gets the measured time.
 - Convergence: not applicable.
 - Invariance: not applicable.
 - Mutation detection: not applicable.
-- Anti-gaming: measured around the filter call when the filter does not report it.
+- Anti-gaming: always the measured time; the filter's own `compute_s` is replaced, so it cannot report its latency lower or higher than it was.
 - Reproducibility: wall clock, so not reproducible by nature.
 - Power: not given.
 - Validity: not applicable.
-- Changelog: v1, first version.
+- Changelog: v1, the filter's reported time when it gave one; v2, always the measured time.
 
-## F6p filter_compute_p95 (v1)
-- Definition: 95th percentile of the filter's compute time (s).
+## F6p filter_compute_p95 (v2)
+- Definition: 95th percentile of the filter's compute time (s), measured around the filter call.
 - Summary: interquartile mean across episodes.
 - Why it matters: the tail decides whether a cycle is missed.
-- Known-answer tests: numpy's 95th percentile of the scripted times.
+- Known-answer tests: the 95th percentile of the measured times in the F6 case.
 - Convergence: not applicable.
 - Invariance: not applicable.
 - Mutation detection: not applicable.
@@ -142,7 +142,7 @@ power figures need real filters and are not given.
 - Reproducibility: wall clock.
 - Power: not given.
 - Validity: not applicable.
-- Changelog: v1, first version.
+- Changelog: v1, the filter's reported time when it gave one; v2, always the measured time.
 
 ## F7 filter_conservatism (v1)
 - Definition: share of a declared region's viable states (a reference such as the exact braking set) that the filter's safe set leaves out; from `filter_conservatism(in_filter_set, in_viable_set, states)`, not per episode.

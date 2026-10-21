@@ -163,7 +163,7 @@ class Halving:
 
     def filter(self, obs, action):
         self.seen.append(obs)
-        return 0.5 * np.asarray(action)
+        return FilterResult(0.5 * np.asarray(action), True)
 
 
 def test_filtered_environment_flies_and_reports_the_executed_action():
@@ -209,10 +209,10 @@ def test_scored_runs_refuse_an_environment_built_for_training():
 
 
 class ReportingHalving(Halving):
-    """Halves every command and says so in a `FilterResult`, as a real filter would."""
+    """Halves every command and reports a safety row active."""
 
     def filter(self, obs, action):
-        safe = super().filter(obs, action)
+        safe = super().filter(obs, action).action
         return FilterResult(safe, True, active=True)
 
 
@@ -222,6 +222,20 @@ def test_filtered_environment_takes_a_filter_result_like_the_filtered_agent():
     info = env.step([0.4, 0.0, -0.2])[-1]
     assert np.array_equal(info["executed_action"], [0.2, 0.0, -0.1]) and info["intervened"]
     assert env.unwrapped.record.filter_result.active
+
+
+class BareHalving(Halving):
+    """Returns the halved command as a bare array, which the interface refuses."""
+
+    def filter(self, obs, action):
+        return super().filter(obs, action).action
+
+
+def test_filtered_environment_refuses_a_filter_returning_a_bare_array():
+    env = FilteredEnv(ApproachEnv(ApproachConfig(start_state=START)), BareHalving())
+    env.reset(seed=0)
+    with pytest.raises(TypeError, match="expected FilterResult"):
+        env.step([0.4, 0.0, -0.2])
 
 
 @pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])

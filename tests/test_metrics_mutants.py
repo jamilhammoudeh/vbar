@@ -15,7 +15,7 @@ from vbar.metrics import (
     passive_metrics,
     safety_metrics,
 )
-from vbar.safety import FilteredAgent, PassThroughFilter
+from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter
 
 BEHIND = (0.0, -400.0, 30.0, 0.0, 0.0, 0.0)
 TARGET_IN_THE_WAY = (0.0, 400.0, 0.0, 0.0, 0.0, 0.0)
@@ -101,7 +101,7 @@ def test_a_filter_that_changes_every_command_is_seen_by_the_intervention_metrics
             pass
 
         def filter(self, obs, action):
-            return 0.5 * action
+            return FilterResult(0.5 * action, True)
 
     passing = filter_metrics(run(FilteredAgent(PDAgent(), PassThroughFilter())))
     halving = filter_metrics(run(FilteredAgent(PDAgent(), Halving())))

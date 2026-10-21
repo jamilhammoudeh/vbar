@@ -11,7 +11,7 @@ from vbar.metrics import (
     evaluate,
     record_episode,
 )
-from vbar.safety import FilteredAgent
+from vbar.safety import FilteredAgent, FilterResult
 
 
 class HalvingFilter:
@@ -21,7 +21,7 @@ class HalvingFilter:
         pass
 
     def filter(self, obs, action):
-        return 0.5 * action
+        return FilterResult(0.5 * action, True)
 
 
 def test_recorded_states_match_run_episode_for_the_same_seeds():

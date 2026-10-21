@@ -66,9 +66,12 @@ filter". The filter gets `reset(view)` at each reset and `filter(obs, action)` w
 observation the learner acted on, never the truth. Each step's `info` gains:
 
 - `executed_action`: the command the filter let through, in the action mode's units;
-- `intervened`: the filter's own report when it returns a `FilterResult`, otherwise whether the
-  command moved by more than `tol` (1e-6) on any axis, as for `FilteredAgent`
-  (`vbar.safety.run_filter` does both).
+- `intervened`: the filter's own report in its `FilterResult`.
+
+The filter must return a `FilterResult`, as for `FilteredAgent`; a bare action raises `TypeError`
+at `step` (`vbar.safety.run_filter` gives the filter copies of the observation and the command,
+checks the return type and measures the filter's wall time). The wrapper never decides
+`intervened` itself.
 
 An off-policy learner must store the executed action with the transition, since the next state
 follows from it, not from the learner's output (Sutton and Barto, sec. 6.5). `env.unwrapped.record`
@@ -101,7 +104,8 @@ the filter wraps the agent instead (`vbar.safety.FilteredAgent`, [environment.md
   of the unwrapped one flown with the halved commands, reports the executed action and an
   intervention at every step, keeps both commands in the record, and shows the filter the noisy
   observations the learner saw; the pass-through filter never intervenes, the wrapper passes
-  Gymnasium's checker, and discrete action modes are refused.
+  Gymnasium's checker, and discrete action modes are refused. A filter that reports an active row
+  has it recorded, and a filter returning a bare array raises `TypeError` at `step`.
 
 ## Examples
 

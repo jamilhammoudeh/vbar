@@ -1,4 +1,5 @@
 import math
+import time
 from dataclasses import replace
 
 import numpy as np
@@ -18,7 +19,7 @@ from vbar.metrics import (
     record_episode,
 )
 from vbar.metrics.efficiency import delta_v
-from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter
+from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter, run_filter
 from vbar.scenarios import SCENARIOS, Fixed
 from vbar.scenarios.registry import entry_class
 
@@ -77,12 +78,36 @@ def test_decisions_inside_the_commit_zone_are_not_counted():
     assert filter_metrics(ep, MetricSettings(commit_radius=500.0))["solver_failures"] == 0.0
 
 
-def test_compute_time_median_and_95th_percentile():
-    compute = (0.001, 0.002, 0.003, 0.004, 0.100)
-    agent = FilteredAgent(PDAgent(), ScriptedFilter(compute=compute))
-    m = filter_metrics(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=5))
-    assert m["filter_compute_median"] == pytest.approx(0.003)
-    assert m["filter_compute_p95"] == pytest.approx(np.percentile(compute, 95))
+class PatternSleepFilter:
+    """Sleeps 0, 2 and 20 ms in turn and claims no compute time."""
+
+    name = "pattern-sleep"
+    sleeps = (0.0, 0.002, 0.020)
+
+    def reset(self, view):
+        self.k = 0
+
+    def filter(self, obs, action):
+        slept = self.sleeps[self.k % len(self.sleeps)]
+        self.k += 1
+        if slept:
+            time.sleep(slept)
+        return FilterResult(action, False, compute_s=0.0)
+
+
+def test_compute_time_median_and_95th_percentile_are_of_the_measured_times():
+    agent = FilteredAgent(PDAgent(), PatternSleepFilter())
+    ep = episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=9)
+    measured = [rec.filter_result.compute_s for rec in ep.records]
+    m = filter_metrics(ep)
+    assert m["filter_compute_median"] == pytest.approx(np.median(measured), rel=1e-12)
+    assert m["filter_compute_p95"] == pytest.approx(np.percentile(measured, 95), rel=1e-12)
+    # Three decisions of each sleep: the median is a 2 ms decision, the 95th percentile lies
+    # between two 20 ms ones.
+    for slept, spent in zip(PatternSleepFilter.sleeps * 3, measured, strict=True):
+        assert spent >= slept
+    assert m["filter_compute_median"] >= 0.002
+    assert m["filter_compute_p95"] >= 0.020
 
 
 def test_paired_costs_compare_the_same_seeds_with_and_without_the_filter():
@@ -103,7 +128,7 @@ def test_interquartile_mean_drops_the_outer_quarters():
 
 
 class Rewriting:
-    """Returns `rewrite(action)` as a bare action, or as a result with the given fields."""
+    """Returns `rewrite(action)`, reported as an intervention, with the given fields."""
 
     name = "rewriting"
 
@@ -114,8 +139,6 @@ class Rewriting:
         pass
 
     def filter(self, obs, action):
-        if not self.fields:
-            return self.rewrite(action)
         return FilterResult(self.rewrite(action), True, **self.fields)
 
 
@@ -157,11 +180,10 @@ def test_a_filter_that_zeroes_the_command_in_place_still_intervenes():
         action[:] = 0.0
         return action
 
-    for fields in ({}, {"active": False}):
-        agent = FilteredAgent(PDAgent(), Rewriting(zero_in_place, **fields))
-        ep = episode(agent, start_state=(0, -400, 30, 0, 0, 0), max_steps=5)
-        assert filter_metrics(ep)["intervention_rate"] == 1.0
-        assert np.linalg.norm(ep.records[0].command) > 0.0
+    agent = FilteredAgent(PDAgent(), Rewriting(zero_in_place, active=False))
+    ep = episode(agent, start_state=(0, -400, 30, 0, 0, 0), max_steps=5)
+    assert filter_metrics(ep)["intervention_rate"] == 1.0
+    assert np.linalg.norm(ep.records[0].command) > 0.0
 
 
 def test_only_the_flown_change_counts_so_intervention_size_stays_within_the_actuator():
@@ -368,3 +390,35 @@ def test_conservatism_is_the_share_of_viable_states_the_filter_leaves_out():
     # 101 viable samples from 0 to 1 m, of which 61 are inside the filter's set.
     assert found == pytest.approx(40 / 101)
     assert np.isnan(filter_conservatism(lambda x: True, lambda x: False, states))
+
+
+class ClockedFilter:
+    """Sleeps `sleep_s` per decision and reports `claimed_s` as its compute time."""
+
+    name = "clocked"
+
+    def __init__(self, sleep_s, claimed_s):
+        self.sleep_s, self.claimed_s = sleep_s, claimed_s
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        if self.sleep_s:
+            time.sleep(self.sleep_s)
+        return FilterResult(action, False, compute_s=self.claimed_s)
+
+
+def test_run_filter_reports_the_measured_compute_time_not_the_filters_claim():
+    obs, command = np.zeros(6), np.zeros(3)
+    slow, _ = run_filter(ClockedFilter(0.01, 0.0), obs, command)
+    assert slow.compute_s >= 0.01
+    boastful, elapsed = run_filter(ClockedFilter(0.0, 100.0), obs, command)
+    assert boastful.compute_s == pytest.approx(elapsed) and boastful.compute_s < 1.0
+
+
+def test_compute_time_metric_reads_the_measured_time():
+    slow = episode(FilteredAgent(PDAgent(), ClockedFilter(0.01, 0.0)), max_steps=5)
+    assert filter_metrics(slow)["filter_compute_median"] >= 0.01
+    boastful = episode(FilteredAgent(PDAgent(), ClockedFilter(0.0, 100.0)), max_steps=5)
+    assert filter_metrics(boastful)["filter_compute_median"] < 1.0

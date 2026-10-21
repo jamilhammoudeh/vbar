@@ -1,14 +1,14 @@
 """Safety filters wrap an agent and modify unsafe commands before they are applied.
 
-Only the pass-through filter (filter off) exists so far. A filter returns either the action or a
-`FilterResult`; `FilteredAgent` counts interventions, the decisions where the filter changed the
-agent's command, and keeps the last command and result for the step record.
+Only the pass-through filter (filter off) exists so far. A filter returns a `FilterResult`, whose
+`intervened` is the filter's own report; `FilteredAgent` counts those interventions and keeps the
+last command and result for the step record.
 """
 
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -57,23 +57,40 @@ class FilterResult:
             raise ValueError("a certificate horizon must be positive (inf for an invariant set)")
 
 
-def run_filter(
-    safety_filter, obs: np.ndarray, command: np.ndarray, tol: float
-) -> tuple[FilterResult, float]:
-    """The filter's decision on `command` and its measured wall time (s).
+def run_filter(safety_filter, obs: np.ndarray, command: np.ndarray) -> tuple[FilterResult, float]:
+    """The filter's decision on `command` and its measured wall time.
 
-    A filter may return a `FilterResult` or a bare action; a bare action gets status "feasible"
-    and `intervened` when any component moved by more than `tol`. The filter gets copies, so it
-    cannot rewrite the caller's command or observation.
+    The filter gets copies, so it cannot rewrite the caller's command or observation. The
+    measured time replaces the filter's own `compute_s`, so a filter cannot report its latency
+    lower than it was.
+
+    Parameters
+    ----------
+    safety_filter : SafetyFilter
+        Any object with `filter(obs, action)` returning a `FilterResult`.
+    obs : np.ndarray
+        The observation the agent acted on.
+    command : np.ndarray
+        The agent's command, in the action mode's units.
+
+    Returns
+    -------
+    FilterResult
+        The filter's result with `compute_s` set to the measured wall time.
+    float
+        The wall time of the `filter` call (s).
+
+    Raises
+    ------
+    TypeError
+        If the filter returns anything but a `FilterResult`, a bare action included.
     """
     t0 = time.perf_counter()
     out = safety_filter.filter(np.array(obs, dtype=float), np.array(command, dtype=float))
     elapsed = time.perf_counter() - t0
-    if isinstance(out, FilterResult):
-        return out, elapsed
-    safe = np.asarray(out, dtype=float)
-    moved = bool(np.max(np.abs(safe - command)) > tol)
-    return FilterResult(safe, moved, compute_s=elapsed), elapsed
+    if not isinstance(out, FilterResult):
+        raise TypeError(f"filter returned {type(out).__name__}, expected FilterResult")
+    return replace(out, compute_s=elapsed), elapsed
 
 
 class PassThroughFilter:
@@ -84,23 +101,35 @@ class PassThroughFilter:
     def reset(self, view: AgentView) -> None:
         pass
 
-    def filter(self, obs: np.ndarray, action: np.ndarray) -> np.ndarray:
-        return action
+    def filter(self, obs: np.ndarray, action: np.ndarray) -> FilterResult:
+        return FilterResult(action, intervened=False)
 
 
 class FilteredAgent:
     """Agent + safety filter, presented as a single agent.
 
     After each `act`, `last_command` is the agent's own command, `last_result` the filter's
-    `FilterResult` and `last_filter_s` the filter's measured wall time (s). A filter that returns
-    a bare action gets a result with status "feasible", `intervened` when any component moved by
-    more than `tol`, and its measured wall time.
+    `FilterResult` and `last_filter_s` the filter's measured wall time (s); `interventions` counts
+    the decisions the filter reported as `intervened` and `decisions` all of them.
+
+    Parameters
+    ----------
+    agent : Agent
+        The wrapped agent; its commands go to the filter.
+    safety_filter : SafetyFilter
+        Has `reset(view)` and `filter(obs, action)` returning a `FilterResult`.
+
+    Raises
+    ------
+    ValueError
+        At `reset`, for an action mode that is not continuous.
+    TypeError
+        At `act`, when the filter returns anything but a `FilterResult`.
     """
 
-    def __init__(self, agent, safety_filter, tol: float = 1e-6):
+    def __init__(self, agent, safety_filter):
         self.agent = agent
         self.filter = safety_filter
-        self.tol = tol
         self.name = f"{agent.name}+{safety_filter.name}"
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
@@ -117,7 +146,7 @@ class FilteredAgent:
     def act(self, obs, info):
         # Own copies, so a filter that writes into its input cannot rewrite the recorded command.
         raw = np.array(self.agent.act(obs, info), dtype=float)
-        result, elapsed = run_filter(self.filter, obs, raw, self.tol)
+        result, elapsed = run_filter(self.filter, obs, raw)
         self.decisions += 1
         self.interventions += int(result.intervened)
         self.last_command = raw
