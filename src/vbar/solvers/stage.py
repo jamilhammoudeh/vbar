@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.linalg import LinAlgError, cho_factor, cho_solve
+from scipy.linalg import LinAlgError, cho_factor, lapack
 
 # Hessians whose asymmetry exceeds this fraction of their largest entry are refused.
 _SYM_TOL = 1e-12
@@ -173,7 +173,7 @@ def _factor(qp: StageQP, d_q: np.ndarray | None, d_p: np.ndarray | None) -> _Fac
         except LinAlgError:
             raise ValueError(f"input block of stage {k} is not positive definite") from None
         chol[k] = factor
-        gain[k] = -cho_solve(factor, h_ux, check_finite=False)
+        gain[k] = -lapack.dpotrs(factor[0], h_ux, lower=1)[0]
         p_mat = h_xx + h_ux.T @ gain[k]
         p_mat = 0.5 * (p_mat + p_mat.T)
         cost_to_go[k] = p_mat
@@ -192,16 +192,15 @@ def _sweep(
         a, b = qp.A[k], qp.B[k]
         grad_next = factor.cost_to_go[k + 1] @ c[k] + p_vec[k + 1]
         h_u = q[k, nx:] + b.T @ grad_next
-        feedforward[k] = -cho_solve(factor.chol[k], h_u, check_finite=False)
+        feedforward[k] = -lapack.dpotrs(factor.chol[k][0], h_u, lower=1)[0]
         p_vec[k] = q[k, :nx] + a.T @ grad_next + factor.gain[k].T @ h_u
     x = np.empty((n + 1, nx))
     u = np.empty((n, nu))
-    y = np.empty((n, nx))
     x[0] = x0
     for k in range(n):
         u[k] = factor.gain[k] @ x[k] + feedforward[k]
         x[k + 1] = qp.A[k] @ x[k] + qp.B[k] @ u[k] + c[k]
-        y[k] = factor.cost_to_go[k + 1] @ x[k + 1] + p_vec[k + 1]
+    y = np.matmul(factor.cost_to_go[1:], x[1:, :, None])[:, :, 0] + p_vec[1:]
     return x, u, y
 
 
