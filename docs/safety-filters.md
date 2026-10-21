@@ -3,8 +3,9 @@
 Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`,
 `keep_out_projection`, `KeepOutProjection`) and `vbar.safety.tightening` (`BoxError`, `BallError`,
 `EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `ecbf_bias`,
-`first_order_bias`) and `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`, `ClosingSpeedCbf`,
-`ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`).
+`first_order_bias`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`, `ClosingSpeedCbf`,
+`ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`) and
+`vbar.safety.sampled` (`held_segment_bound`, `line_search`, `LineSearch`).
 
 A safety filter sits between an agent and the spacecraft and changes a command only when it would
 lead out of a safe set. This page starts with the building blocks the filters use: closed-form
@@ -303,6 +304,49 @@ $a_b \le 0$. `contains(x)` requires $h_b \ge 0$ inside the region.
 $L_g h_b$ vanishes at $\dot\rho = 0$, so a first-order row on $h_b$ would put no condition on $u$
 there, and a whole held step of inward thrust leaves the set. The class therefore has no `row`.
 
+## Held-segment check and line search
+
+### Certified margin over a held step
+
+`held_segment_bound(x, u, dt, m, radius, n, error=None, da_max=0.0)` returns a lower bound on
+$|r(t)| - R$ over a step of length `dt` with the command `u` held. The `m` samples are
+$\Phi(t_i) x + \Gamma(t_i) u$ from `CWDiscretizer.sample_matrices`, exact for CW, and each sample
+interval gets the larger of the first-order and the second-order bounds of
+`vbar.constraints.segment_minimum`, without its refinement. Without error sets the result equals
+the `lower_bound` that `segment_minimum` reports on the same samples. It returns `-inf` when the
+step is too long for the in-step bounds.
+
+With an error set $E$ on $x$ (`BoxError`, `BallError`, `EllipsoidError`) and an execution error
+$\delta a$ with $|\delta a| \le$ `da_max`, constant over the step, the true trajectory differs
+from the estimated one by a CW trajectory from $e \in E$ under $\delta a$. Its position at a sample
+is at most
+
+$$
+g_i = \texttt{keep\_out\_margin}(\Phi_r(t_i), E) + \delta a_{\max}\, \sigma_{\max}(\Gamma_r(t_i)),
+$$
+
+and its velocity at most $g^v_i$, the same with the velocity rows. Between samples the deviation's
+position grows at most at its speed $W$, and its speed at most at
+$3 n^2 |r| + 2 n |v| + \delta a_{\max}$, so with $h$ the sample spacing
+
+$$
+W \le \frac{\max_i g^v_i + \tfrac{h}{2}\left(3 n^2 \max_i g_i + \delta a_{\max}\right)}
+  {1 - n h - \tfrac34 n^2 h^2},
+$$
+
+and each interval's bound is lowered by $(g_i + g_{i+1} + W h)/2$. The tightening depends only on
+the step, the error set and `da_max`, and is cached for an error set object that is used again.
+
+### Line search toward the backup
+
+`line_search(accept, u_c, beta, iterations=12)` tries the candidate `u_c` first and, if `accept`
+rejects it, bisects on $\theta \in [0, 1]$ with $u = \theta u_c + (1 - \theta)\beta$, keeping the
+largest accepted $\theta$. It returns `LineSearch(u, theta, checks)`: $\theta = 1$ after one
+check, otherwise a multiple of $2^{-12}$ after 13 checks, and $\theta = 0$, the backup itself,
+when nothing else passes. The backup is never checked here: its safety is the barrier's theorem.
+Bisection finds the largest accepted $\theta$ only when the accepted values form an interval
+$[0, \theta^*]$; otherwise it returns an accepted value that need not be the largest.
+
 ## Validation
 
 The tests in `tests/test_safety_projections.py` check:
@@ -379,6 +423,24 @@ The tests in `tests/test_safety_barriers.py` check:
   head-on with a reckless inward command, the row through `project` holds at $0.5$ and $0.997$
   times $0.78658/p$ and fails at $1.003$ times it, for $p$ = 0.05 and 0.1 1/s.
 
+The tests in `tests/test_safety_sampled.py` check:
+
+- `held_segment_bound` equals `segment_minimum`'s certified bound on the same samples exactly, on
+  four steps (passing, grazing, closing at the end and already inside); it lies below the
+  minimum over 2001 exact samples and within one sample interval's first-order loss of it; a
+  property test over positions within 300 m, speeds to 0.5 m/s, thrust to 0.02 m/s^2 and steps
+  of 1 to 20 s finds no case above the true minimum.
+- A navigation error lowers the bound by at least the range error at the start of the lowest
+  interval and at most the largest range error plus its rate over one interval, for a box and
+  two balls; the tightened bound holds at all 64 vertices of the error box. The execution error
+  lowers it within the same limits from $\sigma_{\max}(\Gamma_r)$, and the bound holds for 20
+  drawn errors of the full size. Larger error sets give strictly lower bounds, and a zero set
+  gives the nominal bound.
+- `line_search` keeps an accepted candidate after one check, returns the backup after 13 checks
+  without asking about it, ends on $\lfloor 0.3 \cdot 4096 \rfloor / 4096$ for an acceptance
+  threshold of 0.3, follows `iterations`, and on an acceptance set that is not an interval stops
+  below the upper window.
+
 ```python
 import numpy as np
 
@@ -426,4 +488,22 @@ a_b = braking_deceleration(
     a_max=0.02, layout="box", v_cap=0.3, dt=10.0, radius=50.0, rho_cap=2000.0, n=n
 )
 print(round(a_b, 5))  # 0.00991
+```
+
+```python
+from vbar.dynamics import cw_discrete
+from vbar.safety.sampled import held_segment_bound, line_search
+from vbar.safety.tightening import BoxError
+
+phi, gamma = cw_discrete(n, 10.0)
+error = BoxError(r_pos=0.5, r_vel=0.005)
+
+
+def accept(u):
+    held = held_segment_bound(x, u, 10.0, 20, 50.0, n, error=error)
+    return held >= 0.0 and passive.value(phi @ x + gamma @ u) >= 0.0
+
+
+found = line_search(accept, u_nom, passive.backup(x, box))
+print(found.theta, found.checks)  # 0.45166015625 13
 ```
