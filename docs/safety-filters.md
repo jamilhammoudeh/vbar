@@ -427,14 +427,21 @@ The rows are continuous-time conditions, so the filter is designed for the held 
 |---|---|---|---|---|---|
 | No row active | feasible | False | 0 | () | 0 |
 | A row active (positive multiplier) | feasible | True | 0 | () | 0 |
-| Rows beyond the thrust limit | infeasible_certified | True | phase I sum of infeasibilities, m/s^2 | rows and limits of the Farkas certificate | 0 |
+| Rows beyond the thrust limit | infeasible_certified, with `proof` | True | phase I sum of infeasibilities, m/s^2 | rows and limits of the Farkas certificate | 0 |
 | Projection failed | solver_failed | True | largest row violation of the action, m/s^2 | () | 2 |
-| Speed cap not met after 16 cuts | solver_failed | True | end-of-step speed above the cap, m/s | () | 2 |
-| No raise of the keep-out row passes the held-step check | solver_failed | True | predicted keep-out shortfall, m | () | 2 |
+| Speed cap not met after 16 cuts, inside $S_E$ | solver_failed | True | end-of-step speed above the cap, m/s | () | 0 |
+| The same, recovering | feasible | True | as above | () | 0 |
+| No raise of the keep-out row passes the held-step check, inside $S_E$, short by more than 1 mm | solver_failed | True | predicted keep-out shortfall, m | () | 2 |
+| The same, recovering or short by at most 1 mm | feasible | True | as above | () | 2 |
 
-`recovering` is True outside $S_E$. When the rows cannot all be met the action is the projection's
-least-violation command; when the projection fails it is the command that does most for the
-keep-out row, $a_{\max}\,\mathrm{sign}(\hat r)$ (box) or $a_{\max}\hat r$ (ball).
+`recovering` is True outside $S_E$, judged on the estimate. When the rows cannot all be met the
+action is the projection's least-violation command (next section); when the projection fails it
+is the command that does most for the keep-out row, $a_{\max}\,\mathrm{sign}(\hat r)$ (box) or
+$a_{\max}\hat r$ (ball). Outside $S_E$ a step that cannot keep the held check, for example inside
+the keep-out while closing, is the predicted shortfall the step accepts, not a defect, so from
+outside the set the filter returns only "feasible" or "infeasible_certified". Inside $S_E$ a
+shortfall of at most the keep-out resolution, 1 mm, is the slack of the certified bound at the
+boundary and is also "feasible".
 
 ### Backup filters
 
@@ -517,6 +524,62 @@ that, or where the hard rows are infeasible, rows are violated, and `slack` (the
 violation, m/s^2) and `conflicting` report them. The status is "feasible", since the penalized
 problem always has a solution. A soft barrier has no invariance guarantee: the filter never counts
 toward certification (`counts_toward_certification` is False) and its certificate is None.
+
+### Infeasibility, proofs and least-violation actions
+
+Outside its declared set a filter's rows can ask for more than the thrust limit gives. One row
+$a \cdot u \ge b$ is feasible exactly when $b \le a_{\max}|a|_1$ (box) or $b \le a_{\max}|a|_2$
+(ball); several rows can conflict although each alone is feasible, for example the keep-out row
+pushing out and the speed cap holding back at 0.15 m/s 10 m inside the sphere.
+
+`vbar.solvers.project` decides this exactly. When no candidate active set wins, its
+sum-of-infeasibilities phase I gives a dual vector $\lambda \ge 0$, checked before infeasibility
+is reported. A `CbfFilter` step with status "infeasible_certified" carries it in `proof`, an
+`InfeasibilityProof(normals, bounds, multipliers, layout, a_max, names)` on the rows the filter
+built, in SI, each row in its own units: the barrier and speed rows have unitless normals and
+bounds in m/s^2, and the end-of-step speed cuts have normals $-\Gamma_v^T \hat v$ in s and bounds
+in m/s. The certificate holds in any units, so nothing is rescaled between the filter and the
+proof. Every $u$ in the actuator set $U$ has
+$\lambda \cdot (A u) \le \max_{u \in U} (A^T \lambda) \cdot u$, the support $a_{\max}|A^T \lambda|_1$
+of a box or $a_{\max}|A^T \lambda|_2$ of a ball, so
+
+$$
+b \cdot \lambda > \text{support}, \qquad \lambda \ge 0
+$$
+
+shows that no command meets every row (Boyd and Vandenberghe, sec. 5.8.3). `verify()` checks
+exactly this from the proof's own arrays: $\lambda \ge 0$ to $10^{-12}$ of its largest entry, and
+the support exceeded by $10^{-10} \max(a_{\max}, \max_i |b_i|/|a_i|) \sum_i \lambda_i |a_i|$, the
+margin `project` certifies with. The proof lists the rows `project` names as conflicting; when
+dropping the others' negligible multipliers breaks that margin, it lists every row, the
+end-of-step speed cuts included. The arrays are read-only copies, and only an
+"infeasible_certified" result may carry a proof (`FilterResult` raises otherwise), so an audit can
+re-verify every infeasible step without the filter.
+
+The action of an infeasible step is `project`'s least-violation command: under a box, the command
+nearest the clipped nominal among those in the box that violate no row by more than the phase I
+point; under a ball, the same search without the limit, scaled onto the ball, which can violate
+the rows more than the phase I point ([solvers.md](solvers.md)). `slack` is the phase I sum of
+the rows' violations at it, each scaled by its normal's length, $\sum_i (b_i - a_i \cdot u)/|a_i|$
+in m/s^2 of command, and `conflicting` names the rows and limits of the certificate.
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.safety.cbf import CbfFilter
+
+view = ApproachEnv(ApproachConfig(action_mode="accel")).agent_view()  # commands in m/s^2
+ecbf = CbfFilter(poles=(0.05, 0.05), v_cap=0.1, gamma=0.02)
+ecbf.reset(view)
+
+x = np.array([0.0, 40.0, 0.0, 0.0, 0.15, 0.0])  # m and m/s, 10 m inside the keep-out, leaving
+result = ecbf.filter(x, np.zeros(3))
+proof = result.proof
+print(result.status, result.recovering)  # infeasible_certified True
+print(proof.names, proof.verify())  # ('keep_out', 'speed_cap') True
+print(result.action.round(4), round(result.slack, 5))  # [0.   0.01 0.  ] 0.011
+```
 
 ### Assumptions and limits
 
@@ -627,6 +690,24 @@ The tests in `tests/test_safety_sampled.py` check:
   without asking about it, ends on $\lfloor 0.3 \cdot 4096 \rfloor / 4096$ for an acceptance
   threshold of 0.3, follows `iterations`, and on an acceptance set that is not an interval stops
   below the upper window.
+
+The tests in `tests/test_safety_infeasible.py` check:
+
+- `verify()` against an independent Farkas check on drawn rows, multipliers and both layouts, and
+  its sign tolerance just inside and just outside $10^{-12}$; a proof on any status but
+  "infeasible_certified" raises.
+- One row under a box or ball limit on 300 drawn cases per layout (seed 7, those within 1e-9 of
+  the boundary dropped): `project` is infeasible exactly when
+  $b > a_{\max}|a|_1$ (box) or $a_{\max}|a|_2$ (ball); feasible answers match a 200-step
+  bisection on the dual, and infeasible ones equal the support maximiser.
+- From starts inside the keep-out closing, beyond the speed cap and inside the keep-out leaving,
+  with a PD and a reckless nominal, `CbfFilter` returns only "feasible" or "infeasible_certified";
+  every infeasible step's proof verifies, matches the filter's own rows at the estimate and names
+  every conflicting row; two rows that each fit the box but not together are both named.
+- The least-violation action equals `project`'s phase I command on the proof's rows and no command
+  in the box violates them less in total (an independent linear program).
+- From starts inside the declared sets, at dt 1, 2, 5, 10 and 20 s, `CbfFilter` and the braking
+  backup filter have no infeasible step and no proof.
 
 The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
 

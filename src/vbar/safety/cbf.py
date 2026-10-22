@@ -31,7 +31,7 @@ from ..agents.base import CONTINUOUS_MODES, AgentView, action_scale, command_fra
 from ..constraints import KeepOut
 from ..dynamics.cw import cw_discrete
 from ..solvers.qp import ActuatorSet, Projection, Rows, project
-from . import FilterResult
+from . import FilterResult, InfeasibilityProof
 from .barriers import (
     BrakingBarrier,
     ClosingSpeedCbf,
@@ -328,9 +328,12 @@ class CbfFilter(_HeldCommandFilter):
     keep-out on the held step with `held_segment_bound` and the end range against R_f, both for
     every execution error up to da_max. A command that fails the check is replaced by the
     projection with the keep-out row raised by the least amount, found by bisection, that
-    passes. If no raise passes, the most outward feasible command is returned with status
-    "solver_failed" and its predicted shortfall (m) as slack. Recursive feasibility under hold is
-    not proven, so `certificate` is None.
+    passes. If no raise passes, the most outward feasible command is returned with its predicted
+    shortfall (m) as slack: as "solver_failed" inside the declared set when it is short by more
+    than the keep-out resolution, and as "feasible" otherwise, so outside the set the status is
+    "feasible" or "infeasible_certified". An "infeasible_certified" step carries the
+    `InfeasibilityProof` of its rows. Recursive feasibility under hold is not proven, so
+    `certificate` is None.
     """
 
     _enforced = ("keep_out", *_SPEED_TYPES)
@@ -490,11 +493,18 @@ class CbfFilter(_HeldCommandFilter):
     def _decide(
         self, x: np.ndarray, u_c: np.ndarray, rows: Rows, recovering: bool, t0: float
     ) -> FilterResult:
-        found, excess = self._solve(x, u_c, rows, 0.0)
+        found, excess, used = self._solve(x, u_c, rows, 0.0)
         if found.status == "feasible" and excess > 0.0:
-            # The cuts ran out above the cap: a limit of the filter, not a proof of anything.
+            # The cuts ran out above the cap: a limit of the filter inside its set, and outside
+            # it the predicted excess (m/s) the step accepts while recovering.
             return self._result(
-                found.u, u_c, t0, recovering, active=True, status="solver_failed", slack=excess
+                found.u,
+                u_c,
+                t0,
+                recovering,
+                active=True,
+                status="feasible" if recovering else "solver_failed",
+                slack=excess,
             )
         if found.status == "feasible":
             shortfall = self._shortfall(x)
@@ -514,6 +524,7 @@ class CbfFilter(_HeldCommandFilter):
                 status="infeasible_certified",
                 slack=float(found.phase1_margin),
                 conflicting=found.conflicting,
+                proof=self._proof(found, used),
             )
         # No answer and no proof: fall back to the command that does most for the keep-out row.
         u = self._support(rows.a[0])
@@ -530,10 +541,10 @@ class CbfFilter(_HeldCommandFilter):
 
     def _solve(
         self, x: np.ndarray, u_c: np.ndarray, rows: Rows, tighten: float
-    ) -> tuple[Projection, float]:
+    ) -> tuple[Projection, float, Rows]:
         """Project onto the rows, the keep-out row raised by `tighten` (m/s^2), and the cap on
-        the speed at the end of the held step; return the projection and the end speed's excess
-        over the cap (m/s), nonzero only when the cuts ran out.
+        the speed at the end of the held step; return the projection, the end speed's excess
+        over the cap (m/s), nonzero only when the cuts ran out, and the rows projected onto.
 
         |v(dt)| <= v is convex in u but not linear, so it is imposed by cutting planes: each
         projection that ends above the cap adds the tangent g(u_k) + grad g . (u - u_k) <= 0 of
@@ -552,23 +563,20 @@ class CbfFilter(_HeldCommandFilter):
         cut_a: list[np.ndarray] = []
         cut_b: list[float] = []
         while True:
-            found = project(
-                u_c,
-                Rows(
-                    np.vstack([a, *cut_a]) if cut_a else a,
-                    np.concatenate([b, cut_b]),
-                    names + tuple(f"speed_end#{i}" for i in range(len(cut_a))),
-                ),
-                self._actuator,
+            used = Rows(
+                np.vstack([a, *cut_a]) if cut_a else a,
+                np.concatenate([b, cut_b]),
+                names + tuple(f"speed_end#{i}" for i in range(len(cut_a))),
             )
+            found = project(u_c, used, self._actuator)
             if found.status != "feasible":
-                return found, 0.0
+                return found, 0.0, used
             v_end = drift_v + gamma_v @ found.u
             speed = float(np.linalg.norm(v_end))
             if speed <= limit:
-                return found, 0.0
+                return found, 0.0, used
             if len(cut_a) == _MAX_CUTS:
-                return found, speed - limit
+                return found, speed - limit, used
             # Cutting a little inside the cap ends the loop in a few cuts; a stop above the cap
             # would raise the next step's limit and ratchet the speed up.
             grad = gamma_v.T @ (v_end / speed)
@@ -605,8 +613,8 @@ class CbfFilter(_HeldCommandFilter):
         Raising the row only shrinks the feasible set, so the largest feasible raise is found by
         bisection first, up to the row's support over the thrust limit; the least passing raise
         below it follows by a second bisection, which assumes the check passes on an interval.
-        Without a passing raise the most outward feasible command is returned as
-        "solver_failed" with its predicted shortfall (m) as slack.
+        Without a passing raise the most outward feasible command is returned with its
+        predicted shortfall (m) as slack.
         """
         w = rows.a[0]
         reach = self._actuator.a_max * float(
@@ -616,7 +624,7 @@ class CbfFilter(_HeldCommandFilter):
 
         def solved(tighten: float) -> Projection | None:
             """The projection at this raise, or None when it is infeasible or over the cap."""
-            found, excess = self._solve(x, u_c, rows, tighten)
+            found, excess, _ = self._solve(x, u_c, rows, tighten)
             return found if found.status == "feasible" and excess == 0.0 else None
 
         best = solved(top)
@@ -633,15 +641,20 @@ class CbfFilter(_HeldCommandFilter):
                 else:
                     hi = mid
             top = lo
-        if shortfall(best.u) > 0.0:
+        missing = shortfall(best.u)
+        if missing > 0.0:
+            # Outside the declared set, or short by less than the keep-out resolution (the slack
+            # of the certified bound at the boundary), this is the predicted shortfall the step
+            # accepts, not a defect.
+            defect = not recovering and missing > KeepOut.resolution
             return self._result(
                 best.u,
                 u_c,
                 t0,
                 recovering,
                 active=True,
-                status="solver_failed",
-                slack=shortfall(best.u),
+                status="solver_failed" if defect else "feasible",
+                slack=missing,
                 fallback_level=2,
             )
         lo, hi = 0.0, top
@@ -653,6 +666,33 @@ class CbfFilter(_HeldCommandFilter):
             else:
                 lo = mid
         return self._result(best.u, u_c, t0, recovering, active=True)
+
+    def _proof(self, found: Projection, used: Rows) -> InfeasibilityProof | None:
+        """The Farkas certificate of `project` as a proof on the rows it names, in m/s^2.
+
+        The rows are already in SI (normals per m/s^2, right-hand sides in m/s^2), and the
+        certificate's leading entries are the multipliers of those rows as given. The proof keeps
+        the rows `project` names as conflicting; when dropping the others' negligible multipliers
+        breaks the margin, it keeps every row.
+        """
+        if found.certificate is None:
+            return None
+        lam = np.asarray(found.certificate, dtype=float)[: len(used.b)]
+        keep = np.array([name in found.conflicting for name in used.names], dtype=bool)
+        for mask in (keep, np.ones(len(used.b), dtype=bool)):
+            if not mask.any():
+                continue
+            proof = InfeasibilityProof(
+                normals=used.a[mask],
+                bounds=used.b[mask],
+                multipliers=lam[mask],
+                layout=self._actuator.layout,
+                a_max=self._actuator.a_max,
+                names=tuple(np.array(used.names, dtype=object)[mask]),
+            )
+            if proof.verify():
+                return proof
+        return None
 
     def _support(self, w: np.ndarray) -> np.ndarray:
         """The command in the thrust limit that maximizes w . u, m/s^2."""
@@ -673,6 +713,7 @@ class CbfFilter(_HeldCommandFilter):
         slack: float = 0.0,
         conflicting: tuple[str, ...] = (),
         fallback_level: int = 0,
+        proof: InfeasibilityProof | None = None,
     ) -> FilterResult:
         u = self._onto_limit(u)
         return FilterResult(
@@ -685,6 +726,7 @@ class CbfFilter(_HeldCommandFilter):
             active=active,
             recovering=recovering,
             fallback_level=fallback_level,
+            proof=proof,
         )
 
 
