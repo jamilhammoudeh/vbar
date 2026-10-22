@@ -60,33 +60,33 @@ power figures need real filters and are not given.
 - Validity: not yet measured.
 - Changelog: v1, first version.
 
-## F3 safety_dv_cost (v1)
-- Definition: per seed, E1 with the filter minus E1 without; reported as the interquartile mean with the per-seed values.
+## F3 safety_dv_cost (v2)
+- Definition: per seed, E1 with the filter minus E1 without, from a pair of runs with the same episode seed, agent seed and scenario (`record_pair`); reported as the interquartile mean with the per-seed values.
 - Summary: interquartile mean across episodes.
 - Why it matters: the fuel price of safety.
-- Known-answer tests: equals the trimmed mean of per-seed differences over 5 seeds in any order of the runs; unpaired runs are rejected.
+- Known-answer tests: equals the trimmed mean of per-seed differences over 5 seeds in any order of the runs; unpaired runs, and pairs whose agent seeds or scenarios differ, are rejected; 0.6 and 0 m/s on two scripted pairs (a filter that replaces a zero command at the hold point with full radial thrust for three 10 s steps, and one that never acts), interquartile mean 0.3 m/s.
 - Convergence: inherits E1's.
 - Invariance: run order.
 - Mutation detection: a filter that wastes fuel raises it.
-- Anti-gaming: pairing by seed removes start-state luck.
+- Anti-gaming: pairing by seed removes start-state luck; both runs go through the same filter wrapper (the off run with the pass-through filter), each with a new agent object, in an order drawn at random, so the agent sees the same inputs in both runs until the first intervention.
 - Reproducibility: 1e-9 relative.
 - Power: not given.
 - Validity: not yet measured.
-- Changelog: v1, first version.
+- Changelog: v1, first version. v2, pairs must share the agent seed and the scenario as well as the episode seed.
 
-## F4 filter_dependence (v1)
-- Definition: success rate with the filter minus without, paired by seed.
+## F4 filter_dependence (v2)
+- Definition: success rate with the filter minus without, from pairs with the same episode seed, agent seed and scenario.
 - Summary: not summarised across episodes (a label, a record or already an aggregate).
 - Why it matters: how much of an agent's success the filter supplies.
-- Known-answer tests: within [-1, 1] on the paired PD runs.
+- Known-answer tests: within [-1, 1] on the paired PD runs; -0.5 on the two scripted pairs of F3, where the filtered run of one leaves the capture speed.
 - Convergence: inherits M1's.
 - Invariance: run order.
 - Mutation detection: not exercised (the pass-through cannot change success).
-- Anti-gaming: paired by seed.
+- Anti-gaming: as F3.
 - Reproducibility: exact.
 - Power: not given.
 - Validity: not yet measured.
-- Changelog: v1, first version.
+- Changelog: v1, first version. v2, pairs must share the agent seed and the scenario as well as the episode seed.
 
 ## F5 infeasible_steps (v1)
 - Definition: decisions outside the commit zone with status infeasible_certified.
@@ -170,6 +170,20 @@ power figures need real filters and are not given.
 - Reproducibility: exact (ratio of counts).
 - Power: not given.
 - Validity: not yet measured.
+- Changelog: v1, first version.
+
+## F8p unnecessary_intervention_rate_paired (v1)
+- Definition: over pairs of runs with the filter on and off (same episode seed, agent seed and scenario), the share of the on runs' active decisions made in episodes whose off run violated no hard constraint, judged clean only when the certified in-step lower bound of every hard constraint stays at or above minus its resolution over the whole off run (a dip the refinement missed counts as a violation), soft ones ignored; per seed 1, 0, or NaN without an active decision.
+- Summary: not summarised across episodes (a label, a record or already an aggregate).
+- Why it matters: F8 judges each command alone and only against the collision sphere; the off run shows what the agent would really have done, over the whole episode and every hard constraint.
+- Known-answer tests: 1 when the off run breaks only a soft speed limit; 0 when the same limit is hard; 0.4 for 4 active decisions in a clean pair and 6 in a broken one; pairs with different agent seeds or scenarios are rejected.
+- Convergence: per episode.
+- Invariance: the order of the runs and of the pairs.
+- Mutation detection: not exercised; no shipped filter is scored with it yet.
+- Anti-gaming: judged on the off run's record, not on the filter's claim; the off run goes through the same wrapper with the pass-through filter.
+- Reproducibility: exact (ratio of counts).
+- Power: not given.
+- Validity: a lower bound: when the off run violates, or cannot be certified clean to the resolution, every intervention of the on run counts as needed, although some may not have been.
 - Changelog: v1, first version.
 
 ## F9 reentry_time (v1)

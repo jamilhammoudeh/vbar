@@ -9,6 +9,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from .agents.base import agent_generator
+from .metrics.episode import FilterPair, record_pair
+from .metrics.filter import paired_filter_metrics
 from .safety import FilteredAgent
 
 
@@ -167,3 +169,47 @@ def run_many(env, agent, seeds, agent_seeds=None) -> list[dict]:
     if agent_seeds is None:
         agent_seeds = [None] * len(seeds)
     return [run_episode(env, agent, s, a) for s, a in zip(seeds, agent_seeds, strict=True)]
+
+
+def run_pairs(
+    env, make_agent, safety_filter, seeds=None, agent_seeds=None, count: int | None = None
+) -> tuple[list[FilterPair], dict]:
+    """Fly each seed with the filter on and off and score the pairs.
+
+    Parameters
+    ----------
+    env : BaseEnv
+        The scenario, built with ``training=False``.
+    make_agent : callable
+        Returns a new agent on each call; each run gets its own.
+    safety_filter : SafetyFilter
+        The filter of the on runs.
+    seeds, agent_seeds : sequence of int, optional
+        One episode seed and one agent seed per pair; drawn (128 bits) when not given.
+    count : int, optional
+        The number of pairs when `seeds` is not given.
+
+    Returns
+    -------
+    list of FilterPair
+        The pairs in seed order.
+    dict
+        `vbar.metrics.paired_filter_metrics` over them: F3, F4 and F8p.
+
+    Raises
+    ------
+    ValueError
+        If neither `seeds` nor `count` is given, or a pair is refused by `record_pair`.
+    """
+    if seeds is None:
+        if count is None:
+            raise ValueError("give seeds or count")
+        seeds = [None] * int(count)
+    seeds = list(seeds)
+    if agent_seeds is None:
+        agent_seeds = [None] * len(seeds)
+    pairs = [
+        record_pair(env, make_agent, safety_filter, seed, agent_seed)
+        for seed, agent_seed in zip(seeds, agent_seeds, strict=True)
+    ]
+    return pairs, paired_filter_metrics([p.on for p in pairs], [p.off for p in pairs])

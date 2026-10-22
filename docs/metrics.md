@@ -325,13 +325,14 @@ filter defect counted apart. Inside the commit zone (`commit_radius`) the filter
 | F1c | `clip_rate` | fraction | decisions whose action changed but whose flown acceleration did not: clipping to the thrust limit only |
 | F2 | `intervention_size` | m/s^2 | mean of $\lvert\mathbf a(\mathbf u_{\text{filtered}}) - \mathbf a(\mathbf u)\rvert_2$ over decisions with an active row, $\mathbf a$ the acceleration flown at the initial mass after the thrust limit |
 | F2n | `intervention_size_normalized` | fraction | F2 over the widest change the actuator allows, $2\sqrt3\,a_{\max}$ for box limits and $2a_{\max}$ for a ball, in [0, 1] |
-| F3 | `safety_dv_cost` | m/s | paired by seed: E1 with the filter minus E1 without; interquartile mean, with the per-seed values in `safety_dv_cost_by_seed` |
-| F4 | `filter_dependence` | difference of rates | paired by seed: success rate with the filter minus without |
+| F3 | `safety_dv_cost` | m/s | paired runs (same episode seed, agent seed and scenario): E1 with the filter minus E1 without; interquartile mean, with the per-seed values in `safety_dv_cost_by_seed` (v2) |
+| F4 | `filter_dependence` | difference of rates | paired runs: success rate with the filter minus without (v2) |
 | F5 | `infeasible_steps` | count | decisions outside the commit zone with status `infeasible_certified` |
 | F5b | `solver_failures` | count | decisions outside the commit zone with status `solver_failed` |
 | F6, F6p | `filter_compute_median`, `filter_compute_p95` | s | median and 95th percentile of the filter's compute time, measured around the call (v2) |
 | F7 | `filter_conservatism` | fraction | share of a declared region's viable states (a reference set) that the filter's safe set leaves out; from `filter_conservatism`, not per episode |
 | F8 | `unnecessary_intervention_rate` | fraction | share of active decisions whose own command, held for the step then left to drift over the drift horizon, stays clear of the collision radius; only the collision sphere is judged, so an intervention for the cone, a speed law or the plume counts as unnecessary |
+| F8p | `unnecessary_intervention_rate_paired` | fraction | over paired runs, the share of the filtered runs' active decisions made in episodes whose unfiltered run violated no hard constraint; a lower bound, since an unfiltered violation counts every intervention of that episode as needed |
 | F9 | `reentry_time` | s | mean length of the stretches where the filter reported `recovering`, infinite if the episode ends inside one |
 | F10 | `stall_time` | s | time with an active row while the chaser moves slower than `stall_speed` (0.01 m/s, ours), each decision counting the length of its step, which a contact can cut short |
 | F5f, F5l | `fallback_count`, `fallback_level_max` | count, level | decisions answered by a fallback (`fallback_level` > 0), and the deepest level used |
@@ -340,9 +341,62 @@ filter defect counted apart. Inside the commit zone (`commit_radius`) the filter
 `filter_metrics(episode, settings)` gives F1, F1c, F2, F2n, F5, F5b and F6, and
 `filter_behaviour(episode, settings)` F8 to F10 and the fallback and certificate columns, from the
 optional `FilterResult` fields (NaN where the filter does not report them);
-`paired_filter_metrics(on, off)` gives F3 and F4 from runs over the same seeds and rejects runs that
-do not pair. `iqm(values)` is the interquartile mean, the mean of the middle half (Agarwal et al.,
-"Deep Reinforcement Learning at the Edge of the Statistical Precipice", 2021).
+`paired_filter_metrics(on, off)` gives F3, F4 and F8p from runs over the same seeds and rejects
+runs that do not pair, or whose agent seeds or scenarios differ. `iqm(values)` is the
+interquartile mean, the mean of the middle half (Agarwal et al., "Deep Reinforcement Learning at
+the Edge of the Statistical Precipice", 2021).
+
+### Paired runs
+
+F3, F4 and F8p compare the same episode with the filter on and off. `record_pair(env, make_agent,
+safety_filter, seed=None, agent_seed=None)` (in `vbar.metrics`) flies it twice and returns a
+`FilterPair(on, off, filter_name, first)`:
+
+- Both runs use the same episode seed and agent seed, drawn with 128 bits when not given and
+  refused when equal, so they start from the same state with the same navigation noise and the
+  same agent stream.
+- `make_agent` is called once per run and must return a new object each time, so nothing the
+  agent remembers from one run reaches the other; a factory that returns the same object twice
+  is refused.
+- Both runs go through `FilteredAgent`, the unfiltered one with `PassThroughFilter`, so the agent
+  is called the same way in both and every record carries a filter result.
+- The order of the two runs is drawn at random and recorded in `first`. Until the filter first
+  changes a command, the agent receives the same inputs in both runs, so neither its inputs nor
+  the order tells it which run is filtered. An agent that keeps state outside the process, such
+  as a remote service, can still tell the runs apart after the first intervention.
+
+`vbar.runner.run_pairs(env, make_agent, safety_filter, seeds=None, agent_seeds=None, count=None)`
+flies one pair per seed and returns the pairs with `paired_filter_metrics` over them.
+
+F8p judges the unfiltered run against every hard constraint by its certified in-step minima, as M1
+does, and ignores soft ones. It complements F8, which judges each active decision's own command
+against the collision sphere alone.
+
+```python
+from vbar import ApproachConfig, ApproachEnv
+from vbar.agents import PDAgent
+from vbar.runner import run_pairs
+from vbar.safety.cbf import CbfFilter
+
+env = ApproachEnv(ApproachConfig(max_steps=30))
+ecbf = CbfFilter(poles=(0.05, 0.05), v_cap=0.1, gamma=0.02)
+pairs, m = run_pairs(env, PDAgent, ecbf, count=3)  # 128-bit seeds drawn and recorded
+print(len(pairs), {p.first for p in pairs} <= {"on", "off"})  # 3 True
+print(pairs[0].on.seed == pairs[0].off.seed, pairs[0].filter_name)  # True cbf-ecbf-p0.05
+print(sorted(k for k in m if not k.endswith("by_seed")))
+# ['filter_dependence', 'safety_dv_cost', 'unnecessary_intervention_rate_paired']
+```
+
+The tests in `tests/test_pairs.py` check that both runs share the start, the first observation and
+both seeds; that the unfiltered run equals a plain recorded episode exactly and a pass-through pair
+gives two identical episodes; that a deterministic agent's commands agree up to and including the
+first intervention; that one agent object for both runs, a training environment and equal seeds
+are refused; F3 and F4 on two scripted pairs (0.6 and 0 m/s, interquartile mean 0.3, success rates
+0.5 and 1); and, over 64 pairs, that an agent recording everything it receives sees the same in both
+runs, both orders occur, and assuming the first run is filtered is right between 12 and 52 times.
+`tests/test_metrics_filter.py` checks F8p: 1 when the unfiltered run breaks only a soft speed limit,
+0 when the limit is hard, 0.4 pooled over a clean pair with 4 active decisions and a broken one with
+6, and the refusal of pairs with different agent seeds or scenarios.
 
 ## Agent (A1 to A9)
 

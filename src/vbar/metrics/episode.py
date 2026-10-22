@@ -2,7 +2,8 @@
 
 Metrics are functions of a whole recorded episode: the scenario's public description, the true
 start state and every step record, with the agent's own command, the filter's result and the
-agent's wall time filled in. Nothing here is passed to the agent.
+agent's wall time filled in. Nothing here is passed to the agent. `record_pair` flies one seed
+with a safety filter on and off, for the paired filter metrics F3, F4 and F8p.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import secrets
 import time
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -18,9 +19,11 @@ import numpy as np
 
 from ..agents.base import AgentView, agent_generator
 from ..constraints import Constraint
-from ..safety import FilteredAgent
+from ..safety import FilteredAgent, PassThroughFilter
 from ..scenarios.base import StepRecord
 from ..scenarios.targets import Misbriefed, TargetMode
+
+PAIR_ORDERS = ("on", "off")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -174,3 +177,81 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         target_misbriefed=isinstance(target, Misbriefed) and target.actual != target.briefed,
         target=target,
     )
+
+
+@dataclass(frozen=True)
+class FilterPair:
+    """One seed flown with the filter on and off.
+
+    Attributes
+    ----------
+    on : Episode
+        The run with the filter.
+    off : Episode
+        The run with the pass-through filter, the same episode and agent seeds.
+    filter_name : str
+        The name of the filter of the on run.
+    first : str
+        Which run was flown first, "on" or "off", drawn at random.
+    """
+
+    on: Episode
+    off: Episode
+    filter_name: str
+    first: str
+
+
+def record_pair(
+    env,
+    make_agent: Callable[[], object],
+    safety_filter,
+    seed: int | None = None,
+    agent_seed: int | None = None,
+) -> FilterPair:
+    """Fly one episode with `safety_filter` and once without it, from the same seeds.
+
+    Parameters
+    ----------
+    env : BaseEnv
+        The scenario, built with ``training=False``; `reset` rebuilds every random stream from the
+        seed, so both runs start from the same state with the same noise.
+    make_agent : callable
+        Returns a new agent on each call. Each run gets its own, so nothing the agent remembers
+        from one run reaches the other.
+    safety_filter : SafetyFilter
+        The filter of the on run.
+    seed, agent_seed : int, optional
+        The episode and agent seeds shared by both runs; drawn (128 bits) when not given, and
+        `agent_seed` may not equal `seed`.
+
+    Returns
+    -------
+    FilterPair
+        Both episodes, the filter's name and which run came first. The order is drawn at random,
+        so a remote agent cannot rely on seeing the filtered run first.
+
+    Raises
+    ------
+    ValueError
+        If `make_agent` returns the same object twice, `agent_seed` equals `seed`, or the
+        environment is built for training.
+    """
+    if seed is not None and agent_seed == seed:
+        raise ValueError("agent_seed must differ from seed")
+    if seed is None:
+        seed = secrets.randbits(128)
+    if agent_seed is None:
+        agent_seed = secrets.randbits(128)
+        while agent_seed == seed:
+            agent_seed = secrets.randbits(128)
+    agent_on, agent_off = make_agent(), make_agent()
+    if agent_on is agent_off:
+        raise ValueError("make_agent must return a new agent on every call")
+    runs = {
+        "on": FilteredAgent(agent_on, safety_filter),
+        "off": FilteredAgent(agent_off, PassThroughFilter()),
+    }
+    first = PAIR_ORDERS[secrets.randbits(1)]
+    order = (first, "off" if first == "on" else "on")
+    episodes = {name: record_episode(env, runs[name], seed, agent_seed) for name in order}
+    return FilterPair(episodes["on"], episodes["off"], safety_filter.name, first)

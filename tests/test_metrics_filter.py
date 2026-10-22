@@ -1,13 +1,16 @@
+import dataclasses
 import math
 import time
 from dataclasses import replace
 
 import numpy as np
 import pytest
-from metric_cases import ConstantAgent, episode, pd_episode
+from metric_cases import ConstantAgent, GuardedApproach, episode, pd_episode
 from scipy.stats import trim_mean
 
+from vbar import ApproachConfig
 from vbar.agents import PDAgent
+from vbar.constraints import SegmentMinimum, SpeedLimit
 from vbar.metrics import (
     MetricSettings,
     escape_arc,
@@ -422,3 +425,158 @@ def test_compute_time_metric_reads_the_measured_time():
     assert filter_metrics(slow)["filter_compute_median"] >= 0.01
     boastful = episode(FilteredAgent(PDAgent(), ClockedFilter(0.0, 100.0)), max_steps=5)
     assert filter_metrics(boastful)["filter_compute_median"] < 1.0
+
+
+def record_pair(*args, **kwargs):
+    # Imported here so the rest of this file runs while pair recording is being built.
+    from vbar.metrics.episode import record_pair as recorded
+
+    return recorded(*args, **kwargs)
+
+
+PAIR_SEED = 0x9E3779B97F4A7C15F39CC0605CEDC834
+PAIR_AGENT_SEED = 0x6A09E667F3BCC908B2FB1366EA957D3E
+
+
+class HalvingFilter:
+    """Halves every command and reports each decision as an active intervention."""
+
+    name = "halving"
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        return FilterResult(0.5 * np.asarray(action, dtype=float), True, active=True)
+
+
+def speeding_pair(soft, seed=PAIR_SEED, steps=4):
+    """A coast at 0.2 m/s 300 m behind the target, over a 0.01 m/s speed limit, with a thrust
+    the filter halves; the keep-out sphere stays far away."""
+    env = GuardedApproach(
+        ApproachConfig(start_state=(0.0, -300.0, 0.0, 0.0, 0.2, 0.0), max_steps=steps),
+        extra=(SpeedLimit(0.01, 0.0),),
+        soft=("speed_limit",) if soft else (),
+    )
+    return record_pair(
+        env, lambda: ConstantAgent([0.0, 0.1, 0.0]), HalvingFilter(), seed=seed,
+        agent_seed=seed + 1,
+    )  # fmt: skip
+
+
+def test_paired_unnecessary_interventions_ignore_a_soft_violation():
+    # The unfiltered run breaks only the soft speed limit, so every intervention was unnecessary.
+    pair = speeding_pair(soft=True)
+    m = paired_filter_metrics([pair.on], [pair.off])
+    assert m["unnecessary_intervention_rate_paired"] == 1.0
+
+
+def test_paired_unnecessary_interventions_are_none_when_the_unfiltered_run_breaks_a_hard_one():
+    pair = speeding_pair(soft=False)
+    m = paired_filter_metrics([pair.on], [pair.off])
+    assert m["unnecessary_intervention_rate_paired"] == 0.0
+
+
+def test_paired_unnecessary_interventions_pool_the_active_decisions_of_every_pair():
+    # 4 active decisions in a clean pair and 6 in a pair whose unfiltered run breaks a hard
+    # constraint: a lower bound of 4 / 10, the second pair's decisions all counted as needed.
+    clean = speeding_pair(soft=True, seed=PAIR_SEED, steps=4)
+    broken = speeding_pair(soft=False, seed=PAIR_SEED + 2, steps=6)
+    m = paired_filter_metrics([clean.on, broken.on], [clean.off, broken.off])
+    assert m["unnecessary_intervention_rate_paired"] == pytest.approx(0.4)
+
+
+def test_paired_metrics_refuse_a_pair_with_different_agent_seeds():
+    first = speeding_pair(soft=True)
+    env = GuardedApproach(
+        ApproachConfig(start_state=(0.0, -300.0, 0.0, 0.0, 0.2, 0.0), max_steps=4),
+        extra=(SpeedLimit(0.01, 0.0),),
+        soft=("speed_limit",),
+    )
+    other = record_pair(
+        env, lambda: ConstantAgent([0.0, 0.1, 0.0]), HalvingFilter(), seed=PAIR_SEED,
+        agent_seed=PAIR_SEED + 7,
+    )  # fmt: skip
+    with pytest.raises(ValueError, match="agent"):
+        paired_filter_metrics([first.on], [other.off])
+
+
+def test_paired_metrics_refuse_a_pair_from_different_scenarios():
+    first = speeding_pair(soft=True, steps=4)
+    longer = speeding_pair(soft=True, steps=5)
+    with pytest.raises(ValueError, match="scenario|view"):
+        paired_filter_metrics([first.on], [longer.off])
+
+
+class ReplacingFilter:
+    """Replaces every command with `command` and reports an active intervention."""
+
+    name = "replacing"
+
+    def __init__(self, command):
+        self.command = np.asarray(command, dtype=float)
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        return FilterResult(self.command.copy(), True, active=True)
+
+
+def limited_pair(safety_filter, steps):
+    """A coast at 0.2 m/s 300 m behind the target under a hard 0.25 m/s speed limit, the agent
+    adding 0.02 m/s per step along the motion; the keep-out sphere stays far away."""
+    env = GuardedApproach(
+        ApproachConfig(start_state=(0.0, -300.0, 0.0, 0.0, 0.2, 0.0), max_steps=steps),
+        extra=(SpeedLimit(0.25, 0.0),),
+    )
+    return record_pair(
+        env, lambda: ConstantAgent([0.0, 0.1, 0.0]), safety_filter, seed=PAIR_SEED,
+        agent_seed=PAIR_SEED + 1,
+    )  # fmt: skip
+
+
+def test_paired_rate_is_zero_when_only_the_unfiltered_run_breaks_a_hard_constraint():
+    # Unfiltered: 0.2 + 4 x 0.02 = 0.28 m/s, over the limit. Filtered at half the command:
+    # 0.24 m/s, inside it. The interventions were needed.
+    pair = limited_pair(HalvingFilter(), steps=4)
+    assert min(r.segment.minima["speed_limit"].lower_bound for r in pair.on.records) > 0.0
+    m = paired_filter_metrics([pair.on], [pair.off])
+    assert m["unnecessary_intervention_rate_paired"] == 0.0
+
+
+def test_paired_rate_is_one_when_only_the_filtered_run_breaks_a_hard_constraint():
+    # Unfiltered: 0.24 m/s after 2 steps, inside the limit. The filter's full burn reaches
+    # 0.6 m/s; its interventions were unnecessary, whatever they did to its own run.
+    pair = limited_pair(ReplacingFilter([0.0, 1.0, 0.0]), steps=2)
+    assert min(r.segment.minima["speed_limit"].margin for r in pair.on.records) < 0.0
+    m = paired_filter_metrics([pair.on], [pair.off])
+    assert m["unnecessary_intervention_rate_paired"] == 1.0
+
+
+def with_lower_bound(ep, name, bound):
+    """A copy of the episode whose every step reports `bound` as the certified bound of `name`."""
+    records = []
+    for rec in ep.records:
+        minima = dict(rec.segment.minima)
+        found = minima[name]
+        minima[name] = SegmentMinimum(found.t, found.margin, bound)
+        records.append(
+            dataclasses.replace(rec, segment=dataclasses.replace(rec.segment, minima=minima))
+        )
+    return dataclasses.replace(ep, records=tuple(records))
+
+
+def test_an_unfiltered_run_counts_as_clean_only_on_its_certified_bound():
+    # The refined minima stay inside the limit, but a certified bound 1 m/s below it could hide
+    # a dip, so the unfiltered run is not shown clean and the interventions are not counted
+    # as unnecessary: the paired rate stays a lower bound.
+    pair = limited_pair(ReplacingFilter([0.0, 1.0, 0.0]), steps=2)
+    unproven = with_lower_bound(pair.off, "speed_limit", -1.0)
+    assert min(r.segment.minima["speed_limit"].margin for r in unproven.records) > 0.0
+    m = paired_filter_metrics([pair.on], [unproven])
+    assert m["unnecessary_intervention_rate_paired"] == 0.0
+    # Just at minus the resolution the run still counts as clean.
+    edge = with_lower_bound(pair.off, "speed_limit", -SpeedLimit.resolution)
+    m = paired_filter_metrics([pair.on], [edge])
+    assert m["unnecessary_intervention_rate_paired"] == 1.0

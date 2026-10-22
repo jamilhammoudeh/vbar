@@ -11,7 +11,7 @@ from .agent import (
 )
 from .composite import WEIGHTS, composite_metrics, composite_score, infractions, weight_sensitivity
 from .efficiency import FuelBounds, Oracle, efficiency_metrics, optimality_gap
-from .episode import Episode, record_episode
+from .episode import Episode, FilterPair, record_episode, record_pair
 from .evaluate import evaluate
 from .filter import (
     filter_behaviour,
@@ -42,6 +42,7 @@ __all__ = [
     "LABELS",
     "Contact",
     "Episode",
+    "FilterPair",
     "FuelBounds",
     "MetricInfo",
     "MetricSettings",
@@ -84,6 +85,7 @@ __all__ = [
     "plume_metrics",
     "plume_normalization",
     "record_episode",
+    "record_pair",
     "safety_metrics",
     "solver_metrics",
     "success",

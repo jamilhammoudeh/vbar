@@ -52,6 +52,23 @@ def _active(ep: Episode, rec) -> bool:
     return bool(rec.filter_result.active) or _flown_change(ep, rec) > _MOVED * ep.view.max_accel
 
 
+def _certified_clean(ep: Episode) -> bool:
+    """Whether every hard constraint provably held to its resolution over the whole episode.
+
+    Judged on the certified in-step lower bounds, not the refined minima, so a dip the refinement
+    missed counts as a violation and the paired unnecessary-intervention rate stays a lower bound.
+    """
+    hard = [c for c in ep.constraints if c.name in ep.hard]
+    if any(float(c.margin(ep.start, 0.0)) < 0.0 for c in hard):
+        return False
+    return all(
+        rec.segment.minima[c.name].lower_bound >= -c.resolution
+        for rec in ep.records
+        for c in hard
+        if c.name in rec.segment.minima
+    )
+
+
 def _clip_only(ep: Episode, rec) -> bool:
     """The action changed but the actuator flies the same acceleration: clipping only."""
     moved = float(np.max(np.abs(rec.filtered - rec.command))) > _MOVED * action_scale(ep.view)
@@ -218,19 +235,60 @@ def iqm(values: ArrayLike) -> float:
 
 
 def paired_filter_metrics(on: Sequence[Episode], off: Sequence[Episode]) -> dict:
-    """F3 and F4 from the same seeds flown with the filter on and off.
+    """F3, F4 and F8p from the same seeds flown with the filter on and off.
 
-    F3 is the per-seed E1 difference (filter on minus off) and its interquartile mean; F4 the
-    success rate with the filter minus without.
+    Parameters
+    ----------
+    on, off : sequence of Episode
+        The runs with the filter and with the pass-through filter, as `record_pair` gives them,
+        in any order.
+
+    Returns
+    -------
+    dict
+        F3 ``safety_dv_cost``, the interquartile mean of the per-seed E1 difference (filter on
+        minus off, m/s), with ``safety_dv_cost_by_seed``; F4 ``filter_dependence``, the success
+        rate with the filter minus without; F8p ``unnecessary_intervention_rate_paired``, the share
+        of the on runs' active decisions made in episodes whose off run violated no hard
+        constraint, with ``unnecessary_intervention_rate_paired_by_seed`` (1, 0, or NaN for a run
+        with no active decision). F8p is NaN when no decision was active.
+
+    Raises
+    ------
+    ValueError
+        If the runs do not cover the same distinct seeds, or a pair differs in its agent seed or
+        its scenario.
+
+    Notes
+    -----
+    F8p judges each episode as a whole: when the off run stayed clear of every hard constraint,
+    every intervention of the on run was unnecessary; when it did not, all of them count as
+    needed, although some may not have been. F8p is therefore a lower bound on the share of
+    unnecessary interventions. Unlike F8, it judges every hard constraint, not only the
+    collision sphere, and needs the filter-off run.
     """
     by_seed = {ep.seed: ep for ep in off}
     if len(by_seed) != len(off) or {ep.seed for ep in on} != set(by_seed) or len(on) != len(off):
         raise ValueError("filter on and off runs must cover the same distinct seeds")
     pairs = [(ep, by_seed[ep.seed]) for ep in on]
+    for a, b in pairs:
+        if a.agent_seed != b.agent_seed:
+            raise ValueError(f"the runs of seed {a.seed} have different agent seeds")
+        if a.view != b.view:
+            raise ValueError(f"the runs of seed {a.seed} are of different scenarios")
     costs = {a.seed: delta_v(a) - delta_v(b) for a, b in pairs}
+    settings = MetricSettings()
+    acting = {a.seed: sum(_active(a, rec) for rec, _ in _decisions(a, settings)) for a, _ in pairs}
+    clean = {b.seed: _certified_clean(b) for _, b in pairs}
+    unneeded = {seed: (float(clean[seed]) if acting[seed] else math.nan) for seed in acting}
+    total = sum(acting.values())
     return {
         "safety_dv_cost": iqm(list(costs.values())),
         "safety_dv_cost_by_seed": costs,
         "filter_dependence": float(np.mean([success(a) for a, _ in pairs]))
         - float(np.mean([success(b) for _, b in pairs])),
+        "unnecessary_intervention_rate_paired": (
+            sum(acting[seed] for seed in acting if clean[seed]) / total if total else math.nan
+        ),
+        "unnecessary_intervention_rate_paired_by_seed": unneeded,
     }
