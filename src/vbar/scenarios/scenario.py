@@ -9,6 +9,7 @@ left out. Named sensors keep their track names (`nav1`, `nav2`).
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -165,6 +166,30 @@ def dynamics_token(cfg: EnvConfig) -> str:
     return cfg.dynamics
 
 
+def spec_fingerprint(spec: ScenarioSpec) -> str:
+    """A short hash of everything in a spec that changes what an episode flies.
+
+    Parameters
+    ----------
+    spec : ScenarioSpec
+        The spec, with its applied variants.
+
+    Returns
+    -------
+    str
+        The first 12 hex digits of a SHA-256 over the kind, configuration labels, parameters,
+        dispersions, target mode, cost and version.
+    """
+    kind = getattr(spec.entry_point, "__qualname__", spec.entry_point)
+    config = tuple(sorted((key, label(value)) for key, value in spec.config.items()))
+    parameters = tuple(sorted((key, repr(value)) for key, value in spec.parameters.items()))
+    dispersions = tuple((key, repr(value)) for key, value in spec.dispersions.items())
+    content = repr(
+        (kind, config, parameters, dispersions, repr(spec.target), spec.cost, spec.version)
+    )
+    return hashlib.sha256(content.encode()).hexdigest()[:12]
+
+
 def scenario_id(spec: ScenarioSpec, cfg: EnvConfig) -> str:
     """The identifier of the environment `spec` builds with `cfg`.
 
@@ -179,8 +204,19 @@ def scenario_id(spec: ScenarioSpec, cfg: EnvConfig) -> str:
     -------
     str
         `vbar:{scenario}:{dynamics}:{actuator}:{cost}:v{n}`, the applied variants and the
-        configuration tokens, joined by colons.
+        configuration tokens, joined by colons; a spec that differs from the registered spec of
+        its name and variants adds `spec=<fingerprint>`, so a changed spec never borrows the
+        catalogue's identifier.
     """
+    from .registry import SCENARIOS
+
+    known = SCENARIOS.get(spec.name)
+    try:
+        registered = None if known is None else known.variant(*spec.applied)
+    except KeyError:
+        registered = None
+    fingerprint = spec_fingerprint(spec)
+    changed = registered is None or spec_fingerprint(registered) != fingerprint
     declared = EnvConfig(**spec.config)
     parts = [
         "vbar",
@@ -192,6 +228,8 @@ def scenario_id(spec: ScenarioSpec, cfg: EnvConfig) -> str:
         *spec.applied,
         *config_tokens(cfg, declared),
     ]
+    if changed:
+        parts.append(f"spec={fingerprint}")
     return ":".join(parts)
 
 
@@ -337,4 +375,5 @@ __all__ = [
     "dynamics_token",
     "label",
     "scenario_id",
+    "spec_fingerprint",
 ]

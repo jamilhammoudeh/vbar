@@ -54,9 +54,13 @@ The dynamics field carries the inclination on the J2 rung, the only rung whose r
 depends on it. Named sensors keep their track names (`nav1`, `nav2`); others are written with
 their parameters. The reward and the training flag change no trajectory and are left out. A
 custom sensor without a `label` attribute appears by its type name only, so give one when its
-parameters matter. `make(name_or_id, **config)` builds an environment from a name, a name with
-variant suffixes (`"docking:axis"`) or a full identifier; configuration tokens are not rebuilt
-from an identifier, pass the fields to `make` instead.
+parameters matter. A spec that differs from the registered spec of its name and variants (a
+spec rebuilt with `dataclasses.replace`, or one never registered) adds a `spec=` token with the
+first 12 hex digits of a hash over its kind, configuration, parameters, dispersions, target mode,
+cost and version, so a changed spec never borrows the catalogue's identifier.
+`make(name_or_id, **config)` builds an environment from a name, a name with variant suffixes
+(`"docking:axis"`) or a full identifier; configuration and spec tokens are not rebuilt from an
+identifier, pass the fields to `make` instead.
 
 Importing `vbar` registers every spec and each of its variants with Gymnasium as
 `vbar/<Name>-v<n>` (`vbar/ApproachVbar-v1`, `vbar/ApproachVbarIss-v1`, `vbar/Docking-v2`); all

@@ -128,6 +128,23 @@ def test_every_result_changing_config_field_shows_in_the_identifier():
     assert "range_scaled(" in make("approach-vbar", sensor=RangeScaledNav()).scenario_id
 
 
+def test_a_changed_spec_does_not_borrow_the_catalogue_identifier():
+    from vbar.scenarios import DockingEnv, InertialPointing
+
+    spec = SCENARIOS["docking"]
+    base = make("docking").scenario_id
+    assert DockingEnv(spec).scenario_id == base
+    wider = DockingEnv(replace(spec, parameters={**spec.parameters, "lateral_limit": 0.5}))
+    turning = DockingEnv(replace(spec, target=InertialPointing()))
+    ids = {wider.scenario_id, turning.scenario_id}
+    assert len(ids) == 2 and base not in ids
+    assert all(i.startswith(base + ":spec=") for i in ids)
+    # The fingerprint is a function of the spec, so the same change gives the same identifier.
+    again = DockingEnv(replace(spec, parameters={**spec.parameters, "lateral_limit": 0.5}))
+    assert again.scenario_id == wider.scenario_id
+    assert make("docking:axis").scenario_id == "vbar:docking:cw:box:dv:v2:axis"
+
+
 def test_the_reward_and_the_training_flag_do_not_change_the_identifier():
     from vbar.rewards import Reward
 
