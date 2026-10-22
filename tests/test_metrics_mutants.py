@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 from metric_cases import episode
-from mutants import Mutant
 
 from vbar.agents import PDAgent
+from vbar.agents.mutants import Mutant
 from vbar.metrics import (
     MetricSettings,
     composite_metrics,
@@ -34,7 +34,7 @@ def increasing(values):
     [("position_bias", (2.0, 10.0, 40.0)), ("velocity_bias", (0.01, 0.03, 0.1))],
 )
 def test_navigation_biases_raise_the_terminal_error_with_their_size(kind, levels):
-    eps = [run(PDAgent())] + [run(Mutant(kind, s)) for s in levels]
+    eps = [run(PDAgent())] + [run(Mutant(PDAgent(), kind, s)) for s in levels]
     errors = [mission_metrics(ep)["terminal_pos_error"] for ep in eps]
     scores = [composite_metrics(ep)["composite_score"] for ep in eps]
     assert increasing(errors)
@@ -42,7 +42,7 @@ def test_navigation_biases_raise_the_terminal_error_with_their_size(kind, levels
 
 
 def test_decision_delay_raises_delta_v_with_its_length():
-    dv = [efficiency_metrics(run(Mutant("delay", k)))["delta_v"] for k in (0, 1, 3, 6)]
+    dv = [efficiency_metrics(run(Mutant(PDAgent(), "delay", k)))["delta_v"] for k in (0, 1, 3, 6)]
     assert increasing(dv)
 
 
@@ -50,19 +50,23 @@ def test_dither_raises_delta_v_along_scaled_copies_of_one_noise_law():
     # Zero-mean dither cannot lower expected fuel (Jensen; Boyd and Vandenberghe 3.1.8), and along
     # t v for one fixed v the cost rises with t (exercise 3.10); the levels share one sequence of
     # draws.
-    dv = [efficiency_metrics(run(Mutant("dither", s)))["delta_v"] for s in (0.0, 0.05, 0.15, 0.45)]
+    dv = [
+        efficiency_metrics(run(Mutant(PDAgent(), "dither", s)))["delta_v"]
+        for s in (0.0, 0.05, 0.15, 0.45)
+    ]
     assert increasing(dv)
 
 
 def test_alternating_commands_raise_chatter_with_their_amplitude():
     chatter = [
-        efficiency_metrics(run(Mutant("chatter", s)))["chatter"] for s in (0.0, 0.02, 0.1, 0.4)
+        efficiency_metrics(run(Mutant(PDAgent(), "chatter", s)))["chatter"]
+        for s in (0.0, 0.02, 0.1, 0.4)
     ]
     assert increasing(chatter)
 
 
 def test_a_sign_flip_fails_with_no_progress():
-    flipped = mission_metrics(run(Mutant("sign_flip", 1)))
+    flipped = mission_metrics(run(Mutant(PDAgent(), "sign_flip", 1)))
     assert mission_metrics(run(PDAgent()))["success"]
     assert not flipped["success"] and flipped["progress"] == 0.0
 
