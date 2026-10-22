@@ -216,6 +216,15 @@ def test_a_contact_too_fast_or_off_axis_is_recorded_but_not_a_success():
     # The Clohessy-Wiltshire coupling moves the offset by about 1.5 cm in the 14 s of the coast.
     assert info["contact"] and info["contact_lateral_error_m"] == pytest.approx(0.2, abs=0.02)
     assert not info["success"]
+    # Below the ATV window's 0.05 m/s the latches do not close: on axis at 0.03 m/s.
+    env.reset(seed=0, options={"start_state": (0.0, -2.3, 0.0, 0.0, 0.03, 0.0)})
+    done = False
+    while not done:
+        _, _, done, _, info = env.step(np.zeros(3))
+    assert info["contact"] and info["contact_axial_speed_mps"] == pytest.approx(0.03, abs=1e-3)
+    assert not info["success"] and info["capture_margin"] == pytest.approx(
+        0.03 / 0.05 - 1, abs=0.02
+    )
 
 
 def test_a_crossing_of_the_port_plane_far_from_the_port_is_not_a_contact():
