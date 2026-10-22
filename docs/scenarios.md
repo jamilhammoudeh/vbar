@@ -281,10 +281,15 @@ variants that replace the closing-speed law with one as a soft constraint.
 
 Each scenario was audited with a reference controller (`tests/scenario_references.py`:
 forced-motion waypoint flights, re-solved two-impulse transfers and reference tracking with
-Clohessy-Wiltshire feedforward, built on the observation and the public view alone): it succeeds
-on every seed tried, free drift reaches no scenario's goal even with the constraints removed,
-the same seed repeats the episode and
-the metrics agree with the environment on the run (`tests/test_scenarios.py`). The hold boxes
+Clohessy-Wiltshire feedforward, built on the observation and the public view alone). It
+succeeds on the first three validation seeds of every scenario and variant, the audit that
+`pytest -m slow` runs, and on ten more drawn seeds each in the audit sweep; free drift reaches no
+scenario's goal even with the constraints removed, the same seed repeats the episode and the
+metrics agree with the environment on the run (`tests/test_scenarios.py`). The docking
+reference walks round the sphere of its standoff's radius about the port, so it never crosses a
+corridor's activation sphere off the axis; the inspection reference joins its circle along a
+path that keeps its range; the grapple reference starts its descent only just inside the lead
+angle, so it arrives as the telescope's axis comes round. The hold boxes
 contain the dispersion a reference LQR reaches with raw `:nav1` noise fed back: a stationary
 1-sigma of 0.22 m and 8.2 mm/s per axis at 10 s steps, so 3 sigma per axis is 0.66 m and
 0.025 m/s against the 5 m and 0.05 m/s box, and the 3-sigma norm over three axes 1.13 m and

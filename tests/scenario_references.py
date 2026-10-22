@@ -61,6 +61,16 @@ def around(a, b, radius, step=ARC_STEP):
     return points
 
 
+def toward(u, target, angle):
+    """Unit vector `u` turned toward the unit vector `target` by `angle` (rad)."""
+    k = np.cross(u, target)
+    if np.linalg.norm(k) < 1e-9:
+        # Opposite or equal directions: turn about any axis perpendicular to `u`.
+        k = np.cross(u, [0.0, 0.0, 1.0] if abs(u[2]) < 0.9 else [1.0, 0.0, 0.0])
+    k = k / np.linalg.norm(k)
+    return u * math.cos(angle) + np.cross(k, u) * math.sin(angle)
+
+
 def plan(start, waypoints, clearance):
     """Waypoints with detours on a sphere of 1.3 `clearance` wherever a leg comes closer."""
     out = []
@@ -224,17 +234,18 @@ def circle(radius, rate, theta0, t_end, n, then=None):
 class Dock:
     """Approach the port along its axis at a speed inside the mechanism's window.
 
-    The route goes to a point `standoff` m out on the axis, outside the corridor's activation,
-    then down the axis with speed min(v_max, gain depth), never below the window's middle. The
+    The chaser goes to a point `standoff` m out on the axis, outside the corridor's activation,
+    walking round the sphere of that radius about the port when it starts off the axis, then down
+    the axis at a speed rising from the window's middle by 0.003 per metre of depth. The
     port follows the target mode in the goal. With a lighting window in the goal the final leg
     waits at the standoff until the window is open for the leg's duration.
     """
 
     name = "dock"
 
-    def __init__(self, standoff=60.0, v_max=0.3, gain=0.01, k_v=0.05, clearance=0.0, name="dock"):
+    def __init__(self, standoff=60.0, v_max=0.3, gain=0.01, k_v=0.05, name="dock"):
         self.standoff, self.v_max, self.gain, self.k_v = standoff, v_max, gain, k_v
-        self.clearance, self.name = clearance, name
+        self.name = name
 
     def reset(self, view, rng=None):
         self.n = view.n
@@ -256,8 +267,6 @@ class Dock:
         self.standoff = max(self.standoff, reach + 10.0)
         self.sun0 = goal.get("sun_direction")
         self.orbit_radius = (3.986004418e14 / self.n**2) ** (1.0 / 3.0)
-        self.route = None
-        self.k = 0
         self.leg = False
 
     def geometry(self, t):
@@ -293,32 +302,25 @@ class Dock:
         depth = float(offset @ axis)
         lateral = offset - depth * axis
         if not self.leg:
-            if self.route is None:
-                fixed = self.phase is None
-                self.route = plan(obs, [standoff], self.clearance) if fixed else [standoff]
-            last = self.k == len(self.route) - 1
-            point = standoff if last else self.route[self.k]
+            # Walk round the sphere of the standoff's radius about the port toward the axis, so
+            # the chaser never crosses a corridor's activation sphere off the axis.
+            rel = obs[:3] - port
+            point, v_point = standoff, v_standoff
+            angle = math.acos(float(np.clip(rel @ axis / np.linalg.norm(rel), -1.0, 1.0)))
+            if angle > 0.15:
+                u = toward(rel / np.linalg.norm(rel), axis, min(angle, 0.35))
+                point = port + self.standoff * u
+                v_point = np.cross(spin, point)
             d = point - obs[:3]
             dist = float(np.linalg.norm(d))
-            if dist < 3.0 and not last:
-                self.k += 1
-                last = self.k == len(self.route) - 1
-                point = standoff if last else self.route[self.k]
-                d = point - obs[:3]
-                dist = float(np.linalg.norm(d))
-            if (
-                last
-                and dist < 5.0
-                and self.window_open(t, self.standoff / self.v_contact * 0.5 + 100.0)
-            ):
+            near = float(np.linalg.norm(standoff - obs[:3]))
+            if near < 5.0 and self.window_open(t, self.standoff / self.v_contact * 0.5 + 100.0):
                 self.leg = True
-            elif last and dist < 20.0:
-                a += -(0.02**2) * (obs[:3] - point) - 2 * 0.02 * (obs[3:6] - v_standoff)
+            elif near < 20.0:
+                a += -(0.02**2) * (obs[:3] - standoff) - 2 * 0.02 * (obs[3:6] - v_standoff)
                 return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
             else:
-                v_des = (v_standoff if last else 0.0) + min(self.v_max, self.gain * dist) * d / max(
-                    dist, 1e-9
-                )
+                v_des = v_point + min(self.v_max, self.gain * dist) * d / max(dist, 1e-9)
                 a += self.k_v * (v_des - obs[3:6])
                 return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
         # Inside the hard speed limit v0 + 4 n rho, whose slope is about 0.0044 1/s.
@@ -358,7 +360,10 @@ class Grapple:
         t = info["time_s"]
         a = -cw_terms(obs, self.n)
         waiting = float(np.linalg.norm(obs[:3] - self.wait)) < 3.0
-        if not self.descending and waiting and 0.0 < self.axis_angle(t) < self.lead:
+        # The descent takes about as long as the axis needs to turn through the lead angle, so
+        # it starts only just inside the lead; a later start would arrive after the axis passed.
+        band = math.radians(4.0)
+        if not self.descending and waiting and self.lead - band < self.axis_angle(t) < self.lead:
             self.descending = True
         if not self.descending:
             return self.inner.act(obs, info)
@@ -373,22 +378,52 @@ class Grapple:
 
 
 class Inspect:
-    """Circle the target at `radius` while keeping the Sun's in-plane direction behind."""
+    """Circle the target at `radius` keeping the Sun's in-plane direction behind the inspector.
+
+    The circle turns at -n so the inspector keeps its angle to the Sun. From the start the
+    reference joins the circle over `join` s along a path whose direction turns from the start
+    direction to the circle's and whose radius changes from the start range to `radius`, so it
+    never passes closer to the target than the smaller of the two.
+    """
 
     name = "inspect"
 
-    def __init__(self, radius=60.0, name="inspect"):
-        self.radius, self.name = radius, name
+    def __init__(self, radius=60.0, join=900.0, name="inspect"):
+        self.radius, self.join, self.name = radius, join, name
 
     def reset(self, view, rng=None):
         self.n = view.n
         sun = np.array(view.goal["sun_direction"], dtype=float)
         planar = sun[:2] / np.linalg.norm(sun[:2])
-        theta0 = math.atan2(planar[1], planar[0])
-        self.inner = Track(circle(self.radius, -self.n, theta0, math.inf, self.n))
+        self.theta0 = math.atan2(planar[1], planar[0])
+        self.circle = circle(self.radius, -self.n, self.theta0, math.inf, self.n)
+        self.start = None
+        self.inner = Track(self.reference)
         self.inner.reset(view, rng)
 
+    def joining(self, t):
+        r_c = self.circle(t)[0]
+        if t >= self.join:
+            return r_c
+        s = 0.5 - 0.5 * math.cos(math.pi * t / self.join)
+        r0 = self.start
+        u0, uc = r0 / np.linalg.norm(r0), r_c / np.linalg.norm(r_c)
+        angle = math.acos(float(np.clip(u0 @ uc, -1.0, 1.0)))
+        u = toward(u0, uc, s * angle)
+        return ((1 - s) * np.linalg.norm(r0) + s * self.radius) * u
+
+    def reference(self, t):
+        if t >= self.join:
+            return self.circle(t)
+        h = 1.0
+        r = self.joining(t)
+        v = (self.joining(t + h) - self.joining(max(t - h, 0.0))) / (t + h - max(t - h, 0.0))
+        acc = (self.joining(t + h) - 2 * r + self.joining(max(t - h, 0.0))) / (h * h)
+        return r, v, acc
+
     def act(self, obs, info):
+        if self.start is None:
+            self.start = np.array(obs[:3], dtype=float)
         return self.inner.act(obs, info)
 
 
@@ -463,7 +498,7 @@ def reference_for(name: str, n: float = 0.0011458864877737333):
     if name in ("approach-vbar", "approach-rbar", "approach-hbar"):
         return Approach(name.split("-")[1])
     if name in ("docking", "docking-offset", "inertial-target", "vbar-final-shuttle"):
-        return Dock(clearance=60.0)
+        return Dock()
     if name == "docking-afrl":
         return Glide([(0.0, 0.0, 0.0)], v_max=0.15)
     if name == "inspection":

@@ -19,6 +19,7 @@ A pull request must pass the same checks as CI:
 
 ```bash
 python -m pytest -q
+python -m pytest -q -m slow   # when a change touches a scenario or its reference controller
 ruff check
 ruff format --check
 mypy

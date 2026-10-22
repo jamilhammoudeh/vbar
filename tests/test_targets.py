@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from vbar.constraints import ApproachCone, KeepOut, segment_minimum
-from vbar.dynamics import EARTH, CWDynamics, cw_stm, mean_motion
+from vbar.dynamics import EARTH, CWDynamics, cw_discrete, cw_stm, mean_motion
 from vbar.scenarios.targets import (
     BodyKeepOut,
     FixedOffset,
@@ -106,7 +106,8 @@ def test_rotating_cone_margin_is_certified_through_a_segment():
     tau = np.linspace(0.0, 600.0, 21)
     found = segment_minimum(cone, model.state_in_last_segment, tau, samples, 0.0, N, 1000.0)
     fine = np.linspace(0.0, 600.0, 20001)
-    truth = min(float(cone.margin(model.state_in_last_segment(s), 1000.0 + s)) for s in fine)
+    states = np.einsum("tij,j->ti", cw_discrete(N, fine)[0], start)
+    truth = float(np.min(cone.margin(states, 1000.0 + fine)))
     assert found.lower_bound <= truth + 1e-9
     assert found.margin == pytest.approx(truth, abs=1e-3)
 

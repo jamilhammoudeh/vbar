@@ -2,8 +2,8 @@
 
 A reference controller (`scenario_references.py`) succeeds on each scenario, free drift fails,
 the same seed repeats the episode, and the metrics agree with the environment on the run. The
-audit runs whole episodes, so this module is the slowest in the suite; each scenario is run on
-one seed with its reference and one with drift.
+reference audit flies whole episodes on drawn seeds and takes most of an hour, so it is marked
+`slow`: the default run leaves it out and CI runs it in its own job (`pytest -m slow`).
 """
 
 import math
@@ -15,48 +15,51 @@ from scenario_references import reference_for
 from vbar import run_episode
 from vbar.agents import DriftAgent, PDAgent
 from vbar.metrics import contact, evaluate, record_episode
-from vbar.scenarios import SCENARIOS, get, make
+from vbar.scenarios import SCENARIOS, get, make, seeds
 from vbar.scenarios.registry import entry_class
 from vbar.spacecraft import ExecutionError, GaussianNav
 
-# One seed per scenario and variant; the reference succeeds on every seed tried, these are the
-# cheapest in wall time.
-AUDIT = {
-    "approach-vbar": 3,
-    "approach-vbar:iss": 1,
-    "approach-rbar": 3,
-    "approach-rbar:iss": 1,
-    "approach-hbar": 1,
-    "docking": 2,
-    "docking:axis": 1,
-    "docking:corridor-shuttle": 2,
-    "docking:lit": 2,
-    "docking-offset": 1,
-    "inertial-target": 1,
-    "docking-afrl": 2,
-    "inspection": 3,
-    "closing": 1,
-    "rbar-acquisition": 1,
-    "berthing-box": 2,
-    "orbt-rbar": 3,
-    "rpm-hold": 1,
-    "torva": 1,
-    "vbar-final-shuttle": 3,
-    "hst-rbar-grapple": 3,
-    "separation-flyaround": 1,
-    "separation-flyaround:reboost": 1,
-}
+# Every scenario and variant with its own reference; each flies the first three validation
+# seeds, which are drawn 128-bit seeds rather than chosen ones.
+AUDIT = [
+    "approach-vbar",
+    "approach-vbar:iss",
+    "approach-rbar",
+    "approach-rbar:iss",
+    "approach-hbar",
+    "docking",
+    "docking:axis",
+    "docking:corridor-shuttle",
+    "docking:lit",
+    "docking-offset",
+    "inertial-target",
+    "docking-afrl",
+    "inspection",
+    "closing",
+    "rbar-acquisition",
+    "berthing-box",
+    "orbt-rbar",
+    "rpm-hold",
+    "torva",
+    "vbar-final-shuttle",
+    "hst-rbar-grapple",
+    "separation-flyaround",
+    "separation-flyaround:reboost",
+]
+SEEDS_PER_SCENARIO = 3
 
 
 def base_name(name):
     return name.split(":")[0]
 
 
-@pytest.mark.parametrize("name", sorted(AUDIT))
-def test_the_reference_controller_succeeds_and_the_metrics_agree(name):
+@pytest.mark.slow
+@pytest.mark.parametrize("index", range(SEEDS_PER_SCENARIO))
+@pytest.mark.parametrize("name", AUDIT)
+def test_the_reference_controller_succeeds_and_the_metrics_agree(name, index):
     env = make(name)
-    seed = AUDIT[name]
-    episode = record_episode(env, reference_for(base_name(name)), seed=seed, agent_seed=seed + 1)
+    seed, agent_seed = seeds(name, "validation", SEEDS_PER_SCENARIO).pairs()[index]
+    episode = record_episode(env, reference_for(base_name(name)), seed=seed, agent_seed=agent_seed)
     info = env._info()
     assert info["success"], info
     assert not info["keep_out_violated"]

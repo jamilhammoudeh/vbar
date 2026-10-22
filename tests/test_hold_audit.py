@@ -99,6 +99,7 @@ def test_an_along_track_position_bias_cannot_be_told_from_a_hold_offset():
         assert bool(rank == 7) == detectable
 
 
+@pytest.mark.slow
 def test_a_minimum_impulse_bit_leaves_the_hold_inside_the_box():
     # With a 1 N s minimum impulse (2 mm/s quanta on 500 kg) the reference hold still completes
     # its dwell inside the 5 m, 0.05 m/s box.

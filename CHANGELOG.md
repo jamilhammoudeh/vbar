@@ -26,6 +26,8 @@ release may change the public API, and every such change is listed under Changed
 
 ### Added
 
+- A `slow` test marker: the default test run leaves out the whole-episode scenario audits; run
+  them with `python -m pytest -m slow`.
 - The scenario catalogue (`vbar.scenarios`): `ScenarioSpec` with typed dispersions, target
   attitude modes (`Passive`, `FixedOffset`, `InertialPointing`, `Tumbling`, `Maneuvering`,
   `Misbriefed`), the kinds `HoldPointEnv`, `DockingEnv`, `InspectionEnv`, `BerthingEnv` and

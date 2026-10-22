@@ -60,6 +60,9 @@ packages = ["src/vbar"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Whole-episode audits take most of an hour; CI runs them in their own job with `-m slow`.
+addopts = "-m 'not slow'"
+markers = ["slow: whole-episode scenario audits, left out unless asked for with -m slow"]
 
 [tool.ruff]
 line-length = 100

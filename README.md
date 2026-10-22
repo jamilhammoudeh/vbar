@@ -293,7 +293,8 @@ and validation.
 ## Tests
 
 ```bash
-python -m pytest -q
+python -m pytest -q          # the default run, without the whole-episode audits
+python -m pytest -q -m slow  # the whole-episode scenario audits
 ```
 
 The models are tested against closed-form solutions, an independent integrator and published
