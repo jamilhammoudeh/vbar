@@ -308,6 +308,9 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
+- `PDAgent` clipped each axis to `max_accel` even on a ball thrust layout, so a diagonal command
+  exceeded the limit in 2-norm and the actuator saturated it; it now scales such a command back
+  to the ball with its direction kept, and refuses an unknown thrust layout at reset.
 - An agent could read `agent_seed` back from its own generator and, when it equalled the
   episode seed, rebuild the start state and the sensor noise. The agent's stream is now seeded
   from a hash of `agent_seed` (`vbar.agents.agent_generator`), so agents that draw random numbers

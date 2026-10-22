@@ -171,10 +171,11 @@ action in the view's action mode. Provided:
 
 - `PDAgent`: cancels the Clohessy-Wiltshire terms and applies a proportional-derivative law toward
   the hold point, $\mathbf a = -\mathbf a_{\text{CW}} - \omega_n^2(\boldsymbol\rho - \boldsymbol\rho_{\text{hold}}) - 2\zeta\omega_n\dot{\boldsymbol\rho}$,
-  with $\omega_n$ = 0.01 rad/s and $\zeta$ = 1 by default, clipped to the thrust limit per axis
-  and converted to the action mode (in thrust mode, the thrust at the initial mass). It ignores the
-  keep-out zone, so it is the unfiltered baseline. A goal without a hold point (a docking port)
-  is refused at `reset` with a `ValueError`.
+  with $\omega_n$ = 0.01 rad/s and $\zeta$ = 1 by default, clipped to the thrust limit per axis on
+  a box layout or scaled onto the ball with its direction kept on a ball layout, and converted to
+  the action mode (in thrust mode, the thrust at the initial mass). It ignores the keep-out zone,
+  so it is the unfiltered baseline. A goal without a hold point (a docking port) is refused at
+  `reset` with a `ValueError`.
 - `DriftAgent`: no thrust.
 - `LLMAgent(complete, name=...)`: formats a prompt with the frame, goal, keep-out radius, mean
   motion, observed state, step length and thrust limit, calls `complete(messages, tools)`, and

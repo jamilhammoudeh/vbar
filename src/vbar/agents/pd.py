@@ -24,7 +24,9 @@ from .base import AgentView, action_scale, hold_point
 class PDAgent:
     """PD law toward the hold point, issued in the view's action mode.
 
-    In thrust mode it asks for the thrust its acceleration needs at the initial mass.
+    The command is clipped per axis (box layout) or scaled onto the ball keeping its direction
+    (ball layout) at `max_accel`. In thrust mode it asks for the thrust its acceleration needs
+    at the initial mass.
     """
 
     def __init__(self, wn: float = 0.01, zeta: float = 1.0, name: str = "pd"):
@@ -33,9 +35,28 @@ class PDAgent:
         self.name = name
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        """Read the orbit, hold point, thrust limit and action mode from the view.
+
+        Parameters
+        ----------
+        view : AgentView
+            Scenario description; uses `n`, `goal["hold_point"]` (Hill frame, m), `max_accel`
+            (m/s^2), `thrust_limit` and the action mode.
+        rng : numpy.random.Generator, optional
+            Unused; the law is deterministic.
+
+        Raises
+        ------
+        ValueError
+            If the goal is not a hold or berthing task or has no hold point, the thrust layout
+            is neither "box" nor "ball", or the action mode takes no continuous command.
+        """
         self.hold = hold_point(view, "PD agent")
+        if view.thrust_limit not in ("box", "ball"):
+            raise ValueError(f"unknown thrust limit {view.thrust_limit!r}")
         self.n = view.n
         self.max_accel = view.max_accel
+        self.thrust_limit = view.thrust_limit
         self.scale = action_scale(view)
 
     def act(self, obs, info):
@@ -44,4 +65,11 @@ class PDAgent:
         cw = np.array([3 * n**2 * x + 2 * n * vy, -2 * n * vx, -(n**2) * z])
         kp, kd = self.wn**2, 2 * self.zeta * self.wn
         a = -cw - kp * (obs[:3] - self.hold) - kd * obs[3:6]
-        return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
+        u = a / self.max_accel
+        if self.thrust_limit == "ball":
+            size = np.linalg.norm(u)
+            if size > 1.0:
+                u = u / size
+        else:
+            u = np.clip(u, -1.0, 1.0)
+        return u * self.scale
