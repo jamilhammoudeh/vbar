@@ -21,7 +21,7 @@ import numpy as np
 
 from ..constraints import Constraint, KeepOut, segment_minimum
 from ..dynamics import CWDynamics
-from .base import AgentView, action_scale
+from .base import AgentView, action_scale, hold_point
 from .llm import REPLY_ERRORS, Model, Price, as_reply, first_json
 
 
@@ -70,7 +70,7 @@ class PlanVerifier:
     def __init__(self, view: AgentView):
         self.view = view
         self.constraints = tuple(_constraint(c) for c in view.constraints)
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
+        self.hold = hold_point(view, "plan verifier")
 
     def _limit(self, plan: np.ndarray) -> np.ndarray:
         if self.view.thrust_limit == "box":

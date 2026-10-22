@@ -298,6 +298,7 @@ class DockingEnv(ScenarioEnv):
         told = briefed_mode(self.target)
         goal: dict[str, Any] = {
             **super()._goal(),
+            "task": "dock",
             "port": tuple(float(c) for c in body_point(told, p.port, 0.0, self.n)),
             "port_axis": tuple(float(c) for c in body_point(told, self.axis_body, 0.0, self.n)),
             "lateral_limit": p.lateral_limit,

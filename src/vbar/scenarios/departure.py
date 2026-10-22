@@ -153,6 +153,7 @@ class DepartureEnv(ScenarioEnv):
         told = briefed_mode(self.target)
         goal: dict[str, Any] = {
             **super()._goal(),
+            "task": "depart",
             "port": tuple(float(c) for c in body_point(told, p.port, 0.0, self.n)),
             "port_axis": tuple(float(c) for c in body_point(told, self.axis_body, 0.0, self.n)),
             "hold_point": tuple(float(c) for c in self.clear_point),

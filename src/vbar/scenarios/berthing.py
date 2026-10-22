@@ -112,6 +112,7 @@ class BerthingEnv(ScenarioEnv):
         p = self.params
         return {
             **super()._goal(),
+            "task": "berth",
             "hold_point": p.box,
             "capture_radius": p.capture_radius,
             "capture_speed": p.capture_speed,

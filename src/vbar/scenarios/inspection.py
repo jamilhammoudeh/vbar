@@ -125,6 +125,7 @@ class InspectionEnv(ScenarioEnv):
         p = self.params
         return {
             **super()._goal(),
+            "task": "inspect",
             "points": p.points,
             "target_radius": p.target_radius,
             "max_range": p.max_range,

@@ -169,6 +169,7 @@ class HoldPointEnv(ScenarioEnv):
         p = self.params
         goal: dict[str, Any] = {
             **super()._goal(),
+            "task": "hold",
             "hold_point": p.hold_point,
             "capture_radius": p.capture_radius,
             "capture_speed": p.capture_speed,

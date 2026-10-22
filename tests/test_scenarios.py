@@ -110,7 +110,7 @@ def test_free_drift_does_not_reach_any_scenario_goal(name):
 def test_the_same_seed_repeats_the_episode_and_other_seeds_differ(name):
     def fly(seed, steps=15):
         env = make(name)
-        agent = PDAgent() if "hold_point" in env.agent_view().goal else DriftAgent()
+        agent = PDAgent() if env.agent_view().goal.get("task") == "hold" else DriftAgent()
         obs, info = env.reset(seed=seed)
         agent.reset(env.agent_view(), np.random.default_rng(0))
         states = [info["true_state"]]
@@ -247,6 +247,18 @@ def test_the_hold_dwell_must_be_unbroken():
     assert info["dwell_s"] < 300.0 and not info["success"]
 
 
+def test_the_goal_names_the_task():
+    tasks = {
+        "approach-vbar": "hold",
+        "docking": "dock",
+        "inspection": "inspect",
+        "berthing-box": "berth",
+        "separation-flyaround": "depart",
+    }
+    for name, task in tasks.items():
+        assert make(name).agent_view().goal["task"] == task
+
+
 def test_inhibit_windows_zero_the_command_and_report_it():
     env = make("rpm-hold")
     obs, info = env.reset(seed=1)
@@ -330,16 +342,26 @@ def test_inspection_counts_lit_facing_points_within_range_and_outside_the_glare(
     assert 0.0 <= env.inspectable_coverage() <= 1.0
 
 
-@pytest.mark.parametrize("name", ["docking", "docking-offset", "vbar-final-shuttle"])
-def test_built_in_agents_refuse_a_docking_goal_at_reset(name):
+@pytest.mark.parametrize(
+    "name",
+    ["docking", "docking-offset", "vbar-final-shuttle", "inspection", "separation-flyaround"],
+)
+def test_built_in_agents_refuse_a_goal_that_is_not_a_hold_at_reset(name):
+    # The inspection and departure goals carry a hold point for the mission metrics; flying to it
+    # would take a chaser into the target or past its corridor.
     from vbar.agents import LLMAgent
     from vbar.agents.llm import text_model
+    from vbar.agents.plan import PlanAgent
 
     view = make(name).agent_view()
     with pytest.raises(ValueError):
         PDAgent().reset(view, np.random.default_rng(0))
     with pytest.raises(ValueError):
         LLMAgent(text_model(lambda prompt: "{}")).reset(view, np.random.default_rng(0))
+    with pytest.raises(ValueError):
+        PlanAgent(lambda obs, view, verdict, left: np.zeros((1, 3))).reset(
+            view, np.random.default_rng(0)
+        )
     # The run time assurance task has a hold point but no keep-out sphere.
     with pytest.raises(ValueError):
         LLMAgent(text_model(lambda prompt: "{}")).reset(

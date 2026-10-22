@@ -145,8 +145,11 @@ position; at 500 km with the Sun in the orbit plane the target is in eclipse 37.
 ## Scenario kinds
 
 Every kind reads its parameters from the spec, draws the episode in `_draw_episode`, builds
-its constraints and goal, and ends the episode as its task demands. All kinds support
-`thrust_inhibit` windows, (start, end) in seconds on step boundaries, during which every
+its constraints and goal, and ends the episode as its task demands. The goal names its task
+(`"hold"`, `"dock"`, `"inspect"`, `"berth"` or `"depart"`); the built-in PD, LLM and plan agents
+fly only holds and berthings and refuse the other tasks at `reset`, since the inspection and
+departure goals carry a hold point for the mission metrics, not as a place to fly to. All kinds
+support `thrust_inhibit` windows, (start, end) in seconds on step boundaries, during which every
 command is zeroed (an attitude manoeuvre or a procedural inhibit; `info["inhibited"]` reports
 it); the windows are public in the goal under `thrust_inhibit`. `soft` names the constraints
 scored without failing the run.

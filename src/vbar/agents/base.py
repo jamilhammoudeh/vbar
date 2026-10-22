@@ -59,6 +59,38 @@ def agent_generator(agent_seed: int) -> np.random.Generator:
     return np.random.default_rng(int.from_bytes(digest.digest()[:16]))
 
 
+HOLD_TASKS = ("hold", "berth")
+
+
+def hold_point(view: AgentView, agent: str) -> np.ndarray:
+    """The goal's hold point (m, Hill) for an agent that flies to one.
+
+    Parameters
+    ----------
+    view : AgentView
+        The scenario's public description.
+    agent : str
+        The agent's description, for the error message.
+
+    Returns
+    -------
+    numpy.ndarray
+        The hold point.
+
+    Raises
+    ------
+    ValueError
+        If the goal's task is not a hold or a berthing (goals without a task are holds), or the
+        goal has no hold point.
+    """
+    task = view.goal.get("task", "hold")
+    if task not in HOLD_TASKS:
+        raise ValueError(f"the {agent} flies to a hold point and cannot fly the {task} task")
+    if "hold_point" not in view.goal:
+        raise ValueError(f"the {agent} flies to a hold point and this goal has none")
+    return np.array(view.goal["hold_point"], dtype=float)
+
+
 def action_scale(view: AgentView) -> float:
     """Action units per fraction of a full command: 1, m/s^2, or N at the initial mass.
 
