@@ -927,6 +927,17 @@ penalised objective and equals the hard projection when alpha exceeds every mult
 - Sec. 9.3 (our case): the differential-gravity remainder coefficient $3.0000\,\mu/r^4$ and the
   bound $3\mu\rho^2/(r - \rho)^4$ over 181 by 121 directions.
 
+**Dunlap, Hibbard, Mote and Hobbs, "Comparing Run Time Assurance Approaches for Safe Spacecraft
+Docking"** (IEEE Control Systems Letters 6, 2022; arXiv:2110.00447v1)
+
+- Lemma 1 (corrected, see run-time-assurance.md): the right-hand side 0.2860 m/s^2 at
+  $\nu_1 = 4n$ exceeds $1/12$ m/s^2; the authors' code check gives 0.08332 at $2.15n$ and 0.1049
+  at $4n$.
+- Sec. III.D: the kept grid points rebuild the natural-motion ellipse and return to themselves
+  after one period to 1e-9 relative, and meet the speed limit at 3600 phases of their orbit.
+- Eq. 11 with the corrected bracket: each implicit row matches central differences to 1e-6
+  relative, and the backup command meets every row inside the declared set.
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
