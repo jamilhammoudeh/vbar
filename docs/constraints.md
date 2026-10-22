@@ -322,7 +322,9 @@ entering the keep-out zone when its minimum margin is negative.
   acceleration bound; a stationary chaser gives the margin without dividing by zero; stacked
   trajectories give the bounds of each; halving the curvature bound makes the certificate unsound
   on the flyby tables and doubling it breaks the tightness table while staying sound, so both
-  mutations fail the suite; the batched minimum reports the same bound as the scalar one.
+  mutations fail the suite; the batched minimum reports the same bound as the scalar one. The
+  tests run the first 100 segments of each table for the first-order, never-below and doubled
+  curvature claims; `benchmarks/keep_out_bound_tables.py` runs the full tables.
 - `tests/test_constraint_types.py`: for every constraint type, over 12 flybys (coasting and
   thrusting at 0.1 to 3 m/s) the certificate is finite and lies below the minimum of 4001 dense
   samples, and the refined minimum is within 1e-6 of it. Hand-built states check each margin

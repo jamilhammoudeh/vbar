@@ -141,10 +141,22 @@ def test_bound_flags_a_dip_between_samples_and_refinement_finds_it():
     )
 
 
+def dense_states(m, state, accel, duration, samples):
+    """`samples` evenly spaced states of the segment `m` flies from `state`."""
+    # A fresh model flown alike repeats the integration; `advance` then evaluates every time in
+    # one call, where `state_in_last_segment` takes one at a time.
+    m.reset(state)
+    return m.advance(accel, duration, n_samples=samples)[1]
+
+
 @pytest.mark.parametrize("seed", range(6))
 def test_speed_bounds_and_certificate_hold_on_two_body_motion(seed):
     rng = np.random.default_rng(seed)
-    m = TwoBodyDynamics(inclination=0.9, j2=bool(seed % 2))
+
+    def model():
+        return TwoBodyDynamics(inclination=0.9, j2=bool(seed % 2))
+
+    m = model()
     position = rng.normal(size=3)
     position *= rng.uniform(100.0, 5000.0) / np.linalg.norm(position)
     state = np.r_[position, rng.uniform(-5.0, 5.0, 3)]
@@ -156,7 +168,7 @@ def test_speed_bounds_and_certificate_hold_on_two_body_motion(seed):
     found = segment_minimum(
         KEEP_OUT, m.state_in_last_segment, times, sampled, 0.02 * np.sqrt(3), m.n
     )
-    dense = np.array([m.state_in_last_segment(t) for t in np.linspace(0.0, duration, 3801)])
+    dense = dense_states(model(), state, accel, duration, 3801)
     assert found.lower_bound <= KEEP_OUT.margin(dense).min() <= found.margin + 1e-6
     speed, _ = interval_bounds(sampled, times[1], 0.02 * np.sqrt(3), m.n)
     dense_speed = np.linalg.norm(dense[:, 3:], axis=1)
@@ -167,14 +179,15 @@ def test_speed_bounds_and_certificate_hold_on_two_body_motion(seed):
 def test_coarse_sampling_gives_no_finite_bound_rather_than_a_wrong_one():
     # 1000 s between samples is past the 350 s at which the speed bound stops closing at 500 km;
     # the bound used to come out above the true minimum here (212.4 m against 208.3 m).
+    start = [0.0, 400.0, 0.0, 0.3, 0.0, 0.0]
     m = CWDynamics(N)
-    m.reset([0.0, 400.0, 0.0, 0.3, 0.0, 0.0])
+    m.reset(start)
     _, sampled = m.advance(np.zeros(3), 2000.0, n_samples=3)
     times = np.linspace(0.0, 2000.0, 3)
     speed, accel = interval_bounds(sampled, times[1], 0.0, N)
     assert np.all(np.isinf(speed)) and np.all(np.isinf(accel))
     found = segment_minimum(KEEP_OUT, m.state_in_last_segment, times, sampled, 0.0, N)
-    dense = np.array([m.state_in_last_segment(t) for t in np.linspace(0.0, 2000.0, 20001)])
+    dense = dense_states(CWDynamics(N), start, np.zeros(3), 2000.0, 20001)
     exact = KEEP_OUT.margin(dense).min()
     assert found.lower_bound == -np.inf
     assert found.margin == pytest.approx(exact, abs=1e-3)
@@ -417,10 +430,10 @@ class FirstOrderKeepOut:
         return self.keep_out.rate_bound(speed, accel, rho_min)
 
 
-def certified(table, constraint=KEEP_OUT):
-    """Lower bound from `segment_minimum` on each segment, sampled by the CW model."""
+def certified(table, constraint=KEEP_OUT, count=None):
+    """Lower bound from `segment_minimum` on each segment, or the first `count`, by the CW model."""
     found = []
-    for state, accel, duration, samples in cases(table):
+    for state, accel, duration, samples in cases(table)[:count]:
         m = CWDynamics(N)
         m.reset(state)
         _, sampled = m.advance(accel, duration, n_samples=samples)
@@ -437,9 +450,32 @@ def lower_bounds(table):
     return certified(table)
 
 
+# The first-order and loosened bounds refine many more intervals than the certified one, so
+# their claims run on the first segments of each table: 100 hold 6 random segments where the
+# first-order bound is the larger, and the dense segment where a doubled curvature bound leaves
+# its 1.90 m gap. The full tables run in benchmarks/keep_out_bound_tables.py.
+PREFIX = 100
+
+
 @cache
-def first_order_lower_bounds(table):
-    return certified(table, FirstOrderKeepOut(KEEP_OUT.radius))
+def first_order_lower_bounds(table, count=PREFIX):
+    return certified(table, FirstOrderKeepOut(KEEP_OUT.radius), count)
+
+
+def check_first_order_bound_misses_the_tightness_table(count):
+    gap = exact_margins("dense")[:count] - first_order_lower_bounds("dense", count)
+    assert np.median(gap) > 0.1
+
+
+def check_certified_bound_is_never_below_the_first_order_bound(table, count):
+    first_order = first_order_lower_bounds(table, count)
+    assert np.all(lower_bounds(table)[:count] >= first_order - 1e-12)
+
+
+def check_loosened_bound_is_sound_and_outside_the_tightness_table(count):
+    bounds = {t: certified(t, count=count) for t in FLYBY_TABLES}
+    assert all(np.all(bounds[t] <= exact_margins(t)[:count] + 1e-6) for t in FLYBY_TABLES)
+    assert (exact_margins("dense")[:count] - bounds["dense"]).max() > 0.03
 
 
 def test_curvature_bound_is_twice_speed_squared_plus_extent_times_acceleration():
@@ -470,13 +506,12 @@ def test_certified_bound_is_within_the_tightness_table_of_the_exact_minimum(tabl
 
 
 def test_first_order_bound_alone_misses_the_tightness_table():
-    gap = exact_margins("dense") - first_order_lower_bounds("dense")
-    assert np.median(gap) > 0.1
+    check_first_order_bound_misses_the_tightness_table(PREFIX)
 
 
 @pytest.mark.parametrize("table", ALL_TABLES)
 def test_certified_bound_is_never_below_the_first_order_bound(table):
-    assert np.all(lower_bounds(table) >= first_order_lower_bounds(table) - 1e-12)
+    check_certified_bound_is_never_below_the_first_order_bound(table, PREFIX)
 
 
 @pytest.mark.parametrize("samples", [2, 20])
@@ -554,10 +589,8 @@ def test_doubled_curvature_bound_stays_sound_and_is_caught_by_the_tightness_tabl
     monkeypatch.setattr(
         KeepOut, "curvature_bound", lambda self, *args: 2.0 * curvature_bound(self, *args)
     )
-    bounds = {t: certified(t) for t in FLYBY_TABLES}
-    assert all(np.all(bounds[t] <= exact_margins(t) + 1e-6) for t in FLYBY_TABLES)
     # The doubled bound leaves a largest dense gap of 1.90 m against the 0.03 m ceiling.
-    assert (exact_margins("dense") - bounds["dense"]).max() > 0.03
+    check_loosened_bound_is_sound_and_outside_the_tightness_table(PREFIX)
 
 
 def test_batched_minimum_reports_the_scalar_second_order_bound():

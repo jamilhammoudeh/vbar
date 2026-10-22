@@ -158,11 +158,13 @@ The tests in `tests/test_solvers_qp.py` check:
 - The halfspace projection $u = u_0 + \max(0, b - a\cdot u_0)\,a/|a|^2$ (sec. 8.1.1) and its
   weighted form, on 200 random instances each, to 1e-12; box clipping and radial scaling onto the
   ball without rows.
-- One row under a box or ball on 500 random instances each: feasible exactly when
+- One row under a box or ball on 500 random instances each (the test runs the first 100,
+  `benchmarks/projection_known_answers.py` all 500): feasible exactly when
   $a_{\max}|a|_1 \ge b$ (box) or $a_{\max}|a|_2 \ge b$ (ball), and the solution equal to a
   one-dimensional search on the row's multiplier, $u(\lambda) = P_U(u_{\text{nom}} + \lambda a)$,
   to 1e-9 $a_{\max}$.
-- Two to six random rows under a box or a ball, 200 feasible instances each, against
+- Two to six random rows under a box or a ball, 200 feasible instances each (the test runs the
+  first 100, the benchmark all 200), against
   `scipy.optimize.minimize` (SLSQP) to 1e-6 relative in the objective and 1e-6 $a_{\max}$ in $u$,
   with every reported active row tight; one instance with 32 rows; the KKT conditions on 200
   instances without a limit, and at a vertex where four rows meet.

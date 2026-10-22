@@ -120,19 +120,21 @@ def dual_search(u_nom, a, b, actuator):
         lo, hi = hi, 2.0 * hi
     for _ in range(200):
         mid = 0.5 * (lo + hi)
+        # Once lo and hi are adjacent floats every further step leaves them unchanged.
+        if mid in (lo, hi):
+            break
         lo, hi = (mid, hi) if a @ u_of(mid) < b else (lo, mid)
     return u_of(hi)
 
 
-@pytest.mark.parametrize("layout, norm_ord", [("box", 1), ("ball", 2)])
-def test_one_row_feasibility_rule_and_solution_match_a_dual_search(layout, norm_ord):
+def check_one_row_against_dual_search(layout, norm_ord, count):
     # One row under a box or ball is feasible iff a_max |a|_1 >= b (box) or a_max |a|_2 >= b
     # (ball), the support function of the actuator set.
     rng = np.random.default_rng(4)
     a_max = 0.02
     actuator = ActuatorSet(a_max, layout)
     feasible_count = 0
-    for _ in range(500):
+    for _ in range(count):
         u_nom = rng.uniform(-2 * a_max, 2 * a_max, 3)
         a = rng.uniform(-1.0, 1.0, 3)
         while np.linalg.norm(a) < 0.1:
@@ -152,7 +154,14 @@ def test_one_row_feasibility_rule_and_solution_match_a_dual_search(layout, norm_
             assert result.status == "infeasible_certified"
             assert result.conflicting[0] == "r0"
             assert_certificate_proves_infeasibility(result, named_rows([a], [b]), actuator)
-    assert 300 < feasible_count < 500
+    assert 0.6 * count < feasible_count < count
+
+
+# The first 100 draws hold 8 infeasible rows per layout; benchmarks/projection_known_answers.py
+# runs all 500.
+@pytest.mark.parametrize("layout, norm_ord", [("box", 1), ("ball", 2)])
+def test_one_row_feasibility_rule_and_solution_match_a_dual_search(layout, norm_ord):
+    check_one_row_against_dual_search(layout, norm_ord, 100)
 
 
 def slsqp(u_nom, rows, actuator, weight, start):
@@ -193,10 +202,9 @@ def random_feasible_instance(rng, layout, k):
     return named_rows(a, b), ActuatorSet(a_max, layout), u_nom, weight, inside
 
 
-@pytest.mark.parametrize("layout", ["box", "ball"])
-def test_several_rows_match_slsqp_with_tight_active_rows(layout):
+def check_several_rows_against_slsqp(layout, count):
     rng = np.random.default_rng(5 if layout == "box" else 6)
-    for _ in range(200):
+    for _ in range(count):
         rows, actuator, u_nom, weight, inside = random_feasible_instance(
             rng, layout, rng.integers(2, 7)
         )
@@ -210,6 +218,12 @@ def test_several_rows_match_slsqp_with_tight_active_rows(layout):
         for name, gap in zip(rows.names, tight, strict=True):
             if name in result.active:
                 assert abs(gap) <= 1e-12
+
+
+# benchmarks/projection_known_answers.py runs 200 instances per layout.
+@pytest.mark.parametrize("layout", ["box", "ball"])
+def test_several_rows_match_slsqp_with_tight_active_rows(layout):
+    check_several_rows_against_slsqp(layout, 100)
 
 
 def test_32_rows_under_a_box_match_slsqp():

@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
+from scipy.linalg import lstsq
 from scipy.optimize import OptimizeResult, minimize
 
 import vbar.solvers.ipm
@@ -143,7 +144,9 @@ def kkt_residuals(qp, sol):
     w = stack(qp, sol.x, sol.u)
     lam = row_multipliers(sol, qp) if len(h_vec) else np.zeros(0)
     grad = h_mat @ w + g - g_mat.T @ lam
-    nu, *_ = np.linalg.lstsq(e_mat.T, -grad, rcond=None)
+    # E has full row rank, so pivoted QR gives the same least-squares nu as an SVD at a fraction
+    # of its cost on the long horizons.
+    nu, *_ = lstsq(e_mat.T, -grad, lapack_driver="gelsy")
     stationarity = np.linalg.norm(grad + e_mat.T @ nu) / max(
         1.0, np.linalg.norm(h_mat @ w + g), np.linalg.norm(g_mat.T @ lam)
     )
