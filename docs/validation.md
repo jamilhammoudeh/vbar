@@ -896,6 +896,18 @@ and Applications"** (ECC 2019, arXiv:1903.11199v1)
   CW head-on step at $0.78658/p$ within 0.3% for $p$ = 0.05 and 0.1 1/s; the cone barrier's
   $|\nabla h_c| = \sin 10^\circ$ and curvature term $-1.77265 \cdot 10^{-4}$ m/s^2 at 5 m and
   0.03 m/s, to 1e-5.
+- Sec. IV, Def. 7, under sample and hold on CW (our cases, seed 1903): the bare barrier row with
+  poles 0.05 1/s keeps 100 of 100 starts out at dt 1, 5 and 10 s, and with poles 0.1 1/s at
+  dt 10 s all 100 violate (worst -0.313 m); under a 0.02 m/s^2 box the 0.05 1/s row keeps 40 of 40
+  out at dt 1, 5, 10 s and loses all 40 at 20 s.
+- Sec. V.B, the braking barrier's keep-out analogue: as a first-order row it fails in 40 of 40
+  runs at every dt; checked on the held step with a line search toward full braking, 0 of 40.
+- Sec. III, eq. 12 and Theorem 4 with beta = 0: at least 393 of 400 approach-vbar starts are
+  certified passively safe, confirmed by the drift sampled every second; the free-drift filter
+  flies 40 of them with no violation and all reach the hold point.
+
+Boyd and Vandenberghe, exercise 5.16 (exact penalty): the soft filter's action minimises the
+penalised objective and equals the hard projection when alpha exceeds every multiplier.
 
 ## Methods
 

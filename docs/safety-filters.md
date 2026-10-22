@@ -4,8 +4,9 @@ Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`
 `keep_out_projection`, `KeepOutProjection`) and `vbar.safety.tightening` (`BoxError`, `BallError`,
 `EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `ecbf_bias`,
 `first_order_bias`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`, `ClosingSpeedCbf`,
-`ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`) and
-`vbar.safety.sampled` (`held_segment_bound`, `line_search`, `LineSearch`).
+`ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`), `vbar.safety.sampled`
+(`held_segment_bound`, `line_search`, `LineSearch`) and `vbar.safety.cbf` (`CbfFilter`,
+`BackupFilter`, `SoftCbfFilter`, `FilterDeclaration`).
 
 A safety filter sits between an agent and the spacecraft and changes a command only when it would
 lead out of a safe set. This page starts with the building blocks the filters use: closed-form
@@ -347,6 +348,192 @@ when nothing else passes. The backup is never checked here: its safety is the ba
 Bisection finds the largest accepted $\theta$ only when the accepted values form an interval
 $[0, \theta^*]$; otherwise it returns an accepted value that need not be the largest.
 
+## Filters
+
+`vbar.safety.cbf` holds three filters built from the pieces above. Each one has a keyword-only
+constructor, `reset(view)` and `filter(obs, action)` returning a `FilterResult`, and can be wrapped
+around any agent with `FilteredAgent`.
+
+### What every filter does
+
+- **Commands.** The action is converted to an acceleration in m/s^2 at the initial mass
+  (`command_fraction` times `max_accel`), clipped onto the thrust limit (per axis for a box,
+  radially for a ball), filtered, and returned in the view's action mode. Clipping is what the
+  spacecraft does anyway, so a clipped command is not an intervention. `intervened` is True when
+  the filtered acceleration differs from the clipped one by more than $10^{-6} a_{\max}$.
+- **What a filter reads.** The first six observation entries, the Hill-frame state estimate, and
+  the `AgentView`. Barriers, safe sets and `recovering` are evaluated on the estimate; error sets
+  are declared in the constructor, never read from the environment.
+- **Refusals at reset** (`ValueError`, short message): an action mode that is not continuous; a
+  frame other than "hill" or an observation that does not start with x, y, z, vx, vy, vz; a
+  pending-commands channel (the filter cannot predict actuation delay); a dynamics model other
+  than "cw" without a declared `model_error`; a constraint type the filter does not enforce,
+  unless it is listed in `ignore=`; a scenario without a keep-out constraint. `keep_out` itself
+  cannot be ignored.
+- **Commit radius.** Within the goal's `commit_radius` of the target (m, 0 when the goal has
+  none) every filter only watches: it returns the clipped command with `active` False and
+  `recovering` and `fallback_level` None.
+- **Declaration.** After `reset`, `declaration` is a `FilterDeclaration`: name, safe set, barrier
+  objects, poles, gain, design dt, thrust layout and limit, keep-out buffer, declared error sets,
+  backup command, certificate kind, whether the filter counts toward certification, and the
+  ignored constraint types. `contains(x)` tests membership of the declared safe set. Names are
+  fixed at construction: "cbf-ecbf-p0.05", "cbf-passive", "cbf-brake", "cbf-ecbf-soft-p0.05".
+
+### Exponential barrier filter
+
+`CbfFilter(poles=(0.03, 0.03), gamma=0.03, v_cap=0.2, execution=0.0, model_error=None,
+ignore=())` builds, at every decision, the keep-out row of `KeepOutEcbf` with the radius
+$R_f = R + b$, a speed-cap row `SpeedCbf(v_cap, 0, gamma)`, and a `SpeedCbf` or `ClosingSpeedCbf`
+row for each declared `speed_limit` and `closing_speed_limit`, and projects the clipped command
+onto them under the thrust limit with `vbar.solvers.project`. The result is the minimal correction
+for these rows, not the least restrictive safe command: the rows describe a strict subset of the
+states from which the keep-out can be kept.
+
+The rows are continuous-time conditions, so the filter is designed for the held step:
+
+- **Pole rule.** `reset` refuses $\max(p_1, p_2)\,\Delta t > 0.6$ and $\gamma\,\Delta t > 0.6$ and
+  names the largest allowed value ($0.6/\Delta t$, for example 0.06 1/s at 10 s). On the double
+  integrator the start set stops being invariant under hold at $p\,\Delta t = 0.618$ and the
+  barrier dips between samples at 0.787 (section above).
+- **Buffer.** $b = 1.2 \cdot 3 n^2 v_{\text{cap}} \Delta t / (p_1 p_2) + \delta a_{\max}/(p_1 p_2)$,
+  the boundary-riding depth with 20% to spare plus the execution bias, with
+  $\delta a_{\max}$ = `execution` + `model_error`. For the double pole 0.03 1/s,
+  $v_{\text{cap}} = 0.2$ m/s and $\Delta t = 10$ s at 500 km, $b = 9.8$ mm.
+- **Declared safe set** $S_E$: `KeepOutEcbf.contains` at $R_f$, $|v| \le v_{\text{cap}}$, the
+  declared speed limits met, and $|a_{cw}(x)| + 1.1\,(2 p_{\max} + v_1)\, v_{\text{cap}} \le
+  a_{\max}$ with $v_1$ the largest declared speed slope. On $S_E$ the command $u^* = -a_{cw} + 2
+  p_{\max} c\, \hat r - v_1 c\, \hat v$, $c = \max(0, -\dot\rho)$, meets every row and lies in the
+  ball of radius $a_{\max}$, so the projection is feasible under box and ball limits. With the
+  example values the acceleration condition holds for $|x| \lesssim 1.7$ km.
+- **Held-step checks.** A held command can break the rows between samples: thrust across the
+  velocity raises the speed at second order in $\Delta t$, and $\hat r$ turns within the step, so
+  $\hat r \cdot u$ changes. Each decision therefore caps the speed at the end of the step,
+  $|\Phi_v x + \Gamma_v u| \le v_{\text{cap}}$ on the exact CW solution, by cutting planes: each
+  projection that ends too fast adds the tangent of the convex condition
+  $|\Phi_v x + \Gamma_v u| \le 0.999\, v_{\text{cap}}$ at its command, which every command meeting
+  that tightened cap also meets, so an infeasible set of cuts proves the cap tightened by 0.1%
+  infeasible, not the cap itself. After 16 cuts a command that still ends above the cap is
+  returned as "solver_failed" with its excess speed as `slack` (m/s). The keep-out is then
+  checked on the held step: `held_segment_bound` at least
+  $\min(0, \rho - R)$ and the end range at least $\min(0, \rho - R_f)$, for every execution error
+  up to $\delta a_{\max}$. A command that fails is replaced by the projection with the keep-out
+  row raised by the least amount that passes, found by bisection below the largest feasible
+  raise (the bisection assumes the check passes on an interval). Without such a raise the most
+  outward feasible command is returned as "solver_failed" with its predicted shortfall in m.
+- **No certificate.** Recursive feasibility under hold is not proven, so `certificate` is None.
+  Navigation error sets are refused: the rows are nonlinear in the state.
+
+| Outcome | `status` | `active` | `slack` | `conflicting` | `fallback_level` |
+|---|---|---|---|---|---|
+| No row active | feasible | False | 0 | () | 0 |
+| A row active (positive multiplier) | feasible | True | 0 | () | 0 |
+| Rows beyond the thrust limit | infeasible_certified | True | phase I sum of infeasibilities, m/s^2 | rows and limits of the Farkas certificate | 0 |
+| Projection failed | solver_failed | True | largest row violation of the action, m/s^2 | () | 2 |
+| Speed cap not met after 16 cuts | solver_failed | True | end-of-step speed above the cap, m/s | () | 2 |
+| No raise of the keep-out row passes the held-step check | solver_failed | True | predicted keep-out shortfall, m | () | 2 |
+
+`recovering` is True outside $S_E$. When the rows cannot all be met the action is the projection's
+least-violation command; when the projection fails it is the command that does most for the
+keep-out row, $a_{\max}\,\mathrm{sign}(\hat r)$ (box) or $a_{\max}\hat r$ (ball).
+
+### Backup filters
+
+`BackupFilter(barrier="passive" | "braking", candidate="clipped", ...)` checks each held step on
+the exact CW solution and searches toward the barrier's backup with `line_search`. A command $u$
+is accepted when
+
+1. `held_segment_bound(x, u, dt, 20, R, n, error, da_max)` $\ge f_s$, and
+2. the barrier value at the end of the step, $x_1 = \Phi(\Delta t) x + \Gamma(\Delta t) u$, is
+   $\ge f_b$, and, for the braking barrier,
+3. $x_1$ stays in the region, $|r_1| \le \max(\rho_{\text{cap}}, \rho)$ and
+   $|v_1| \le \max(v_{\text{cap}}, |v|)$, since the braking argument holds only there,
+
+with the floors $f_s = \min(0, \rho - R)$ and $f_b = \min(0, h(x))$: 0 inside the set, and "no
+worse than now" when recovering. The candidate is the clipped command; with
+`candidate="projection"` and the free-drift barrier it is first projected onto the first-order
+row $\nabla h_p \cdot (v, a_{cw} + u) \ge -\gamma h_p$, which corrects less.
+
+The backup is accepted without the check when the state is inside the barrier's set; its safety
+is the barrier's theorem (sec. III, Theorem 4). For free drift the drift from $x_1$ is part of
+the certified drift from $x$. Under full outward braking $h_b$ does not fall while
+$\rho \le \rho_{\text{cap}}$ and $|v| \le v_{\text{cap}}$. The backup lies in both thrust
+limits, so without error sets the filter is recursively feasible at any dt and never reports an
+infeasible step. A backup that fails the check inside the set by more than the keep-out
+resolution, 1 mm, is a design defect and is reported as "solver_failed"; below that it is the
+slack of the certified bound at the boundary.
+
+The braking backup is radial in both layouts: $a_{\max} \hat r / \max_i |\hat r_i|$ for a box,
+the longest radial command inside it, and $a_{\max} \hat r$ for a ball. Both give
+$\hat r \cdot \beta \ge a_{\max}$ with $|\beta| \le \sqrt3\, a_{\max}$ (box), the bound that
+`braking_deceleration` allows for the turn of $\hat r$ within a step. A box corner
+$a_{\max}\,\mathrm{sign}(\hat r)$ also brakes, but its part across the line of sight raises the
+speed and can carry the state out of the region in which the braking argument holds.
+
+- `a_b` defaults to `braking_deceleration` at the view's thrust limit and dt minus
+  $\delta a_{\max}$; reset refuses a value that is not positive. `rho_cap` (2000 m) and `v_cap`
+  (0.3 m/s) bound the region.
+- With error sets (`navigation`, `execution`, `model_error`) check 1 is tightened as in
+  `held_segment_bound`, and check 2 by the error carried to the end state: for free drift the
+  largest range error of the drift from it over the horizon, for braking the range and closing
+  speed errors at the end state. The drift horizon `t_cap` is then two orbits by default, and
+  recursive feasibility is not claimed: the backup's safety is no longer a theorem. A step whose
+  returned command passes the tightened checks carries the certificate "bounded-W" with that
+  horizon; a backup that fails them is still returned, as the most outward command, but with
+  `certificate` and `certificate_horizon` None, `active` True, `fallback_level` 2 and its
+  predicted shortfall in m as `slack`.
+- The filter enforces the keep-out only and refuses other constraint types: free drift or
+  braking may leave them.
+
+| Outcome | `active` | `fallback_level` | `certificate`, `certificate_horizon` | `iterations` |
+|---|---|---|---|---|
+| Candidate accepted, $\theta = 1$ | False | 0 | "nominal"; inf, or `t_cap` on a closed relative orbit | 1 |
+| $0 < \theta < 1$ | True | 0 | as above | 13 |
+| Backup, $\theta = 0$ | True | 2 | as above | 13 |
+| Recovering | True if $\theta < 1$ | 0 or 2 | None, None | 1 or 13 |
+| Backup failing the tightened checks (error sets) | True | 2 | None, None | 13 |
+
+The status is "feasible" in every row. When recovering, `slack` is the predicted violation of the
+returned action, $\max(0, f_s - \text{bound}, f_b - h(x_1))$ in m. For free drift the horizon is
+inf when the secular drift proves the minimum at $x_1$ and `t_cap` otherwise; for braking it is
+inf.
+
+### Soft filter
+
+`SoftCbfFilter(alpha=1.0, ...)` takes the rows of `CbfFilter` and solves the exact penalty
+problem
+
+$$
+\min_u \tfrac12 |u - u_{\text{nom}}|^2 + \alpha \sum_i \max(0, b_i - a_i \cdot u)
+$$
+
+over the thrust limit (Boyd and Vandenberghe, exercise 5.16). It is strongly convex, so the
+solution is unique; at it the rows split into a set $V$ whose penalty is at its slope $\alpha$
+and the rest, held as hard rows, so the solution is the projection of
+$u_{\text{nom}} + \alpha \sum_{V} a_i$ onto the rows outside $V$. All $2^k$ sets of the
+$k \le 4$ rows are tried and the candidate with the lowest penalized objective is returned. When
+$\alpha$ exceeds every multiplier of the hard projection the result equals that projection; the
+soft filter has no held-step check, so it differs from `CbfFilter` wherever that check acts. Below
+that, or where the hard rows are infeasible, rows are violated, and `slack` (their summed
+violation, m/s^2) and `conflicting` report them. The status is "feasible", since the penalized
+problem always has a solution. A soft barrier has no invariance guarantee: the filter never counts
+toward certification (`counts_toward_certification` is False) and its certificate is None.
+
+### Assumptions and limits
+
+- All filters assume the CW model; other dynamics need a declared `model_error`, which enters as
+  an acceleration bound.
+- Actuation delay is refused. Thrust drive (acceleration rising as mass falls), the minimum
+  impulse bit and execution misalignment change the delivered command without the filter
+  knowing; on such scenarios its predictions are wrong.
+- `CbfFilter`'s speed cap restricts the agent beyond the scenario: from rest, a full command
+  held for 10 s reaches 0.2 m/s, so with a 0.1 m/s cap the filter halves it. Declared
+  `speed_limit` and `closing_speed_limit` rows are first-order conditions at the start of the
+  step only; only the filter's own cap is checked at the end of the step.
+- The braking barrier's region (`rho_cap`, `v_cap`) is declared, not enforced: a nominal that
+  leaves it puts the filter in recovery.
+- The free-drift barrier evaluates up to 11 355 drift samples per check (ten orbits at 5 s); a
+  step that needs the line search makes 13 checks.
+
 ## Validation
 
 The tests in `tests/test_safety_projections.py` check:
@@ -441,6 +628,38 @@ The tests in `tests/test_safety_sampled.py` check:
   threshold of 0.3, follows `iterations`, and on an acceptance set that is not an interval stops
   below the upper window.
 
+The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
+
+- Keyword-only constructors, fixed names, and every reset refusal just inside and just outside
+  its limit: the pole and gain rule at 0.0599 and 0.0601 1/s for dt 10 s (and 0.03 1/s at 20 s),
+  the action modes, frame, observation order, pending commands, dynamics without a model error,
+  an unenforced constraint with and without `ignore=`, a missing keep-out, and a default braking
+  deceleration that is not positive.
+- The declaration: buffer $1.2 \cdot 3 n^2 v_{\text{cap}} \Delta t/p^2$ plus $\delta a/p^2$ to 1e-9
+  relative, certificate kinds "nominal" and "bounded-W", and the soft filter never counting.
+- Clipping in every continuous mode and both layouts is not an intervention, and each row of the
+  outcome tables gives its fields; inside the commit radius every filter only watches.
+- Closed loops on the exact CW environment at dt 1, 2, 5, 10 and 20 s from starts inside each
+  declared set: no certified in-step bound below -1 mm, no infeasible step, the speed under 1.1
+  $v_{\text{cap}}$; riding the boundary with 0.2 m/s across the line of sight under a command
+  pushing inward; a persistent inward 2e-4 m/s^2 with `execution=2e-4`.
+- The bare barrier row with $p\,\Delta t = 1$ fails from every one of 100 starts, and a
+  first-order row on the braking barrier fails under hold (Ames et al., sec. IV and V.B).
+- Free drift on approach-vbar starts reaches the hold point with no violation; the projection
+  candidate corrects less than the clipped one; certificate horizons follow the secular drift.
+- Two true starts seen through one scripted sensor give identical decisions, and recovery is
+  judged on the estimate.
+- The soft filter's action minimises the penalised objective against 500 random commands, and
+  equals the hard projection when $\alpha$ exceeds the largest multiplier.
+
+`benchmarks/filter_known_answers.py` reproduces, with seed 1903 (measured, see its output):
+0 of 100 starts violate with poles 0.05 1/s at dt 1, 5 and 10 s and 100 of 100 with poles
+0.1 1/s at dt 10 s (worst -0.313 m), on the bare rows without a thrust limit; under a box of
+0.02 m/s^2 the barrier row with poles 0.05 1/s violates in 0 of 40 runs at dt 1, 5, 10 s and 40
+of 40 at 20 s, the braking first-order row in 40 of 40 at every dt, and the braking backup filter
+in none at 1, 5, 10, 20 s; at least 393 of 400 approach-vbar starts are certified passively safe
+and the free-drift backup filter flies 40 of them with no violation, all reaching the hold point.
+
 ```python
 import numpy as np
 
@@ -506,4 +725,32 @@ def accept(u):
 
 found = line_search(accept, u_nom, passive.backup(x, box))
 print(found.theta, found.checks)  # 0.45166015625 13
+```
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.safety.cbf import BackupFilter, CbfFilter, SoftCbfFilter
+
+env = ApproachEnv(ApproachConfig(action_mode="accel"))  # commands in m/s^2
+view = env.agent_view()
+x = np.array([0.0, 55.0, 0.0, 0.0, -0.05, 0.0])  # m and m/s, closing along V-bar
+push = np.array([0.0, -0.05, 0.0])  # m/s^2, toward the target and beyond the box
+
+ecbf = CbfFilter(poles=(0.05, 0.05), v_cap=0.1, gamma=0.02)
+ecbf.reset(view)
+result = ecbf.filter(x, push)
+print(result.action.round(4), result.status, result.active)  # [ 0.    -0.001  0.   ] feasible True
+print(round(ecbf.declaration.buffer_m, 4), ecbf.declaration.certificate)  # 0.0018 None
+
+braking = BackupFilter(barrier="braking", rho_cap=2000.0, v_cap=0.3)
+braking.reset(view)
+result = braking.filter(x, push)
+print(result.action.round(4), result.iterations, result.certificate)  # [ 0.   -0.02  0.  ] 1 nominal
+
+soft = SoftCbfFilter(alpha=1e-4, poles=(0.05, 0.05), v_cap=0.1, gamma=0.02)
+soft.reset(view)
+result = soft.filter(x, push)
+print(result.slack > 0.0, soft.declaration.counts_toward_certification)  # True False
 ```
