@@ -1,4 +1,4 @@
-"""Steady-state Kalman filter design and bias detectability on a discrete linear model.
+"""Steady-state Kalman filter design, bias detectability, and the LQG baseline agent.
 
 The filter is x_{k+1} = Phi x_k + w_k, y_k = C x_k + v_k with w ~ N(0, Qd) and v ~ N(0, Rv); its
 predicted covariance solves the filter Riccati equation, the dual of the LQR one, and the updated
@@ -9,10 +9,16 @@ Rawlings, Mayne and Diehl, Model Predictive Control, 2nd ed.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import numpy as np
 from numpy.linalg import LinAlgError
 from numpy.typing import ArrayLike
 from scipy.linalg import matrix_balance, solve_discrete_are
+
+from ..dynamics import cw_discrete
+from .base import AgentView, action_scale
+from .lqr import LQRAgent, LQRConfig, _pending_slots
 
 # The scaled filter Riccati residual stays below 1e-13 of P on the CW model at steps from 1 s to
 # 1e3 s and position sigmas from 1e-3 m to 1 m; a solve that lost the stabilizing solution is far
@@ -29,6 +35,10 @@ UNIT_CIRCLE_TOL = 1e-6
 RANK_TOL = 1e-8
 # A process covariance eigenvalue below this fraction of the largest is negative beyond rounding.
 COVARIANCE_TOL = 1e-12
+STATE_NAMES = ("x", "y", "z", "vx", "vy", "vz")
+# A constant along-track position bias is missing: a constant y offset is itself a CW
+# equilibrium, so it cannot be told from the state (`bias_detectable`).
+BIAS_STATES = ("x", "z", "vx", "vy", "vz")
 
 
 def _balanced(phi: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -191,3 +201,176 @@ def bias_detectable(phi: ArrayLike, c: ArrayLike, bd: ArrayLike, cd: ArrayLike) 
         return False
     lemma = np.block([[np.eye(n) - phi, -bd], [c, cd]])
     return _full_rank(lemma, n + nd)
+
+
+@dataclass(frozen=True, kw_only=True)
+class LQGConfig:
+    """Declared sensor law, process noise and regulator weights of the LQG baseline.
+
+    The sigmas and the process noise are declared configuration, set by whoever runs the agent
+    from the public scenario parameters; the agent never reads them from the environment.
+
+    Parameters
+    ----------
+    sigma_pos_m : float
+        Declared 1-sigma white noise of each measured Hill position (m).
+    sigma_vel_mps : float
+        Declared 1-sigma white noise of each measured Hill velocity (m/s).
+    process_sigma_mps2 : float
+        1-sigma of a white acceleration held over each step on every Hill axis (m/s^2); it must
+        be positive when the agent is reset.
+    bias_states : tuple of str
+        Measurement channels with a constant bias to estimate, from ("x", "z", "vx", "vy",
+        "vz"); each adds one filter state.
+    bias_walk : float
+        Per-step 1-sigma random walk of each bias, as a fraction of its channel's sigma; it
+        must be positive when the agent is reset with bias states.
+    regulator : LQRConfig
+        Weights of the LQR law applied to the estimate.
+
+    Raises
+    ------
+    ValueError
+        If a sigma is not positive, the process noise or the walk is negative, or a bias state
+        is "y" (along-track position, not detectable on the CW model), unknown or repeated.
+    """
+
+    sigma_pos_m: float = 1.0
+    sigma_vel_mps: float = 1e-3
+    process_sigma_mps2: float = 1e-6
+    bias_states: tuple[str, ...] = ()
+    bias_walk: float = 1e-3
+    regulator: LQRConfig = field(default_factory=LQRConfig)
+
+    def __post_init__(self):
+        if not self.sigma_pos_m > 0.0:
+            raise ValueError("sigma_pos_m must be positive")
+        if not self.sigma_vel_mps > 0.0:
+            raise ValueError("sigma_vel_mps must be positive")
+        if not self.process_sigma_mps2 >= 0.0:
+            raise ValueError("process_sigma_mps2 must not be negative")
+        if not self.bias_walk >= 0.0:
+            raise ValueError("bias_walk must not be negative")
+        object.__setattr__(self, "bias_states", tuple(self.bias_states))
+        for name in self.bias_states:
+            if name == "y":
+                raise ValueError("along-track position bias is not detectable on the CW model")
+            if name not in BIAS_STATES:
+                raise ValueError(f"unknown bias state {name!r}, expected one of {BIAS_STATES}")
+        if len(set(self.bias_states)) != len(self.bias_states):
+            raise ValueError("bias states must not repeat")
+
+
+class LQGAgent:
+    """Steady-state Kalman filter on the CW model feeding the LQR hold-point law.
+
+    The filter state is the Hill state (m, m/s) followed by the declared measurement biases. At
+    each decision the agent updates its prediction with the measurement,
+    xhat^+ = xhat^- + L (y - C xhat^-), applies the `LQRAgent` law to the state estimate, and
+    predicts xhat^- = Phi xhat^+ + Gamma u, u the command that acts over the coming step: the
+    oldest pending command when the observation carries the pending-commands channel, else the
+    command just issued. The first prediction is the first measurement with zero biases. L and
+    the covariance are the steady-state ones of `kalman_gain`. A baseline, never an oracle: the
+    sensor law is declared in `LQGConfig`, not read from the environment.
+
+    Parameters
+    ----------
+    config : LQGConfig, optional
+        Declared sensor law, process noise and regulator weights; the defaults of `LQGConfig`
+        when omitted.
+    name : str
+        Name in results.
+
+    Attributes
+    ----------
+    estimate : numpy.ndarray, shape (6 + nd,)
+        State and bias estimate after the last update (m, m/s); NaN before the first act. For
+        tests only; nothing scores it.
+    covariance : numpy.ndarray, shape (6 + nd, 6 + nd)
+        Steady-state covariance after an update, by the Joseph form. For tests only.
+    """
+
+    def __init__(self, config: LQGConfig | None = None, name: str = "lqg"):
+        self.config = LQGConfig() if config is None else config
+        self.name = name
+
+    def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        """Design the filter and the regulator for the view's orbit, step, thrust and delay.
+
+        Parameters
+        ----------
+        view : AgentView
+            Scenario description; uses `n`, `dt`, `max_accel`, `action_mode`, the observation
+            names and what `LQRAgent.reset` reads.
+        rng : numpy.random.Generator, optional
+            Unused; the law is deterministic.
+
+        Raises
+        ------
+        ValueError
+            If the process noise is zero, or the bias walk is zero with bias states (the
+            steady-state gain on a state without process noise is zero), if the action mode
+            takes no continuous command, or if the filter or regulator design fails (see
+            `kalman_gain` and `LQRAgent.reset`).
+        """
+        cfg = self.config
+        if not cfg.process_sigma_mps2 > 0.0 or (cfg.bias_states and not cfg.bias_walk > 0.0):
+            raise ValueError("process noise must be positive: with none the filter gain collapses")
+        self.regulator = LQRAgent(cfg.regulator)
+        self.regulator.reset(view, rng)
+        self.accel_per_unit = view.max_accel / action_scale(view)
+        self.slots = _pending_slots(view.observation)
+
+        phi, gamma = cw_discrete(view.n, view.dt)
+        nd = len(cfg.bias_states)
+        sigma = np.array([cfg.sigma_pos_m] * 3 + [cfg.sigma_vel_mps] * 3)
+        self.phi = np.eye(6 + nd)
+        self.phi[:6, :6] = phi
+        self.gamma = np.vstack([gamma, np.zeros((nd, 3))])
+        self.c = np.hstack([np.eye(6), np.zeros((6, nd))])
+        qd = np.zeros((6 + nd, 6 + nd))
+        qd[:6, :6] = cfg.process_sigma_mps2**2 * gamma @ gamma.T
+        for j, name in enumerate(cfg.bias_states):
+            channel = STATE_NAMES.index(name)
+            self.c[channel, 6 + j] = 1.0
+            qd[6 + j, 6 + j] = (cfg.bias_walk * sigma[channel]) ** 2
+        self.gain, _, self.covariance = kalman_gain(self.phi, self.c, qd, np.diag(sigma**2))
+        self.estimate = np.full(6 + nd, np.nan)
+        self.predicted: np.ndarray | None = None
+
+    def act(self, obs: np.ndarray, info: dict) -> np.ndarray:
+        """Update the estimate with the measurement and command toward the hold point.
+
+        Parameters
+        ----------
+        obs : numpy.ndarray
+            Observation in the order of the view's names: the measured Hill state (m, m/s)
+            first, then the pending-command slots if enabled.
+        info : dict
+            Passed to the regulator, which does not read it.
+
+        Returns
+        -------
+        numpy.ndarray, shape (3,)
+            Command in the view's action mode.
+
+        Raises
+        ------
+        ValueError
+            If a pending command's wait is not a whole number of steps.
+        """
+        obs = np.asarray(obs, dtype=float)
+        y = obs[:6]
+        if self.predicted is None:
+            self.predicted = np.concatenate([y, np.zeros(len(self.phi) - 6)])
+        self.estimate = self.predicted + self.gain @ (y - self.c @ self.predicted)
+        filtered = obs.copy()
+        filtered[:6] = self.estimate[:6]
+        command = self.regulator.act(filtered, info)
+        # The channel echoes each command in the action units the agent issued it in.
+        if self.slots:
+            in_effect = obs[self.slots[0][1:]] * self.accel_per_unit
+        else:
+            in_effect = command * self.accel_per_unit
+        self.predicted = self.phi @ self.estimate + self.gamma @ in_effect
+        return command
