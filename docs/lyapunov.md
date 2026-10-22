@@ -96,16 +96,18 @@ keyword-only.
 - The law is continuous; the environment holds each command for a step. On the matched two-body
   model the differential gravity is cancelled exactly, so the R-bar hold at (-100, 0, 0) m
   stays within 1e-6 m. Under J2 the cancelled acceleration turns while it is held, and the
-  matched hold stays off by a zero-order-hold offset: below 2e-4 m in the tests, and in a
-  separate computation at dt = 10 s the matched J2 offset is 6.5e-5 m.
+  matched hold stays off by a zero-order-hold offset: below 2e-4 m in the tests, and 5.3e-5 m
+  after 30 steps of 10 s from rest on the R-bar hold at (-100, 0, 0) m at 51.6 deg.
 - Declared `"cw"` on `"twobody"` drops the second-order gravity remainder, $-3n^2x^2/r$ on the
   radial axis, which the position gain balances at $3n^2x^2/(r K_1)$ = 5.343e-5 m for the R-bar
   hold at 500 km. Declared `"cw"` on `"twobody_j2"` leaves J2 uncancelled and holds several
   millimetres off.
 - Saturation is handled by clipping, not by the design; the error equation holds only while the
   command is inside the limit.
-- On the two-body models the agent integrates its own target orbit each step, which roughly
-  doubles the cost of a step.
+- On the two-body models the agent integrates its own target orbit each step. In one
+  measurement, 360 steps holding (-100, 0, 0) m on `"twobody_j2"` with a 10 s step, three
+  repeats on a loaded machine, an episode took 37 to 49 s with `LyapunovAgent` against 16 to
+  33 s with `CWTrackingAgent` (1.5 to 2.3 times); timings depend on the machine.
 - Only the continuous action modes are supported: `reset` raises `ValueError` from
   `action_scale` for `"disc27"` and `"impulse_coast"`. An unknown declared dynamics raises
   `ValueError` at `reset`, and a gain that is not positive and finite raises `ValueError` at
