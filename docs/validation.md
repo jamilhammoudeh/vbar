@@ -395,6 +395,148 @@ ed., Nob Hill, 2017)
   matches SLSQP on the condensed problem to 1e-8 relative, with KKT residuals below 1e-7.
 - Sec. 11.4.1 with sec. 5.8.3: an unreachable terminal row is certified infeasible, and the
   certificate verifies by Farkas' lemma against the assembled matrices.
+## Published examples behind the baselines
+
+The tests of the classical baselines ([lqr.md](lqr.md), [lqg.md](lqg.md),
+[lyapunov.md](lyapunov.md), [two-impulse.md](two-impulse.md), [glideslope.md](glideslope.md),
+[trajectory-elements.md](trajectory-elements.md), [shuttle-baselines.md](shuttle-baselines.md),
+[lambert.md](lambert.md)) reproduce the examples below. Each item names its test.
+
+**Alfriend, Vadali, Gurfil, How and Breger, *Spacecraft Formation Flying***
+
+- Example 5.2, in the book's normalized units: the two impulses at $nt_f$ = 2 rad,
+  (-0.00180, -0.01927, 0.005865) and (0.00562, -0.00173, 0.0165), total 0.03774
+  (`test_alfriend_example_5_2_two_impulse_rendezvous`). The printed transfer time (3.22 h) is a
+  misprint: the printed impulses belong to $nt_f$ = 2 rad. The printed second impulse has the
+  wrong sign; the rendezvous needs $-\mathbf v(t_f)$.
+- Example 5.2, the cheapest transfer: the printed minimum (0.0375 at $nt_f$ = 2) is a misprint;
+  recomputed at the stated inputs the least total is 0.03572 at $nt_f$ = 4.64
+  (`test_the_cheapest_transfer_of_example_5_2_lies_past_the_printed_transfer_time`), and the
+  two-impulse fuel bound reaches it
+  (`test_bound_reaches_the_cheapest_two_impulse_transfer_of_alfriend_example_5_2`).
+- Example 9.2: from (25, 25, 50) m to the origin in 0.01 orbits at $a$ = 7170 km, the departure
+  velocity (-0.38888, -0.43924, -0.82643) m/s, the fifth digit recomputed
+  (`test_alfriend_example_9_2_short_transfer_departure_velocity`).
+- P. 92: the transfer times where targeting is singular, $nt_f = 2k\pi$ and the roots of
+  $8\cos x + 3x\sin x = 8$ in plane (2.81346 and 4.89060), $k\pi$ across the track
+  (`test_conditioning_vanishes_at_the_singular_transfer_times`).
+- Section 10.1.2: LQR gains scale with the mean motion when the step scales with the period
+  (`test_gains_scale_with_mean_motion_when_the_step_scales_with_the_period`). Eq. 10.8: the
+  tracking law at rest on the hold point is the CW-cancelling PD law
+  (`test_tracking_law_at_rest_on_the_hold_point_is_the_cw_cancelling_pd_law`). The printed sign of
+  the innovation in the filter update is a misprint; the update adds the gain times
+  $\mathbf y - C\hat{\mathbf x}$ (`test_update_adds_the_gain_times_the_innovation`).
+
+**Fehse, *Automated Rendezvous and Docking of Spacecraft*** (at his $n$ = 1.131367e-3 rad/s)
+
+- Section 3.3.2, eqs. 3.41 to 3.43: CW targeting from 3000 m to 300 m behind the target in 0.37
+  orbits reaches the end point (`test_fehse_in_plane_targeting_reaches_the_end_point`).
+- Section 3.3, transfers of 2700 m along the V-bar: tangential 0.3241 m/s, printed as 0.33
+  (`test_tangential_transfer_burns_n_dy_over_6_pi_and_costs_n_dy_over_3_pi`); radial 1.5273 m/s,
+  $3\pi/2$ times the tangential one
+  (`test_radial_transfer_costs_3_pi_over_2_times_the_tangential_one`).
+- Eqs. 3.33, 3.38 and 3.39: fly-arounds to a point 500 m below the target cost 1.1314 m/s
+  tangentially and 1.697 m/s radially (`test_fly_arounds_cost_2_n_dz_and_3_n_dz`).
+- Eqs. 3.44 to 3.48: the forced straight-line approach from 3000 m to 300 m costs 7.082 m/s over
+  an orbit and 8.054 m/s over half an orbit, 21.85 and 24.85 times the tangential transfer
+  (`test_straight_vbar_approach_costs_2_v_plus_2_n_dy`). The printed half-orbit ratio (44) is a
+  misprint.
+- Eqs. 3.61 and 3.68: a finite burn lasts $\Delta v/\gamma$
+  (`test_finite_burn_lasts_dv_over_the_acceleration`).
+- Section 4.4.1: tracking the nominal arrives closer than flying the plan open loop
+  (`test_tracking_the_nominal_arrives_closer_than_the_open_loop_plan`).
+- Section 5.7: the final approach keeps its speed, 0.04 m/s, up to capture
+  (`test_fehse_sequence_final_leg_keeps_constant_speed_up_to_capture`).
+- Section 6.2.3, p. 183, and appendix B, p. 443: exponential braking with $\lambda$ = 1000 s gives
+  0.3, 0.1 and 0.01 m/s at 300, 100 and 10 m, the limit of the glideslope profile as the arrival
+  rate vanishes (`test_shuttle_exponential_braking_is_the_limit_of_a_vanishing_arrival_rate`).
+
+**Curtis, *Orbital Mechanics for Engineering Students***, section 7.5 (first edition Examples 7.2
+and 7.3, later editions 7.4 and 7.5)
+
+- Example 7.5: from 2 km behind at rest, rendezvous in 1.49 h with two impulses of 0.1226 m/s,
+  total 0.2452 m/s (`test_curtis_example_7_5_two_impulses_from_two_kilometres_behind`,
+  `test_curtis_example_7_5_departure_and_arrival_velocities`).
+- Example 7.4: from (20, 20, 20) km in 8 h, impulses of 0.0740440 and 0.0355649 km/s, total
+  0.109609 km/s (`test_curtis_example_7_4_two_impulses_from_twenty_kilometres_in_eight_hours`,
+  `test_curtis_example_7_4_final_impulse_cancels_the_arrival_velocity`). The first edition's
+  printed final impulse is a misprint; the later editions' figures are reproduced.
+
+**Montenbruck and Gill, *Satellite Orbits: Models, Methods and Applications***
+
+- Exercise 2.6: the orbit through two positions 9000 s apart, $a$ = 28196.776 km,
+  $e$ = 0.7679436, $i$ = 20.315 deg, $\Omega$ = 359.145 deg, $\omega$ = 179.425 deg,
+  $M$ = 29.236 deg (`test_montenbruck_exercise_2_6_orbit_from_two_positions`); its velocities
+  close the arc under Kepler propagation (`test_montenbruck_exercise_2_6_velocities_close_the_arc`).
+
+**Schaub and Junkins, *Analytical Mechanics of Space Systems***
+
+- The Lambert identities on 200 random problems each way: the conic through both positions
+  (`test_random_solutions_lie_on_a_conic_through_both_positions`), the velocity locus
+  $v_c v_\rho = \mu c \sec^2(\Delta f/2)/(2r_1r_2)$
+  (`test_random_solutions_satisfy_the_lambert_velocity_locus`) and
+  $f\dot g - g\dot f = 1$ (`test_lagrange_coefficients_of_the_solution_have_unit_determinant`).
+  The printed value 0 is a misprint.
+- Section 13.7, eq. 13.229: the Lyapunov law makes the closed-loop acceleration the linear error
+  law on the declared two-body model, with and without J2
+  (`test_closed_loop_acceleration_is_the_linear_error_law_on_the_declared_model`).
+
+ed.), at 500 km with a 10 s step
+
+- Chapter 1 (sections 1.2.5 and 1.5.1, exercise 1.61), the hold point: an R-bar hold 100 m out
+  needs $3n^2 \cdot 100$ m = 3.6749087912e-4 m/s²
+  (`test_r_bar_hold_needs_three_n_squared_times_the_offset`); regulating without the target input
+  settles (-3.702, 0.041, 0) m off
+  (`test_regulating_to_the_hold_point_without_feedforward_leaves_an_offset`,
+  `test_regulating_without_target_input_settles_at_the_known_offset`), and the target input
+  removes the offset (`test_feedforward_removes_the_hold_point_offset`).
+- Chapter 1, the one-step delay: ignored by the design, it moves the closed-loop spectral radius to
+  1.3921, 1.0057 and 0.9012 at three weightings
+  (`test_one_step_delay_ignored_by_the_design_changes_the_closed_loop_radius`); the augmented
+  design recovers the undelayed radius
+  (`test_delay_augmented_design_recovers_the_undelayed_radius`) and captures where the undelayed
+  one does not (`test_delay_augmented_design_captures_where_the_undelayed_design_does_not`).
+- Section 5.5: a constant unmodelled acceleration leaves the steady offset
+  (1.288762e-4, 5.842058e-4, -1.759851e-4) m
+  (`test_constant_disturbance_leaves_the_known_steady_offset`).
+- Chapter 8 (section 8.5.2, with Van Loan 1978): the sampled-data stage cost gives the exact
+  zero-order-hold optimum, a cost of 116.65796914 at 10 s and 122.99249126 at 60 s, and differs
+  from weighting the samples by 0.55 % and 6.6 % of the gain
+  (`test_sampled_data_cost_gives_the_exact_zoh_optimum`).
+- Lemma 1.8, constant biases with full-state measurements: an along-track position bias is not
+  detectable, rank 6 of 7 (`test_along_track_position_bias_is_not_detectable`); every other single
+  channel is (`test_constant_bias_on_one_channel_is_detectable_except_along_track_position`); all
+  six together reach rank 11 of 12, and the five without the along-track position are detectable
+  (`test_biases_on_all_six_channels_are_not_detectable_together`).
+
+**Goodman, *History of Space Shuttle Rendezvous*** (NASA JSC-63400, revision 3, 2011)
+
+- Chapter 23, pp. 178 to 180, Tables 23.4 and 23.5: the NSR transfer takes $4/(3n)$, 19.03 min at
+  140 n.mi. (`test_nsr_transfer_takes_4_over_3n_which_is_19_03_min_at_140_nmi`); the printed
+  expression $(4/3)\omega$ is a misprint. The football transfer takes a quarter period, 22.42 min
+  (`test_football_transfer_takes_a_quarter_period_which_is_22_42_min_at_140_nmi`).
+- P. 137: the twice-orbital-rate circle needs only the radial hover thrust
+  (`test_fehse_twice_rate_circle_needs_only_the_rbar_hover_force`). After a thrust loss 180, 150,
+  120 or 90 deg from the start, the free ellipse stays between $R$ and 2, 4.145751, 6.203627 and
+  7 $R$, which the book rounds to 4.15 and 6.20
+  (`test_thrust_loss_on_the_twice_rate_circle_never_comes_closer_than_its_radius`,
+  `test_free_ellipse_after_torva_thrust_loss_never_comes_closer_than_the_range_at_loss`). The
+  flown quarter turn takes $T/8$ (`test_torva_reaches_plus_vbar_after_an_eighth_of_an_orbit`).
+- Pp. 150 and 154: the STORRM terminal-phase burn at 42 deg elevation is mostly radial up
+  (`test_terminal_phase_burn_at_42_deg_elevation_is_mostly_radial_up`).
+- P. 143, STS-92: pilot pulses of 0.1 ft/s (`test_each_pilot_pulse_delivers_0_1_ft_per_s`), and
+  12 closing pulses add up to 1.2 ft/s
+  (`test_twelve_pulses_from_far_behind_add_up_to_1_2_ft_per_s`); the gate never drops below the
+  0.1 ft/s final rate of Table 25.8 (`test_pilot_gate_never_drops_below_0_1_ft_per_s`).
+
+**Hablani, Tapper and Dana-Bashian, "Guidance and control of an autonomous rendezvous
+spacecraft"** (*Journal of Guidance, Control, and Dynamics* 25(3), 2002), as reproduced in Yuan,
+Li and Wang (*Aerospace* 9, 242, 2022), eqs. 14 to 25
+
+- The glideslope profile $\dot\rho = a\rho + b$ arrives at $T = \ln(\dot\rho_T/\dot\rho_0)/a$,
+  $1000\ln 11$ s from 200 m at -0.22 m/s to -0.02 m/s
+  (`test_the_profile_closes_at_a_negative_rate_and_arrives_at_the_closed_form_time`), and meets
+  its boundary range and rates (`test_the_profile_meets_its_boundary_range_and_rates`).
 
 ## Published examples behind the evaluation harness
 

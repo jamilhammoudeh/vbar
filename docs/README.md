@@ -6,7 +6,7 @@ and how it is tested.
 | Page | Covers |
 |---|---|
 | [frames.md](frames.md) | units, the Hill frame, relative states, the ISS-style LVLH frame, rotation conventions |
-| [dynamics.md](dynamics.md) | the model interface and the list of models, Clohessy-Wiltshire, nonlinear two-body motion with J2, Kepler propagation, J2 mean elements, central bodies |
+| [dynamics.md](dynamics.md) | the model interface and the list of models, Clohessy-Wiltshire, nonlinear two-body motion with J2, the relative acceleration without thrust, Kepler propagation, J2 mean elements, central bodies |
 | [perturbations.md](perturbations.md) | Harris-Priester density and geodetic height, differential drag, cannonball and flat-plate solar pressure, cylindrical and conical Earth shadow, the forces left out |
 | [relative-motion.md](relative-motion.md) | elliptic targets in the two-body model, Yamanaka-Ankersen, curvilinear Clohessy-Wiltshire, linearized two-body motion with J2, their error scalings |
 | [transition-matrices.md](transition-matrices.md) | transition and input matrices from the variational equations, STM adequacy, the modeling-error index |
@@ -28,4 +28,14 @@ and how it is tested.
 | [viz.md](viz.md) | the screen style and its colours, the Hill-frame view, range and speed panels, the approach animation, label placement, regenerating the README figures |
 | [backends.md](backends.md) | Basilisk and Orekit as independent propagators of the two-body plus J2 rung, burns held in the Hill frame, the agreement table and how its residuals are attributed |
 | [evaluation.md](evaluation.md) | the evaluation harness: the suite runner, result files, the provenance hash, IQM and stratified bootstrap statistics, safety tails with order-statistic intervals and tolerance bounds, rate comparisons, learned-agent rules, reports and one-command reproduction |
+| [lqr.md](lqr.md) | the LQR baseline: the exact zero-order-hold design model, discrete and sampled-data stage costs, the hold-point input, actuation delay and the command-change weight |
+| [lqg.md](lqg.md) | the LQG baseline: the steady-state Kalman filter on the Clohessy-Wiltshire model, declared measurement biases and their detectability, the regulator on the estimate |
+| [lyapunov.md](lyapunov.md) | Lyapunov baselines: Clohessy-Wiltshire reference tracking, the Cartesian law on a declared two-body model |
+| [two-impulse.md](two-impulse.md) | two-impulse Clohessy-Wiltshire targeting, its singular transfer times, the two-impulse agent and the two-impulse fuel bound |
+| [glideslope.md](glideslope.md) | the pulsed glideslope approach: the exponential range profile, its pulses and the agent that flies them |
+| [trajectory-elements.md](trajectory-elements.md) | transfers, fly-arounds, straight-line forced motion and the twice-orbital-rate circle, and the agents that fly them |
+| [shuttle-baselines.md](shuttle-baselines.md) | Space Shuttle practice: NSR and football aim points, elevation-timed burns, the pilot pulse model |
+| [lambert.md](lambert.md) | Lambert's problem by universal variables and the Lambert targeting agent |
+| [mission-manager.md](mission-manager.md) | modes, gates, contingency and abort modes, and the mission manager agent |
+| [mutants.md](mutants.md) | mutant agents: deliberately broken controllers that check which metric catches which defect |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |

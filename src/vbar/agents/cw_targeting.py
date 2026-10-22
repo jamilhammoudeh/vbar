@@ -10,15 +10,17 @@ n tf = k pi (Alfriend, Vadali, Gurfil, How and Breger, Spacecraft Formation Flyi
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import ArrayLike
 
 from ..dynamics import cw_discrete
-from ..metrics.efficiency import FuelBounds
 from .base import AgentView, action_scale
 from .planning import impulse_action, predicted_margin
+
+if TYPE_CHECKING:
+    from ..metrics.efficiency import FuelBounds
 
 SINGULAR_SET = "n tf = 2 k pi, the roots of 8 cos x + 3 x sin x = 8, or k pi across the track"
 
@@ -455,4 +457,8 @@ class TwoImpulseBound:
             costs.append(np.linalg.norm(dv1, order) + np.linalg.norm(dv2, order))
         if not costs:
             raise ValueError("no transfer time on the grid fits the episode")
+        # Importing the metrics package pulls scipy.stats, interpolate and ndimage into every
+        # agent import, so it waits until a bound is asked for.
+        from ..metrics.efficiency import FuelBounds
+
         return FuelBounds(lower=0.0, upper=float(min(costs)), norm=norm, rung="cw")

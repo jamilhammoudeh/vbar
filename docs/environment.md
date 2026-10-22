@@ -177,6 +177,25 @@ action in the view's action mode. Provided:
   so it is the unfiltered baseline. A goal without a hold point (a docking port) is refused at
   `reset` with a `ValueError`.
 - `DriftAgent`: no thrust.
+- `LQRAgent` and `LQGAgent`: a discrete linear-quadratic regulator to the hold point, and the same
+  law on a steady-state Kalman filter estimate ([lqr.md](lqr.md), [lqg.md](lqg.md)).
+- `CWTrackingAgent` and `LyapunovAgent`: Clohessy-Wiltshire reference tracking and the Cartesian
+  Lyapunov law on a declared two-body model ([lyapunov.md](lyapunov.md)).
+- `TwoImpulseAgent`: two-impulse Clohessy-Wiltshire transfer to the hold point, re-planned, open
+  loop or tracked ([two-impulse.md](two-impulse.md)).
+- `GlideslopeAgent`: pulsed approach down the line of sight on an exponential range profile
+  ([glideslope.md](glideslope.md)).
+- `ElementAgent`, `TorvaAgent`, `FehseSequenceAgent` and `NominalTrackingAgent`: trajectory
+  elements, the twice-orbital-rate fly-around, a radial hop with a straight-line final approach,
+  and tracking of a planned nominal ([trajectory-elements.md](trajectory-elements.md)).
+- `ElevationTimedAgent` and `PilotAgent`: Shuttle burns timed on the target's elevation and the
+  manual pulse model of the final approach ([shuttle-baselines.md](shuttle-baselines.md)).
+- `LambertAgent`: two-impulse transfer targeted with Lambert's problem on a declared two-body
+  orbit ([lambert.md](lambert.md)).
+- `MissionManagerAgent`: runs a timeline of modes with gates, contingency modes and an abort
+  ([mission-manager.md](mission-manager.md)).
+- `Mutant(agent, kind, severity)`: wraps an agent with one deliberate defect, to check which
+  metric catches it ([mutants.md](mutants.md)).
 - `LLMAgent(complete, name=...)`: formats a prompt with the frame, goal, keep-out radius, mean
   motion, observed state, step length and thrust limit, calls `complete(messages, tools)`, and
   parses a JSON reply `{"ax": ..., "ay": ..., "az": ...}` of fractions, which it converts to the

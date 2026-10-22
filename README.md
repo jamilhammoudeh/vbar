@@ -195,6 +195,26 @@ result, so the run can be repeated; scored comparisons keep them drawn, since an
 small seed by matching its first observation against the public scenario
 ([docs/environment.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/environment.md)).
 
+### Classical baselines
+
+`vbar.agents` includes classical controllers to compare against. Each page gives the method, its
+limits and how it is tested.
+
+| Agents | Method | Page |
+|---|---|---|
+| `PDAgent` | CW-cancelling proportional-derivative law to the hold point | [environment.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/environment.md) |
+| `LQRAgent`, `LQGAgent` | discrete LQR to the hold point, and the same law on a Kalman filter estimate | [lqr.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/lqr.md), [lqg.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/lqg.md) |
+| `CWTrackingAgent`, `LyapunovAgent` | Lyapunov tracking on the CW model and on a declared two-body model | [lyapunov.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/lyapunov.md) |
+| `TwoImpulseAgent` | two-impulse CW targeting | [two-impulse.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/two-impulse.md) |
+| `GlideslopeAgent` | pulsed glideslope approach | [glideslope.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/glideslope.md) |
+| `ElementAgent`, `TorvaAgent`, `FehseSequenceAgent`, `NominalTrackingAgent` | transfers, fly-arounds, forced motion and nominal tracking | [trajectory-elements.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/trajectory-elements.md) |
+| `ElevationTimedAgent`, `PilotAgent` | Space Shuttle elevation-timed burns and manual pulses | [shuttle-baselines.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/shuttle-baselines.md) |
+| `LambertAgent` | two-impulse targeting by Lambert's problem (`vbar.dynamics.lambert.lambert`) | [lambert.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/lambert.md) |
+| `MissionManagerAgent` | a timeline of modes with gates, contingencies and an abort | [mission-manager.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/mission-manager.md) |
+
+`Mutant(agent, kind, severity)` wraps any of them with one deliberate defect, to check that the
+metrics catch it ([mutants.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/mutants.md)).
+
 ### LLM agents
 
 `LLMAgent` wraps any model through a function that takes the decision's messages and the tools
@@ -346,7 +366,7 @@ How each part is built, with its equations, methods, assumptions and limits, is 
 frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
 spacecraft, sensors, constraints, the environment, scenarios, metrics, rewards, training
 interfaces, the vectorized environment, agent tools, LLM agents, remote agents, policy export,
-solvers, the evaluation harness, the external propagators and validation.
+solvers, the evaluation harness, the external propagators, the classical baselines and validation.
 
 ## Tests
 
