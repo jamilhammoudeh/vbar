@@ -924,6 +924,12 @@ penalised objective and equals the hard projection when alpha exceeds every mult
   largest velocity box certified clear between 1.4140 and 1.4160 mm/s against the closed form
   1.4147 mm/s.
 - Eq. 8.24 and 8.27 (our case): minimum time 28 steps with a separating direction at 27.
+- Sec. 7.3 with the mean-shift and spread-floor fix of alg. 7.5 and the independent chains of
+  example 4.8 (our cases): on a broad well at 0.15 and a narrow global well at 0.83 the search ends
+  within 1e-3 of 0.83 after 500 evaluations for 20 of 20 seeds; a six-dimensional ball of radius
+  0.03 is found within 1000 evaluations for 5 of 5 seeds, where 1000 uniform draws miss it.
+- Ch. 4 (our case): a filter planted to pass commands through in a slab of 2% of the start box is
+  falsified within 200 evaluations; a correct filter gives "none_found".
 - Sec. 9.3 (our case): the differential-gravity remainder coefficient $3.0000\,\mu/r^4$ and the
   bound $3\mu\rho^2/(r - \rho)^4$ over 181 by 121 directions.
 

@@ -1,6 +1,7 @@
 """Audit of the certified keep-out filters over seeded starts inside and outside their safe sets.
 
-Run with `python benchmarks/filter_audit.py [--starts 1000] [--workers N] [--seed S]`. Every
+Run with `python benchmarks/filter_audit.py [--starts 1000] [--budget 2000] [--workers N]
+[--seed S] [--parts audit|falsify|both]`. Every
 audit is on approach-vbar (500 km, keep-out 50 m, box 0.02 m/s^2, dt 10 s, 360 steps) with
 perfect navigation and no execution error, flown by `vbar.safety.audit.audit_filter`; the full
 run takes hours on one core, so the runs are shared over `--workers` processes (all cores by
@@ -22,6 +23,12 @@ keep-out resolution (1 mm), no step left uncertified after re-flying it with up 
 samples, and no infeasible decision; outside it no "solver_failed" decision and an infeasibility
 proof that verifies on every "infeasible_certified" one. Each audit draws its own 128-bit root
 seed and prints it; `--seed` uses one given seed for all of them.
+
+Then each filter is searched with `vbar.safety.audit.falsify_filter` for the start in its
+declared safe set near the keep-out whose run comes closest to failing, with the PD and the
+inward nominal and `--budget` runs each (2000 by default), and the script asserts the verdict
+"none_found" with a certified robustness of at least -1 resolution. That verdict is the best a
+search can give; it is not a proof that no failing start exists.
 """
 
 import argparse
@@ -33,7 +40,7 @@ import numpy as np
 
 from vbar import ApproachEnv
 from vbar.agents.base import action_scale
-from vbar.safety.audit import audit_filter
+from vbar.safety.audit import audit_filter, falsify_filter
 from vbar.safety.cbf import BackupFilter, CbfFilter
 
 NEAR = ((-80.0, 52.0, -30.0, -0.1, -0.1, -0.1), (80.0, 150.0, 30.0, 0.1, 0.1, 0.1))
@@ -83,16 +90,44 @@ def line(name, label, found, seconds):
     )
 
 
+def falsify_line(name, found, seconds):
+    return (
+        f"{name:12s} {found.nominal_name:7s} falsify            {found.verdict:13s} "
+        f"score {found.score:.1f} evaluations {found.evaluations} rejected {found.rejected} "
+        f"dispersion {found.dispersion:.3f} seed {found.seed:#034x} {seconds:.0f} s"
+    )
+
+
+def falsify(env, args, failed):
+    for name, make in FILTERS.items():
+        for nominal in (None, Inward()):
+            t0 = time.perf_counter()
+            found = falsify_filter(
+                make(),
+                env,
+                nominal=nominal,
+                budget=args.budget,
+                box=NEAR,
+                seed=secrets.randbits(128) if args.seed is None else args.seed,
+                workers=args.workers,
+            )
+            print(falsify_line(name, found, time.perf_counter() - t0), flush=True)
+            if found.verdict != "none_found" or found.score < -1.0:
+                failed.append(f"{name}, {found.nominal_name}, falsify")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--starts", type=int, default=1000)
+    parser.add_argument("--budget", type=int, default=2000)
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     parser.add_argument("--seed", type=lambda s: int(s, 0), default=None)
+    parser.add_argument("--parts", choices=("audit", "falsify", "both"), default="both")
     args = parser.parse_args()
     env = ApproachEnv()
-    failed = []
+    failed: list[str] = []
     t_all = time.perf_counter()
-    for name, make in FILTERS.items():
+    for name, make in FILTERS.items() if args.parts != "falsify" else ():
         for label, mode, box, nominal in audits():
             t0 = time.perf_counter()
             found = audit_filter(
@@ -108,8 +143,10 @@ def main():
             print(line(name, label, found, time.perf_counter() - t0), flush=True)
             if not found.passed:
                 failed.append(f"{name}, {found.nominal_name}, {label}")
+    if args.parts != "audit":
+        falsify(env, args, failed)
     print(f"total {time.perf_counter() - t_all:.0f} s")
-    assert not failed, f"audits failed: {failed}"
+    assert not failed, f"failed: {failed}"
 
 
 if __name__ == "__main__":

@@ -492,3 +492,191 @@ def test_the_re_fly_at_factor_one_flies_the_environments_own_samples(monkeypatch
     assert times.shape == trace.times.shape
     np.testing.assert_allclose(times, trace.times, rtol=1e-12, atol=0.0)
     np.testing.assert_allclose(states, trace.states, rtol=1e-12, atol=1e-12)
+
+
+def falsify(*args, **kwargs):
+    # Imported here so the rest of this file runs while the falsifier is being built.
+    from vbar.safety.audit import falsify_filter
+
+    return falsify_filter(*args, **kwargs)
+
+
+# Hill states (m, m/s) up to 1 m outside the 50 m keep-out: full thrust toward the target
+# crosses it within one 10 s step, so one-step episodes show a violation.
+CLOSE = ((-8.0, 50.2, -1.0, -0.01, -0.01, -0.01), (8.0, 51.0, 1.0, 0.01, 0.01, 0.01))
+# A slab 0.32 m wide in the start's radial position, 2% of the CLOSE box's 16 m.
+SLAB = (1.0, 1.32)
+
+
+class PassesSlab:
+    """From a start in the slab, passes every command through."""
+
+    def reset(self, view):
+        super().reset(view)
+        self.open = None
+
+    def filter(self, obs, action):
+        if self.open is None:
+            self.open = SLAB[0] <= float(obs[0]) <= SLAB[1]
+        if self.open:
+            return FilterResult(np.array(action, dtype=float), intervened=False)
+        return super().filter(obs, action)
+
+
+class SlabCbf(PassesSlab, CbfFilter):
+    """`CbfFilter` with a slab of starts it passes through."""
+
+
+class SlabBraking(PassesSlab, BackupFilter):
+    """The braking `BackupFilter` with a slab of starts it passes through."""
+
+
+PLANTED = {
+    "cbf": lambda: SlabCbf(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1),
+    # Three bisection steps instead of twelve still end the line search on an accepted
+    # command, and halve the cost of a run.
+    "braking": lambda: SlabBraking(barrier="braking", iterations=3),
+}
+
+
+@functools.cache
+def planted_search(filter_name):
+    filt = PLANTED[filter_name]()
+    found = falsify(
+        filt, ApproachEnv(), nominal=Reckless(), box=CLOSE, budget=200, seed=SEED, max_steps=1
+    )
+    return filt, found
+
+
+@pytest.mark.parametrize("filter_name", PLANTED)
+def test_the_falsifier_finds_the_planted_slab_and_reports_the_start_and_trajectory(filter_name):
+    filt, found = planted_search(filter_name)
+    assert found.verdict == "violation"
+    assert found.evaluations <= 200
+    start = np.asarray(found.start)
+    assert SLAB[0] <= start[0] <= SLAB[1]
+    assert filt.contains(start)
+    states = np.asarray(found.states)
+    assert states.ndim == 2 and states.shape[1] == 6
+    np.testing.assert_allclose(states[0], start, rtol=0, atol=1e-12)
+    # The reported run is the violating one, and the score is the certified bound over the
+    # resolution, so a violation scores below -1.
+    assert found.run.violations > 0
+    assert found.score < -1.0
+
+
+def test_draws_outside_the_declared_set_are_counted_and_never_flown():
+    flown = []
+
+    class Recorded(ApproachEnv):
+        def __init__(self, config=None):
+            super().__init__(config)
+            if self.cfg.start_state is not None:
+                flown.append(np.array(self.cfg.start_state))
+
+    filt = CbfFilter(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1)
+    found = falsify(filt, Recorded(), box=NEAR, budget=20, population=10, seed=SEED, max_steps=1)
+    assert found.rejected > 0
+    # Every run of the search, then the re-fly of the worst start.
+    assert len(flown) == found.evaluations + 1
+    assert all(filt.contains(x) for x in flown)
+    assert found.evaluations > 0 and found.seed == SEED
+
+
+@functools.cache
+def clean_search(seed=SEED):
+    found = falsify(
+        CbfFilter(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1), ApproachEnv(), nominal=Reckless(),
+        box=NEAR, budget=30, seed=seed, max_steps=3,
+    )  # fmt: skip
+    return found
+
+
+def test_a_short_search_on_a_certified_filter_finds_nothing_and_claims_nothing():
+    found = clean_search()
+    # "none_found" is the best verdict there is: a search never shows a filter safe.
+    assert found.verdict == "none_found"
+    assert found.score >= -1.0
+    assert math.isfinite(found.score)
+    assert not any("safe" in name for name in vars(found))
+
+
+def test_a_short_search_on_a_correct_braking_filter_finds_nothing_and_claims_nothing():
+    found = falsify(
+        BackupFilter(barrier="braking"), ApproachEnv(), nominal=Reckless(), box=CLOSE, budget=30,
+        seed=SEED, max_steps=3,
+    )  # fmt: skip
+    assert found.verdict == "none_found"
+    assert found.run.violations == found.run.uncertified == 0
+    assert found.score >= -1.0
+    assert math.isfinite(found.score)
+    assert not any("safe" in name for name in vars(found))
+
+
+def tiny_search(filt, env=None, box=NEAR, max_steps=2):
+    """Two runs of a one-chain search, then the re-fly of the worse start."""
+    env = ApproachEnv() if env is None else env
+    return falsify(
+        filt, env, nominal=Reckless(), box=box, budget=2, chains=1, seed=SEED,
+        max_steps=max_steps,
+    )  # fmt: skip
+
+
+def test_a_run_with_no_refinement_left_is_uncertified_although_it_scores_below_minus_one(
+    monkeypatch,
+):
+    monkeypatch.setattr(audit_module, "REFINEMENTS", ())
+    # The coarse braking runs of the audit tests: their certified bounds miss the resolution
+    # with no violation, so the score alone would call the start a violation.
+    env = ApproachEnv(ApproachConfig(violation_samples=2))
+    box = ((-1.0, 50.2, -1.0, 0.1, -0.01, -0.01), (1.0, 50.6, 1.0, 0.2, 0.0, 0.01))
+    found = tiny_search(BackupFilter(barrier="braking"), env, box, max_steps=15)
+    assert found.score < -1.0
+    assert found.run.violations == 0 and found.run.uncertified > 0
+    assert found.verdict == "uncertified"
+
+
+def test_a_certified_infeasible_decision_gives_the_verdict_infeasible():
+    found = tiny_search(CertifiesOnce(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1))
+    assert found.score >= -1.0
+    assert found.run.infeasible == 1
+    assert found.verdict == "infeasible"
+
+
+def test_a_failed_solve_gives_the_verdict_solver_failed():
+    found = tiny_search(FailsOnce(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1))
+    assert found.score >= -1.0
+    assert found.run.solver_failed == 1
+    assert found.verdict == "solver_failed"
+
+
+def test_the_same_root_seed_gives_the_same_search():
+    again = falsify(
+        CbfFilter(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1), ApproachEnv(), nominal=Reckless(),
+        box=NEAR, budget=30, seed=SEED, max_steps=3,
+    )  # fmt: skip
+    first = clean_search()
+    np.testing.assert_array_equal(np.asarray(again.start), np.asarray(first.start))
+    assert again.score == first.score and again.evaluations == first.evaluations
+
+
+@pytest.mark.parametrize("seed", [(1 << 64) - 1, 3])
+def test_the_falsifier_refuses_a_small_root_seed(seed):
+    with pytest.raises(ValueError, match="seed"):
+        falsify(CbfFilter(), ApproachEnv(), box=NEAR, budget=10, seed=seed, max_steps=1)
+
+
+def test_the_falsifier_refuses_what_the_audit_refuses():
+    soft = SoftCbfFilter(alpha=1.0, poles=(0.05, 0.05), v_cap=0.1, gamma=0.02)
+    with pytest.raises(ValueError, match="certification"):
+        falsify(soft, ApproachEnv(), box=NEAR, budget=10, seed=SEED, max_steps=1)
+    two_body = ApproachEnv(ApproachConfig(dynamics="twobody"))
+    with pytest.raises(ValueError, match="cw"):
+        falsify(CbfFilter(model_error=1e-6), two_body, box=NEAR, budget=10, seed=SEED,
+                max_steps=1)  # fmt: skip
+    noisy = ApproachEnv(ApproachConfig(sensor=GaussianNav()))
+    with pytest.raises(ValueError, match="navigation"):
+        falsify(CbfFilter(), noisy, box=NEAR, budget=10, seed=SEED, max_steps=1)
+    pushed = ApproachEnv(ApproachConfig(execution=ExecutionError(noise_sigma=1e-4)))
+    with pytest.raises(ValueError, match="execution"):
+        falsify(CbfFilter(), pushed, box=NEAR, budget=10, seed=SEED, max_steps=1)

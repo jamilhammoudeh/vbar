@@ -12,6 +12,10 @@ sample intervals, until the bound certifies the resolution or a refined minimum 
 From starts outside the set the audit reports every decision that was not "feasible", whether an
 "infeasible_certified" one carries an infeasibility proof that passes its own check, and the
 time until the true state is back in the set.
+
+`falsify_filter` flies the same runs from starts chosen by a cross-entropy search over the
+declared safe set (`vbar.stress.cross_entropy`) that minimizes the certified in-step bound, and
+judges the worst start found as the audit judges any run.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from ..dynamics.cw import cw_states
 from ..metrics.episode import Episode, record_episode
 from ..scenarios.base import EnvConfig
 from ..spacecraft import PerfectNav
+from ..stress.falsify import SearchResult, cross_entropy
 from . import FilteredAgent
 
 AUDIT_MODES = ("inside", "outside")
@@ -45,6 +50,9 @@ REFINEMENTS = (4, 16, 64)
 _DRAWS_PER_START = 1000
 _SEED_BITS = 128
 _MIN_SEED_BITS = 64
+# Spawn key of the falsifier's episode and agent seeds, apart from the search's own streams.
+_RUN_SEEDS_KEY = 1 << 32
+FALSIFY_VERDICTS = ("violation", "uncertified", "infeasible", "solver_failed", "none_found")
 
 
 @dataclass(frozen=True)
@@ -389,6 +397,13 @@ def _reentry(episode: Episode, contains: Callable[[np.ndarray], bool]) -> float:
 def _run(safety_filter, nominal, env_type, cfg, steps: int, inside: bool, job) -> dict[str, Any]:
     """Fly and judge one start, `job` (start, episode seed, agent seed); return the fields of
     its `RunAudit`, plain so that they pickle."""
+    return _flown(safety_filter, nominal, env_type, cfg, steps, inside, job)[1]
+
+
+def _flown(
+    safety_filter, nominal, env_type, cfg, steps: int, inside: bool, job
+) -> tuple[Episode, dict[str, Any]]:
+    """The episode of one start and the fields of its `RunAudit`."""
     x0, episode_seed, agent_seed = job
     flown = env_type(dataclasses.replace(cfg, start_state=tuple(x0), max_steps=steps))
     episode = record_episode(flown, FilteredAgent(nominal, safety_filter), episode_seed, agent_seed)
@@ -396,7 +411,7 @@ def _run(safety_filter, nominal, env_type, cfg, steps: int, inside: bool, job) -
         episode, flown.n, cfg.dt, cfg.violation_samples
     )
     contains = safety_filter.contains
-    return {
+    return episode, {
         "start": episode.start,
         "seed": episode_seed,
         "agent_seed": agent_seed,
@@ -408,6 +423,62 @@ def _run(safety_filter, nominal, env_type, cfg, steps: int, inside: bool, job) -
         "worst_bound": worst,
         "reentry_s": None if inside else _reentry(episode, contains),
     }
+
+
+@dataclass(frozen=True)
+class _Setup:
+    """What `audit_filter` and `falsify_filter` share after checking their arguments."""
+
+    base: Any
+    cfg: EnvConfig
+    steps: int
+    flown_filter: Any
+    declaration: Any
+    lo: np.ndarray
+    hi: np.ndarray
+    root: int
+
+
+def _setup(safety_filter, env, box, seed, max_steps, workers) -> _Setup:
+    """Check the scenario and the filter as the audit needs them; reset the filter."""
+    base = getattr(env, "unwrapped", env)
+    cfg: EnvConfig = base.cfg
+    if cfg.dynamics != "cw":
+        raise ValueError(f"the audit needs cw dynamics, not {cfg.dynamics!r}")
+    if not isinstance(cfg.sensor, PerfectNav):
+        raise ValueError("the audit needs perfect navigation")
+    if cfg.execution is not None:
+        raise ValueError("the audit needs no execution error")
+    if cfg.delay_s != 0.0:
+        raise ValueError("the audit needs no actuation delay")
+    if cfg.min_impulse != 0.0:
+        raise ValueError("the audit needs no minimum impulse bit")
+    if cfg.drive != "accel":
+        raise ValueError("the audit needs the accel drive")
+    if "start_state" not in {f.name for f in dataclasses.fields(cfg)}:
+        raise ValueError("the scenario takes no start_state")
+    steps = cfg.max_steps if max_steps is None else operator.index(max_steps)
+    if steps < 1:
+        raise ValueError("max_steps must be a positive integer")
+    if isinstance(workers, bool) or operator.index(workers) < 1:
+        raise ValueError("workers must be a positive integer")
+    # Read from the class: the declaration of a filter not yet reset raises.
+    kind = type(safety_filter)
+    if not (hasattr(kind, "declaration") and hasattr(kind, "contains")):
+        raise TypeError("the filter declares no safe set")
+    flown_filter = safety_filter
+    if workers > 1:
+        # A reset filter holds its view, whose read-only mappings do not pickle.
+        try:
+            flown_filter = copy.deepcopy(safety_filter)
+        except TypeError:
+            raise ValueError("workers above 1 need a filter that has not been reset") from None
+    safety_filter.reset(base.agent_view())
+    declaration = safety_filter.declaration
+    if not declaration.counts_toward_certification:
+        raise ValueError(f"{safety_filter.name} does not count toward certification (soft filter)")
+    lo, hi = _box(box, cfg)
+    return _Setup(base, cfg, steps, flown_filter, declaration, lo, hi, _root_seed(seed))
 
 
 def audit_filter(
@@ -472,48 +543,13 @@ def audit_filter(
     TypeError
         If the filter declares no safe set.
     """
-    base = getattr(env, "unwrapped", env)
-    cfg: EnvConfig = base.cfg
-    if cfg.dynamics != "cw":
-        raise ValueError(f"the audit needs cw dynamics, not {cfg.dynamics!r}")
-    if not isinstance(cfg.sensor, PerfectNav):
-        raise ValueError("the audit needs perfect navigation")
-    if cfg.execution is not None:
-        raise ValueError("the audit needs no execution error")
-    if cfg.delay_s != 0.0:
-        raise ValueError("the audit needs no actuation delay")
-    if cfg.min_impulse != 0.0:
-        raise ValueError("the audit needs no minimum impulse bit")
-    if cfg.drive != "accel":
-        raise ValueError("the audit needs the accel drive")
-    if "start_state" not in {f.name for f in dataclasses.fields(cfg)}:
-        raise ValueError("the scenario takes no start_state")
     if mode not in AUDIT_MODES:
         raise ValueError(f"unknown mode {mode!r}, expected {AUDIT_MODES}")
     if isinstance(starts, bool) or operator.index(starts) < 1:
         raise ValueError("starts must be a positive integer")
-    steps = cfg.max_steps if max_steps is None else operator.index(max_steps)
-    if steps < 1:
-        raise ValueError("max_steps must be a positive integer")
-    if isinstance(workers, bool) or operator.index(workers) < 1:
-        raise ValueError("workers must be a positive integer")
-    # Read from the class: the declaration of a filter not yet reset raises.
-    kind = type(safety_filter)
-    if not (hasattr(kind, "declaration") and hasattr(kind, "contains")):
-        raise TypeError("the filter declares no safe set")
-    flown_filter = safety_filter
-    if workers > 1:
-        # A reset filter holds its view, whose read-only mappings do not pickle.
-        try:
-            flown_filter = copy.deepcopy(safety_filter)
-        except TypeError:
-            raise ValueError("workers above 1 need a filter that has not been reset") from None
-    safety_filter.reset(base.agent_view())
-    declaration = safety_filter.declaration
-    if not declaration.counts_toward_certification:
-        raise ValueError(f"{safety_filter.name} does not count toward certification (soft filter)")
-    lo, hi = _box(box, cfg)
-    root = _root_seed(seed)
+    setup = _setup(safety_filter, env, box, seed, max_steps, workers)
+    base, cfg, steps, flown_filter = setup.base, setup.cfg, setup.steps, setup.flown_filter
+    declaration, lo, hi, root = setup.declaration, setup.lo, setup.hi, setup.root
     sampler_seq, seeds_seq = np.random.SeedSequence(root).spawn(2)
     contains = safety_filter.contains
     inside = mode == "inside"
@@ -551,12 +587,171 @@ def audit_filter(
     )
 
 
+@dataclass(frozen=True)
+class FilterFalsification:
+    """The worst start a falsification search found for one filter around one nominal agent.
+
+    `verdict` comes from the run of that start, judged as the audit judges any run: "violation",
+    "uncertified" (a step neither certified nor shown violated), "infeasible" (a decision with
+    status "infeasible_certified"), "solver_failed", or "none_found". "none_found" is the best
+    verdict there is: the search samples, and a run without a finding shows nothing about the
+    starts it did not fly. `score` is the run's certified robustness, the lowest in-step lower
+    bound of any hard constraint in units of its resolution (below -1 is a certified bound
+    deeper than the resolution); `start` the start (m, m/s, Hill) and `states` the true states of
+    its run, re-flown; `run` its `RunAudit`; `evaluations` the runs flown by the search;
+    `rejected` the draws outside the declared safe set, never flown; `dispersion` the search's
+    average dispersion over the box; `seed` the 128-bit root seed; `box` the (low, high) corners
+    searched; `search` the search's own record.
+    """
+
+    filter_name: str
+    nominal_name: str
+    declaration: Any
+    verdict: str
+    start: np.ndarray
+    states: np.ndarray
+    run: RunAudit
+    score: float
+    evaluations: int
+    rejected: int
+    dispersion: float
+    seed: int
+    box: tuple[tuple[float, ...], tuple[float, ...]]
+    search: SearchResult
+
+
+def _robustness(fly, resolutions: Mapping[str, float], x0: np.ndarray, seeds) -> float:
+    """The certified robustness of the run from `x0`: min over hard constraints of the lowest
+    in-step bound over the constraint's resolution."""
+    fields = fly((np.asarray(x0, dtype=float), *seeds))
+    bounds = fields["worst_bound"]
+    return min((bound / resolutions[name] for name, bound in bounds.items()), default=math.inf)
+
+
+def _verdict(run: RunAudit) -> str:
+    if run.violations:
+        return "violation"
+    if run.uncertified:
+        return "uncertified"
+    if run.infeasible:
+        return "infeasible"
+    if run.solver_failed:
+        return "solver_failed"
+    return "none_found"
+
+
+def falsify_filter(
+    safety_filter,
+    env,
+    *,
+    nominal=None,
+    budget: int = 1000,
+    box=None,
+    seed: int | None = None,
+    max_steps: int | None = None,
+    workers: int = 1,
+    population: int = 50,
+    chains: int = 2,
+) -> FilterFalsification:
+    """Search the declared safe set for the start whose run comes closest to failing.
+
+    Parameters
+    ----------
+    safety_filter : CbfFilter or BackupFilter
+        The filter, as for `audit_filter`: it must declare a safe set, have `contains(x)`, and
+        count toward certification.
+    env : BaseEnv
+        The scenario, under the same conditions as for `audit_filter`.
+    nominal : Agent, optional
+        The agent whose commands the filter judges; `PDAgent()` by default.
+    budget : int
+        Runs to fly, at least 1.
+    box : tuple of array_like, optional
+        (low, high) corners of the box of Hill states (m, m/s) searched; by default the scenario's
+        start ranges. Points outside the declared safe set are rejected and never flown.
+    seed : int, optional
+        Root seed in [2**64, 2**128); drawn (128 bits) when not given. The search's streams and one
+        episode seed and a different agent seed, shared by every run, are drawn from it.
+    max_steps : int, optional
+        Step limit of each episode; the scenario's by default.
+    workers : int
+        Processes the runs are flown in; the result is the same for every value.
+    population, chains : int
+        Candidates per generation and independent chains of `vbar.stress.cross_entropy`.
+
+    Returns
+    -------
+    FilterFalsification
+        The worst start found, its re-flown run and verdict, the search's evaluations, rejections
+        and dispersion, and the seed.
+
+    Raises
+    ------
+    ValueError
+        As `audit_filter`, and if the box holds too few starts in the declared safe set.
+    TypeError
+        If the filter declares no safe set.
+
+    Notes
+    -----
+    The search minimizes the certified robustness of each run (Kochenderfer, Katz, Corso and
+    Moss, *Algorithms for Validation*, ch. 4), with every run sharing one episode seed and one
+    agent seed, so the score depends on the start alone. The verdict is taken from the run of the
+    worst start, never from the score.
+    """
+    setup = _setup(safety_filter, env, box, seed, max_steps, workers)
+    base, cfg, steps, root = setup.base, setup.cfg, setup.steps, setup.root
+    seeds_rng = np.random.default_rng(np.random.SeedSequence(root, spawn_key=(_RUN_SEEDS_KEY,)))
+    episode_seed = _draw_seed(seeds_rng)
+    agent_seed = _draw_seed(seeds_rng)
+    while agent_seed == episode_seed:
+        agent_seed = _draw_seed(seeds_rng)
+    nominal = PDAgent() if nominal is None else nominal
+    fly = functools.partial(_run, setup.flown_filter, nominal, type(base), cfg, steps, True)
+    resolutions = {c.name: float(c.resolution) for c in base.constraints}
+    score = functools.partial(_robustness, fly, resolutions, seeds=(episode_seed, agent_seed))
+    search = cross_entropy(
+        score,
+        setup.lo,
+        setup.hi,
+        accept=safety_filter.contains,
+        budget=budget,
+        population=population,
+        chains=chains,
+        seed=root,
+        workers=workers,
+    )
+    episode, fields = _flown(
+        safety_filter, nominal, type(base), cfg, steps, True, (search.x, episode_seed, agent_seed)
+    )
+    run = RunAudit(**fields)
+    return FilterFalsification(
+        filter_name=safety_filter.name,
+        nominal_name=getattr(nominal, "name", type(nominal).__name__),
+        declaration=setup.declaration,
+        verdict=_verdict(run),
+        start=episode.start,
+        states=episode.states,
+        run=run,
+        score=search.score,
+        evaluations=search.evaluations,
+        rejected=search.rejected,
+        dispersion=search.dispersion,
+        seed=root,
+        box=(tuple(setup.lo.tolist()), tuple(setup.hi.tolist())),
+        search=search,
+    )
+
+
 __all__ = [
     "AUDIT_MODES",
+    "FALSIFY_VERDICTS",
     "REFINEMENTS",
     "FilterAudit",
+    "FilterFalsification",
     "FlaggedDecision",
     "Refinement",
     "RunAudit",
     "audit_filter",
+    "falsify_filter",
 ]

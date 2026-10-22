@@ -699,6 +699,108 @@ print(found.violations, found.uncertified, found.infeasible, found.passed)  # 0 
 print(found.drawn, found.rejected, found.runs[0].seed != found.runs[0].agent_seed)  # 5 0 True
 ```
 
+## Falsification
+
+The audit flies starts drawn uniformly from the declared safe set. A falsification search
+chooses its starts instead: it looks for the start whose run comes closest to failing, by
+minimizing the run's certified robustness over the set (Kochenderfer, Katz, Corso and Moss,
+*Algorithms for Validation*, ch. 4). A failure it finds is a counterexample. Finding none shows
+nothing about the starts it did not fly, so the best verdict it gives is "none_found", never
+"safe".
+
+### Search kernel
+
+`vbar.stress.cross_entropy(score, lo, hi, *, accept=None, budget=1000, population=50,
+elites=6, smoothing=0.7, sigma_floor=0.02, chains=2, seed=None, workers=1)` minimizes
+`score(x)` over the points of the box $[lo, hi]$ that `accept(x)` passes. It is the
+cross-entropy method (sec. 7.3) on the unit box $z \in [0, 1]^d$, $x = lo + z\,(hi - lo)$:
+
+- Each chain's first generation is uniform on the box, and its elites' mean and spread set the
+  first proposal. Later candidates are drawn from independent normal distributions per coordinate.
+- The elites of a chain are the `elites` lowest-scoring points among its new generation and its
+  previous elites, so a narrow well that gave only a few draws is not dropped for a broad one.
+- The update moves the mean toward the elites and keeps the spread above a floor:
+
+$$
+\mu \leftarrow (1 - a)\,\mu + a\,\bar z_{\text{elite}}, \qquad
+\sigma \leftarrow \max\!\big(\sigma_{\text{floor}},\ (1 - a)\,\sigma + a\,s_{\text{elite}}\big),
+$$
+
+  with $a$ = `smoothing`. The book's algorithm 7.5 updates a full covariance without smoothing or
+  a floor, and collapses onto the first elites before it reaches a rare failure.
+- Two chains (by default) search independently and share the budget, so a second failure region
+  is not abandoned for the first (example 4.8).
+- Draws outside the box or rejected by `accept` are drawn again, up to 1000 times per candidate,
+  and counted in `rejected`; they are never scored.
+- `dispersion` is the mean distance from 4096 uniform probe points of the unit box to the nearest
+  evaluated point, an estimate of the average dispersion of sec. 5.3.2: how much of the box the
+  search left unvisited.
+- The root seed must lie in $[2^{64}, 2^{128})$, or is drawn with 128 bits, and is recorded; each
+  chain's stream and the probes are spawned from it. All draws are made in the calling process
+  and scores are kept in order, so `workers` does not change the result.
+
+The default of 6 elites out of 50 was chosen on the two test problems below, over 200 seeds
+of the test's seed family: 6 elites reached the narrow one-dimensional well within 1e-3 on 200
+of 200 seeds, 7 on 196 and 10 on 185; 5, 6 and 7 elites each found the six-dimensional ball
+on 100 of 100 seeds.
+
+### Filter falsifier
+
+`vbar.safety.audit.falsify_filter(safety_filter, env, *, nominal=None, budget=1000, box=None,
+seed=None, max_steps=None, workers=1, population=50, chains=2)` searches a filter's declared safe
+set:
+
+- It refuses exactly what `audit_filter` refuses (dynamics other than CW, imperfect navigation,
+  execution error, delay, minimum impulse bit, the thrust drive, a filter that does not count
+  toward certification), and flies each start with the audit's own run, at the scenario's dt.
+- `accept` is the filter's `contains`, so every flown start lies in its declared set.
+- The score of a start is its run's certified robustness: the lowest certified in-step bound of
+  any hard constraint, after the audit's re-flying, divided by the constraint's resolution. A
+  score below -1 is a bound deeper than the resolution.
+- Every run shares one episode seed and one different agent seed drawn from the root seed, so the
+  score depends on the start alone.
+- The worst start is flown again and judged as the audit judges any run. The `verdict` comes from
+  that run, never from the score: "violation", "uncertified", "infeasible", "solver_failed" or
+  "none_found".
+
+The result, a `FilterFalsification`, holds the verdict, the worst start and its re-flown true
+`states`, its `RunAudit`, the score, the evaluations and rejections, the dispersion, the box and
+the root seed, and the search's own record. No field claims safety.
+
+### Assumptions and limits
+
+- The search samples starts only; disturbances, navigation and execution errors are not searched.
+- Within its budget the search can miss a failure region smaller than its spread floor allows it
+  to resolve, or one far from every elite. Report the budget and dispersion with every
+  "none_found".
+- The score is per start, the minimum over a whole episode; two failures in one episode count
+  once.
+
+```python
+import numpy as np
+
+from vbar import ApproachEnv
+from vbar.safety.audit import falsify_filter
+from vbar.safety.cbf import CbfFilter
+from vbar.stress import cross_entropy
+
+
+def two_wells(x):
+    """A broad shallow well at 0.15 and the global minimum, a narrow one, at 0.83."""
+    return min((x[0] - 0.15) ** 2 + 0.05, 20.0 * (x[0] - 0.83) ** 2)
+
+
+seed = (1 << 64) + 0x5DEECE66D  # a fixed root seed; scored runs draw one
+found = cross_entropy(two_wells, [0.0], [1.0], budget=500, seed=seed)
+print(round(float(found.x[0]), 3), found.evaluations)  # 0.83 500
+
+near = ((-80.0, 52.0, -30.0, -0.1, -0.1, -0.1), (80.0, 150.0, 30.0, 0.1, 0.1, 0.1))  # m, m/s
+ecbf = CbfFilter(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1)
+report = falsify_filter(ecbf, ApproachEnv(), box=near, budget=30, seed=seed, max_steps=3)
+print(report.verdict, report.score >= -1.0, report.evaluations)  # none_found True 30
+print(np.asarray(report.states).shape)  # (4, 6)
+```
+
 ## Validation
 
 The tests in `tests/test_safety_projections.py` check:
@@ -883,6 +985,38 @@ set from the scenario's start ranges around the PD and the inward nominal, insid
 keep-out around the inward nominal, and outside it near the keep-out around the PD nominal, each
 for the scenario's 360 steps, and asserts that every audit passes; it prints each audit's counts,
 worst bound, re-entry times and root seed.
+
+The tests in `tests/test_falsify.py` check:
+
+- On a broad shallow well at 0.15 and a narrow global well at 0.83, the best point lies within
+  1e-3 of 0.83 after 500 evaluations, for each of 20 seeds.
+- In six dimensions, a ball of radius 0.03 at the bottom of a smooth bowl is found within 1000
+  evaluations for 5 of 5 seeds, while 1000 uniform draws miss it (it fills about 4e-6 of the cube).
+- The same seed gives the same points and scores with one or two workers and repeats exactly; the
+  spread never falls below its floor; rejected draws are counted and never scored; points map from
+  the unit cube onto the box; a drawn seed has 128 bits; seeds below $2^{64}$ or out of range are
+  refused and $2^{64}$ itself is accepted.
+
+The tests in `tests/test_safety_audit.py` check:
+
+- A `CbfFilter` and a braking `BackupFilter`, each planted to pass every command through from
+  starts in a slab 0.32 m wide (2% of a start box up to 1 m outside the keep-out), are caught on
+  one-step episodes: verdict "violation" within 200 evaluations, with the worst start in the slab
+  and in the declared set and its re-flown states.
+- Short searches on a correct `CbfFilter` and a correct braking `BackupFilter` give "none_found"
+  with a finite score of at least -1 and no field naming safety; the same root seed repeats the
+  search.
+- The verdict comes from the re-flown run: a run that scores below -1 with no violation but no
+  refinement left is "uncertified", a certified infeasible decision gives "infeasible" and a
+  failed solve "solver_failed".
+- Draws outside the declared set are counted and never flown.
+- Small seeds, a soft filter, two-body dynamics, imperfect navigation and execution error are
+  refused, as in the audit.
+
+`benchmarks/filter_audit.py` searches each certified filter with the PD and the inward nominal
+near the keep-out, `--budget` runs each (2000 by default), and asserts "none_found" with a score
+of at least -1; it prints each search's verdict, worst score, evaluations, dispersion and root
+seed.
 
 ```python
 import numpy as np
