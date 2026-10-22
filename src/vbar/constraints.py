@@ -14,7 +14,8 @@ more than the constraint's `resolution` below the best value found is refined wi
 Brent search, which finds the true minimum when the refined interval holds a single dip.
 Refinement does not tighten the bound, which can stay up to L h / 2 below the reported minimum.
 A constraint may also give a second-order bound per interval (`KeepOut` does, from a curvature
-bound on |r|^2); the certificate is then the larger of the two on each interval.
+bound on |r|^2, and the speed limits do, from bounds on the acceleration and the jerk); the
+certificate is then the larger of the two on each interval.
 """
 
 from __future__ import annotations
@@ -46,9 +47,9 @@ _NATURAL_MARGIN = 2.0
 class Constraint(Protocol):
     """A margin on the relative state with a bound on its rate of change.
 
-    A constraint may also define `second_order_bounds(states, h, speed, accel)`, one lower bound
-    on the margin per sample interval, which `segment_minimum` and `segment_minima` combine with
-    the first-order bound.
+    A constraint may also define `second_order_bounds(states, h, speed, accel, jerk)`, one lower
+    bound on the margin per sample interval, which `segment_minimum` and `segment_minima` combine
+    with the first-order bound.
     """
 
     @property
@@ -75,6 +76,24 @@ def _vector3(value, name: str) -> tuple[float, float, float]:
     if len(vector) != 3:
         raise ValueError(f"{name} must have three components")
     return vector[0], vector[1], vector[2]
+
+
+def _lowest_below_chord(
+    y0: np.ndarray, y1: np.ndarray, h: float, curvature: np.ndarray
+) -> np.ndarray:
+    """Least of y0 + s (y1 - y0) / h - curvature s (h - s) / 2 over 0 <= s <= h; -inf if infinite.
+
+    A function whose second derivative is at most `curvature` on the interval lies above this
+    quadratic, since the difference is concave and zero at both ends.
+    """
+    finite = np.isfinite(curvature)
+    curvature = np.where(finite, curvature, 0.0)
+    slope = (y1 - y0) / h - 0.5 * curvature * h
+    curved = curvature > 0.0
+    # Without curvature the quadratic is the chord, lowest at an end.
+    s = np.where(curved, np.clip(-slope / np.where(curved, curvature, 1.0), 0.0, h), 0.0)
+    low = np.minimum(np.minimum(y0, y1), y0 + s * slope + 0.5 * curvature * s * s)
+    return np.where(finite, low, -np.inf)
 
 
 @dataclass(frozen=True)
@@ -124,7 +143,12 @@ class KeepOut:
         return 2.0 * (speed * speed + extent * accel)
 
     def second_order_bounds(
-        self, states: np.ndarray, h: float, speed: np.ndarray, accel: np.ndarray
+        self,
+        states: np.ndarray,
+        h: float,
+        speed: np.ndarray,
+        accel: np.ndarray,
+        jerk: np.ndarray | None = None,
     ) -> np.ndarray:
         """Lower bound on the margin (m) over each interval between consecutive samples.
 
@@ -143,6 +167,9 @@ class KeepOut:
         speed, accel : ndarray, shape (..., m - 1)
             Bounds on |v| (m/s) and |dv/dt| (m/s^2) over each interval, as `interval_bounds`
             returns them.
+        jerk : ndarray, shape (..., m - 1), optional
+            Bound on |d^2 v / dt^2| (m/s^3), taken by the speed constraints' bounds; this one
+            does not need it.
 
         Returns
         -------
@@ -156,11 +183,7 @@ class KeepOut:
         v, a = np.where(finite, speed, 0.0), np.where(finite, accel, 0.0)
         extent = np.sqrt(np.maximum(f0, f1)) + 0.5 * h * v
         curvature = np.asarray(self.curvature_bound(v, a, extent))
-        slope = (f1 - f0) / h - 0.5 * curvature * h
-        curved = curvature > 0.0
-        # Without curvature the quadratic is the chord, lowest at an end.
-        s = np.where(curved, np.clip(-slope / np.where(curved, curvature, 1.0), 0.0, h), 0.0)
-        f_low = np.minimum(np.minimum(f0, f1), f0 + s * slope + 0.5 * curvature * s * s)
+        f_low = _lowest_below_chord(f0, f1, h, curvature)
         bounds = np.sqrt(np.maximum(f_low, 0.0)) - self.radius
         return np.where(finite, bounds, -np.inf)
 
@@ -183,6 +206,61 @@ def _closing_rate_bound(speed: float, accel: float, rho_min: float) -> float:
     positive = rho > 0.0
     bound = np.where(positive, speed * speed / np.where(positive, rho, 1.0) + accel, np.inf)
     return cast(float, bound if bound.ndim else float(bound))
+
+
+def _range_curvature(
+    slope: float | np.ndarray, speed: np.ndarray, accel: np.ndarray, rho_min: np.ndarray
+) -> np.ndarray:
+    """Curvature for `_lowest_below_chord` that bounds slope * rho from below on each interval.
+
+    rho'' = (|v|^2 - rho_dot^2) / rho + r_hat . dv/dt lies between -A and V^2 / rho_min + A, the
+    lower end holding through rho = 0 too, where rho has a convex kink. A rising allowed speed
+    therefore needs rho_min > 0 and a falling one does not.
+    """
+    slope = np.asarray(slope, dtype=float)
+    positive = rho_min > 0.0
+    with np.errstate(invalid="ignore"):
+        upper = np.where(positive, speed * speed / np.where(positive, rho_min, 1.0) + accel, np.inf)
+        rising = np.where(slope > 0.0, slope * upper, -slope * accel)
+    return np.where(slope == 0.0, 0.0, rising)
+
+
+def _closing_second_order(
+    allowed: np.ndarray,
+    slope: float | np.ndarray,
+    states: np.ndarray,
+    h: float,
+    speed: np.ndarray,
+    accel: np.ndarray,
+    jerk: np.ndarray,
+) -> np.ndarray:
+    """Lower bound on allowed(rho) - max(0, -rho_dot) over each interval, allowed linear in rho.
+
+    `allowed` is the allowed speed at the samples and `slope` its slope in rho on each interval.
+    The margin is min(allowed, allowed + rho_dot), which avoids the closing speed's kink at
+    rho_dot = 0, and each term is bounded by its chord less a curvature: for rho_dot,
+    rho''' = 3 v_perp . a / rho - 3 |v_perp|^2 rho_dot / rho^2 + r_hat . da/dt, at most
+    3 V A / rho_min + 2 V^3 / (sqrt(3) rho_min^2) + J. Both terms need rho_min > 0; the bounds
+    are -inf where it is zero or a bound is infinite.
+    """
+    r, v = states[..., :3], states[..., 3:6]
+    rho = np.linalg.norm(r, axis=-1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rho_dot = np.sum(r * v, axis=-1) / rho
+    rho_min = range_lower_bounds(states, h, speed)
+    positive = rho_min > 0.0
+    rho_low = np.where(positive, rho_min, 1.0)
+    with np.errstate(invalid="ignore"):
+        third = 3.0 * speed * accel / rho_low + 2.0 * speed**3 / (np.sqrt(3.0) * rho_low**2) + jerk
+    third = np.where(positive, third, np.inf)
+    allowed_curvature = _range_curvature(slope, speed, accel, rho_min)
+    a0, a1 = allowed[..., :-1], allowed[..., 1:]
+    with np.errstate(invalid="ignore"):
+        holding = _lowest_below_chord(a0, a1, h, allowed_curvature)
+        closing = _lowest_below_chord(
+            a0 + rho_dot[..., :-1], a1 + rho_dot[..., 1:], h, allowed_curvature + third
+        )
+    return np.where(positive, np.minimum(holding, closing), -np.inf)
 
 
 @dataclass(frozen=True)
@@ -212,6 +290,48 @@ class SpeedLimit:
 
     def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
         return abs(self.v1) * speed + accel
+
+    def second_order_bounds(
+        self,
+        states: np.ndarray,
+        h: float,
+        speed: np.ndarray,
+        accel: np.ndarray,
+        jerk: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Lower bound on the margin (m/s) over each interval between consecutive samples.
+
+        The velocity lies within J s (h - s) / 2 of the line between its end values, whose norm
+        is below the chord of |v| by the triangle inequality, so |v| is below that chord plus
+        J s (h - s) / 2 even through v = 0. With v1 rho above its chord less a curvature term
+        (`_range_curvature`), the margin lies above its own chord less the sum, a quadratic
+        whose minimum is closed form.
+
+        Parameters
+        ----------
+        states : ndarray, shape (..., m, 6)
+            Samples `h` s apart, Hill frame (m, m/s).
+        h : float
+            Sample spacing (s), positive.
+        speed, accel : ndarray, shape (..., m - 1)
+            Bounds on |v| (m/s) and |dv/dt| (m/s^2) over each interval, as `interval_bounds`
+            returns them.
+        jerk : ndarray, shape (..., m - 1), optional
+            Bound on |d^2 v / dt^2| (m/s^3) over each interval.
+
+        Returns
+        -------
+        ndarray, shape (..., m - 1)
+            The bounds; -inf without `jerk`, where a bound is infinite, and for v1 > 0 where
+            the range bound is zero.
+        """
+        if jerk is None:
+            return np.full(np.shape(speed), -np.inf)
+        states = np.asarray(states)
+        margins = self.margin(states)
+        rho_min = range_lower_bounds(states, h, speed)
+        curvature = _range_curvature(self.v1, speed, accel, rho_min) + jerk
+        return _lowest_below_chord(margins[..., :-1], margins[..., 1:], h, curvature)
 
 
 @dataclass(frozen=True)
@@ -243,6 +363,25 @@ class ClosingSpeedLimit:
 
     def rate_bound(self, speed: float, accel: float, rho_min: float = 0.0) -> float:
         return abs(self.v1) * speed + _closing_rate_bound(speed, accel, rho_min)
+
+    def second_order_bounds(
+        self,
+        states: np.ndarray,
+        h: float,
+        speed: np.ndarray,
+        accel: np.ndarray,
+        jerk: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Lower bound on the margin (m/s) over each interval between consecutive samples.
+
+        Parameters and returns as `SpeedLimit.second_order_bounds`; the bound is
+        `_closing_second_order`'s, -inf where the range bound is zero.
+        """
+        if jerk is None:
+            return np.full(np.shape(speed), -np.inf)
+        states = np.asarray(states)
+        allowed = self.allowed_speed(np.linalg.norm(states[..., :3], axis=-1))
+        return _closing_second_order(allowed, self.v1, states, h, speed, accel, jerk)
 
 
 @dataclass(frozen=True)
@@ -287,6 +426,38 @@ class GateTable:
         ranges, speeds = self._table()
         slope = float(np.max(np.abs(np.diff(speeds) / np.diff(ranges))))
         return slope * speed + _closing_rate_bound(speed, accel, rho_min)
+
+    def second_order_bounds(
+        self,
+        states: np.ndarray,
+        h: float,
+        speed: np.ndarray,
+        accel: np.ndarray,
+        jerk: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Lower bound on the margin (m/s) over each interval between consecutive samples.
+
+        Parameters and returns as `SpeedLimit.second_order_bounds`. On an interval whose range
+        stays between two gates the allowed speed is linear in rho and the bound is
+        `_closing_second_order`'s; an interval whose range can reach a gate, where the allowed
+        speed has a kink, gets -inf, as does one whose range bound is zero.
+        """
+        if jerk is None:
+            return np.full(np.shape(speed), -np.inf)
+        states = np.asarray(states)
+        ranges, speeds = self._table()
+        rho = np.linalg.norm(states[..., :3], axis=-1)
+        rho_min = range_lower_bounds(states, h, speed)
+        rho_max = np.maximum(rho[..., :-1], rho[..., 1:]) + 0.5 * h * speed
+        piece = np.searchsorted(ranges, rho_min, side="right")
+        one_piece = piece == np.searchsorted(ranges, rho_max, side="right")
+        # Piece k lies between gates k - 1 and k; the speed is held below the first and above
+        # the last.
+        slopes = np.concatenate([[0.0], np.diff(speeds) / np.diff(ranges), [0.0]])
+        bounds = _closing_second_order(
+            self.allowed_speed(rho), slopes[piece], states, h, speed, accel, jerk
+        )
+        return np.where(one_piece, bounds, -np.inf)
 
 
 @dataclass(frozen=True)
@@ -502,6 +673,17 @@ def interval_bounds(
     return v, accel
 
 
+def _jerk_bounds(speed: np.ndarray, accel: np.ndarray, n: float) -> np.ndarray:
+    """Bound on |d^2 v / dt^2| (m/s^3) from `interval_bounds`' speed and acceleration bounds.
+
+    With the thrust held in Hill axes, the rate of the natural acceleration
+    (3 n^2 x + 2 n vy, -2 n vx, -n^2 z) is (3 n^2 vx + 2 n ay, -2 n ax, -n^2 vz), at most
+    3 n^2 |v| + 2 n |dv/dt|, scaled by the same safety factor.
+    """
+    with np.errstate(invalid="ignore"):
+        return _NATURAL_MARGIN * (3.0 * n * n * speed + 2.0 * n * accel)
+
+
 def range_lower_bounds(states: np.ndarray, h: float, speed: np.ndarray) -> np.ndarray:
     """Lower bound on the range (m) over each interval between consecutive samples.
 
@@ -548,7 +730,8 @@ def segment_minimum(
     bounds = 0.5 * (margins[:-1] + margins[1:] - rates * h)
     second_order = getattr(constraint, "second_order_bounds", None)
     if second_order is not None:
-        bounds = np.maximum(bounds, second_order(states, h, speed, accel))
+        jerk = _jerk_bounds(speed, accel, n)
+        bounds = np.maximum(bounds, second_order(states, h, speed, accel, jerk))
     for i in np.argsort(bounds):
         if bounds[i] >= best - constraint.resolution:
             break
@@ -598,7 +781,8 @@ def segment_minima(
     bounds = 0.5 * (margins[:, :-1] + margins[:, 1:] - rates * h)
     second_order = getattr(constraint, "second_order_bounds", None)
     if second_order is not None:
-        bounds = np.maximum(bounds, second_order(states, h, speed, accel))
+        jerk = _jerk_bounds(speed, accel, n)
+        bounds = np.maximum(bounds, second_order(states, h, speed, accel, jerk))
     # The best value only falls during refinement, so these are all the intervals it can visit.
     owner, column = np.nonzero(bounds < (best - constraint.resolution)[:, None])
     if owner.size:

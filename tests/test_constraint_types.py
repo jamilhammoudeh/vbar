@@ -2,6 +2,8 @@ import numpy as np
 import pytest
 from scipy.optimize import minimize
 
+from vbar import constraints as constraints_module
+from vbar.agents import PDAgent
 from vbar.constraints import (
     ApproachCone,
     ClosingSpeedLimit,
@@ -11,9 +13,12 @@ from vbar.constraints import (
     SunExclusion,
     ZoneEntry,
     closing_speed,
+    interval_bounds,
+    segment_minima,
     segment_minimum,
 )
 from vbar.dynamics import EARTH, CWDynamics, cw_discrete, mean_motion
+from vbar.scenarios.approach import ApproachConfig, ApproachEnv
 
 N = mean_motion(EARTH.radius + 500e3)
 # Dunlap et al. 2021, eq. 14: v0 = 0.2 m/s, v1 = 4 n.
@@ -299,7 +304,10 @@ def test_zone_margin_lies_below_the_distance_to_the_ellipsoid(seed):
 def test_certificate_and_refined_minimum_bracket_the_dense_minimum(constraint, seed):
     found, dense = found_and_dense(constraint, seed)
     assert np.isfinite(found.lower_bound)
-    assert found.lower_bound <= dense.min() + 1e-12
+    # The bound can equal the last sample's margin, while the dense reference computes that state
+    # through the closed-form matrices instead of the propagator; the two agree to about 1e-9 m
+    # and 1e-12 m/s, so the margins agree to well under 1e-10 of their size.
+    assert found.lower_bound <= dense.min() + 1e-10 * max(1.0, float(np.abs(dense).max()))
     # 4001 samples over at most 30 s miss a smooth minimum by far less than 1e-5 m/s.
     assert found.margin <= dense.min() + 1e-6
     assert found.margin >= found.lower_bound
@@ -332,3 +340,262 @@ def test_passive_speed_rate_bound_uses_the_envelope_slope_at_the_range_bound(axi
     h = 1e-4
     slope = (passive.speed_envelope(rho_min + h) - passive.speed_envelope(rho_min - h)) / (2 * h)
     assert envelope_term == pytest.approx(slope * speed, rel=1e-6)
+
+
+SPEED_TYPES = [SPEED, CLOSING, GATES]
+
+
+def speed_type_segments(count=180, seed=5):
+    """CW segments that stress the speed bounds: flybys coasting and thrusting, velocity
+    reversals under thrust, near-zero speeds, straight radial runs and passes within half a
+    metre of the target."""
+    rng = np.random.default_rng(seed)
+    segments = []
+    for k in range(count):
+        duration = rng.uniform(5.0, 30.0)
+        samples = int(rng.integers(2, 21))
+        d = rng.normal(size=3)
+        d /= np.linalg.norm(d)
+        kind = k % 6
+        if kind in (0, 1):
+            r = rng.uniform(20.0, 200.0) * rng.normal(size=3) / np.sqrt(3.0)
+            v = rng.uniform(0.1, 3.0) * (-r / np.linalg.norm(r) + rng.normal(scale=0.5, size=3))
+            a = rng.uniform(-0.02, 0.02, 3) if kind else np.zeros(3)
+        elif kind == 2:
+            r = rng.uniform(10.0, 100.0) * rng.normal(size=3)
+            v = rng.uniform(0.0, 0.3) * d
+            a = -0.02 * d
+        elif kind == 3:
+            r = rng.uniform(10.0, 100.0) * rng.normal(size=3)
+            v = rng.uniform(0.0, 1e-4) * d
+            a = rng.uniform(-1e-3, 1e-3, 3)
+        elif kind == 5:
+            # Straight radial motion under thrust along the line: |v| is linear but for the
+            # CW terms, so only the jerk allowance separates the margin from its chord.
+            r = rng.uniform(20.0, 300.0) * d
+            v = rng.uniform(0.05, 3.0) * d * rng.choice([-1.0, 1.0])
+            a = rng.uniform(0.0, 0.02) * np.sign(v @ d) * d
+        else:
+            speed = rng.uniform(0.5, 2.0)
+            miss = np.cross(d, rng.normal(size=3))
+            miss *= rng.uniform(0.0, 0.5) / max(np.linalg.norm(miss), 1e-12)
+            r = miss - d * speed * rng.uniform(0.2, 0.8) * duration
+            v = speed * d
+            a = rng.uniform(-0.02, 0.02, 3) * (k % 2)
+        segments.append((np.r_[r, v], a, duration, samples))
+    # A slow thrusting segment 240 m out whose closing-speed margin dips 6.7e-6 m/s below the
+    # gate table's bound once the jerk allowance is dropped; found by search, one in 12000.
+    pinned = np.array(
+        [-217.16515462097917, 89.7300631871679, -63.52001646538965]
+        + [0.05014025551335433, -0.02115754973021164, -0.013336738862452307]
+    )
+    thrust = np.array([-0.006451479902743831, -0.01914988595717226, 3.579511850209868e-05])
+    segments.append((pinned, thrust, 13.062257520505783, 4))
+    return segments
+
+
+def dense_and_bounds(constraint, state, accel, duration, samples, per_interval=100):
+    """Each interval's second-order bound and the least margin of the dense states inside it,
+    the samples taken from the same closed-form states as the dense grid."""
+    grid = np.linspace(0.0, duration, (samples - 1) * per_interval + 1)
+    phi, gamma = cw_discrete(N, grid)
+    dense = phi @ state + gamma @ accel
+    sampled = dense[::per_interval]
+    h = duration / (samples - 1)
+    speed, accel_bound = interval_bounds(sampled, h, float(np.linalg.norm(accel)), N)
+    jerk = constraints_module._jerk_bounds(speed, accel_bound, N)
+    bounds = constraint.second_order_bounds(sampled, h, speed, accel_bound, jerk)
+    margins = constraint.margin(dense)
+    lowest = np.array(
+        [margins[i * per_interval : (i + 1) * per_interval + 1].min() for i in range(samples - 1)]
+    )
+    return bounds, lowest
+
+
+@pytest.mark.parametrize("constraint", SPEED_TYPES, ids=lambda c: c.name)
+def test_speed_second_order_bounds_lie_below_the_dense_minimum_of_every_interval(constraint):
+    for state, accel, duration, samples in speed_type_segments():
+        bounds, lowest = dense_and_bounds(constraint, state, accel, duration, samples)
+        # Samples and dense states come from one computation, so only the bound's own
+        # rounding separates them.
+        assert np.all(bounds <= lowest + 1e-12)
+
+
+def test_speed_bound_on_a_steep_fall_is_the_last_samples_margin():
+    # Thrust along the motion raises |v| at 0.02 m/s^2, far faster than the curvature allowance
+    # can bend the chord, so the lowest point of each interval's quadratic is its end.
+    state = np.array([0.0, 100.0, 0.0, 0.0, 0.1, 0.0])
+    accel = np.array([0.0, 0.02, 0.0])
+    grid = np.linspace(0.0, 10.0, 20)
+    phi, gamma = cw_discrete(N, grid)
+    sampled = phi @ state + gamma @ accel
+    h = grid[1]
+    speed, accel_bound = interval_bounds(sampled, h, 0.02, N)
+    jerk = constraints_module._jerk_bounds(speed, accel_bound, N)
+    margins = SPEED.margin(sampled)
+    bounds = SPEED.second_order_bounds(sampled, h, speed, accel_bound, jerk)
+    np.testing.assert_allclose(bounds, margins[1:], rtol=1e-12, atol=0.0)
+
+
+@pytest.mark.parametrize("constraint", SPEED_TYPES, ids=lambda c: c.name)
+def test_speed_second_order_bounds_without_a_jerk_bound_are_minus_infinity(constraint):
+    grid = np.linspace(0.0, 10.0, 20)
+    phi, _ = cw_discrete(N, grid)
+    sampled = phi @ np.array([0.0, 100.0, 0.0, 0.0, -0.1, 0.0])
+    speed, accel = interval_bounds(sampled, grid[1], 0.0, N)
+    assert np.all(constraint.second_order_bounds(sampled, grid[1], speed, accel) == -np.inf)
+
+
+@pytest.mark.parametrize("constraint", [SPEED, CLOSING], ids=lambda c: c.name)
+def test_speed_second_order_bound_is_minus_infinity_where_the_range_can_reach_zero(constraint):
+    # A pass straight through the target: the interval holding it has a zero range bound.
+    grid = np.linspace(0.0, 4.0, 5)
+    sampled = np.array([[-1.5 + t, 0.0, 0.0, 1.0, 0.0, 0.0] for t in grid])
+    speed, accel = interval_bounds(sampled, 1.0, 0.0, N)
+    jerk = constraints_module._jerk_bounds(speed, accel, N)
+    bounds = constraint.second_order_bounds(sampled, 1.0, speed, accel, jerk)
+    rho_min = constraints_module.range_lower_bounds(sampled, 1.0, speed)
+    assert rho_min[1] == 0.0 and bounds[1] == -np.inf
+
+
+def test_gate_bound_is_minus_infinity_on_an_interval_that_can_reach_a_gate():
+    gate = STS130_VBAR[1][0] * FT
+    # Samples on the V-bar, closing at 0.1 m/s, with only the middle interval spanning the
+    # 110 ft gate; the rule reads only the samples and the bounds, so the jump across the gate
+    # need not match the speed, and it keeps the outer intervals clear of the gate.
+    offsets = (0.6, 0.5, -0.5, -0.6)
+    sampled = np.array([[0.0, gate + d, 0.0, 0.0, -0.1, 0.0] for d in offsets])
+    speed, accel = interval_bounds(sampled, 1.0, 0.0, N)
+    jerk = constraints_module._jerk_bounds(speed, accel, N)
+    bounds = GATES.second_order_bounds(sampled, 1.0, speed, accel, jerk)
+    assert bounds[1] == -np.inf
+    assert np.isfinite(bounds[0]) and np.isfinite(bounds[2])
+
+
+@pytest.mark.parametrize("constraint", SPEED_TYPES, ids=lambda c: c.name)
+@pytest.mark.parametrize("samples", [2, 20])
+def test_batched_speed_minima_equal_the_scalar_ones(constraint, samples):
+    segments = speed_type_segments(count=30, seed=9)
+    states = np.array([s[0] for s in segments])
+    accels = np.array([s[1] for s in segments])
+    times = np.linspace(0.0, 10.0, samples)
+    phis, gammas = cw_discrete(N, times)
+    sampled = np.einsum("mij,nj->nmi", phis, states) + np.einsum("mij,nj->nmi", gammas, accels)
+
+    def state_at(rows, tau):
+        phi, gamma = cw_discrete(N, tau)
+        return np.einsum("aij,aj->ai", phi, states[rows]) + np.einsum(
+            "aij,aj->ai", gamma, accels[rows]
+        )
+
+    thrust = np.linalg.norm(accels, axis=1)
+    _, margins, bounds = segment_minima(
+        constraint, state_at, times, sampled, thrust, N, np.zeros(len(states))
+    )
+    for k in range(len(states)):
+
+        def one(tau, k=k):
+            phi, gamma = cw_discrete(N, np.array([tau]))
+            return (phi @ states[k] + gamma @ accels[k])[0]
+
+        found = segment_minimum(constraint, one, times, sampled[k], float(thrust[k]), N)
+        # Same samples and formulas: the bounds agree to rounding.
+        assert bounds[k] == pytest.approx(found.lower_bound, rel=1e-12, abs=1e-15)
+        # Golden section to 1e-6 s and Brent land within 1e-7 m/s of the same dip.
+        assert margins[k] == pytest.approx(found.margin, abs=1e-7)
+
+
+@pytest.mark.parametrize("constraint", SPEED_TYPES, ids=lambda c: c.name)
+def test_speed_bounds_spare_the_refinement_on_a_pd_approach(monkeypatch, constraint):
+    # A 30-step PD approach from 400 m: with first-order bounds alone the minimum is refined
+    # 166, 190 and 74 times for the three types (measured); the second-order bound leaves none.
+    calls = []
+    real = constraints_module.minimize_scalar
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(constraints_module, "minimize_scalar", counting)
+    start = (0.0, -400.0, 30.0, 0.0, 0.0, 0.0)
+    pd = PDAgent()
+    pd.reset(ApproachEnv(ApproachConfig(start_state=start)).agent_view())
+    dyn = CWDynamics(N)
+    x = np.array(start)
+    dyn.reset(x)
+    times = np.linspace(0.0, 10.0, 20)
+    for k in range(30):
+        u = np.clip(pd.act(x, {}), -1.0, 1.0) * 0.02
+        x, sampled = dyn.advance(u, 10.0, 20)
+        thrust = float(np.linalg.norm(u))
+        segment_minimum(constraint, dyn.state_in_last_segment, times, sampled, thrust, N, 10.0 * k)
+    assert len(calls) <= 10
+
+
+# A flat speed cap has no range term to absorb the CW jerk, so only the jerk allowance keeps its
+# bound sound where |v| bends between samples.
+FLAT = SpeedLimit(0.05, 0.0)
+# Coasting CW segments near the target where the bound without the jerk allowance lies above
+# the exact minimum by 3.7e-10 to 3.6e-6 m/s (found by search over random passes).
+FLAT_PINNED = [
+    (
+        [-8.512268687337283, -4.5816356503564055, 19.086841347259163]
+        + [0.09924779892108913, -0.13070478816855716, -2.7588801485899066],
+        16.174723678345668,
+        5,
+    ),
+    (
+        [-0.4601501976730352, -0.9589593079593223, 2.482664485586285]
+        + [0.008865641363431438, 0.18535200869152368, -0.12043260996055892],
+        26.15290790724532,
+        5,
+    ),
+    (
+        [0.5381253161172106, -0.002255556919430512, -0.5843674673423601]
+        + [-0.003172288740382911, 0.021028930011550387, 0.07938371056212991],
+        20.244984733344392,
+        10,
+    ),
+    (
+        [0.04829468883316452, -0.6408693338400149, 2.1716962803919375]
+        + [-0.16220440273697237, 0.9678578387734551, -0.75779064388136],
+        17.128064244967,
+        10,
+    ),
+    (
+        [-0.292589060436217, 0.38230360518405193, 0.22361748470537274]
+        + [0.008616647762206598, -0.06630629716763056, -0.03781049927790027],
+        47.737681475323896,
+        10,
+    ),
+    (
+        [5.443612240050586, 4.40407325880459, -8.213820696827401]
+        + [-0.255369413471183, 0.0408834216497586, 0.5853790007332254],
+        8.923616295404688,
+        3,
+    ),
+]
+
+
+@pytest.mark.parametrize("case", range(len(FLAT_PINNED)))
+def test_flat_speed_cap_bound_lies_below_the_dense_minimum_on_pinned_passes(case):
+    state, duration, samples = FLAT_PINNED[case]
+    bounds, lowest = dense_and_bounds(
+        FLAT, np.array(state), np.zeros(3), duration, samples, per_interval=400
+    )
+    assert np.all(bounds <= lowest + 1e-12)
+
+
+def flat_cap_passes(count=200, seed=21):
+    """Coasting passes within 25 m of the target at up to 3 m/s, 2 to 20 samples."""
+    rng = np.random.default_rng(seed)
+    for _ in range(count):
+        r = rng.normal(size=3) * rng.uniform(0.5, 25.0) / np.sqrt(3.0)
+        v = rng.normal(size=3) * rng.uniform(0.0, 3.0) / np.sqrt(3.0)
+        yield np.r_[r, v], rng.uniform(5.0, 50.0), int(rng.integers(2, 21))
+
+
+def test_flat_speed_cap_bound_lies_below_the_dense_minimum_on_coasting_passes():
+    for state, duration, samples in flat_cap_passes():
+        bounds, lowest = dense_and_bounds(FLAT, state, np.zeros(3), duration, samples)
+        assert np.all(bounds <= lowest + 1e-12)

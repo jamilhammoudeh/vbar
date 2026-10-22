@@ -21,7 +21,7 @@ $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
 - `SpeedLimit(v0, v1)`: margin $v_0 + v_1\rho - |\mathbf v|$ (m/s), the distance-dependent limit of
   Dunlap et al., "Comparing Run Time Assurance Approaches for Safe Spacecraft Docking" (2021),
   eq. 14, which uses $v_0$ = 0.2 m/s and $v_1 = 4n$. Rate bound $|v_1| V + A$, resolution
-  1e-5 m/s.
+  1e-5 m/s; it also carries a second-order certificate, as do the next two.
 - `ClosingSpeedLimit(v0, v1)`: margin $v_0 + v_1\rho - \max(0, -\dot\rho)$ (m/s), the same limit on
   the speed toward the target only (`closing_speed`). Since $\ddot\rho = (|\mathbf v|^2 -
   \dot\rho^2)/\rho + \hat{\mathbf r}\cdot\dot{\mathbf v}$, the rate bound is $|v_1| V + V^2 /
@@ -135,9 +135,10 @@ its certificate is the larger of the two on each interval.
 
 ## The second-order certificate for the keep-out sphere
 
-A constraint may define `second_order_bounds(states, h, speed, accel)`, one lower bound on its
-margin per sample interval from a curvature argument; `segment_minimum` and `segment_minima` then
-take the larger of it and the Lipschitz bound on each interval. `KeepOut` has one. Its margin
+A constraint may define `second_order_bounds(states, h, speed, accel, jerk)`, one lower bound on
+its margin per sample interval from a curvature argument; `segment_minimum` and `segment_minima`
+then take the larger of it and the Lipschitz bound on each interval. `KeepOut` has one, which
+does not use the jerk bound and may be called without it. Its margin
 $\rho - r_{\text{ko}}$ has an unbounded second derivative near the origin, so the bound is taken on
 $f = |\mathbf r|^2$, whose second derivative is $f'' = 2(|\mathbf v|^2 + \mathbf r \cdot
 \dot{\mathbf v})$. With the interval's bounds $V$ and $A$ from above and $R = \max(\rho_i,
@@ -179,7 +180,65 @@ these 8400 intervals, but on the 320 random segments of the test suite (1 to 60 
 to the origin, and the reported gap over those 320 has a median of 0.20 m, a 95th percentile of
 23 m and a maximum of 102 m (sound on all 320, and above the Lipschitz bound on 297). Where neither
 bound certifies a margin to the constraint's resolution, the interval has to be sampled more
-finely. Other constraint types keep the Lipschitz bound alone.
+finely.
+
+## Second-order certificates for the speed limits
+
+For a speed-type margin the Lipschitz width $\tfrac12 L h$ is dominated by the acceleration, which
+is far larger than the margin's change over an interval, so without a second bound nearly every
+interval is refined. `SpeedLimit`, `ClosingSpeedLimit` and `GateTable` bound their margins by a
+chord less a curvature term, whose width shrinks with $h^2$. Besides $V$ and $A$ they need a bound
+on the jerk $|\ddot{\mathbf v}|$, which `segment_minimum` and `segment_minima` pass as the fifth
+argument of `second_order_bounds`; without it their bounds are $-\infty$. With the thrust held in
+Hill axes, the rate of the natural acceleration is
+$(3n^2\dot x + 2n\ddot y,\ -2n\ddot x,\ -n^2\dot z)$, so with the same factor $c$
+
+$$
+J = c\,(3n^2 V + 2n A).
+$$
+
+Every bound below has the form $m(s) \ge \ell(s) - \tfrac12 K s (h - s)$, with $\ell$ the chord
+between the margin's (or a term's) end values and $s$ the time from the interval's start; its
+minimum over $[0, h]$ is the closed form of the keep-out bound, at most $\tfrac18 K h^2$ below
+the lower end.
+
+**Speed.** The velocity lies within $\tfrac12 J s (h - s)$ of the line between its end values,
+since each component of the difference is zero at both ends with second derivative at most $J$,
+and the norm of that line is below the chord of $|\mathbf v|$ by the triangle inequality. So
+$$
+|\mathbf v(s)| \le \left(1 - \tfrac{s}{h}\right)|\mathbf v_i| + \tfrac{s}{h}\,|\mathbf v_{i+1}|
++ \tfrac12 J s (h - s),
+$$
+with no division by the speed, so it holds through $\mathbf v = 0$, where $|\mathbf v|$ has a
+kink. The range has $\ddot\rho = (|\mathbf v|^2 - \dot\rho^2)/\rho + \hat{\mathbf r}\cdot
+\dot{\mathbf v} \in [-A,\ V^2/\rho_{\min} + A]$, the lower end holding through $\rho = 0$ too, so
+$v_1 \rho$ lies above its chord less $\tfrac12 K_\rho s(h - s)$ with
+$K_\rho = v_1 (V^2/\rho_{\min} + A)$ for $v_1 > 0$ (which needs $\rho_{\min} > 0$), $|v_1| A$ for
+$v_1 < 0$ and 0 for $v_1 = 0$. The `SpeedLimit` margin lies above its chord less
+$\tfrac12 (K_\rho + J) s (h - s)$.
+
+**Closing speed.** The margin $a(\rho) - \max(0, -\dot\rho)$ equals
+$\min(a(\rho),\ a(\rho) + \dot\rho)$, which avoids the kink at $\dot\rho = 0$; each term is bounded
+separately and the certificate is the smaller. For an allowed speed linear in $\rho$ the first is
+the range bound above. For the second,
+$$
+\dddot\rho = \frac{3\,\mathbf v_\perp \cdot \dot{\mathbf v}}{\rho}
+- \frac{3\,|\mathbf v_\perp|^2 \dot\rho}{\rho^2} + \hat{\mathbf r}\cdot\ddot{\mathbf v},
+\qquad
+|\dddot\rho| \le \frac{3 V A}{\rho_{\min}} + \frac{2 V^3}{\sqrt3\,\rho_{\min}^2} + J,
+$$
+with $\mathbf v_\perp$ the velocity across the line of sight, since $|\mathbf v_\perp|^2
+|\dot\rho|$ is at most $2V^3/(3\sqrt3)$ for $|\mathbf v| \le V$. Both terms need
+$\rho_{\min} > 0$; an interval whose range bound is zero gets $-\infty$. `GateTable` uses the same
+bound on an interval whose range, between $\rho_{\min}$ and $\max(\rho_i, \rho_{i+1}) + \tfrac12
+V h$, stays between two consecutive gates or beyond the table, where the allowed speed is linear in
+$\rho$; an interval that can reach a gate, where the allowed speed has a kink, gets $-\infty$.
+
+As for the keep-out sphere, the certificate on each interval is the larger of this bound and the
+Lipschitz bound, and the refinement rule is unchanged, so the bound decides only which intervals
+are refined. Where it ends the search, the reported minimum is the lowest sample, within
+`resolution` of the true minimum. `ApproachCone`, `SunExclusion`, `PassiveSpeed` and `ZoneEntry`
+keep the Lipschitz bound alone.
 
 ## Batches of segments
 
@@ -224,7 +283,10 @@ entering the keep-out zone when its minimum margin is negative.
 ## Assumptions and limits
 
 - $c$ = 2 covers the two-body nonlinearity and J2 at separations below 1% of the orbit radius,
-  about 69 km at 500 km; this is not checked at run time.
+  about 69 km at 500 km, in the acceleration bound and in the jerk bound; this is not checked at
+  run time.
+- The jerk bound assumes the thrust acceleration is constant in Hill axes within a segment, as the
+  environment's dynamics models apply it.
 - Forces not proportional to range or speed, such as differential drag or solar pressure
   ([perturbations.md](perturbations.md)), are not in $A$. The environment's dynamics models do not
   include them.

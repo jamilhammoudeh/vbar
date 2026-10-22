@@ -211,7 +211,7 @@ any others passed in (for example a soft passive-speed envelope the scenario doe
 | ID | Name | Units | Definition |
 |---|---|---|---|
 | S1 | `min_margin[c]` | constraint's | lowest $m_c$ over the episode, start state included: the environment's in-step minima for its own constraints, the same certified search on the rebuilt trajectory for any other, including one that shares a scenario constraint's name with different parameters |
-| S1b | `min_margin_bound[c]` | constraint's | the certified lower bound on S1 (v2: the keep-out sphere's second-order bound joins the Lipschitz bound, [constraints.md](constraints.md)) |
+| S1b | `min_margin_bound[c]` | constraint's | the certified lower bound on S1 (v3: the second-order bounds of the keep-out sphere and the speed-type limits join the Lipschitz bound, [constraints.md](constraints.md)) |
 | S2 | `violation_depth[c]` | constraint's | $\max(0, -\text{S1})$ |
 | S3 | `violation_duration[c]` | s | total time with $m_c < 0$, from `negative_intervals` |
 | S5 | `closing_speed_ratio` | ratio | highest $\max(0,-\dot\rho)/v_{\text{allowed}}(\rho)$ with the scenario's closing-rate law, $v_0 + v_1\rho$ (`ClosingSpeedLimit`) or a gate table (`GateTable`); closing at a hold gate, or a law allowing less than 0, is infinite; with both laws declared, the higher ratio; refined around the highest sample without a certificate (S1 of the law is the certified quantity); NaN without one |

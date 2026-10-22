@@ -45,13 +45,13 @@
   "approach_cone": -59.999999876686466,
   "closing_speed_limit": -0.7220005394781983,
   "keep_out": -49.983137393774676,
-  "speed_limit": -0.7220026871367022
+  "speed_limit": -0.7220026865453579
  },
  "min_margin_bound": {
   "approach_cone": -60.00086617371607,
   "closing_speed_limit": -93.51368744512638,
   "keep_out": -49.990064591059884,
-  "speed_limit": -0.7278567503403505
+  "speed_limit": -0.7220085504899441
  },
  "min_time_to_keep_out": 0.0,
  "optimality_gap": NaN,
@@ -93,7 +93,7 @@
   "approach_cone": 59.999999876686466,
   "closing_speed_limit": 0.7220005394781983,
   "keep_out": 49.983137393774676,
-  "speed_limit": 0.7220026871367022
+  "speed_limit": 0.7220026865453579
  },
  "violation_duration": {
   "approach_cone": 111.33779855868866,
