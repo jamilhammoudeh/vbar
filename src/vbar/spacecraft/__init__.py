@@ -5,6 +5,7 @@ from .sensors import (
     PerfectNav,
     RangeScaledNav,
     Sensor,
+    bounded_ball,
     bounded_normal,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "RangeScaledNav",
     "Sensor",
     "Spacecraft",
+    "bounded_ball",
     "bounded_normal",
 ]

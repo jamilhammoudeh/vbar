@@ -27,12 +27,17 @@ $$
 The defaults, 1 m and 1 mm/s with no bias, are the synthetic `:nav1` track. They are not meant to
 resemble a real sensor and are not valid inside about 20 m, where 1 m is 5% of the range.
 
-`bound`, in units of sigma, truncates every draw of the noise and the bias by rejection (a draw
-outside the bound is drawn again), so the error never exceeds `bound` sigma per axis and a
-certificate for bounded disturbances has a bounded set to work with. The same option is on
-`RangeScaledNav` and on the thrust execution error ([spacecraft.md](spacecraft.md)); the level
-that gives a stated exceedance probability per episode comes from
-`vbar.scenarios.per_draw_level` ([scenarios.md](scenarios.md)).
+`bound`, in units of sigma, truncates every draw of the noise and of the bias by rejection (a
+draw outside the bound is drawn again), each per axis, so the error on an axis never exceeds
+`bound` times the sum of the noise and bias sigmas, and a certificate for bounded disturbances
+has a bounded set to work with. On `RangeScaledNav` the bound applies to the norm of each
+three-dimensional draw, because the draw is projected on the line of sight: the position error
+then stays within `bound` times the range sigma along the line of sight and `bound` times the
+lateral sigma across it, and the velocity error's norm within `bound` times its sigma. The thrust
+execution error has the same option ([spacecraft.md](spacecraft.md)). The level that gives a
+stated exceedance probability per episode for one-dimensional draws comes from
+`vbar.scenarios.per_draw_level` ([scenarios.md](scenarios.md)); for a norm bound use the
+chi distribution with three degrees of freedom instead.
 
 ## Range-scaled errors in the sensor frame
 

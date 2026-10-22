@@ -21,6 +21,25 @@ def bounded_normal(rng: np.random.Generator, size: int, bound: float | None) -> 
     makes a Gaussian error model bounded, which a certificate for bounded disturbances needs;
     derive it from an episode-level exceedance probability with
     `vbar.scenarios.per_draw_level`.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Source of the draws.
+    size : int
+        Number of draws.
+    bound : float or None
+        Truncation level in sigma, applied to each draw; None draws without truncation.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape (size,), in units of sigma.
+
+    Raises
+    ------
+    ValueError
+        If `bound` is set and not positive.
     """
     draw = rng.standard_normal(size)
     if bound is not None:
@@ -30,6 +49,40 @@ def bounded_normal(rng: np.random.Generator, size: int, bound: float | None) -> 
         while np.any(outside):
             draw[outside] = rng.standard_normal(int(np.sum(outside)))
             outside = np.abs(draw) > bound
+    return draw
+
+
+def bounded_ball(rng: np.random.Generator, size: int, bound: float | None) -> np.ndarray:
+    """A standard normal vector, drawn again while its norm exceeds `bound` when it is set.
+
+    Truncating the norm rather than each component keeps the bound under any rotation, so a
+    vector projected on a line of sight stays within `bound` along it and across it.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        Source of the draws.
+    size : int
+        Dimension of the vector.
+    bound : float or None
+        Truncation level in sigma, applied to the vector's norm; None draws without truncation.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape (size,), in units of sigma.
+
+    Raises
+    ------
+    ValueError
+        If `bound` is set and not positive.
+    """
+    draw = rng.standard_normal(size)
+    if bound is not None:
+        if not bound > 0.0:
+            raise ValueError("bound must be positive, in units of sigma")
+        while float(np.linalg.norm(draw)) > bound:
+            draw = rng.standard_normal(size)
     return draw
 
 
@@ -60,7 +113,26 @@ class GaussianNav:
     each observation; `bias_pos` and `bias_vel` are the 1-sigma of a bias drawn once per
     episode. The defaults are the synthetic `:nav1` track (1 m, 1 mm/s, no bias), which is not
     meant to resemble any real sensor and is not valid inside about 20 m. `bound` (in sigma)
-    truncates every draw, noise and bias, so the error never exceeds bound sigma per axis.
+    truncates every draw of the noise and of the bias, each per axis, so the error on an axis
+    never exceeds bound (sigma + bias sigma).
+
+    Parameters
+    ----------
+    sigma_pos : float
+        1-sigma position noise per Hill axis (m).
+    sigma_vel : float
+        1-sigma velocity noise per Hill axis (m/s).
+    bias_pos : float
+        1-sigma of the position bias per Hill axis, drawn at reset (m).
+    bias_vel : float
+        1-sigma of the velocity bias per Hill axis, drawn at reset (m/s).
+    bound : float or None
+        Truncation level in sigma for every noise and bias draw; None leaves them unbounded.
+
+    Raises
+    ------
+    ValueError
+        If a noise level is negative or `bound` is set and not positive.
     """
 
     name = "gaussian"
@@ -100,7 +172,33 @@ class RangeScaledNav:
     navigation is good to about 1% of range (Automated Rendezvous and Docking of Spacecraft, 2.4
     and 5.3.2), and `c_range` models camera ranging from pattern size. Velocity errors are
     isotropic with max(floor_vel, k_vel rho); the velocity defaults (0.05 m/s at 500 m, 1 mm/s
-    at 10 m) are synthetic, not taken from a sensor. `bound` (in sigma) truncates every draw.
+    at 10 m) are synthetic, not taken from a sensor. `bound` (in sigma) truncates the norm of
+    each three-dimensional draw, so the position error never exceeds bound times its sigma along
+    the line of sight nor across it, and the velocity error's norm never exceeds bound times its
+    sigma.
+
+    Parameters
+    ----------
+    k_range : float
+        Line-of-sight position sigma per metre of range (m/m).
+    k_lateral : float
+        Position sigma across the line of sight per metre of range (m/m).
+    floor : float
+        Smallest position sigma, along and across (m).
+    c_range : float
+        Line-of-sight position sigma per square metre of range (1/m).
+    k_vel : float
+        Velocity sigma per metre of range (1/s).
+    floor_vel : float
+        Smallest velocity sigma (m/s).
+    bound : float or None
+        Truncation level in sigma for the norm of each three-dimensional draw; None leaves them
+        unbounded.
+
+    Raises
+    ------
+    ValueError
+        If a coefficient is negative or `bound` is set and not positive.
     """
 
     name = "range_scaled"
@@ -137,12 +235,12 @@ class RangeScaledNav:
         state = np.asarray(true_state, dtype=float)
         rho = float(np.linalg.norm(state[:3]))
         along, across, sigma_vel = self.sigmas(rho)
-        draw = bounded_normal(self.rng, 3, self.bound)
+        draw = bounded_ball(self.rng, 3, self.bound)
         noise = across * draw
         if rho > 0.0:
             los = state[:3] / rho
             noise += (along - across) * (draw @ los) * los
-        return state + np.r_[noise, sigma_vel * bounded_normal(self.rng, 3, self.bound)]
+        return state + np.r_[noise, sigma_vel * bounded_ball(self.rng, 3, self.bound)]
 
 
 class GaussMarkovNav:

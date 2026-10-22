@@ -339,8 +339,8 @@ Katz, Corso and Moss, *Algorithms for Validation*, section 8.1).
   is no contact; the dwell must be unbroken; inhibit windows zero the command; berthing inhibits
   thrust in the capture window and needs the drift to stay; the closing zone opens at the drawn
   GO; the J2 rung draws the argument of latitude; the inspection counts lit, facing points within
-  range and outside the glare; bounded error models never exceed their bound; a target burn
-  moves the relative state.
+  range and outside the glare; bounded error models stay within their stated bounds; a target
+  burn moves the relative state.
 - Goodman's flown figures and the ones derived from them (the twice-orbital-rate thrust law,
   the transition and pitch-manoeuvre timings, the thrust-loss ellipses, the arc costs, the gate
   time constants, the contact speed, the pitch-manoeuvre drift, the V-bar envelope ratios) and

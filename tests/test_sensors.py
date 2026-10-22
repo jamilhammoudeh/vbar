@@ -196,3 +196,38 @@ def test_nonphysical_sensor_parameters_are_rejected():
         GaussMarkovNav(sigma_pos=0.0)
     with pytest.raises(ValueError, match="damping"):
         GaussMarkovNav(damping=0.0)
+
+
+def test_a_bounded_gaussian_error_stays_within_the_sum_of_its_bounded_parts():
+    # Noise and bias are truncated separately at 1 sigma each, so an axis can reach 2 sigma
+    # when both are 1, and does get past the 1 sigma either part alone would allow.
+    from vbar.spacecraft import GaussianNav
+
+    nav = GaussianNav(1.0, 1e-3, bias_pos=1.0, bias_vel=1e-3, bound=1.0)
+    errors = []
+    for seed in range(300):
+        nav.reset(np.random.default_rng(seed))
+        errors += [nav.observe(np.zeros(6), float(t)) for t in range(10)]
+    errors = np.abs(np.array(errors))
+    assert np.max(errors[:, :3]) <= 2.0 and np.max(errors[:, 3:]) <= 2e-3
+    assert np.max(errors[:, :3]) > 1.5
+
+
+def test_a_bounded_range_scaled_error_stays_within_its_sigmas_along_and_across_the_line_of_sight():
+    # 100 m out with 2 m along and 0.5 m across the line of sight: a norm bound keeps the
+    # projected errors inside bound times each sigma; a per-axis bound would let the along
+    # component reach sqrt 3 times it.
+    from vbar.spacecraft import RangeScaledNav
+
+    nav = RangeScaledNav(k_range=0.02, k_lateral=0.005, bound=1.0)
+    nav.reset(np.random.default_rng(3))
+    state = np.array([60.0, -80.0, 0.0, 0.0, 0.0, 0.0])
+    los = state[:3] / 100.0
+    along, across, sigma_vel = nav.sigmas(100.0)
+    errors = np.array([nav.observe(state, float(t)) - state for t in range(5000)])
+    parallel = errors[:, :3] @ los
+    perpendicular = np.linalg.norm(errors[:, :3] - parallel[:, None] * los, axis=1)
+    assert np.max(np.abs(parallel)) <= along * (1 + 1e-12)
+    assert np.max(perpendicular) <= across * (1 + 1e-12)
+    assert np.max(np.linalg.norm(errors[:, 3:], axis=1)) <= sigma_vel * (1 + 1e-12)
+    assert np.max(np.abs(parallel)) > 0.9 * along

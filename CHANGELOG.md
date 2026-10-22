@@ -42,8 +42,9 @@ release may change the public API, and every such change is listed under Changed
   inhibit windows), segment splitting at a target's burns and an event time that ends a step
   early with the unflown propellant given back.
 - `bound` on `GaussianNav`, `RangeScaledNav` and `ExecutionError`: Gaussian draws truncated by
-  rejection at a level in sigma; `vbar.scenarios.per_draw_level` derives the level from an
-  episode-level exceedance probability.
+  rejection at a level in sigma, per axis for the first and last and on the norm of each
+  three-dimensional draw for `RangeScaledNav`; `vbar.scenarios.per_draw_level` derives the level
+  from an episode-level exceedance probability.
 - `vbar/Approach-v0` registered with Gymnasium on import, so `gymnasium.make` builds the approach
   scenario; it passes Gymnasium's environment checker.
 - `py.typed` marker, so type checkers use the package's annotations.
