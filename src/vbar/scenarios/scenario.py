@@ -312,7 +312,11 @@ class ScenarioEnv(BaseEnv):
         return replace(actuation, segments=pieces)
 
     def _goal(self) -> dict[str, Any]:
-        return {"target": self.target.public(self.n)}
+        goal: dict[str, Any] = {"target": self.target.public(self.n)}
+        if self.params.thrust_inhibit:
+            # Agents know when their commands will be zeroed, as a crew knows the manoeuvre plan.
+            goal["thrust_inhibit"] = self.params.thrust_inhibit
+        return goal
 
     def inhibited(self) -> bool:
         """Whether commands are being zeroed now.

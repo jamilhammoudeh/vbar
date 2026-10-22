@@ -148,7 +148,8 @@ Every kind reads its parameters from the spec, draws the episode in `_draw_episo
 its constraints and goal, and ends the episode as its task demands. All kinds support
 `thrust_inhibit` windows, (start, end) in seconds on step boundaries, during which every
 command is zeroed (an attitude manoeuvre or a procedural inhibit; `info["inhibited"]` reports
-it), and `soft` names the constraints scored without failing the run.
+it); the windows are public in the goal under `thrust_inhibit`. `soft` names the constraints
+scored without failing the run.
 
 **Hold point** (`HoldPointEnv`, approaches, closing, acquisition, the Shuttle holds). The goal is a
 hold point with a capture ball and a dwell: success when $|\mathbf r - \mathbf r_h| <$

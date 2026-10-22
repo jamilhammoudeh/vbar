@@ -250,6 +250,9 @@ def test_the_hold_dwell_must_be_unbroken():
 def test_inhibit_windows_zero_the_command_and_report_it():
     env = make("rpm-hold")
     obs, info = env.reset(seed=1)
+    # The windows are public: an agent knows when its commands will be zeroed.
+    assert env.agent_view().goal["thrust_inhibit"] == ((300.0, 570.0),)
+    assert "thrust_inhibit" not in make("approach-vbar").agent_view().goal
     for _ in range(28):
         env.step(np.ones(3))
     _, _, _, _, before = env.step(np.ones(3))
