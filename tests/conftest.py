@@ -1,5 +1,10 @@
 import os
 
+# With many test processes at once on Windows, a few of every 200 identical interior-point solves
+# returned NaN under threaded OpenBLAS (cause not isolated); one thread per process gave none in
+# 5600.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 from hypothesis import HealthCheck, settings
 
 # Both are measured on the wall clock, so a busy machine would fail examples that did not change.
