@@ -909,6 +909,24 @@ and Applications"** (ECC 2019, arXiv:1903.11199v1)
 Boyd and Vandenberghe, exercise 5.16 (exact penalty): the soft filter's action minimises the
 penalised objective and equals the hard projection when alpha exceeds every multiplier.
 
+**Kochenderfer, Katz, Corso and Moss, *Algorithms for Validation*** (MIT Press, 2026)
+
+- Exercises 8.3, 8.6 and 8.8 (pp. 227 to 229): the linear images $(-2, 2)$, $(3, -3)$,
+  $(8, -8)$, the zonotope vertices $(0, 0)$, $(0, 2)$, $(2, 2)$, $(2, 4)$ and the support point
+  $(1, 1)$ along $(-4, 1)$, exact.
+- Examples 8.3 to 8.5 with the mass-spring-damper of app. A.4 (our values; the book plots fig.
+  8.4 only): largest $|p|$ over $R_{1:20}$ of 0.2, 0.2 and 0.3504 for noise half-widths 0.1, 1.0
+  and 2.5, and 0.3947 over $R_{1:40}$, to 1e-4.
+- Eq. 8.20, 8.26 and 8.27 on CW (our case): the closed-form support of the reachable set equals
+  the linear program to 1e-6 m in six directions.
+- Eq. 8.29 with the keep-out ball (our cases): the set clearance of the V-bar hold under
+  navigation boxes, found minima -50.000 m and -6.157 m with certified bounds below them, and the
+  largest velocity box certified clear between 1.4140 and 1.4160 mm/s against the closed form
+  1.4147 mm/s.
+- Eq. 8.24 and 8.27 (our case): minimum time 28 steps with a separating direction at 27.
+- Sec. 9.3 (our case): the differential-gravity remainder coefficient $3.0000\,\mu/r^4$ and the
+  bound $3\mu\rho^2/(r - \rho)^4$ over 181 by 121 directions.
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
@@ -967,6 +985,11 @@ penalised objective and equals the hard projection when alpha exceeds every mult
   stage-structured QPs (sec. 8.8.3) and why an infeasible-start iterate is not a plan (sec. 6.1.2).
 - Nocedal and Wright, *Numerical Optimization* (2nd ed., Springer, 2006), sec. 16.6: Mehrotra's
   predictor-corrector step used by the horizon solver.
+- Kochenderfer, Katz, Corso and Moss, *Algorithms for Validation* (secs. 8.2 to 8.5 and 9.3):
+  zonotope reachable sets of linear loops, support functions and their linear programs, the
+  intersection test with a convex avoid set, invariance by containment, and the Taylor remainder
+  behind the gravity bound; Girard's zonotope order reduction (HSCC 2005), as stated in
+  arXiv:2209.09321.
 - Boyd and Vandenberghe, *Convex Optimization* (2004): the KKT conditions behind the active-set
   projection (sec. 5.5.3), Farkas certificates of infeasibility (sec. 5.8.3), projection onto a
   halfspace (sec. 8.1.1), the sum-of-infeasibilities phase I and its conflicting rows
