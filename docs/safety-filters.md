@@ -5,8 +5,9 @@ Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`
 `EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `ecbf_bias`,
 `first_order_bias`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`, `ClosingSpeedCbf`,
 `ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`), `vbar.safety.sampled`
-(`held_segment_bound`, `line_search`, `LineSearch`) and `vbar.safety.cbf` (`CbfFilter`,
-`BackupFilter`, `SoftCbfFilter`, `FilterDeclaration`).
+(`held_segment_bound`, `line_search`, `LineSearch`), `vbar.safety.cbf` (`CbfFilter`,
+`BackupFilter`, `SoftCbfFilter`, `FilterDeclaration`) and `vbar.safety.audit` (`audit_filter`,
+`FilterAudit`, `RunAudit`, `Refinement`, `FlaggedDecision`).
 
 A safety filter sits between an agent and the spacecraft and changes a command only when it would
 lead out of a safe set. This page starts with the building blocks the filters use: closed-form
@@ -597,6 +598,107 @@ print(result.action.round(4), round(result.slack, 5))  # [0.   0.01 0.  ] 0.011
 - The free-drift barrier evaluates up to 11 355 drift samples per check (ten orbits at 5 s); a
   step that needs the line search makes 13 checks.
 
+## Audit
+
+`audit_filter(safety_filter, env, *, nominal=None, starts=1000, mode="inside", box=None,
+seed=None, max_steps=None, workers=1)` flies a filter around a nominal agent from seeded starts
+and judges every step on the true trajectory. It returns a `FilterAudit` with one `RunAudit`
+per start and the totals.
+
+### How the starts are drawn
+
+- Starts are drawn uniformly from `box`, the (low, high) corners of a box of Hill states (m,
+  m/s), by default the scenario's start position and velocity ranges, and kept when the filter's
+  own `contains(x)` method says they lie on the asked side of its declared safe set (the
+  `FilterDeclaration` has no membership test; the same method judges flagged decisions and
+  re-entry): inside for `mode="inside"`, outside for `mode="outside"`. `drawn` and `rejected`
+  count the draws. After
+  1000 draws per start asked for, the audit stops with `ValueError`.
+- `seed` is a root seed in $[2^{64}, 2^{128})$, drawn from the operating system (128 bits) when
+  not given and recorded in the report. The starts come from one stream of it; each start's episode
+  seed and agent seed, 128 bits each, from another, and the agent seed never equals the episode
+  seed. A seed below $2^{64}$ is refused: it could be found by trying candidates.
+- Each start is flown through `record_episode` in a fresh environment built from the scenario's
+  class and config with `start_state` set, at the scenario's dt and for `max_steps` steps (the
+  scenario's own by default), with the filter wrapped around `nominal` (`PDAgent()` by default)
+  by `FilteredAgent`.
+
+### How a step is judged
+
+For every hard constraint, each step's certified in-step lower bound from the environment, the
+larger of the first-order and second-order bounds of `segment_minimum` on its samples, is
+compared with minus the constraint's `resolution` (1 mm for the keep-out):
+
+- **Certified**: the bound is at least $-\text{resolution}$.
+- **Violation**: the bound is below it and so is the refined minimum, a point on the
+  trajectory.
+- Otherwise the bound alone cannot decide, and the step is **re-flown**: every segment of the
+  step is rebuilt from its recorded start state and acceleration with the closed-form CW
+  solution (`cw_states`) on a grid with 4, 16 and then 64 times the environment's sample
+  intervals, nesting the original samples, and `segment_minimum` is run again. The first grid
+  whose bound reaches $-\text{resolution}$ certifies the step; a refined minimum below it makes
+  the step a violation; a step that neither happens to by 64 times is **uncertified**. Each
+  re-flown step is listed as a `Refinement` with both bounds, the last factor and its outcome.
+
+Every decision whose status is not "feasible" is listed as a `FlaggedDecision`: its time, status,
+conflicting rows, the filter's `recovering`, and whether the true state was inside the declared
+set. For "infeasible_certified" decisions the result's `proof` is checked with its own
+`verify()`; `proof_verified` is None when the result carries no proof.
+
+### Pass rules
+
+- Inside the set (`mode="inside"`): `passed` needs no violation, no uncertified step, no
+  infeasible and no "solver_failed" decision in any run.
+- Outside it (`mode="outside"`): `passed` needs no "solver_failed" decision and a proof that
+  verifies on every "infeasible_certified" one (`proofless` and `proofs_rejected` both 0). Each
+  run reports `reentry_s`, the first decision time at which the true state is back in the set,
+  inf if it never is; `reentered` and `longest_reentry_s` summarise them.
+
+### Refusals
+
+`ValueError` for dynamics other than "cw", a sensor other than `PerfectNav`, a configured
+execution error, actuation delay, a nonzero minimum impulse bit or the "thrust" drive (each
+changes the delivered command without the filter knowing), a scenario config without
+`start_state`, a filter whose declaration does not count toward certification
+(`SoftCbfFilter`), a root seed outside $[2^{64}, 2^{128})$, a non-positive `starts`, `max_steps`
+or `workers`, and an unknown mode; `TypeError` for a filter without `declaration` and
+`contains`.
+
+### Parallel runs
+
+With `workers` above 1 the runs are flown in a process pool. Every start and seed is drawn
+before the pool starts, so the report does not depend on `workers`. The filter must not have
+been reset yet: a reset filter holds its view, which does not pickle.
+
+### Assumptions and limits
+
+- The audit is only as strong as its starts: sampled starts miss rare failures, so a clean audit
+  is not a proof of invariance. A falsification search over the declared set is a separate check.
+- Re-flying uses the CW closed form, so it is exact only for "cw" dynamics, the only dynamics
+  the audit accepts.
+- Re-entry is judged at decision times, every dt, on the true state; a state that passes through
+  the set between decisions is not counted.
+- Inside the set, an infeasible or "solver_failed" decision fails the audit wherever it
+  happens, also after the state has left the set.
+
+```python
+from vbar import ApproachEnv
+from vbar.safety.audit import audit_filter
+from vbar.safety.cbf import BackupFilter
+
+near = ((-80.0, 52.0, -30.0, -0.1, -0.1, -0.1), (80.0, 150.0, 30.0, 0.1, 0.1, 0.1))  # m, m/s
+found = audit_filter(
+    BackupFilter(barrier="braking"),
+    ApproachEnv(),
+    starts=5,
+    box=near,
+    seed=0xC3A5C85C97CB3127B4A3E1A53C1F2D0B,
+    max_steps=30,
+)
+print(found.violations, found.uncertified, found.infeasible, found.passed)  # 0 0 0 True
+print(found.drawn, found.rejected, found.runs[0].seed != found.runs[0].agent_seed)  # 5 0 True
+```
+
 ## Validation
 
 The tests in `tests/test_safety_projections.py` check:
@@ -733,6 +835,41 @@ The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
 - The soft filter's action minimises the penalised objective against 500 random commands, and
   equals the hard projection when $\alpha$ exceeds the largest multiplier.
 
+The tests in `tests/test_safety_audit.py` check:
+
+- Each certified filter (`CbfFilter` at poles 0.06 1/s with v_cap 0.1 m/s and at the default
+  0.03 1/s, `BackupFilter` with free drift and with braking), around the PD nominal and around a
+  nominal pushing at full thrust straight at the target, on 20 starts near the keep-out (52 to
+  150 m, up to 0.1 m/s per axis) for 3 steps: no violation, no uncertified step, no infeasible
+  decision, and every run's worst certified bound at least -1 mm.
+- Every start lies inside the declared set and the box, `drawn` is the starts plus `rejected`,
+  and the same root seed gives the same starts and seeds for both nominals.
+- Seeds: the root seed is recorded; the 40 episode and agent seeds are distinct, below
+  $2^{128}$ and the largest has at least 124 bits; a root seed drawn when none is given has more
+  than 64 bits; -1, $2^{128}$ and True are refused.
+- A filter that declares the `CbfFilter` set but passes every command through is caught: around
+  the inward nominal it has violations deeper than 1 mm and does not pass.
+- With 2 samples per step, the braking filter riding the boundary at full thrust leaves steps
+  whose bound is below -1 mm while the refined minimum is not; re-flying certifies all of them,
+  some only at 16 times the samples, and the audit passes. With only the 4 times grid allowed,
+  some stay uncertified and the audit fails.
+- Re-flying a step with the environment's own samples reproduces its certified bound and
+  refined minimum to 1e-9 relative, for three commands.
+- Refusals: the soft filter, "twobody" and "twobody_j2" dynamics (even with a declared model
+  error), Gaussian navigation, an execution error, a filter without a declared set, a box with no
+  start inside the set, and non-positive `starts`, `max_steps` and `workers` and an unknown mode.
+- Outside the set, `CbfFilter` at poles 0.06 1/s from starts closing at 0.3 to 0.5 m/s at 55 to
+  70 m: every run re-enters the set at a whole number of steps, there are infeasible decisions,
+  each flagged decision is recovering and outside the set with named conflicting rows, and
+  `passed` follows the outside rule. On stand-in decisions, a proof that verifies, one that
+  fails and a missing one are recorded as True, False and None, and only verified proofs with
+  no "solver_failed" decision pass.
+- Two workers give the same starts, seeds, step counts and worst bounds as one.
+- A "solver_failed" decision inside the set fails `passed` and is counted; actuation delay, a
+  minimum impulse bit and the "thrust" drive are refused just off zero and "accel" and accepted
+  at them; a root seed of $2^{64} - 1$ is refused and $2^{64}$ accepted; with no refinement grid
+  left, a step the bound cannot decide is reported uncertified.
+
 `benchmarks/filter_known_answers.py` reproduces, with seed 1903 (measured, see its output):
 0 of 100 starts violate with poles 0.05 1/s at dt 1, 5 and 10 s and 100 of 100 with poles
 0.1 1/s at dt 10 s (worst -0.313 m), on the bare rows without a thrust limit; under a box of
@@ -740,6 +877,12 @@ The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
 of 40 at 20 s, the braking first-order row in 40 of 40 at every dt, and the braking backup filter
 in none at 1, 5, 10, 20 s; at least 393 of 400 approach-vbar starts are certified passively safe
 and the free-drift backup filter flies 40 of them with no violation, all reaching the hold point.
+
+`benchmarks/filter_audit.py` runs 1000 starts for each of the four filters: inside the declared
+set from the scenario's start ranges around the PD and the inward nominal, inside it near the
+keep-out around the inward nominal, and outside it near the keep-out around the PD nominal, each
+for the scenario's 360 steps, and asserts that every audit passes; it prints each audit's counts,
+worst bound, re-entry times and root seed.
 
 ```python
 import numpy as np
