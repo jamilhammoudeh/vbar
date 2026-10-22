@@ -4,7 +4,8 @@ With the command held for each step the CW motion is linear, so a loop x+ = A x 
 the start state in a zonotope and w in a zonotope or a thrust limit has zonotope reachable sets,
 and their support functions are exact (Kochenderfer, Katz, Corso and Moss, *Algorithms for
 Validation*, sec. 8.3 and 8.4). Here they give a certified keep-out clearance of a whole set of
-states, an invariance test for closed loops, a minimum number of steps with a separating
+states and a cover of a box of start states by parts whose drift is certified clear or enters,
+an invariance test for closed loops, a minimum number of steps with a separating
 direction that proves fewer steps infeasible, and a bound on the gravity a CW model leaves out.
 
 Supports are computed by propagating the direction backward through the loop, so no set grows
@@ -14,16 +15,18 @@ from the closed-loop matrix before any set operation, and reduced only on reques
 
 from __future__ import annotations
 
+import heapq
 import itertools
 import math
 import operator
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
 from scipy.optimize import linprog, lsq_linear
 from scipy.spatial import ConvexHull
 
-from .constraints import interval_bounds
+from .constraints import KeepOut, interval_bounds
 from .dynamics.cw import cw_discrete
 from .solvers.qp import ActuatorSet
 
@@ -569,33 +572,37 @@ class Clearance:
         return self.certified >= 0.0
 
 
-def _rate_bounds(
-    positions: list[Zonotope], velocities: list[Zonotope], h: float, thrust: float, n: float
-) -> np.ndarray:
-    """Bounds on the speed (m/s) of every trajectory of the sets over each sample interval."""
-    states = np.zeros((len(positions), 6))
-    for i, (p, v) in enumerate(zip(positions, velocities, strict=True)):
-        states[i, 0] = np.linalg.norm(p.center) + np.sum(np.linalg.norm(p.generators, axis=0))
-        states[i, 3] = np.linalg.norm(v.center) + np.sum(np.linalg.norm(v.generators, axis=0))
+def _largest_norms(c: np.ndarray, g: np.ndarray) -> np.ndarray:
+    """|c_i| + sum_j |g_ij|, the largest norm over each zonotope; `c` (s, k), `g` (s, k, m)."""
+    return np.linalg.norm(c, axis=1) + np.sum(np.linalg.norm(g, axis=1), axis=1)
+
+
+def _sample_bounds(
+    c: np.ndarray, g: np.ndarray, h: float, thrust: float, n: float, radius: float
+) -> tuple[np.ndarray, float]:
+    """Upper sample margins (m) and the certified margin over every interval (m).
+
+    The sets are states c_i + G_i beta at consecutive samples `h` s apart, `c` (s, 6) and `g`
+    (s, 6, m).
+    """
+    lower, upper = _nearest(np.ascontiguousarray(c[:, :3]), np.ascontiguousarray(g[:, :3]))
+    largest = np.zeros((c.shape[0], 6))
+    largest[:, 0] = _largest_norms(c[:, :3], g[:, :3])
+    largest[:, 3] = _largest_norms(c[:, 3:], g[:, 3:])
     # interval_bounds reads only the norms of the sample states, here the largest of each set.
-    speed, _ = interval_bounds(states, h, thrust, n)
-    return speed
+    speed, _ = interval_bounds(largest, h, thrust, n)
+    lower, upper = lower - radius, upper - radius
+    # The nearest distance to the ball changes no faster than the fastest trajectory.
+    certified = float(np.min(0.5 * (lower[:-1] + lower[1:] - speed * h)))
+    return upper, certified
 
 
 def _sampled_clearance(
-    sets: list[Zonotope], h: float, thrust: float, n: float, radius: float, t0: float
+    c: np.ndarray, g: np.ndarray, h: float, thrust: float, n: float, radius: float, t0: float
 ) -> tuple[float, float, float]:
     """(found, certified, t) over consecutive samples `h` s apart starting at `t0`."""
-    positions = [z.map(np.eye(6)[:3]) for z in sets]
-    velocities = [z.map(np.eye(6)[3:]) for z in sets]
-    distance = _nearest(
-        np.array([p.center for p in positions]), np.array([p.generators for p in positions])
-    )
-    lower, upper = distance[0] - radius, distance[1] - radius
+    upper, certified = _sample_bounds(c, g, h, thrust, n, radius)
     k = int(np.argmin(upper))
-    speed = _rate_bounds(positions, velocities, h, thrust, n)
-    # The nearest distance to the ball changes no faster than the fastest trajectory.
-    certified = float(np.min(0.5 * (lower[:-1] + lower[1:] - speed * h)))
     return float(upper[k]), certified, t0 + k * h
 
 
@@ -632,9 +639,199 @@ def drift_clearance(n: float, x0, radius: float, duration: float, samples: int) 
         raise ValueError("x0 must be a zonotope or a state")
     times = np.linspace(0.0, duration, samples)
     phis, _ = cw_discrete(n, times)
-    sets = [start.map(phi) for phi in phis]
-    found, certified, t = _sampled_clearance(sets, float(times[1] - times[0]), 0.0, n, radius, 0.0)
+    found, certified, t = _sampled_clearance(
+        phis @ start.center,
+        phis @ start.generators,
+        float(times[1] - times[0]),
+        0.0,
+        n,
+        radius,
+        0.0,
+    )
     return Clearance(found, certified, t)
+
+
+@dataclass(frozen=True)
+class DriftCover:
+    """A box of start states split by whether the free drift from each part clears a keep-out.
+
+    Attributes
+    ----------
+    certified : float
+        Fraction of the start box whose every state drifts clear at every time, between samples
+        included.
+    excluded : float
+        Fraction from which every drift enters the keep-out by more than its 1 mm resolution.
+    undecided : float
+        The rest: boxes at the depth limit, boxes left when the budget ran out, and boxes that
+        stopped at a counterexample of their center.
+    counterexamples : tuple of (ndarray, float, float)
+        Box centers in the declared set whose drift enters the keep-out by more than 1 mm: the
+        state (Hill frame, m and m/s), its lowest sampled margin (m) and that sample's time (s).
+    certified_boxes : ndarray, shape (k, 2, 6)
+        Lower and upper corners of the certified boxes, m and m/s; read-only.
+    undecided_boxes : ndarray, shape (k, 2, 6)
+        Lower and upper corners of the undecided boxes, m and m/s; read-only.
+    boxes : int
+        Boxes checked.
+
+    Notes
+    -----
+    Volume counts only the axes on which the start box has width, so a box halved s times holds
+    2^-s of it and the three fractions add up to 1.
+    """
+
+    certified: float
+    excluded: float
+    undecided: float
+    counterexamples: tuple[tuple[np.ndarray, float, float], ...]
+    certified_boxes: np.ndarray
+    undecided_boxes: np.ndarray
+    boxes: int
+
+
+def _corners(boxes: list[tuple[np.ndarray, np.ndarray]]) -> np.ndarray:
+    corners = np.array(boxes, dtype=float).reshape(-1, 2, 6)
+    corners.flags.writeable = False
+    return corners
+
+
+def drift_cover(
+    n: float,
+    lo,
+    hi,
+    radius: float,
+    duration: float,
+    samples: int,
+    contains: Callable[[np.ndarray], bool],
+    max_boxes: int,
+    depth: int,
+) -> DriftCover:
+    """Split a box of start states until the free drift of each part is certified or enters.
+
+    Parameters
+    ----------
+    n : float
+        Mean motion, rad/s, positive.
+    lo, hi : array_like, shape (6,)
+        Corners of the start box, Hill frame, m and m/s, with lo <= hi.
+    radius : float
+        Keep-out radius, m, nonnegative.
+    duration : float
+        Drift time, s, positive.
+    samples : int
+        Samples of each drift, endpoints included, at least 2.
+    contains : callable
+        Whether a state (ndarray, shape (6,), Hill frame, m and m/s) lies in the declared safe
+        set; called on box centers only.
+    max_boxes : int
+        Most boxes to check, at least 1.
+    depth : int
+        Most halvings of each axis, nonnegative.
+
+    Returns
+    -------
+    DriftCover
+        The certified, excluded and undecided fractions, the counterexamples, and the
+        certified and undecided boxes.
+
+    Raises
+    ------
+    ValueError
+        If a parameter is out of range, a corner is not six finite numbers, or lo exceeds hi.
+
+    Notes
+    -----
+    Boxes are checked largest first. With c_k + G_k beta the positions of a box's drift at
+    sample k, a box is
+
+    1. certified if the certified margin of `drift_clearance` is at least 0;
+    2. excluded if |c_k| + sum_j |g_kj| <= R - 1 mm at some sample: by the triangle inequality
+       every drift from it then enters. Its center is a counterexample if `contains` accepts it;
+    3. undecided with a counterexample if `contains` accepts its center and the center's lowest
+       sampled margin, exact for that state at that time, is below -1 mm;
+    4. otherwise halved along the axis whose generator moves the position most, |Phi_r(t*) g_j|
+       largest, at the sample t* where |c_k| - sum_j |g_kj| is lowest. Axes already halved
+       `depth` times are not split again, and a box with none left is undecided.
+
+    Boxes still queued after `max_boxes` checks are undecided. A center whose sampled margin is
+    negative already rules out step 1, so the nearest-point search runs only for the others.
+    """
+    n, duration, radius = float(n), float(duration), float(radius)
+    if not (math.isfinite(n) and n > 0.0 and math.isfinite(duration) and duration > 0.0):
+        raise ValueError("n and duration must be finite and positive")
+    if not (math.isfinite(radius) and radius >= 0.0):
+        raise ValueError("radius must be finite and nonnegative")
+    low, high = _array(lo, (6,), "lo"), _array(hi, (6,), "hi")
+    if np.any(low > high):
+        raise ValueError("lo must not exceed hi")
+    samples = _count(samples, "samples", 2)
+    max_boxes = _count(max_boxes, "max_boxes", 1)
+    depth = _count(depth, "depth", 0)
+    times = np.linspace(0.0, duration, samples)
+    h = float(times[1] - times[0])
+    phis, _ = cw_discrete(n, times)
+    axes = np.flatnonzero(high > low)
+    resolution = KeepOut.resolution
+    order = itertools.count()
+    queue = [(0, next(order), low, high, np.zeros(axes.size, dtype=int))]
+    certified = excluded = undecided = 0.0
+    certified_boxes: list[tuple[np.ndarray, np.ndarray]] = []
+    undecided_boxes: list[tuple[np.ndarray, np.ndarray]] = []
+    counterexamples: list[tuple[np.ndarray, float, float]] = []
+    checked = 0
+    while queue and checked < max_boxes:
+        splits, _, box_lo, box_hi, halvings = heapq.heappop(queue)
+        checked += 1
+        volume = 0.5**splits
+        center = 0.5 * (box_lo + box_hi)
+        center.flags.writeable = False
+        c = phis @ center
+        g = phis[:, :, axes] * (0.5 * (box_hi - box_lo))[axes]
+        rho = np.linalg.norm(c[:, :3], axis=1)
+        spread = np.sum(np.linalg.norm(g[:, :3], axis=1), axis=1)
+        k = int(np.argmin(rho))
+        margin = float(rho[k] - radius)
+        found = (center, margin, float(times[k]))
+        if np.min(rho + spread) <= radius - resolution:
+            excluded += volume
+            if contains(center.copy()):
+                counterexamples.append(found)
+            continue
+        if margin >= 0.0 and _sample_bounds(c, g, h, 0.0, n, radius)[1] >= 0.0:
+            certified += volume
+            certified_boxes.append((box_lo, box_hi))
+            continue
+        open_axes = halvings < depth
+        entered = margin < -resolution and bool(contains(center.copy()))
+        if entered:
+            counterexamples.append(found)
+        if entered or not np.any(open_axes):
+            undecided += volume
+            undecided_boxes.append((box_lo, box_hi))
+            continue
+        worst = int(np.argmin(rho - spread))
+        reach = np.linalg.norm(g[worst, :3], axis=0)
+        j = int(np.argmax(np.where(open_axes, reach, -1.0)))
+        axis = int(axes[j])
+        more = halvings.copy()
+        more[j] += 1
+        lower_hi, upper_lo = box_hi.copy(), box_lo.copy()
+        lower_hi[axis] = upper_lo[axis] = center[axis]
+        heapq.heappush(queue, (splits + 1, next(order), box_lo, lower_hi, more))
+        heapq.heappush(queue, (splits + 1, next(order), upper_lo, box_hi, more))
+    for splits, _, box_lo, box_hi, _ in queue:
+        undecided += 0.5**splits
+        undecided_boxes.append((box_lo, box_hi))
+    return DriftCover(
+        certified,
+        excluded,
+        undecided,
+        tuple(counterexamples),
+        _corners(certified_boxes),
+        _corners(undecided_boxes),
+        checked,
+    )
 
 
 def _explicit(value, dim: int, name: str) -> Zonotope:
@@ -818,7 +1015,15 @@ def loop_clearance(
         for a_s, b_s, c_s in inner:
             at = z.map(a_s, c_s)
             sets.append(at if disturbance is None else at + disturbance.map(b_s))
-        found, certified, t = _sampled_clearance(sets, h, thrust, loop.n, radius, k * loop.dt)
+        found, certified, t = _sampled_clearance(
+            np.array([z.center for z in sets]),
+            np.array([z.generators for z in sets]),
+            h,
+            thrust,
+            loop.n,
+            radius,
+            k * loop.dt,
+        )
         best = Clearance(
             min(best.found, found),
             min(best.certified, certified),
@@ -976,6 +1181,7 @@ __all__ = [
     "MAX_FACETS",
     "Clearance",
     "CwLoop",
+    "DriftCover",
     "LinearLoop",
     "MinTime",
     "Polytope",
@@ -984,6 +1190,7 @@ __all__ = [
     "contains",
     "cw_loop",
     "drift_clearance",
+    "drift_cover",
     "gravity_remainder_bound",
     "invariant_step",
     "loop_clearance",

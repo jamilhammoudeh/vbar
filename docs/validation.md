@@ -924,6 +924,10 @@ penalised objective and equals the hard projection when alpha exceeds every mult
   largest velocity box certified clear between 1.4140 and 1.4160 mm/s against the closed form
   1.4147 mm/s.
 - Eq. 8.24 and 8.27 (our case): minimum time 28 steps with a separating direction at 27.
+- Eq. 8.29 by box subdivision (our cases): velocity boxes at the V-bar hold of 1.4140 mm/s
+  certified clear in one box and of 1.4160 mm/s split; a declared horizon shorter than the
+  check and a keep-out declared as 45 m instead of 50 m each give a counterexample inside the declared
+  set; every state of a certified box drifts clear on dense samples.
 - Sec. 7.3 with the mean-shift and spread-floor fix of alg. 7.5 and the independent chains of
   example 4.8 (our cases): on a broad well at 0.15 and a narrow global well at 0.83 the search ends
   within 1e-3 of 0.83 after 500 evaluations for 20 of 20 seeds; a six-dimensional ball of radius

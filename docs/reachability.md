@@ -1,7 +1,8 @@
 # Reachability
 
 Code: `vbar.reach` (`Zonotope`, `Polytope`, `LinearLoop`, `CwLoop`, `cw_loop`, `support`,
-`ball_distance`, `drift_clearance`, `loop_clearance`, `Clearance`, `propagate`, `contains`,
+`ball_distance`, `drift_clearance`, `drift_cover`, `DriftCover`, `loop_clearance`, `Clearance`,
+`propagate`, `contains`,
 `invariant_step`, `min_time_steps`, `MinTime`, `gravity_remainder_bound`).
 
 With the command held for each step, Clohessy-Wiltshire motion is linear, so every state
@@ -102,6 +103,81 @@ gain the command is checked on every step's set: if $|K(\hat x - x_{\text{hold}}
 thrust limit anywhere on it, it raises `ValueError` ("the loop saturates on the set"), since the
 spacecraft would then clip the command and the linear loop, and its sets, would be wrong. The
 command bound also enters the speed bound. `order` reduces each step's set before the next.
+
+## Cover of a box of start states
+
+`drift_cover(n, lo, hi, radius, duration, samples, contains, max_boxes, depth)` checks the free
+drift of every state of the box $[lo, hi]$ against a keep-out sphere, and looks for states that a
+declared safe set accepts although their drift enters. `contains` is any function of a state that
+says whether the declared set holds it, such as the `contains` of a free-drift backup filter; it
+is called on box centers only.
+
+Boxes are checked largest first (fewest halvings). With $c_k + G_k\beta$ the positions of a box's
+drift at sample $k$ and $R$ the radius, a box is
+
+1. certified if the certified margin of `drift_clearance` over its drift is at least zero, so
+   every state of it drifts clear at every time, between samples included;
+2. excluded if $|c_k| + \sum_j |g_{kj}| \le R - 1$ mm at some sample. By the triangle inequality
+   every drift from it then enters by more than the keep-out's 1 mm resolution. If `contains`
+   accepts the center, the center is a counterexample;
+3. undecided, with its center as a counterexample, if `contains` accepts the center and the
+   center's lowest sampled margin is below $-1$ mm. That margin is exact for that state at that
+   time. The box is not split further;
+4. otherwise halved along the axis whose generator moves the position most,
+   $|\Phi_r(t^*) g_j|$ largest, at the sample $t^*$ where $|c_k| - \sum_j |g_{kj}|$ is lowest,
+   the sample at which the box can come closest to the keep-out.
+
+A center whose sampled margin is already negative rules out step 1, so the nearest-point search
+of `ball_distance` runs only for the other boxes.
+
+The cover stops splitting an axis once it is halved `depth` times; a box whose axes are all at
+that depth is undecided. After `max_boxes` checks the boxes still queued are undecided.
+
+It returns a `DriftCover`:
+
+- `certified`, `excluded`, `undecided`: fractions of the box's volume, counted over the axes on
+  which the box has width, so a box halved $s$ times holds $2^{-s}$ and the three add up to 1.
+  A box that stopped at a counterexample counts as undecided;
+- `counterexamples`: `(x, margin, t)` for each counterexample, the state (m, m/s), its lowest
+  sampled margin (m) and that sample's time (s);
+- `certified_boxes`, `undecided_boxes`: the corners of those boxes, arrays of shape (k, 2, 6);
+- `boxes`: the number of boxes checked.
+
+Limits:
+
+- Only free drift is covered. A state the declared set accepts is checked for its own drift;
+  whether the drift from it stays in the declared set, and anything a filter does with other
+  commands, is not.
+- Exclusion is proven for every state of the box, but whether the declared set holds any of them
+  is asked only at the center.
+- Each check of a box that is neither excluded nor entering at its center runs the nearest-point
+  search on every sample, so its cost grows with `samples`. Coverage in six dimensions per box
+  checked is not bounded in advance.
+
+```python
+import math
+
+import numpy as np
+
+from vbar.dynamics import mean_motion
+from vbar.reach import drift_cover
+from vbar.safety.barriers import PassiveBarrier
+
+n = mean_motion(6378137.0 + 500e3)  # rad/s, 500 km circular
+hold = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])  # V-bar hold point, m and m/s
+half = np.array([0.0, 0.0, 0.0] + [1.4140e-3] * 3)  # velocity box, m/s
+cover = drift_cover(n, hold - half, hold + half, 50.0, 4.0 * math.pi / n, 4001,
+                    lambda x: True, 8, 4)
+print(cover.boxes, cover.certified)  # 1 1.0
+
+# A declared set built for a 45 m keep-out accepts a drift that passes the 50 m one at 47 m.
+x = np.array([47.0, 100.0, 0.0, 0.0, -1.5 * n * 47.0, 0.0])
+tiny = np.array([1e-3] * 3 + [1e-6] * 3)
+declared = PassiveBarrier(radius=45.0, n=n).contains
+cover = drift_cover(n, x - tiny, x + tiny, 50.0, 3610.0, 3611, declared, 16, 4)
+state, margin, t = cover.counterexamples[0]
+print(round(margin, 3), t)  # -3.0 1282.0
+```
 
 ## Propagation, containment and invariance
 
@@ -213,6 +289,27 @@ The tests in `tests/test_reach.py` check:
   1.4140 mm/s is certified clear and 1.4160 mm/s has a found violation (the closed form
   $50n/\max_t[2(1 - \cos t) + 3t - 4\sin t]$ gives 1.4147 mm/s).
 - `ball_distance` brackets the true distance on 100 drawn zonotopes.
+- `drift_clearance` from the stacked sample sets equals the same computation with every sample set
+  built as its own zonotope, to 1e-12 of the 50 m scale. `tests/test_reach_cover.py` runs the
+  point, the (0.6 m, 0.3 mm/s) box and the 1.4160 mm/s box; `benchmarks/drift_cover_checks.py`
+  runs all five cases above, 2001 and 4001 samples included, and also compares them with stored
+  values of the per-sample computation.
+- `drift_cover` (`tests/test_reach_cover.py`; our cases, 500 km, keep-out 50 m): the 1.4140 mm/s
+  velocity box at the hold is certified as one box over two orbits with 4001 samples, and the
+  1.4160 mm/s box is split. With $x_0 = \delta$ and $\dot y_0 = -1.5 n \delta$ the drift keeps
+  $x = \delta$ and $y = y_0 - 1.5 n \delta t$. For $\delta$ = 5 m entering at 3602 s, the passive
+  barrier with its drift horizon capped at 3600 s declares the state safe, and the cover of a box
+  of $\pm$(1 mm, 1e-6 m/s) about it over 3610 s returns a counterexample after 3602 s. For
+  $\delta$ = 47 m a declared keep-out of 45 m gives a counterexample with margin between $-3.0$
+  and $-2.9$ m, and the declared 50 m keep-out excludes the box and gives none. A drift reaching
+  1.5 mm inside the keep-out is excluded and one reaching 0.5 mm inside is not, the 1 mm
+  resolution. A box 0.1 m wide radially and 2 mm/s along-track is halved along-track, the axis
+  that moves its closest sample most.
+- Covers over two orbits of seeded boxes of in-plane closing velocities at the hold that straddle
+  the 1.4147 mm/s passive limit, declared safe everywhere: every drawn state of a certified box
+  drifts clear at 1 s steps, and every counterexample flown again enters by more than 1 mm at its
+  reported time. The tests fly 16 states of one certified box; `benchmarks/drift_cover_checks.py`
+  flies 64 states of each of 50.
 - Eq. 8.24 and 8.27 (our case): from (0, -1000, 0) to (0, -100, 0) at rest under a 1e-3 m/s^2 box
   with 60 s steps the first feasible horizon is 28 steps, the plan's residual is below 1e-6, and
   the direction found for 27 steps has a positive gap recomputed in closed form.
