@@ -623,6 +623,78 @@ fall short below 20 runs, so a leaderboard row needs at least 20 runs per cell f
 interval to mean what it says, and the default of 100 holds with room. McNemar's false-positive
 rate stays below 5% at every count. An IQM interval narrowed to 0.7 of its width covers 0.849 at
 100 runs, so the test catches an interval that is too narrow.
+## Examples behind the oracles
+
+The tests of the primer-vector certificates ([oracle-certificates.md](oracle-certificates.md),
+`tests/test_oracle_certificate.py`) reproduce the published examples below and check the
+constructed cases. Values marked independent were
+computed in a separate implementation, not with the module under test. Each item names its test.
+
+**Fehse, *Automated Rendezvous and Docking of Spacecraft***, section 3.3, at 500 km with WGS 84
+constants
+
+- Eqs. 3.29 to 3.32 and 3.37: from 500 m behind the target to the target point, in one orbit with
+  two tangential burns of $n\Delta y/(6\pi)$ or in half an orbit with two radial burns of
+  $n\Delta y/4$. Both certify as optimal for box thrusters, with the primer peak in
+  $[1 - 10^{-12}, 1 + 10^{-9}]$ and costs $n\Delta y/(3\pi)$ and $n\Delta y/2$ to $10^{-12}$
+  (`test_fehse_transfers_certify_as_box_optimal`). On the tangential transfer every certifying
+  primer reaches a 2-norm of at least 1.0014, so the wrong dual norm would reject this optimum.
+  The radial transfer also certifies for one engine
+  (`test_radial_transfer_certifies_for_a_single_engine`); with its second burn 1% too large it
+  misses the target and is rejected (`test_plan_that_misses_the_target_is_not_certified`).
+
+**Alfriend, Vadali, Gurfil, How and Breger, *Spacecraft Formation Flying***, Example 5.2, in units
+with $n = 1$, from (0.01, 0.02, 0.015, 0.001, 0.001, 0.001) to the origin at rest
+
+- The least two-impulse transfer, at $nt_f$ = 4.6404, costs 0.0357202 in the 2-norm and 0.0464255
+  in the 1-norm (independent) (`test_cost_is_the_actuator_norm_of_the_impulses`). Its six burning
+  components fix the multiplier; the primer equals the burn direction at both burns but peaks
+  inside the transfer at 5.5929 for box thrusters and 1.9217 for one engine (independent), so the
+  plan is optimal in neither norm, and its certified lower bound stays below 0.0377879, the cost
+  of a 2000-interval grid plan
+  (`test_best_two_impulse_plan_of_alfriend_example_5_2_is_not_optimal`). A 40-step fuel-oracle
+  plan for one engine costs at most 0.96 of it, 0.0339611 (independent)
+  (`test_a_verified_ball_plan_beats_the_two_impulse_plan_the_certificate_rejects`).
+- The 1-norm optimum over $nT$ = 5 (independent) has four burns: along $y$ at 0 and 3.27422,
+  along $z$ at $\pi - \arctan 15$ and along $x$ at 5. It certifies for box thrusters at a cost of
+  0.0375601, with the coast Hamiltonian constant to $10^{-8}$; its primer at $T$ has a 2-norm of
+  1.566, so a 2-norm check would reject it
+  (`test_multi_impulse_optimum_of_alfriend_example_5_2_certifies`).
+
+**Constructed cases on Lawden's conditions**, not book examples: the conditions from Lawden,
+*Optimal Trajectories for Space Navigation* (1963), with their sufficiency on linear dynamics from
+Longuski, Guzman and Prussing, *Optimal Control with Aerospace Applications* (2014), section 10.5
+
+- The dual norm: burns along (cos 30 deg, 0, sin 30 deg) at 0 and (cos 150 deg, 0, sin 150 deg)
+  at 1.8 from rest, $n = 1$, fix a primer that equals both burn directions to $10^{-9}$ and whose
+  components stay below 0.8661 while its 2-norm reaches 1.1606 (independent); the one-engine
+  certificate rejects the plan (`test_ball_certificate_measures_the_primer_in_the_2_norm`).
+- A peak between samples: two $+z$ burns whose primer $A\cos(t - t_m)$, $A = 1 + 10^{-6}$,
+  exceeds 1 only on the $2.8\times10^{-3}$ between them, where the largest of 1001 uniform
+  samples is $1 + 9.994\times10^{-7}$ (independent). Both norms report a peak in
+  $[A - 10^{-12}, A + 10^{-9}]$ and reject the plan (`test_primer_peak_between_burns_is_found`).
+- A burn against the primer: from $v_z = -10^{-3}$ through the origin, $n = 1$, burns of
+  $+2\times10^{-3}$ at 0 and $+10^{-3}$ at $\pi$ cost three times the one-burn optimum. No primer
+  is $+1$ at both, so both norms reject the plan on direction, with a lower bound in
+  $[0, 10^{-3}]$ (`test_burn_against_the_primer_fails_the_certificate`).
+
+**A computed case**, not a book example: half an orbit of a 6778 km circle from (-200, -1500, 50) m
+to (0, -100, 0) m at rest with a $2\times10^{-3}$ m/s^2 limit. The step-grid optima are LPs whose
+equality multipliers give lower bounds by LP duality (Boyd and Vandenberghe, *Convex
+Optimization*, 2004, sections 4.3 and 5.1.3).
+
+- Box thrusters: the switching control gives 0.8947125 m/s to $10^{-7}$ (independent), below the
+  160-step and 640-step LP optima, 0.8949323 and 0.8947293 m/s, by $2.5\times10^{-4}$ and
+  $1.9\times10^{-5}$ of them (independent).
+  Flown arc by arc it lands within $10^{-6}$ of the distance to cover, and the dual bound at 20000
+  cells lies within $2\times10^{-3}$ below it
+  (`test_indirect_box_optimum_agrees_with_the_direct_lp_optima`).
+- One engine: 0.8289721 m/s to $10^{-6}$ (independent), below the 0.8324776 m/s of a 40-step
+  plan, with the same miss check and the dual bound within $3\times10^{-3}$
+  (`test_indirect_ball_optimum_lies_inside_the_lp_bracket`).
+- The Hamiltonian along the box optimum spreads by at most $10^{-8}$ of its largest term; with the
+  costate's sign flipped it spreads by 1.77 times that term (independent)
+  (`test_hamiltonian_is_constant_along_the_indirect_optimum`).
 
 ## Methods
 
