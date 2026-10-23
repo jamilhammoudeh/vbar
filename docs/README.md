@@ -32,6 +32,7 @@ and how it is tested.
 | [lqg.md](lqg.md) | the LQG baseline: the steady-state Kalman filter on the Clohessy-Wiltshire model, declared measurement biases and their detectability, the regulator on the estimate |
 | [mpc.md](mpc.md) | the MPC terminal set: the maximal output admissible set of the LQR loop by the Gilbert and Tan iteration, and the exact-arithmetic certificate of its invariance to a 1e-9 relative margin |
 | [mpc-fuel.md](mpc-fuel.md) | fuel-optimal MPC: the least 1-norm delta-v plan to rest at the hold point on the zero-order-hold CW model, the strictly convex tie-break and the certified fuel excess bound |
+| [piecewise-affine-mpc.md](piecewise-affine-mpc.md) | piecewise-affine MPC: the box-constrained regulator solved at reset as a multiparametric quadratic program, its table of polyhedral regions with affine laws, and the lookup |
 | [lyapunov.md](lyapunov.md) | Lyapunov baselines: Clohessy-Wiltshire reference tracking, the Cartesian law on a declared two-body model |
 | [two-impulse.md](two-impulse.md) | two-impulse Clohessy-Wiltshire targeting, its singular transfer times, the two-impulse agent and the two-impulse fuel bound |
 | [glideslope.md](glideslope.md) | the pulsed glideslope approach: the exponential range profile, its pulses and the agent that flies them |
