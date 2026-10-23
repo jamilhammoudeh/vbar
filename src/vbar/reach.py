@@ -578,12 +578,12 @@ def _largest_norms(c: np.ndarray, g: np.ndarray) -> np.ndarray:
 
 
 def _sample_bounds(
-    c: np.ndarray, g: np.ndarray, h: float, thrust: float, n: float, radius: float
+    c: np.ndarray, g: np.ndarray, h: float, thrust: float | np.ndarray, n: float, radius: float
 ) -> tuple[np.ndarray, float]:
     """Upper sample margins (m) and the certified margin over every interval (m).
 
     The sets are states c_i + G_i beta at consecutive samples `h` s apart, `c` (s, 6) and `g`
-    (s, 6, m).
+    (s, 6, m); `thrust` bounds the thrust (m/s^2) over every interval, or over each, (s - 1,).
     """
     lower, upper = _nearest(np.ascontiguousarray(c[:, :3]), np.ascontiguousarray(g[:, :3]))
     largest = np.zeros((c.shape[0], 6))
@@ -706,8 +706,11 @@ def drift_cover(
     contains: Callable[[np.ndarray], bool],
     max_boxes: int,
     depth: int,
+    *,
+    accel=None,
+    burn_time: float = 0.0,
 ) -> DriftCover:
-    """Split a box of start states until the free drift of each part is certified or enters.
+    """Split a box of start states until the drift of each part is certified or enters.
 
     Parameters
     ----------
@@ -728,6 +731,11 @@ def drift_cover(
         Most boxes to check, at least 1.
     depth : int
         Most halvings of each axis, nonnegative.
+    accel : array_like, shape (3,), optional
+        A collision avoidance burn, the thrust acceleration held in the Hill frame from the
+        start for `burn_time`, m/s^2. Without it the motion is free drift throughout.
+    burn_time : float, optional
+        How long `accel` is held, s, finite and nonnegative; free drift follows it.
 
     Returns
     -------
@@ -738,10 +746,16 @@ def drift_cover(
     Raises
     ------
     ValueError
-        If a parameter is out of range, a corner is not six finite numbers, or lo exceeds hi.
+        If a parameter is out of range, a corner is not six finite numbers, lo exceeds hi,
+        `accel` is not three finite numbers, or a positive `burn_time` comes without `accel`.
 
     Notes
     -----
+    The state at time t is Phi(t) x0 + Phi(t - t_b) Gamma(t_b) a once the burn of length t_b
+    has ended and Phi(t) x0 + Gamma(t) a before, affine in x0 with the free-drift matrix, so a
+    burn moves each sample set's center and leaves its generators as they are. Intervals that
+    start before the burn ends add |a| to the speed bound of the certified margin.
+
     Boxes are checked largest first. With c_k + G_k beta the positions of a box's drift at
     sample k, a box is
 
@@ -768,9 +782,23 @@ def drift_cover(
     samples = _count(samples, "samples", 2)
     max_boxes = _count(max_boxes, "max_boxes", 1)
     depth = _count(depth, "depth", 0)
+    burn_time = float(burn_time)
+    if not (math.isfinite(burn_time) and burn_time >= 0.0):
+        raise ValueError("burn_time must be finite and nonnegative")
+    if accel is None:
+        if burn_time > 0.0:
+            raise ValueError("burn_time needs accel")
+        a = np.zeros(3)
+    else:
+        a = _array(accel, (3,), "accel")
     times = np.linspace(0.0, duration, samples)
     h = float(times[1] - times[0])
     phis, _ = cw_discrete(n, times)
+    # Phi(t - t_b) Gamma(t_b) a rather than Gamma(t) a - Gamma(t - t_b) a, which cancels.
+    coast, _ = cw_discrete(n, np.maximum(times - burn_time, 0.0))
+    _, held = cw_discrete(n, np.minimum(times, burn_time))
+    from_burn = np.einsum("tij,tj->ti", coast, held @ a)
+    thrust = np.where(times[:-1] < burn_time, float(np.linalg.norm(a)), 0.0)
     axes = np.flatnonzero(high > low)
     resolution = KeepOut.resolution
     order = itertools.count()
@@ -786,7 +814,7 @@ def drift_cover(
         volume = 0.5**splits
         center = 0.5 * (box_lo + box_hi)
         center.flags.writeable = False
-        c = phis @ center
+        c = phis @ center + from_burn
         g = phis[:, :, axes] * (0.5 * (box_hi - box_lo))[axes]
         rho = np.linalg.norm(c[:, :3], axis=1)
         spread = np.sum(np.linalg.norm(g[:, :3], axis=1), axis=1)
@@ -798,7 +826,7 @@ def drift_cover(
             if contains(center.copy()):
                 counterexamples.append(found)
             continue
-        if margin >= 0.0 and _sample_bounds(c, g, h, 0.0, n, radius)[1] >= 0.0:
+        if margin >= 0.0 and _sample_bounds(c, g, h, thrust, n, radius)[1] >= 0.0:
             certified += volume
             certified_boxes.append((box_lo, box_hi))
             continue

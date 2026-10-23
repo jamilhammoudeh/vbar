@@ -952,6 +952,9 @@ penalised objective and equals the hard projection when alpha exceeds every mult
   certified clear in one box and of 1.4160 mm/s split; a declared horizon shorter than the
   check and a keep-out declared as 45 m instead of 50 m each give a counterexample inside the declared
   set; every state of a certified box drifts clear on dense samples.
+- The same cover after a held burn (our case, closed form from the CW solution): a 30 s inward
+  radial burn of 5e-4 m/s^2 from the V-bar hold at 100 m, 500 km, gives the least range
+  45.790 m at pi/n + 15 s; a box at 3e-4 m/s^2 is certified whole.
 - Sec. 7.3 with the mean-shift and spread-floor fix of alg. 7.5 and the independent chains of
   example 4.8 (our cases): on a broad well at 0.15 and a narrow global well at 0.83 the search ends
   within 1e-3 of 0.83 after 500 evaluations for 20 of 20 seeds; a six-dimensional ball of radius

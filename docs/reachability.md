@@ -145,7 +145,8 @@ It returns a `DriftCover`:
 
 Limits:
 
-- Only free drift is covered. A state the declared set accepts is checked for its own drift;
+- Only free drift, after at most one held burn (below), is covered. A state the declared set
+  accepts is checked for its own drift;
   whether the drift from it stays in the declared set, and anything a filter does with other
   commands, is not.
 - Exclusion is proven for every state of the box, but whether the declared set holds any of them
@@ -182,6 +183,45 @@ print(round(margin, 3), t)  # -3.0 1282.0
 `benchmarks/filter_audit.py --parts cover` runs the cover on the free-drift backup filter's
 declared set over the audited approach-vbar run; see the Audit section of
 [safety-filters.md](safety-filters.md).
+
+### Collision avoidance burn
+
+`drift_cover(..., accel=a, burn_time=t_b)` holds the thrust acceleration $a$ (Hill frame,
+m/s^2) from the start for $t_b$ s, then lets every state drift. Since
+$\Phi(t - t_b)\Phi(t_b) = \Phi(t)$, the state is
+
+$$x(t) = \Phi(t) x_0 + \Phi(t - t_b)\Gamma(t_b) a \quad (t \ge t_b), \qquad
+x(t) = \Phi(t) x_0 + \Gamma(t) a \quad (t < t_b),$$
+
+affine in $x_0$ with the free-drift matrix, so the burn moves the center of each sample set and
+leaves its generators, and with them the splitting rule, unchanged. The offset is formed as the
+product above rather than as $\Gamma(t) a - \Gamma(t - t_b) a$, whose along-track terms grow as
+$t^2$ and cancel. An interval between samples that starts before $t_b$ adds $|a|$ to the thrust
+term of the speed bound, so a pass that dips in while the burn ends inside a long interval is not
+certified from the end speeds alone. With $a = 0$ or $t_b = 0$ the cover equals the free-drift
+cover to the bit. A positive `burn_time` without `accel` raises `ValueError`.
+
+A 30 s inward radial burn of 5e-4 m/s^2 from the hold at 100 m leaves the drift centered
+$D = 100 - 2 a t_b / n$ = 72.894 m behind the target on an ellipse of radial semi-axis
+$b = 2 a \sin(n t_b / 2) / n^2$ = 13.552 m and along-track semi-axis $2b$; since $D \ge 1.5 b$ the least range is $D - 2b$ = 45.790 m, half
+an orbit after mid-burn:
+
+```python
+import math
+
+import numpy as np
+
+from vbar.dynamics import mean_motion
+from vbar.reach import drift_cover
+
+n = mean_motion(6378137.0 + 500e3)  # rad/s, 500 km circular
+hold = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])  # m and m/s
+cam = np.array([-5e-4, 0.0, 0.0])  # m/s^2, Hill frame
+cover = drift_cover(n, hold, hold, 50.0, 2.0 * math.pi / n + 30.0, 801, lambda x: True, 4, 4,
+                    accel=cam, burn_time=30.0)
+state, margin, t = cover.counterexamples[0]
+print(cover.excluded, round(50.0 + margin, 3), round(t - math.pi / n, 3))  # 1.0 45.79 15.0
+```
 
 ## Propagation, containment and invariance
 
