@@ -905,6 +905,11 @@ and Applications"** (ECC 2019, arXiv:1903.11199v1)
 - Sec. III, eq. 12 and Theorem 4 with beta = 0: at least 393 of 400 approach-vbar starts are
   certified passively safe, confirmed by the drift sampled every second; the free-drift filter
   flies 40 of them with no violation and all reach the hold point.
+- Theorem 4 over all time (our cases): without error sets the free-drift set is a terminal set of
+  states that drift clear forever plus the states that reach it within the cap; seeded and
+  boundary states of the approach start box and the near box stay in it over a drift step, a
+  hold at rest gives the margin 50 m, a receding hold and a tube clear of the keep-out are in it
+  and a hold drifting slowly inward is not.
 
 Boyd and Vandenberghe, exercise 5.16 (exact penalty): the soft filter's action minimises the
 penalised objective and equals the hard projection when alpha exceeds every multiplier.

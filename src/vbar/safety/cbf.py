@@ -856,10 +856,12 @@ class BackupFilter(_HeldCommandFilter):
     v_cap : float
         The largest speed of the braking region, m/s.
     grid : float
-        Spacing of the free-drift samples, s.
+        Spacing of the free-drift samples, s; without error sets it is shortened to dt / k for
+        the smallest whole k that reaches it.
     t_cap : float, optional
-        The longest free-drift horizon, s; ten orbits by default, two orbits when error sets are
-        declared, and then the horizon of every certificate.
+        The longest free-drift horizon, s; ten orbits by default, within which the drift must
+        reach the terminal set, or two orbits when error sets are declared, and then the horizon
+        of every certificate.
     samples : int
         Samples of the held step for the certified in-step bound, endpoints included.
     iterations : int
@@ -887,12 +889,13 @@ class BackupFilter(_HeldCommandFilter):
     floor_b, both tightened for the declared error sets. The floors are 0 inside the barrier's
     set and min(0, current value) outside it, so a recovering step does not get worse. The line
     search goes from the candidate toward the backup beta, which is not checked inside the set:
-    the free drift from the end state is part of the certified drift from the start (sec. III,
-    Theorem 4 with beta = 0), and under full braking h_b does not fall while rho <= rho_cap and
-    |v| <= v_cap. Without error sets the filter is therefore recursively feasible at any dt under
-    box and ball limits, and a backup that fails the check inside the set is reported as
-    "solver_failed". With error sets the drift horizon is t_cap and recursive feasibility is not
-    claimed.
+    without error sets the free-drift set certifies the drift for all time and is kept by a
+    drift step, since the grid divides dt (sec. III, Theorem 4 with beta = 0), and under full
+    braking h_b does not fall while rho <= rho_cap and |v| <= v_cap. Without error sets the
+    filter is therefore recursively feasible at any dt under box and ball limits; the free-drift
+    backup is returned inside the set without the check, and a braking backup that fails it
+    there is reported as "solver_failed" with no certificate. With error sets the free-drift set
+    is certified up to t_cap only and recursive feasibility is not claimed.
     """
 
     def __init__(
@@ -962,10 +965,27 @@ class BackupFilter(_HeldCommandFilter):
             t_cap = self.t_cap
             if t_cap is None:
                 t_cap = (4.0 if self.bounded else 20.0) * math.pi / n
-            self._barrier = PassiveBarrier(radius=radius, n=n, grid=self.grid, t_cap=t_cap)
-            self._end_tightening = self._drift_tightening(phi, gamma) if self.bounded else 0.0
+            if self.bounded:
+                self._barrier = PassiveBarrier(radius=radius, n=n, grid=self.grid, t_cap=t_cap)
+                self._end_tightening = self._drift_tightening(phi, gamma)
+                safe_set = "certified free drift outside the keep-out up to the drift horizon"
+            else:
+                # The drift samples after a step must be samples of the drift before it, so the
+                # grid divides dt and the set is kept by the step.
+                grid = dt / math.ceil(dt / self.grid)
+                self._barrier = PassiveBarrier(
+                    radius=radius, n=n, grid=grid, t_cap=t_cap, terminal=True
+                )
+                self._end_tightening = 0.0
+                safe_set = "free drift certified outside the keep-out for all time"
+            # The projection row is the first-order condition on the drift minimum, so it takes
+            # the capped value, whose gradient `gradient` gives; the terminal value lies below it.
+            self._row_barrier = self._barrier
+            if self.candidate == "projection" and not self.bounded:
+                self._row_barrier = PassiveBarrier(
+                    radius=radius, n=n, grid=self._barrier.grid, t_cap=t_cap
+                )
             backup = "zero thrust"
-            safe_set = "certified free drift outside the keep-out up to the drift horizon"
         else:
             a_b = self.a_b
             if a_b is None:
@@ -1095,13 +1115,14 @@ class BackupFilter(_HeldCommandFilter):
         """The command the line search starts from and whether a row moved it."""
         if self.candidate == "clipped":
             return u_c, False
-        barrier = self._barrier
-        assert isinstance(barrier, PassiveBarrier)
+        drift = self._row_barrier
         try:
-            grad = barrier.gradient(x)
+            grad = drift.gradient(x)
         except ValueError:
             # No unique drift minimiser (closed orbit or a minimum at an end): no smooth row.
             return u_c, False
+        if drift is not self._barrier:
+            h0 = float(drift.value(x))
         f = np.concatenate([x[3:], _a_cw(x, self._n)])
         rows = Rows(grad[None, 3:], np.array([-self.gamma * h0 - float(grad @ f)]), ("passive",))
         found = project(u_c, rows, self._actuator)
@@ -1166,13 +1187,16 @@ class BackupFilter(_HeldCommandFilter):
         beta = barrier.backup(x, self._actuator)
         found = line_search(accept, start, beta, self.iterations)
         status, slack, certified = "feasible", 0.0, True
-        if found.theta == 0.0 or not inside:
+        # Inside the terminal free-drift set the drift step is covered by h(x) and ends in the
+        # set again, so the backup needs no check there.
+        kept = inside and isinstance(barrier, PassiveBarrier) and barrier.terminal
+        if (found.theta == 0.0 and not kept) or not inside:
             held, end = self._margins(x, found.u)
             shortfall = max(0.0, floor_s - held, floor_b - end)
             # A backup short of its own check by less than the keep-out resolution is the
             # slack of the certified bound at the boundary, not a defect of the barrier.
             if inside and not self.bounded and shortfall > KeepOut.resolution:
-                status, slack = "solver_failed", shortfall
+                status, slack, certified = "solver_failed", shortfall, False
             elif not inside:
                 slack = shortfall
             elif self.bounded and shortfall > 0.0:
@@ -1182,7 +1206,9 @@ class BackupFilter(_HeldCommandFilter):
         certificate, horizon = None, None
         if inside and certified:
             certificate = "bounded-W" if self.bounded else "nominal"
-            horizon = self._horizon(self._phi @ x + self._gamma_u @ found.u)
+            horizon = math.inf
+            if isinstance(barrier, PassiveBarrier) and not barrier.terminal:
+                horizon = float(barrier.t_cap)  # type: ignore[arg-type]
         u = self._onto_limit(found.u)
         return FilterResult(
             self._action(u),
@@ -1197,16 +1223,6 @@ class BackupFilter(_HeldCommandFilter):
             certificate_horizon=horizon,
             iterations=found.checks,
         )
-
-    def _horizon(self, x1: np.ndarray) -> float:
-        """How long the step's certificate holds, s: inf, or the capped drift horizon."""
-        barrier = self._barrier
-        if isinstance(barrier, BrakingBarrier):
-            return math.inf
-        cap = float(barrier.t_cap)  # type: ignore[arg-type]
-        if self.bounded:
-            return cap
-        return math.inf if barrier.horizon(x1)[1] else cap
 
 
 __all__ = [

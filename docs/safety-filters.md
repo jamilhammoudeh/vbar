@@ -238,9 +238,10 @@ classes give `value(x)`, `contains(x)`, `horizon(x)` and `backup(x, actuator)`.
 
 ### Free drift
 
-`PassiveBarrier(radius, n, grid=5.0, t_cap=None)` uses $\beta = 0$, which every thrust limit
-contains. $h_p(x)$ is the lowest keep-out margin of the unforced CW motion from $x$. In the CW
-solution the along-track position is
+`PassiveBarrier(radius, n, grid=5.0, t_cap=None, terminal=False)` uses $\beta = 0$, which every
+thrust limit contains. $h_p(x)$ is the lowest keep-out margin of the unforced CW motion from $x$.
+With `terminal=False` it is certified up to a horizon; with `terminal=True` it is certified for all
+time through a terminal set (next subsection). In the CW solution the along-track position is
 
 $$
 y(\tau) = y_0 - \frac{2 v_{x0}}{n} + \left(6 x_0 + \frac{4 v_{y0}}{n}\right)\sin n\tau
@@ -255,8 +256,8 @@ $$
 T(x) = \min\!\left(t_{\text{cap}},\ \frac{R + B}{|6 n x_0 + 3 v_{y0}|} + \text{grid}\right),
 $$
 
-with $t_{\text{cap}}$ ten orbits by default. `horizon(x)` returns $T(x)$ and whether $T <
-t_{\text{cap}}$, in which case the sign of $h_p$ holds for all time. On a closed relative orbit ($6
+with $t_{\text{cap}}$ ten orbits by default. With `terminal=False`, `horizon(x)` returns $T(x)$
+and whether $T < t_{\text{cap}}$, in which case the sign of $h_p$ holds for all time. On a closed relative orbit ($6
 n x_0 + 3 v_{y0} = 0$, for example a hold point on V-bar) the minimum repeats every orbit, the
 horizon is capped, and the sign holds for $t_{\text{cap}}$ only.
 
@@ -271,7 +272,72 @@ incursion from below. `grid` must be short enough for the in-step bounds to exis
 $\nabla h_p = \Phi_r(\tau^*)^T \hat r(\tau^*)$, with $\tau^*$ the minimiser found from the samples
 and refined by a bounded scalar search. It raises `ValueError` on a closed relative orbit
 ($|6 n x_0 + 3 v_{y0}| < 10^{-9}$ m/s), where the minimiser is not unique and $h_p$ is not smooth,
-and when $\tau^*$ is at 0 or at the end of the horizon, where the minimum is not stationary.
+and when $\tau^*$ is at 0 or at the end of the horizon, where the minimum is not stationary. It is
+the gradient of the drift minimum up to $T(x)$ in both modes.
+
+#### Terminal set
+
+With `terminal=True`, write the CW solution as
+
+$$
+r(\tau) = \bigl(x_c + b\cos\psi,\ y_c(\tau) - 2b\sin\psi,\ a_z\cos(\psi + \delta)\bigr),
+\qquad \psi = n\tau + \alpha,
+$$
+
+with $x_c = 4x_0 + 2v_{y0}/n$, $y_c = y_0 - 2v_{x0}/n$, $b = |(3x_0 + 2v_{y0}/n,\ v_{x0}/n)|$,
+$a_z = |(z_0, v_{z0}/n)|$ and $\dot y_c = -\tfrac32 n x_c$. Free drift keeps $x_c$, $b$, $a_z$ and
+$\delta$; only $y_c$ moves. The terminal set $\Omega$ has two parts, each with a margin that holds
+for all time:
+
+- the tube, $\min_\psi |(x_c + b\cos\psi,\ a_z\cos(\psi + \delta))| \ge R$. Then
+  $|r| \ge |(x, z)| \ge R$ forever. The minimum of the square is taken on 1024 phases, less
+  $M h^2/8$ with $h = 2\pi/1024$ and $M = 2|x_c|b + 2b^2 + 2a_z^2$, a bound on its second
+  derivative. With $x_c = 0$ exactly the orbit is closed, and the same bound on the full $|r|^2$,
+  with $M$ raised by $4|y_c|b + 8b^2$, is used when it is higher;
+- the far part, $y_c \dot y_c \ge 0$ (receding or standing still) and $|y_c| - 2b - R \ge 0$. Then
+  $|r| \ge |y| \ge |y_c| - 2b$, which does not fall.
+
+Each part is judged on the invariants or on a $|y_c|$ that does not fall, so a drift step maps
+$\Omega$ into itself. Outside $\Omega$ the drift reaches the far part after
+
+$$
+\tau_\Omega = \frac{R + 2b - |y_c|}{|\dot y_c|} \ \text{(receding)}, \qquad
+\tau_\Omega = \frac{|y_c| + 2b + R}{|\dot y_c|} \ \text{(approaching)},
+$$
+
+and never when $x_c = 0$. The drift is sampled every `grid` seconds up to
+$\min(\tau_\Omega, t_{\text{cap}})$, and $K$ is the first sample in the far part, judged from the
+sample itself. The state is in the set when such a sample exists and every interval before it is
+certified, with
+
+$$
+h_p = \min\bigl(\text{interval bounds before } K,\ |r_0| - R,\
+  \max(\text{far margin at } K,\ \text{tube margin})\bigr),
+$$
+
+a lower bound on the drift margin for all time. When no sample within $t_{\text{cap}}$ is in the far
+part, the last term is $-1$ mm and the state is outside. `horizon(x)` returns the time of sample $K$
+(0 in $\Omega$) and True, or the last sample checked and False.
+
+A drift step keeps the set when `grid` divides it, $\Delta t = m\,\text{grid}$. The samples of
+$\Phi(\Delta t)x$ are those of $x$ shifted by $m$: $\tau_\Omega$ drops by exactly $\Delta t$, $K$ by
+$m$, and the intervals checked for $\Phi x$ are a subset of those checked for $x$. Each interval
+bound depends only on the interval's end states, the margin at the new start is the end of a checked
+interval, and the last term is the same, so $h_p(\Phi x) \ge h_p(x)$. When $K \le m$ the step ends
+in the far part, which the drift keeps. The argument holds in exact arithmetic; rounding can move a
+value that sits exactly on a threshold.
+
+A set that every drift step maps into itself, and whose members drift clear over one step, keeps
+every member clear for all time. So it must exclude every drift that ever enters the keep-out,
+however late. A hold drifting slowly toward the target is outside: at $y = -100$ m with
+$v_y = -10^{-6}$ m/s the centre closes at $3 \cdot 10^{-6}$ m/s and reaches the target after about
+$5 \cdot 10^7$ s. A hold at rest on V-bar is in the far part with $h_p = |y| - R$, and one drifting
+slowly away is in with $h_p = |y_c| - 2b - R$. On drawn states every member of the terminal set is
+also in the capped set at the same `grid` and `t_cap`; this is tested, not proven. Measured on 2000
+seeded draws per box, the terminal set holds 97.65% of the approach-vbar start box ($x$ within
+$\pm 200$ m, $y$ from 200 to 600 m, $z$ within $\pm 50$ m, speeds to 0.1 m/s per axis) and 91.85% of
+a box near the keep-out ($x$ within $\pm 80$ m, $y$ from 52 to 150 m, $z$ within $\pm 30$ m, the same
+speeds), against 97.75% and 91.90% for the capped set.
 
 
 ### Braking
@@ -459,16 +525,20 @@ is accepted when
 with the floors $f_s = \min(0, \rho - R)$ and $f_b = \min(0, h(x))$: 0 inside the set, and "no
 worse than now" when recovering. The candidate is the clipped command; with
 `candidate="projection"` and the free-drift barrier it is first projected onto the first-order
-row $\nabla h_p \cdot (v, a_{cw} + u) \ge -\gamma h_p$, which corrects less.
+row $\nabla h_p \cdot (v, a_{cw} + u) \ge -\gamma h_p$, which corrects less. The row uses the
+capped drift minimum and its gradient in both modes; the terminal value lies below it.
 
-The backup is accepted without the check when the state is inside the barrier's set; its safety
-is the barrier's theorem (sec. III, Theorem 4). For free drift the drift from $x_1$ is part of
-the certified drift from $x$. Under full outward braking $h_b$ does not fall while
-$\rho \le \rho_{\text{cap}}$ and $|v| \le v_{\text{cap}}$. The backup lies in both thrust
-limits, so without error sets the filter is recursively feasible at any dt and never reports an
-infeasible step. A backup that fails the check inside the set by more than the keep-out
-resolution, 1 mm, is a design defect and is reported as "solver_failed"; below that it is the
-slack of the certified bound at the boundary.
+Without error sets the free-drift filter uses the terminal set, `terminal=True`, with `grid`
+shortened to $\Delta t / \lceil \Delta t / \text{grid} \rceil$ so that it divides the step. Inside
+the set $h_p \ge 0$ then covers the drift over the step and after it, and the end state is in the
+set again, so the backup is returned without the check (sec. III, Theorem 4). Under full outward
+braking $h_b$ does not fall while $\rho \le \rho_{\text{cap}}$ and $|v| \le v_{\text{cap}}$, so
+the braking backup is returned inside the set whatever its check gives; the check is run only to
+report it. The backup lies in both thrust limits, so without error sets the filter is recursively
+feasible at any dt, up to rounding at the free-drift set's thresholds. A braking backup short of
+its check inside the set by more than the keep-out resolution, 1 mm, is a design defect and is
+reported as "solver_failed" with `certificate` and `certificate_horizon` None; a smaller shortfall
+is the slack of the certified bound at the boundary.
 
 The braking backup is radial in both layouts: $a_{\max} \hat r / \max_i |\hat r_i|$ for a box,
 the longest radial command inside it, and $a_{\max} \hat r$ for a ball. Both give
@@ -483,8 +553,9 @@ speed and can carry the state out of the region in which the braking argument ho
 - With error sets (`navigation`, `execution`, `model_error`) check 1 is tightened as in
   `held_segment_bound`, and check 2 by the error carried to the end state: for free drift the
   largest range error of the drift from it over the horizon, for braking the range and closing
-  speed errors at the end state. The drift horizon `t_cap` is then two orbits by default, and
-  recursive feasibility is not claimed: the backup's safety is no longer a theorem. A step whose
+  speed errors at the end state. The free-drift set is then the capped one, `terminal=False`,
+  with `t_cap` two orbits by default, and recursive feasibility is not claimed: the backup's
+  safety is no longer a theorem. A step whose
   returned command passes the tightened checks carries the certificate "bounded-W" with that
   horizon; a backup that fails them is still returned, as the most outward command, but with
   `certificate` and `certificate_horizon` None, `active` True, `fallback_level` 2 and its
@@ -494,16 +565,17 @@ speed and can carry the state out of the region in which the braking argument ho
 
 | Outcome | `active` | `fallback_level` | `certificate`, `certificate_horizon` | `iterations` |
 |---|---|---|---|---|
-| Candidate accepted, $\theta = 1$ | False | 0 | "nominal"; inf, or `t_cap` on a closed relative orbit | 1 |
+| Candidate accepted, $\theta = 1$ | False | 0 | "nominal", inf; with error sets "bounded-W" and the horizon below | 1 |
 | $0 < \theta < 1$ | True | 0 | as above | 13 |
 | Backup, $\theta = 0$ | True | 2 | as above | 13 |
 | Recovering | True if $\theta < 1$ | 0 or 2 | None, None | 1 or 13 |
 | Backup failing the tightened checks (error sets) | True | 2 | None, None | 13 |
+| Braking backup short of its check by more than 1 mm inside the set (no error sets) | True | 2 | None, None | 13 |
 
-The status is "feasible" in every row. When recovering, `slack` is the predicted violation of the
-returned action, $\max(0, f_s - \text{bound}, f_b - h(x_1))$ in m. For free drift the horizon is
-inf when the secular drift proves the minimum at $x_1$ and `t_cap` otherwise; for braking it is
-inf.
+The status is "feasible" in every row but the last, which is "solver_failed". When recovering,
+`slack` is the predicted violation of the returned action, $\max(0, f_s - \text{bound},
+f_b - h(x_1))$ in m. Without error sets the horizon is inf for both barriers; with them it is
+`t_cap` for free drift and inf for braking.
 
 ### Soft filter
 
@@ -596,7 +668,16 @@ print(result.action.round(4), round(result.slack, 5))  # [0.   0.01 0.  ] 0.011
 - The braking barrier's region (`rho_cap`, `v_cap`) is declared, not enforced: a nominal that
   leaves it puts the filter in recovery.
 - The free-drift barrier evaluates up to 11 355 drift samples per check (ten orbits at 5 s); a
-  step that needs the line search makes 13 checks.
+  step that needs the line search makes 13 checks. Without error sets the grid divides dt, so at
+  dt 1 s it is 1 s and a check takes up to 56 771 samples.
+- The free-drift filter without error sets treats a state as recovering when its drift reaches the
+  keep-out at any time, or reaches no terminal state within `t_cap`, so a hold drifting slowly
+  toward the target is outside its set, and so is an approach that settles at a V-bar hold with a
+  slow inward drift.
+- The closed-orbit part of the terminal set needs $x_c = 0$ exactly. A drift step computed in
+  floating point leaves $x_c$ near $10^{-15}$ m, so an in-plane closed ellipse that only that part
+  admits leaves the set after a step or two and is then treated as recovering. A hold at rest on
+  V-bar keeps $x_c = 0$ exactly.
 
 ## Audit
 
@@ -859,9 +940,20 @@ The tests in `tests/test_safety_barriers.py` check:
   -\cos\theta\, v^2/\rho = -1.77265 \cdot 10^{-4}$ m/s^2 at 5 m and 0.03 m/s, to 1e-5; the row
   matches the differences on 20 states inside the cone; the infeasible radii are 0.028, 0.255 and
   0.709 m.
-- The free-drift value lies below the drift margin sampled every second over the horizon, and
-  within $5\,(|v|_{\max} + 0.05)$ m of it, on 50 approach-vbar starts; past the horizon no
-  violation is missed. The horizon formula is checked on a decided and a capped state.
+- The capped free-drift value (`terminal=False`) lies below the drift margin sampled every
+  second over the horizon, and within $5\,(|v|_{\max} + 0.05)$ m of it, on 50 approach-vbar
+  starts; past the horizon no violation is missed. The horizon formula is checked on a decided
+  and a capped state.
+- The terminal free-drift set (`terminal=True`): a hold at rest on V-bar at $-100$ m has
+  $h_p = 50$ m to 1e-12 m; one receding at $v_y = 10^{-4}$ m/s is in, with
+  $h_p = 100 - 2b - R$ to 1e-9 m; one closing at $10^{-6}$ m/s is out. A 2:1 ellipse with $x_c = 0$
+  nearest the target at 60 m, on either side of it, has $h_p$ in [9.99, 10] m, and one through the
+  keep-out is out. A helix with $b = a_z = 60$ m and $\delta = \pi/2$ has $h_p$ in [9.99, 10] m, and
+  a drift whose centre passes the target with $|x| \ge 70$ m has $h_p$ in [19.99, 20] m; both stay
+  that far out in $|(x, z)|$ over two cap horizons sampled every 10 s while $y$ changes sign.
+- On 100 draws from each of the start box and the box near the keep-out, every member of the
+  terminal set is in the capped set; on 24 draws near the keep-out, each member's value lies below
+  its drift margin sampled every 4 s over three cap horizons.
 - The envelope gradient matches central differences of the refined drift minimum to 1e-6
   relative on 5 states (measured 1.1e-7); a closed relative orbit, a minimum at $\tau = 0$ and a
   minimum at the horizon end raise.
@@ -931,7 +1023,17 @@ The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
 - The bare barrier row with $p\,\Delta t = 1$ fails from every one of 100 starts, and a
   first-order row on the braking barrier fails under hold (Ames et al., sec. IV and V.B).
 - Free drift on approach-vbar starts reaches the hold point with no violation; the projection
-  candidate corrects less than the clipped one; certificate horizons follow the secular drift.
+  candidate corrects less than the clipped one; every step decided inside the free-drift set
+  carries "nominal" with horizon inf, as do a hold at rest on V-bar and a closed ellipse clear of
+  the keep-out.
+- A drift step keeps the free-drift set: on up to 100 in-set draws from each of the start box and
+  the box near the keep-out, and on 10 states per box bisected to the set's boundary (28 halvings)
+  together with slow drifters bisected along $y$, every state is in the set after one 10 s drift
+  step. A slow drifter whose drift enters the keep-out about 1.4 s after the ten-orbit cap is
+  outside the set; its step is recovering and "feasible", with no certificate.
+- A braking backup with $a_b = 0.03$ m/s^2, above the box's outward limit of 0.02 m/s^2, fails its
+  check inside the set and is reported "solver_failed" with `certificate` and
+  `certificate_horizon` None.
 - Two true starts seen through one scripted sensor give identical decisions, and recovery is
   judged on the estimate.
 - The soft filter's action minimises the penalised objective against 500 random commands, and
@@ -1060,6 +1162,8 @@ print(ecbf.contains(x), u.round(6))  # True [0.    0.005 0.   ]
 x = np.array([0.0, 80.0, 0.0, 0.0, 0.0, 0.0])  # holding on V-bar, 80 m out
 passive = PassiveBarrier(radius=50.0, n=n)
 print(round(passive.value(x), 3), passive.horizon(x)[1])  # 29.998 False
+terminal = PassiveBarrier(radius=50.0, n=n, terminal=True)
+print(terminal.value(x), terminal.horizon(x))  # 30.0 (0.0, True)
 
 a_b = braking_deceleration(
     a_max=0.02, layout="box", v_cap=0.3, dt=10.0, radius=50.0, rho_cap=2000.0, n=n

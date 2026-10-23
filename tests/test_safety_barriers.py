@@ -1,3 +1,4 @@
+import functools
 import math
 
 import numpy as np
@@ -291,6 +292,18 @@ TAU = np.arange(0.0, T_CAP + 5.0, 5.0)
 PHI_R = cw_discrete(N, TAU)[0][:, :3, :]
 
 
+@functools.cache
+def capped_barrier():
+    """The drift barrier certified up to t_cap only, which the filter keeps under error sets."""
+    return PassiveBarrier(radius=R, n=N, terminal=False)
+
+
+@functools.cache
+def terminal_barrier():
+    """The drift barrier whose members drift clear of the keep-out for all time."""
+    return PassiveBarrier(radius=R, n=N, terminal=True)
+
+
 def drift_horizon(x):
     drift = abs(6 * N * x[0] + 3 * x[4])
     bound = 6 * abs(x[0]) + abs(x[1]) + 4 * abs(x[3]) / N + 4 * abs(x[4]) / N
@@ -322,7 +335,8 @@ def approach_starts(rng, count):
     )
 
 
-def test_passive_value_is_a_certified_and_tight_lower_bound_on_the_drift_margin():
+def test_capped_passive_value_is_a_certified_and_tight_lower_bound_on_the_drift_margin():
+    barrier = capped_barrier()
     rng = np.random.default_rng(1903)
     tau = np.arange(0.0, T_CAP, 2.0)
     phi = cw_discrete(N, tau)[0]
@@ -331,22 +345,22 @@ def test_passive_value_is_a_certified_and_tight_lower_bound_on_the_drift_margin(
         margin = np.linalg.norm(drift[:, :3], axis=1) - R
         within = tau <= drift_horizon(x)
         speed = np.linalg.norm(drift[within, 3:], axis=1).max()
-        value = PASSIVE.value(x)
+        value = barrier.value(x)
         assert value <= margin[within].min() + 1e-6
         # Past the horizon the secular drift keeps the range above R, so no violation is missed.
         assert min(value, 0.0) <= min(margin.min(), 0.0) + 1e-6
         # The sampled bound loses at most about |v| times the 5 s sample spacing.
         assert value >= margin[within].min() - 5.0 * (speed + 0.05)
-        assert PASSIVE.contains(x) == (value >= 0.0)
+        assert barrier.contains(x) == (value >= 0.0)
 
 
-def test_passive_horizon_ends_where_the_secular_drift_clears_the_keep_out():
+def test_capped_passive_horizon_ends_where_the_secular_drift_clears_the_keep_out():
     fast = np.array([100.0, 400.0, 0.0, 0.0, 0.0, 0.0])
-    horizon, proven = PASSIVE.horizon(fast)
+    horizon, proven = capped_barrier().horizon(fast)
     assert proven
     assert horizon == pytest.approx((R + 600.0 + 400.0) / (600.0 * N) + 5.0, rel=1e-12)
     slow = np.array([1.0, 400.0, 0.0, 0.0, 0.0, 0.0])
-    horizon, proven = PASSIVE.horizon(slow)
+    horizon, proven = capped_barrier().horizon(slow)
     assert not proven
     assert horizon == pytest.approx(T_CAP, rel=1e-12)
 
@@ -626,7 +640,7 @@ def exact_drift_minima(x, t_cap, after=None):
     return np.array(minima)
 
 
-def test_passive_value_never_exceeds_the_exact_drift_minimum_for_slow_drift_and_large_vx():
+def test_capped_passive_value_never_exceeds_the_exact_drift_minimum_for_slow_drift_and_large_vx():
     # Slow secular drift |6 n x + 3 vy| with up to 0.5 m/s radial speed: the periodic along-track
     # swing 4 |vx| / n of the CW solution must enter the drift bound B, or the horizon ends before
     # the drift reaches its lowest range.
@@ -645,7 +659,7 @@ def test_passive_value_never_exceeds_the_exact_drift_minimum_for_slow_drift_and_
     )
     states = np.vstack([states, [2.2966, -194.6066, 3.6318, -0.4973, 0.0093, 0.0]])
     states = states[np.linalg.norm(states[:, :3], axis=1) > R + 1.0]
-    barrier = PassiveBarrier(radius=R, n=N)
+    barrier = capped_barrier()
     assert np.all(np.abs(6 * N * states[:, 0] + 3 * states[:, 4]) > 1e-9)
     values = barrier.value(states)
     exact = exact_drift_minima(states, barrier.t_cap)
@@ -654,3 +668,120 @@ def test_passive_value_never_exceeds_the_exact_drift_minimum_for_slow_drift_and_
     proven = np.array([p for _, p in horizons])
     later = exact_drift_minima(states[proven], barrier.t_cap, [t for t, p in horizons if p])
     assert np.all(later >= values[proven] - 1e-6)
+
+
+# Terminal free-drift set. In the CW solution r = (x_c + b cos psi, y_c - 2 b sin psi,
+# a_z cos(psi + delta)), psi = n t + alpha, with x_c = 4 x + 2 vy / n, y_c = y - 2 vx / n,
+# b = |(3 x + 2 vy / n, vx / n)|, a_z = |(z, vz / n)| and dy_c/dt = -1.5 n x_c. Only y_c moves
+# under free drift, so a set judged on the other invariants, or on a y_c that only recedes, is
+# kept by every drift step.
+START_BOX = ((-200.0, 200.0, -50.0, -0.1, -0.1, -0.1), (200.0, 600.0, 50.0, 0.1, 0.1, 0.1))
+NEAR_BOX = ((-80.0, 52.0, -30.0, -0.1, -0.1, -0.1), (80.0, 150.0, 30.0, 0.1, 0.1, 0.1))
+
+
+def test_hold_at_rest_on_the_v_bar_has_its_static_far_margin_exactly():
+    x = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])
+    assert terminal_barrier().value(x) == pytest.approx(50.0, abs=1e-12)
+
+
+def test_hold_receding_from_the_target_is_in_with_its_far_margin():
+    # vy = 1e-4 m/s at y = -100 m: x_c = 2 vy / n = 0.18 m, so y_c moves away at 1.5 n x_c.
+    vy = 1e-4
+    x = np.array([0.0, -100.0, 0.0, 0.0, vy, 0.0])
+    b = 2.0 * vy / N
+    assert terminal_barrier().contains(x)
+    assert terminal_barrier().value(x) == pytest.approx(100.0 - 2.0 * b - R, abs=1e-9)
+
+
+def test_hold_drifting_slowly_toward_the_target_is_out():
+    # vy = -1e-6 m/s at y = -100 m: the centre closes at 3e-6 m/s and slides through the target
+    # after about 5e7 s, far past t_cap, so no finite check proves this drift clear.
+    x = np.array([0.0, -100.0, 0.0, 0.0, -1e-6, 0.0])
+    assert terminal_barrier().value(x) < 0.0
+    assert not terminal_barrier().contains(x)
+
+
+@pytest.mark.parametrize("side", [-1.0, 1.0])
+def test_closed_orbit_clear_of_the_keep_out_is_in_the_terminal_set(side):
+    # x = vy = 0 makes x_c exactly zero: a 2:1 ellipse about the target, 60 m radial and 120 m
+    # along-track, crossing the V-bar at y = -120 and y = 120 m and nearest the target at 60 m.
+    x = np.array([0.0, side * 120.0, 0.0, side * 60.0 * N, 0.0, 0.0])
+    period = np.linspace(0.0, 2.0 * np.pi / N, 4001)
+    rho = np.linalg.norm(drift_positions(x[None], period)[0], axis=1)
+    assert rho.min() == pytest.approx(60.0, abs=1e-3)
+    assert 9.99 <= terminal_barrier().value(x) <= 10.0
+
+
+def test_closed_orbit_through_the_keep_out_is_out():
+    x = np.array([0.0, -40.0, 0.0, -20.0 * N, 0.0, 0.0])
+    assert not terminal_barrier().contains(x)
+
+
+@pytest.mark.parametrize(
+    ("x", "low", "high"),
+    [
+        # Helix with b = a_z = 60 m, delta = pi / 2, x_c = 0: |(x, z)| is 60 m at every phase.
+        (np.array([0.0, -120.0, -60.0, -60.0 * N, 0.0, 0.0]), 9.99, 10.0),
+        # x_c = 100 m, b = 30 m, a_z = 0: the centre slides through the target along-track
+        # while |x| >= 70 m.
+        (np.array([130.0, 300.0, 0.0, 0.0, -210.0 * N, 0.0]), 19.99, 20.0),
+    ],
+)
+def test_state_whose_radial_and_cross_track_tube_clears_the_keep_out_is_in(x, low, high):
+    assert low <= terminal_barrier().value(x) <= high
+    t = np.arange(0.0, 2.0 * T_CAP, 10.0)
+    r = drift_positions(x[None], t)[0]
+    assert np.linalg.norm(r[:, [0, 2]], axis=1).min() >= R + low
+    assert r[:, 1].min() < 0.0 < r[:, 1].max()
+
+
+def test_tube_value_stays_below_the_exact_tube_minimum_between_phase_samples():
+    # x_c = 100 m, b = 30 m, a_z = 40 m and delta = 0.3 rad, taken at psi = 0: the cross-track
+    # term moves the lowest tube radius off pi, between the phases the bound samples.
+    x_c, b, a_z, delta = 100.0, 30.0, 40.0, 0.3
+    x = np.array(
+        [
+            x_c + b,
+            300.0,
+            a_z * math.cos(delta),
+            0.0,
+            -N * (1.5 * x_c + 2.0 * b),
+            -a_z * N * math.sin(delta),
+        ]
+    )
+
+    def tube(psi):
+        return math.hypot(x_c + b * math.cos(psi), a_z * math.cos(psi + delta))
+
+    psi = np.linspace(0.0, 2.0 * np.pi, 100001)
+    k = int(np.argmin(np.hypot(x_c + b * np.cos(psi), a_z * np.cos(psi + delta))))
+    lowest = minimize_scalar(
+        tube, bounds=(psi[k - 1], psi[k + 1]), method="bounded", options={"xatol": 1e-12}
+    ).fun
+    value = terminal_barrier().value(x)
+    assert value <= lowest - R
+    assert value >= lowest - R - 0.01
+
+
+def test_terminal_flag_must_be_a_bool():
+    with pytest.raises(TypeError):
+        PassiveBarrier(radius=R, n=N, terminal=1)
+
+
+@pytest.mark.parametrize("box", [START_BOX, NEAR_BOX], ids=["start", "near"])
+def test_terminal_set_lies_inside_the_capped_set(box):
+    xs = np.random.default_rng(1135).uniform(box[0], box[1], (100, 6))
+    inside = terminal_barrier().value(xs) >= 0.0
+    assert inside.any()
+    assert np.all(capped_barrier().value(xs[inside]) >= 0.0)
+
+
+def test_terminal_set_states_drift_clear_of_the_keep_out_for_three_cap_horizons():
+    xs = np.random.default_rng(1136).uniform(NEAR_BOX[0], NEAR_BOX[1], (24, 6))
+    values = terminal_barrier().value(xs)
+    xs, values = xs[values >= 0.0], values[values >= 0.0]
+    assert len(xs) >= 12
+    # Sampled minima lie above the true ones, so coarse samples can only miss a violation.
+    t = np.arange(0.0, 3.0 * T_CAP, 4.0)
+    margin = np.linalg.norm(drift_positions(xs, t), axis=-1).min(axis=1) - R
+    assert np.all(values <= margin + 1e-6)

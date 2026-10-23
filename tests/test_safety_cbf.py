@@ -9,6 +9,7 @@ from hypothesis import strategies as st
 
 from vbar.agents.base import action_scale
 from vbar.constraints import KeepOut, segment_minimum
+from vbar.dynamics import cw_discrete
 from vbar.dynamics.models import CWDynamics
 from vbar.safety import FilteredAgent, FilterResult
 from vbar.safety import cbf as cbf_module
@@ -242,13 +243,17 @@ def braking_starts(barrier, count=4):
 
 
 @functools.cache
+def passive_filter():
+    return ready(BackupFilter(barrier="passive"))
+
+
+@functools.cache
 def passive_starts(count=4):
     env = ApproachEnv()
-    barrier = PassiveBarrier(radius=R, n=N)
     starts, seed = [], 0
     while len(starts) < count:
         _, info = env.reset(seed=seed)
-        if barrier.contains(info["true_state"]):
+        if passive_filter().contains(info["true_state"]):
             starts.append(info["true_state"])
         seed += 1
     return tuple(starts)
@@ -522,12 +527,23 @@ def test_braking_certificate_holds_for_all_time():
     assert ready(braking()).filter(FAR.copy(), np.zeros(3)).certificate_horizon == math.inf
 
 
-def test_passive_certificate_on_a_closed_relative_orbit_holds_for_the_drift_horizon():
-    barrier = PassiveBarrier(radius=R, n=N)
-    # At rest on the V-bar the relative orbit is closed: the drift minimum repeats.
-    assert barrier.horizon(FAR)[1] is False
-    result = ready(BackupFilter(barrier="passive")).filter(FAR.copy(), np.zeros(3))
-    assert result.certificate_horizon == pytest.approx(barrier.t_cap)
+@pytest.mark.parametrize(
+    "x",
+    [
+        FAR,
+        # x = vy = 0: a 2:1 ellipse about the target, nearest it at 60 m.
+        np.array([0.0, -120.0, 0.0, -60.0 * N, 0.0, 0.0]),
+    ],
+    ids=["v-bar hold", "ellipse"],
+)
+def test_passive_certificate_on_a_closed_relative_orbit_clear_of_the_keep_out_holds_for_all_time(
+    x,
+):
+    # The drift minimum repeats every orbit and never falls below R, so the certificate has no
+    # horizon.
+    result = ready(BackupFilter(barrier="passive")).filter(x.copy(), np.zeros(3))
+    assert result.recovering is False and result.certificate == "nominal"
+    assert result.certificate_horizon == math.inf
 
 
 def test_passive_certificate_with_secular_drift_holds_for_all_time():
@@ -846,22 +862,11 @@ def test_passive_backup_filter_acts_on_some_steps_only():
         assert_backup_outcomes(flight, lambda x: np.zeros(3))
 
 
-def test_passive_certificate_horizon_follows_the_secular_drift():
-    barrier = PassiveBarrier(radius=R, n=N)
-    horizons = set()
-    for flight in passive_flights():
-        ends = (*flight.seen[1:], None)
-        for x, x_next, r in zip(flight.seen, ends, flight.results, strict=True):
-            if r.recovering:
-                continue
-            assert r.certificate == "nominal"
-            horizons.add(r.certificate_horizon)
-            proved = [barrier.horizon(s)[1] for s in (x, x_next) if s is not None]
-            if all(proved):
-                assert r.certificate_horizon == math.inf
-            elif not any(proved):
-                assert r.certificate_horizon == pytest.approx(barrier.t_cap)
-    assert math.inf in horizons
+def test_passive_certificate_holds_for_all_time_on_every_step_inside_the_set():
+    inside = [r for flight in passive_flights() for r in flight.results if not r.recovering]
+    assert inside
+    for r in inside:
+        assert r.certificate == "nominal" and r.certificate_horizon == math.inf
 
 
 def mean_correction(flights, steps):
@@ -922,3 +927,118 @@ def test_recovery_is_judged_on_the_estimate(kind):
     assert flight.results[0].recovering is True
     flight = fly(FILTERS[kind](), CentrePD(), outside, 10.0, 1, sensor=ScriptedSensor([FAR]))
     assert flight.results[0].recovering is False
+
+
+# The free-drift set is kept by the drift step: a member's backup is admissible at every step.
+START_BOX = ((-200.0, 200.0, -50.0, -0.1, -0.1, -0.1), (200.0, 600.0, 50.0, 0.1, 0.1, 0.1))
+NEAR_BOX = ((-80.0, 52.0, -30.0, -0.1, -0.1, -0.1), (80.0, 150.0, 30.0, 0.1, 0.1, 0.1))
+BOXES = {"start": START_BOX, "near": NEAR_BOX}
+# x_c = delta and vy = -1.5 n delta: the drift keeps x = delta and closes along-track at
+# 1.5 n delta m/s. With these delta the drift that enters at t_cap starts inside each box.
+SLOW_DRIFT = {"start": (2.0, 5.0), "near": (0.5, 1.0)}
+# Enters the keep-out about 1.4 s after the ten-orbit cap.
+X_STAR = np.array([5.0, 521.0, 0.0, 0.0, -1.5 * N * 5.0, 0.0])
+DRIFT_STEP = cw_discrete(N, 10.0)[0]
+T_CAP = 20.0 * math.pi / N
+
+
+def slow_drift(delta, y):
+    return np.array([delta, y, 0.0, 0.0, -1.5 * N * delta, 0.0])
+
+
+def entering_after_the_cap(delta):
+    """The slow drifter that reaches the keep-out 2 s after the ten-orbit cap."""
+    return slow_drift(delta, math.sqrt(R * R - delta * delta) + 1.5 * N * delta * (T_CAP + 2.0))
+
+
+@functools.cache
+def box_draws(box):
+    lo, hi = BOXES[box]
+    # About 2% of the start box lies outside the set, so it needs more draws to pair with.
+    count = 400 if box == "start" else 200
+    xs = np.random.default_rng(1135).uniform(lo, hi, (count, 6))
+    inside = np.array([passive_filter().contains(x) for x in xs])
+    return xs, inside
+
+
+@functools.cache
+def passive_filter_at(dt):
+    return ready(BackupFilter(barrier="passive"), dt)
+
+
+def bisect_to_boundary(inside, outside, contains, steps=28):
+    """The in-set end of [inside, outside] after halving it `steps` times."""
+    for _ in range(steps):
+        mid = 0.5 * (inside + outside)
+        if contains(mid):
+            inside = mid
+        else:
+            outside = mid
+    return inside
+
+
+def test_slow_drift_entering_the_keep_out_after_t_cap_is_recovering_not_solver_failed():
+    filt = ready(BackupFilter(barrier="passive"))
+    assert not filt.contains(X_STAR)
+    result = filt.filter(X_STAR.copy(), np.zeros(3))
+    assert result.status == "feasible" and result.recovering is True
+    assert result.certificate is None and result.certificate_horizon is None
+
+
+@pytest.mark.parametrize("box", BOXES)
+def test_free_drift_step_keeps_in_set_states_of_the_box_in_the_set(box):
+    xs, inside = box_draws(box)
+    planted = X_STAR if box == "start" else entering_after_the_cap(1.0)
+    members = [x for x in (*xs[inside][:100], planted) if passive_filter().contains(x)]
+    assert len(members) >= 80
+    left = [x for x in members if not passive_filter().contains(DRIFT_STEP @ x)]
+    assert left == []
+
+
+@pytest.mark.parametrize("half", [0, 1])
+@pytest.mark.parametrize("box", BOXES)
+def test_free_drift_step_keeps_boundary_states_in_the_set(box, half):
+    xs, inside = box_draws(box)
+    members, others = xs[inside], xs[~inside]
+    assert len(others) > 0
+    pairs = range(5 * half, 5 * half + 5)
+    contains = passive_filter().contains
+    boundary = [bisect_to_boundary(members[i], others[i % len(others)], contains) for i in pairs]
+    lo, hi = BOXES[box][0][1], BOXES[box][1][1]
+    for delta in SLOW_DRIFT[box]:
+        a, b = slow_drift(delta, hi), slow_drift(delta, lo)
+        if contains(a) and not contains(b):
+            boundary.append(bisect_to_boundary(a, b, contains))
+    left = [x for x in boundary if not contains(DRIFT_STEP @ x)]
+    assert left == []
+
+
+@pytest.mark.parametrize(("dt", "count"), [(7.0, 5), (1.0, 3)])
+def test_free_drift_step_keeps_boundary_states_in_the_set_when_the_grid_does_not_divide_dt(
+    dt, count
+):
+    # The default 5 s grid divides neither step; the dt 1 s case gets fewer states because its
+    # 1 s grid makes every check five times longer.
+    filt = passive_filter_at(dt)
+    xs, inside = box_draws("start")
+    members, others = xs[inside], xs[~inside]
+    boundary = []
+    for i in range(count):
+        a, b = members[i], others[i % len(others)]
+        assert filt.contains(a) and not filt.contains(b)
+        boundary.append(bisect_to_boundary(a, b, filt.contains))
+    step = cw_discrete(N, dt)[0]
+    left = [x for x in boundary if not filt.contains(step @ x)]
+    assert left == []
+
+
+def test_a_solver_failed_step_carries_no_certificate():
+    # a_b = 0.03 m/s^2 overstates the box's outward limit of 0.02, so full braking from the
+    # braking boundary cannot hold h_b >= 0 and the backup fails its own check inside the set.
+    a_b, c = 0.03, 0.2
+    filt = ready(braking(a_b=a_b))
+    x = np.array([0.0, R + c * c / (2 * a_b) + 1e-9, 0.0, 0.0, -c, 0.0])
+    assert filt.contains(x)
+    result = filt.filter(x.copy(), np.array([0.0, -1.0, 0.0]))
+    assert result.status == "solver_failed" and result.recovering is False
+    assert result.certificate is None and result.certificate_horizon is None

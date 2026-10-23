@@ -35,6 +35,10 @@ _MIN_SPEED = 1e-9
 _MIN_DRIFT = 1e-9
 # The drift minimiser is located to this many seconds.
 _TAU_TOL = 1e-9
+# Phases of one relative orbit on which the terminal tube of the free drift is bounded.
+_PSI_STEP = 2.0 * math.pi / 1024
+_COS_PSI = np.cos(_PSI_STEP * np.arange(1024))
+_SIN_PSI = np.sin(_PSI_STEP * np.arange(1024))
 
 
 def _positive(value: float, name: str) -> float:
@@ -509,11 +513,16 @@ class PassiveBarrier:
         `vbar.constraints.interval_bounds` exist (below about 350 s at 500 km).
     t_cap : float, optional
         The longest drift horizon, s, at least `grid`; ten orbits, 20 pi / n, by default.
+    terminal : bool
+        False certifies the drift up to the horizon T(x); True certifies it for all time, through
+        a terminal set that the drift must reach within t_cap.
 
     Raises
     ------
     ValueError
         If a parameter is out of range or `grid` is too long for the in-step bounds.
+    TypeError
+        If `terminal` is not a bool.
 
     Notes
     -----
@@ -522,17 +531,33 @@ class PassiveBarrier:
     Clohessy-Wiltshire solution the along-track position is y0 - 2 vx0 / n
     + (6 x0 + 4 vy0 / n) sin(n tau) + (2 vx0 / n) cos(n tau) - (6 n x0 + 3 vy0) tau, whose
     periodic part is at most B = 6 |x0| + |y0| + 4 |vx0| / n + 4 |vy0| / n. Past
-    (R + B) / |6 n x0 + 3 vy0| the range exceeds R, so the sign of the minimum is decided on the
-    horizon T(x) = min(t_cap, (R + B) / |6 n x0 + 3 vy0| + grid). Samples `grid` s apart are
-    certified on every interval with the first- and second-order bounds that
+    (R + B) / |6 n x0 + 3 vy0| the range exceeds R, so without `terminal` the sign of the minimum
+    is decided on the horizon T(x) = min(t_cap, (R + B) / |6 n x0 + 3 vy0| + grid). Samples
+    `grid` s apart are certified on every interval with the first- and second-order bounds that
     `vbar.constraints.segment_minimum` uses, without refinement. When the horizon is t_cap the
     sign holds for t_cap only: on a closed relative orbit the minimum repeats every orbit.
+
+    With `terminal`, the same solution reads r = (x_c + b cos psi, y_c - 2 b sin psi,
+    a_z cos(psi + delta)) with psi = n tau + alpha, x_c = 4 x0 + 2 vy0 / n, y_c = y0 - 2 vx0 / n,
+    b = |(3 x0 + 2 vy0 / n, vx0 / n)| and a_z = |(z0, vz0 / n)|. Free drift keeps x_c, b, a_z
+    and delta and moves y_c at -1.5 n x_c. The terminal set holds the states whose radial and
+    cross-track tube, min over psi of |(x_c + b cos psi, a_z cos(psi + delta))|, is at least R
+    (with x_c = 0 exactly, the lowest range of the closed orbit may be used instead), and those
+    whose y_c recedes or stands still with |y_c| - 2 b - R >= 0. The tube is bounded below on
+    1024 phases by the sampled minimum less curvature * step^2 / 8. Both parts depend on the
+    invariants or on a |y_c| that does not fall, so their margins hold for all time. Any other
+    state is in the set when a drift sample within t_cap lies in the far part and every sample
+    interval before it is certified; h_p is then the lowest of those bounds and the terminal
+    margin, and at most -1 mm when the drift reaches no terminal state within t_cap. When
+    `grid` divides a step dt, the samples of the state one drift step later are samples of the
+    state now, so h_p does not fall over the step and free drift keeps the set.
     """
 
     radius: float
     n: float
     grid: float = 5.0
     t_cap: float | None = None
+    terminal: bool = False
     _keep_out: KeepOut = field(init=False, repr=False, compare=False)
     _tau: np.ndarray = field(init=False, repr=False, compare=False)
     _phi: np.ndarray = field(init=False, repr=False, compare=False)
@@ -544,6 +569,8 @@ class PassiveBarrier:
         t_cap = 20.0 * math.pi / n if self.t_cap is None else _positive(self.t_cap, "t_cap")
         if t_cap < grid:
             raise ValueError("t_cap must be at least grid")
+        if not isinstance(self.terminal, bool):
+            raise TypeError("terminal must be a bool")
         speed, _ = interval_bounds(np.zeros((2, 6)), grid, 0.0, n)
         if not np.all(np.isfinite(speed)):
             raise ValueError("grid is too long for the in-step bounds at this mean motion")
@@ -582,7 +609,7 @@ class PassiveBarrier:
         return np.minimum(t, self._cap), drift
 
     def horizon(self, x) -> tuple[float, bool]:
-        """Return the drift horizon T(x), s, and whether the secular drift decides the sign.
+        """Return the drift horizon, s, and whether the sign of `value` holds for all time.
 
         Parameters
         ----------
@@ -592,17 +619,23 @@ class PassiveBarrier:
         Returns
         -------
         T : float
-            min(t_cap, (R + B) / |6 n x + 3 vy| + grid), s.
+            Without `terminal`, min(t_cap, (R + B) / |6 n x + 3 vy| + grid). With it, the time of
+            the first drift sample in the terminal set, 0 for a terminal state, or the last
+            sample checked when no terminal state is reached.
         proven : bool
-            True when T < t_cap: the drift stays outside the keep-out after T, so the sign of
-            `value` holds for all time. False when the horizon is capped.
+            Without `terminal`, True when T < t_cap: the drift stays outside the keep-out after
+            T. With it, True when the drift reaches the terminal set by T.
 
         Raises
         ------
         ValueError
             If `x` is not six finite numbers.
         """
-        t, _ = self._horizons(_state(x)[None, :])
+        x = _state(x)
+        if self.terminal:
+            _, last, proven = self._terminal(x)
+            return float(self._tau[last]), proven
+        t, _ = self._horizons(x[None, :])
         return float(t[0]), bool(t[0] < self._cap)
 
     def _samples(self, x: np.ndarray) -> np.ndarray:
@@ -611,8 +644,8 @@ class PassiveBarrier:
         m = min(math.ceil(float(t[0]) / self.grid - 1e-9) + 1, len(self._tau))
         return np.tensordot(x, self._phi[:, :m], axes=(0, 0))
 
-    def _value(self, x: np.ndarray) -> float:
-        states = self._samples(x)
+    def _sampled_minimum(self, states: np.ndarray) -> float:
+        """The lowest certified bound over the sample intervals of `states` and at the first, m."""
         h = self.grid
         speed, accel = interval_bounds(states, h, 0.0, self.n)
         margins = self._keep_out.margin(states)
@@ -621,6 +654,76 @@ class PassiveBarrier:
             self._keep_out.second_order_bounds(states, h, speed, accel),
         )
         return float(min(bounds.min(initial=np.inf), margins[0]))
+
+    def _far(self, states: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Far margins |y_c| - 2 b - R (m) of states (k, 6) and whether each y_c recedes."""
+        n = self.n
+        x_c = 4.0 * states[:, 0] + 2.0 * states[:, 4] / n
+        y_c = states[:, 1] - 2.0 * states[:, 3] / n
+        b = np.hypot(3.0 * states[:, 0] + 2.0 * states[:, 4] / n, states[:, 3] / n)
+        # dy_c/dt = -1.5 n x_c, so |y_c| does not fall when x_c y_c <= 0.
+        return np.abs(y_c) - 2.0 * b - self.radius, x_c * y_c <= 0.0
+
+    def _tube(self, x: np.ndarray) -> float:
+        """A lower bound on the keep-out margin of the drift for all time from (x, z), m.
+
+        With x_c = 0 exactly the orbit is closed, and the bound on its full range is used when
+        it is higher.
+        """
+        n = self.n
+        x_c = 4.0 * x[0] + 2.0 * x[4] / n
+        p, q = 3.0 * x[0] + 2.0 * x[4] / n, x[3] / n
+        b = math.hypot(p, q)
+        a_z = math.hypot(x[2], x[5] / n)
+        delta = math.atan2(-x[5] / n, x[2]) - math.atan2(-q, -p)
+        cross = a_z * (_COS_PSI * math.cos(delta) - _SIN_PSI * math.sin(delta))
+        rho2 = (x_c + b * _COS_PSI) ** 2 + cross**2
+        # Between phases a function with |f''| <= curvature lies at most curvature step^2 / 8
+        # below the lower of its two end values.
+        dip = _PSI_STEP * _PSI_STEP / 8.0
+        curvature = 2.0 * abs(x_c) * b + 2.0 * b * b + 2.0 * a_z * a_z
+        lowest = float(rho2.min()) - curvature * dip
+        if x_c == 0.0:
+            y_c = x[1] - 2.0 * x[3] / n
+            full = rho2 + (y_c - 2.0 * b * _SIN_PSI) ** 2
+            curvature += 4.0 * abs(y_c) * b + 8.0 * b * b
+            lowest = max(lowest, float(full.min()) - curvature * dip)
+        return math.sqrt(max(lowest, 0.0)) - self.radius
+
+    def _terminal(self, x: np.ndarray) -> tuple[float, int, bool]:
+        """The value with `terminal` (m), the last sample checked and whether it is terminal."""
+        tube = self._tube(x)
+        far, recedes = self._far(x[None, :])
+        if tube >= 0.0 or (recedes[0] and far[0] >= 0.0):
+            return max(tube, float(far[0]) if recedes[0] else -math.inf), 0, True
+        n = self.n
+        x_c = 4.0 * x[0] + 2.0 * x[4] / n
+        y_c = x[1] - 2.0 * x[3] / n
+        b = math.hypot(3.0 * x[0] + 2.0 * x[4] / n, x[3] / n)
+        rate = 1.5 * n * abs(x_c)
+        # Time until |y_c| - 2 b - R reaches zero while receding; an approaching y_c first
+        # passes through zero.
+        if rate == 0.0:
+            reach = math.inf
+        elif recedes[0]:
+            reach = -float(far[0]) / rate
+        else:
+            reach = (abs(y_c) + 2.0 * b + self.radius) / rate
+        m = min(math.ceil(min(reach, self._cap) / self.grid) + 1, len(self._tau))
+        states = np.tensordot(x, self._phi[:, :m], axes=(0, 0))
+        far, recedes = self._far(states)
+        hits = np.flatnonzero(recedes & (far >= 0.0))
+        if hits.size == 0:
+            # No terminal state within t_cap, so nothing certifies the drift beyond it.
+            return min(self._sampled_minimum(states), -KeepOut.resolution), m - 1, False
+        k = int(hits[0])
+        tail = max(float(far[k]), tube)
+        return min(self._sampled_minimum(states[: k + 1]), tail), k, True
+
+    def _value(self, x: np.ndarray) -> float:
+        if self.terminal:
+            return self._terminal(x)[0]
+        return self._sampled_minimum(self._samples(x))
 
     def value(self, x) -> float | np.ndarray:
         """Return the certified free-drift margin h_p, m.
@@ -633,10 +736,12 @@ class PassiveBarrier:
         Returns
         -------
         float or ndarray, shape (k,)
-            The lowest certified lower bound on |r_drift| - R over the sample intervals up to
-            the horizon. h_p >= 0 certifies that the drift stays outside the keep-out up to the
-            horizon, and for all time when `horizon` reports it proven; a negative value bounds
-            the deepest incursion before the horizon from below.
+            A certified lower bound on min |r_drift| - R. Without `terminal`, the lowest bound
+            over the sample intervals up to the horizon: h_p >= 0 certifies the drift up to the
+            horizon, and for all time when `horizon` reports it proven. With `terminal`,
+            h_p >= 0 certifies the drift for all time. A negative value bounds the deepest
+            incursion before the horizon from below, or is at most -1 mm when no terminal state
+            is reached within t_cap.
 
         Raises
         ------
