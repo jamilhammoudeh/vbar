@@ -179,6 +179,8 @@ class _HeldCommandFilter:
 
     name: str
     _enforced: tuple[str, ...] = ("keep_out",)
+    # A filter that predicts the state through the echoed commands checks the slots itself.
+    _pending_allowed = False
 
     def __init__(self, *, execution: float, model_error: float | None, ignore) -> None:
         self.execution = _nonnegative(execution, "execution")
@@ -218,7 +220,9 @@ class _HeldCommandFilter:
             raise ValueError(f"filters need the hill frame, not {view.frame!r}")
         if tuple(view.observation[:6]) != _STATE_NAMES:
             raise ValueError("the observation must start with x, y, z, vx, vy, vz")
-        if any(name.startswith("pending_") for name in view.observation):
+        if not self._pending_allowed and any(
+            name.startswith("pending_") for name in view.observation
+        ):
             raise ValueError("pending commands are not supported: the filter cannot predict delay")
         parts = view.scenario_id.split(":")
         dynamics = parts[2] if len(parts) > 2 else None

@@ -424,6 +424,11 @@ ed., Nob Hill, 2017)
   of known answer K22 (N = 8, alpha 0.3752, bound 0.17061 against an independent 20000-term sum of
   0.11978); Example 3.13's contraction steps 0.72, 0.296 and 0.0928; Example 3.25's tube
   $1 - 2^{-i}$; eq. 3.25's scenario sample counts 113, 1122 and 11211.
+- Predictive filter (our cases, the method after Wabersich and Zeilinger with V-BAR's post-solve
+  check): certified commands pass bit for bit; at horizon 1 it accepts exactly what the
+  free-drift backup filter accepts; reckless flights keep the certified in-step bound above -1 mm
+  at fallback level 0 or 1; replaced-solver failures fall back to the stored plan; the state
+  predicted through pending commands matches the environment to 1e-9.
 
 **Boyd and Vandenberghe**, additional items for the horizon solver:
 

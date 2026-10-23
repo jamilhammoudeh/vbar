@@ -504,10 +504,10 @@ around any agent with `FilteredAgent`.
   are declared in the constructor, never read from the environment.
 - **Refusals at reset** (`ValueError`, short message): an action mode that is not continuous; a
   frame other than "hill" or an observation that does not start with x, y, z, vx, vy, vz; a
-  pending-commands channel (the filter cannot predict actuation delay); a dynamics model other
-  than "cw" without a declared `model_error`; a constraint type the filter does not enforce,
-  unless it is listed in `ignore=`; a scenario without a keep-out constraint. `keep_out` itself
-  cannot be ignored.
+  pending-commands channel (these filters cannot predict actuation delay; `PredictiveFilter`
+  predicts through it); a dynamics model other than "cw" without a declared `model_error`; a
+  constraint type the filter does not enforce, unless it is listed in `ignore=`; a scenario
+  without a keep-out constraint. `keep_out` itself cannot be ignored.
 - **Commit radius.** Within the goal's `commit_radius` of the target (m, 0 when the goal has
   none) every filter only watches: it returns the clipped command with `active` False and
   `recovering` and `fallback_level` None.
@@ -515,7 +515,8 @@ around any agent with `FilteredAgent`.
   objects, poles, gain, design dt, thrust layout and limit, keep-out buffer, declared error sets,
   backup command, certificate kind, whether the filter counts toward certification, and the
   ignored constraint types. `contains(x)` tests membership of the declared safe set. Names are
-  fixed at construction: "cbf-ecbf-p0.05", "cbf-passive", "cbf-brake", "cbf-ecbf-soft-p0.05".
+  fixed at construction: "cbf-ecbf-p0.05", "cbf-passive", "cbf-brake", "cbf-ecbf-soft-p0.05",
+  "predictive-n10".
 - **Timing.** `vbar.safety.run_filter`, which `FilteredAgent` and the training wrapper go
   through, times every decision itself. A filter may split a decision into a `prepare()` call
   with no arguments, for work that needs no new observation (shifting and warm-starting a plan),
@@ -741,9 +742,9 @@ print(result.action.round(4), round(result.slack, 5))  # [0.   0.01 0.  ] 0.011
 
 - All filters assume the CW model; other dynamics need a declared `model_error`, which enters as
   an acceleration bound.
-- Actuation delay is refused. Thrust drive (acceleration rising as mass falls), the minimum
-  impulse bit and execution misalignment change the delivered command without the filter
-  knowing; on such scenarios its predictions are wrong.
+- Actuation delay is refused, except by `PredictiveFilter`. Thrust drive (acceleration rising as
+  mass falls), the minimum impulse bit and execution misalignment change the delivered command
+  without the filter knowing; on such scenarios its predictions are wrong.
 - `CbfFilter`'s speed cap restricts the agent beyond the scenario: from rest, a full command
   held for 10 s reaches 0.2 m/s, so with a 0.1 m/s cap the filter halves it. Declared
   `speed_limit` and `closing_speed_limit` rows are first-order conditions at the start of the
@@ -761,6 +762,186 @@ print(result.action.round(4), round(result.slack, 5))  # [0.   0.01 0.  ] 0.011
   floating point leaves $x_c$ near $10^{-15}$ m, so an in-plane closed ellipse that only that part
   admits leaves the set after a step or two and is then treated as recovering. A hold at rest on
   V-bar keeps $x_c = 0$ exactly.
+
+## Predictive filter
+
+`vbar.safety.predictive.PredictiveFilter(horizon=10, row_samples=5, eps=1e-3, settings=None,
+delay_s=0.0, ignore=())` plans `horizon` held commands toward the agent's command and applies the
+first one only when the whole plan is certified for all time. It declares the same set as
+`BackupFilter(barrier="passive")` without error sets: the terminal free-drift set $h_p \ge 0$ of
+`PassiveBarrier(terminal=True)`, with the grid shortened to $\Delta t / \lceil \Delta t / 5 \rceil$
+s so that it divides the step. Its backup is zero thrust, its certificate "nominal", and its name
+"predictive-n10" for a horizon of 10. It enforces the keep-out only, refuses other constraint types
+unless they are listed in `ignore=`, and refuses dynamics other than "cw".
+
+### Method
+
+Each decision first tries the clipped agent command $u_c$ followed by zero thrust. When that plan
+is certified (below), the command is returned unchanged, as the agent's own array when clipping
+changed nothing, with `active` False and `iterations` None.
+
+Otherwise the filter solves one horizon program with `vbar.solvers.solve_horizon`
+([solvers.md](solvers.md)), over the Hill state $x_k = (r_k, v_k)$ (m, m/s) and the Hill-frame
+acceleration $u_k$ (m/s^2):
+
+$$
+\min_{u}\ |u_0 - u_c|^2 + \epsilon \sum_{k=0}^{N-1} |u_k|^2
+  + \epsilon \sum_{k=0}^{N} \left(|n^2 (r_k - r'_k)|^2 + |n (v_k - v'_k)|^2\right)
+$$
+
+subject to the exact CW step $x_{k+1} = \Phi(\Delta t) x_k + \Gamma(\Delta t) u_k$ from the current
+state, $|u_{k,i}| \le a$ on each axis ($a = a_{\max}$ for a box, $a_{\max}/\sqrt3$, the inscribed
+cube, for a ball), keep-out rows and terminal rows. The reference $(r', v')$ is the stored plan
+shifted by one step with zero thrust appended, rolled out from the current state, or zero thrust
+when there is none. The state term weighs the deviation from the reference as the accelerations
+$n^2\,\delta r$ and $n\,\delta v$, like the later inputs. It moves the plan little: on the 12
+decisions of the test flights where the program also converges without it, the first input moved
+by at most $2.7 \cdot 10^{-6} a_{\max}$ and later inputs by at most $2.5 \cdot 10^{-3} a_{\max}$.
+Without it, rows on states that no cost reaches never pass the solver's complementarity test, and
+most intervening solves end without a plan.
+
+- **Keep-out rows.** At the times $t_j = j\,h$, $j = 1, \dots, m - 1$, $h = \Delta t/(m - 1)$, of
+  each step ($m$ = `row_samples`; sample 0 is the previous step's last), with $r'$ the reference
+  position there and $\hat n = r'/|r'|$:
+  $$
+  \hat n \cdot r(t_j) \ge \min(R + b,\ |r'|), \qquad
+  b = \frac{(v h)^2}{8R} + \frac{a_r h^2}{8},
+  $$
+  with $v = |v'| + a_{\text{reach}} \Delta t$, $a_r = a_{\text{reach}} + 3 n^2 |r'| + 2 n v$ and
+  $a_{\text{reach}} = \sqrt3\,a_{\max}$ (box) or $a_{\max}$ (ball). $b$ covers the dip of the path
+  below the chord between samples whose range is at least $R + b$. When the reference is a
+  certified plan (the shifted plan after a certified decision, or zero thrust with
+  $h_p(x) \ge 0$) and closer than $R + b$, the row passes through it, so the reference meets its
+  rows. Any other reference, from a state outside the set, gets $R + b$: a row through a reference
+  that drifts into the keep-out would admit plans that follow it.
+- **Terminal rows** on $x_N$. When the reference ends in the far part of the terminal set
+  ($x_c y_c \le 0$ and $|y_c| - 2b - R \ge 0$, notation of the free-drift section), five rows keep
+  it there: $-s\,x_c \ge 1$ mm and $s\,y_c - 2(\pm p \pm q) \ge R + 1$ mm, with $s$ the sign of the
+  reference's $y_c$ and $(p, q) = (3x + 2v_y/n,\ v_x/n)$. Since $b \le |p| + |q|$, a state meeting
+  them is in the far part and receding, so rounding cannot move it across the threshold.
+  Otherwise one row linearizes $h_p$ at the reference's end state $x'$,
+  $h_p(x') + g \cdot (x_N - x') \ge 0$, with $g$ the envelope gradient `PassiveBarrier.gradient`,
+  or, where the drift minimum has none (a closed relative orbit, a minimum at either end of the
+  drift horizon), the gradient $(\hat r', 0)$ of the end range.
+- **Warm start.** The reference with its inputs held 1% inside the box. The solver starts each
+  row's slack at its value there, so an input on a face of the box would start that row's
+  multiplier near $\mu/0$; on the test flights such starts ran into the 60-iteration cap.
+
+The solution is clipped onto the thrust limit and checked like any other plan.
+
+### Certificate
+
+A plan $u_0, \dots, u_{N-1}$ from $x$ is rolled out on the exact CW step. With $L$ one past its
+last nonzero input, it is certified when `held_segment_bound` over 20 samples is at least 0 on
+every step $k < L$ and $h_p(x_L) \ge 0$. The held bounds cover the keep-out over the thrusting
+steps; $h_p(x_L) \ge 0$ certifies the free drift from $x_L$ for all time, since free drift keeps the
+terminal set. Zero thrust lies in every actuator set, so the plan is safe for all time.
+
+From the next state $x^+ = \Phi x + \Gamma u_0$ the same plan shifted by one step, zero thrust
+appended, has the same states and passes the same checks, so a certified decision always leaves a
+certified answer for the next one: the filter is recursively feasible without error sets, at any
+dt and under box and ball limits. Re-rolled from the observed state the shifted plan differs by
+rounding, so its re-check accepts a held-step shortfall up to the keep-out resolution, 1 mm, and
+requires $h_p \ge 0$ exactly.
+
+The solver's infeasibility certificate concerns the linearized program only. Its tangent planes
+and terminal rows exclude plans that the true problem allows, so that certificate proves nothing
+about the true problem, and the filter never reports "infeasible_certified".
+
+### Fallback levels
+
+| Outcome | `fallback_level` | `status` | `certificate`, horizon | `iterations` | `active` |
+|---|---|---|---|---|---|
+| Agent's command certified | 0 | feasible | "nominal", inf | None | False |
+| Converged solution certified | 0 | feasible | "nominal", inf | solver's count | True |
+| Stored plan shifted and re-certified | 1 | feasible | "nominal", inf | solver's count | True |
+| Zero thrust, $h_p(x) \ge 0$ | 2 | feasible | "nominal", inf | solver's count | True |
+| Nothing certified (outside the set) | 0, 1 or 2 | feasible, `recovering` True | None, None | solver's count | True |
+
+A solve that hits `settings.max_iter` ("iteration_cap"), fails, or reports infeasibility returns no
+plan, since an interior-point iterate meets the dynamics only at convergence; the decision moves on
+to level 1. `recovering` is False on every certified decision. When nothing is certified the filter
+returns the converged solution if there is one, else the shifted plan, else zero thrust, with its
+predicted shortfall in m as `slack`. Zero thrust is certified wherever $h_p(x) \ge 0$, so this
+happens only outside the declared set, as a recovering step, and the filter never reports
+"solver_failed". The plan stored for the next decision is always the one applied: the agent's
+command followed by zero thrust, the solution, the shifted plan or zero thrust.
+
+### Actuation delay
+
+With `delay_s` > 0 the view must carry the "pending_commands" observation channel with exactly
+$\lceil \text{delay\_s}/\Delta t \rceil$ slots, checked at reset. `predict(obs)` propagates the
+observed state through the echoed commands, each held from its wait to the next one's and the last
+up to `delay_s`, on the exact CW solution; the plan starts from that state, where the command
+decided now takes effect. Without a delay `predict` returns the observed state.
+
+### Relation to Wabersich and Zeilinger
+
+The filter follows the predictive safety filter of Wabersich and Zeilinger ("Linear model
+predictive safety certification for learning-based control", CDC 2018, pp. 7130 to 7135; "A
+predictive safety filter for learning-based control of constrained nonlinear dynamical systems",
+Automatica 129, 2021, 109597): plan from the current state, keep the first input as close as
+possible to the learning input, and rely on an invariant terminal set for recursive feasibility.
+It differs in three ways.
+
+- Their cost is a norm of the first input's deviation from the learning input, not its square;
+  here it is squared, with small terms on the later inputs and the states, so the program is a QP.
+- Recursive feasibility in their work needs an invariant terminal set; their 2018 problem without
+  one may not be recursively feasible. Here the terminal set is the free-drift set, invariant
+  under zero thrust.
+- In their filter feasibility of the program is the certificate, and the stored plan is replayed
+  when the program has no solution (their 2018 Theorem 1). The check of each plan on the exact
+  held steps after the solve, and falling back to the stored plan when that check fails, are this
+  filter's own design.
+
+### Assumptions and limits
+
+- Nominal CW only: no navigation, execution or model-error sets. With another sensor the stored
+  plan is re-checked from the estimate and may fail, and the check says nothing about the true
+  state.
+- Commands, the echoed pending ones included, are taken as accelerations at the initial mass, as
+  by every filter; thrust drive and the minimum impulse bit change the delivered command, and
+  real-time latency changes when it takes effect, so the prediction is then wrong.
+- The program is linearized around the reference. A plan the check rejects costs a fallback, not
+  safety, but a reference far from the solution (the first decision, or after a fallback) gives
+  poor rows and more fallbacks.
+- A ball limit is planned inside its inscribed cube, 58% of $a_{\max}$ per axis.
+- `intervened` compares the first input with the clipped command; a plan that brakes only in
+  later steps leaves the first decision almost unchanged.
+- From outside the set with no certified plan, the uncertified solution is applied while
+  recovering, and zero thrust when the program has none. With an agent pushing at 1 m/s^2 toward
+  the target, a start on V-bar at 100 m closing at 0.3 m/s stays 24 mm clear and one at
+  $(30, 70, 0)$ m closing at 0.4 m/s 12 mm clear, but from 80 m closing at 0.5 m/s the program has
+  no solution and the drift enters the keep-out by 36 m, although full braking along V-bar would
+  stop it within 6.25 m.
+- An intervening decision costs one solve, measured at 5 to 29 interior-point iterations on the
+  test flights, plus one $h_p$ evaluation per checked plan. The filter has no `prepare()`, so all
+  of it is timed as feedback.
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.dynamics import cw_discrete
+from vbar.safety.predictive import PredictiveFilter
+
+view = ApproachEnv(ApproachConfig(action_mode="accel")).agent_view()  # commands in m/s^2
+mpc = PredictiveFilter()
+mpc.reset(view)
+phi, gamma = cw_discrete(view.n, view.dt)
+
+x = np.array([60.0, 100.0, 0.0, 0.0, -1.5, 0.0])  # m and m/s, passing the target at 1.5 m/s
+print(mpc.contains(x))  # True
+for _ in range(4):
+    result = mpc.filter(x, np.array([-0.02, -0.02, 0.0]))  # full thrust toward the target
+    print(result.fallback_level, result.certificate, result.action.round(4))
+    x = phi @ x + gamma @ result.action
+# 0 nominal [-0.02 -0.02  0.  ]
+# 0 nominal [-0.0194 -0.0199  0.    ]
+# 0 nominal [0.02   0.0129 0.    ]
+# 0 nominal [0.02   0.0197 0.    ]
+print(round(float(np.linalg.norm(x[:3])), 1))  # 58.5
+```
 
 ## Audit
 
@@ -1166,6 +1347,31 @@ The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
   judged on the estimate.
 - The soft filter's action minimises the penalised objective against 500 random commands, and
   equals the hard projection when $\alpha$ exceeds the largest multiplier.
+
+The tests in `tests/test_safety_predictive.py` check:
+
+- Defaults of 10 steps, 5 row samples and $\epsilon = 10^{-3}$; a negative, NaN or infinite delay
+  is refused. The declared set equals that of `BackupFilter(barrier="passive")`, with certificate
+  "nominal" and backup zero thrust; for dt 1, 7, 10 and 20 s the drift grid divides the step to
+  1e-12, and over one drift step $h_p$ does not fall on 200 drawn states (100 from the start box,
+  100 near the keep-out, both in and out of the set) to 1e-9 m.
+- A certified agent command comes back bit for bit in the "normalized", "accel" and "thrust"
+  modes, at level 0 with "nominal" and horizon inf. With a horizon of 1 the filter passes exactly
+  the commands `BackupFilter(barrier="passive")` accepts, on 40 seeded in-set states with full thrust toward the target, some accepted and some not.
+- An agent pushing at 1 m/s^2 toward the target, from a hold at rest on V-bar at 150 m and from a
+  pass 55.2 m from the target at 1.5 m/s, for 20 steps: every decision "feasible", not recovering,
+  "nominal" with horizon inf, level 0 or 1, some intervening, and no certified in-step bound below
+  -1 mm.
+- With the solver replaced: a plan dipping 15 mm into the keep-out midway between row samples that
+  stay 16 mm outside, a plan whose drift after its last thrust enters the keep-out, an
+  "iteration_cap" and a "solver_failed" stop each give the stored plan's next input at level 1 with
+  "nominal", step after step; an "infeasible_certified" stop is never reported and carries no
+  proof, giving zero thrust at level 2 without a stored plan and the stored plan at level 1 with
+  one. With `IPMSettings(max_iter=1)` the decision reports 1 iteration and the shifted plan.
+- Delays of 10 and 15 s under box and ball limits: the predicted state equals the environment's
+  true state at the same time to 1e-9 relative over 8 steps, every action lies in the actuator
+  set, and no certified in-step bound falls below -1 mm. Reset refuses a delay with no pending
+  slots, slots with no delay, and slot counts that disagree with the declared delay either way.
 
 The tests in `tests/test_safety_audit.py` check:
 
