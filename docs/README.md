@@ -30,6 +30,8 @@ and how it is tested.
 | [evaluation.md](evaluation.md) | the evaluation harness: the suite runner, result files, the provenance hash, IQM and stratified bootstrap statistics, safety tails with order-statistic intervals and tolerance bounds, rate comparisons, learned-agent rules, reports and one-command reproduction |
 | [lqr.md](lqr.md) | the LQR baseline: the exact zero-order-hold design model, discrete and sampled-data stage costs, the hold-point input, actuation delay and the command-change weight |
 | [lqg.md](lqg.md) | the LQG baseline: the steady-state Kalman filter on the Clohessy-Wiltshire model, declared measurement biases and their detectability, the regulator on the estimate |
+| [mpc.md](mpc.md) | the MPC terminal set: the maximal output admissible set of the LQR loop by the Gilbert and Tan iteration, and the exact-arithmetic certificate of its invariance to a 1e-9 relative margin |
+| [mpc-fuel.md](mpc-fuel.md) | fuel-optimal MPC: the least 1-norm delta-v plan to rest at the hold point on the zero-order-hold CW model, the strictly convex tie-break and the certified fuel excess bound |
 | [lyapunov.md](lyapunov.md) | Lyapunov baselines: Clohessy-Wiltshire reference tracking, the Cartesian law on a declared two-body model |
 | [two-impulse.md](two-impulse.md) | two-impulse Clohessy-Wiltshire targeting, its singular transfer times, the two-impulse agent and the two-impulse fuel bound |
 | [glideslope.md](glideslope.md) | the pulsed glideslope approach: the exponential range profile, its pulses and the agent that flies them |
@@ -38,4 +40,5 @@ and how it is tested.
 | [lambert.md](lambert.md) | Lambert's problem by universal variables and the Lambert targeting agent |
 | [mission-manager.md](mission-manager.md) | modes, gates, contingency and abort modes, and the mission manager agent |
 | [mutants.md](mutants.md) | mutant agents: deliberately broken controllers that check which metric catches which defect |
+| [oracles.md](oracles.md) | fuel oracles: the primer vector and the finite-thrust dual lower bound, the fixed-window fuel oracle, and the exact constrained LQ value |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |
