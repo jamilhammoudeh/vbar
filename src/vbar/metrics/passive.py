@@ -338,17 +338,42 @@ def _drift_horizon(ep: Episode, settings: MetricSettings) -> float:
     return settings.drift_horizon or 2.0 * (2.0 * np.pi / ep.view.n)
 
 
+def cam_direction(goal: Mapping[str, Any]) -> np.ndarray:
+    """Return the unit direction of the CAM opposite the approach, Hill frame.
+
+    Parameters
+    ----------
+    goal : mapping
+        A scenario goal; its "port_axis", else its "hold_point" (Hill frame, m), gives the
+        approach side.
+
+    Returns
+    -------
+    ndarray, shape (3,)
+        On a V-bar approach, along-track away from the target; on an R-bar approach, radially
+        away with a retrograde part of one fifth, (5 sign(x), -1, 0) / sqrt(26) (Fehse sections
+        4.5 and 5.7).
+
+    Raises
+    ------
+    ValueError
+        If the approach side has no in-plane part.
+    """
+    side = np.asarray(goal.get("port_axis", goal.get("hold_point", (0.0, 0.0, 0.0))), float)
+    if not np.any(side[:2]):
+        raise ValueError("no approach direction: declare cam_impulses")
+    if abs(side[1]) >= abs(side[0]):
+        return np.array([0.0, np.sign(side[1]), 0.0])
+    return np.array([5.0 * np.sign(side[0]), -1.0, 0.0]) / math.sqrt(26.0)
+
+
 def cam_impulses(ep: Episode, settings: MetricSettings) -> np.ndarray:
     """The abort set (Hill delta-v, m/s), declared or opposite the approach (`abort_set`)."""
     return abort_set(ep.view.goal, settings)
 
 
 def abort_set(goal: Mapping[str, Any], settings: MetricSettings) -> np.ndarray:
-    """The abort set (Hill delta-v, m/s) of a goal: declared, or one CAM opposite the approach.
-
-    On a V-bar approach the CAM is along-track away from the target; on an R-bar approach it is
-    radially away with a retrograde part of one fifth (Fehse sections 4.5 and 5.7). The approach
-    side is the docking axis if the goal has one, else the hold point's direction.
+    """The abort set (Hill delta-v, m/s) of a goal: declared, or `cam_dv` along `cam_direction`.
 
     Parameters
     ----------
@@ -369,13 +394,7 @@ def abort_set(goal: Mapping[str, Any], settings: MetricSettings) -> np.ndarray:
     """
     if settings.cam_impulses is not None:
         return np.asarray(settings.cam_impulses, dtype=float).reshape(-1, 3)
-    side = np.asarray(goal.get("port_axis", goal.get("hold_point", (0.0, 0.0, 0.0))), float)
-    if not np.any(side[:2]):
-        raise ValueError("no approach direction: declare cam_impulses")
-    if abs(side[1]) >= abs(side[0]):
-        return np.array([[0.0, settings.cam_dv * np.sign(side[1]), 0.0]])
-    away = np.array([5.0 * np.sign(side[0]), -1.0, 0.0]) / math.sqrt(26.0)
-    return settings.cam_dv * away[None, :]
+    return settings.cam_dv * cam_direction(goal)[None, :]
 
 
 def _stuck_accels(ep: Episode) -> np.ndarray:

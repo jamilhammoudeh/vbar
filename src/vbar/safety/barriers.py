@@ -9,10 +9,11 @@ function condition h'' + (p1 + p2) h' + p1 p2 h >= 0 with real poles p1, p2 > 0 
 *Control Barrier Functions: Theory and Applications*, ECC 2019, sec. IV, Def. 7); speed barriers
 have relative degree 1 and use h' >= -gamma h (sec. II, Def. 2).
 
-`PassiveBarrier` and `BrakingBarrier` are evading-maneuver barriers (sec. III, eq. 12): h is the
-margin that a fixed backup command, free drift or full outward braking, keeps from x, so that
-command is always safe on the set h >= 0 (Theorem 4). They have no row and are enforced by a
-line search toward the backup on the exact held segment.
+`PassiveBarrier`, `CamBarrier` and `BrakingBarrier` are evading-maneuver barriers (sec. III,
+eq. 12): h is the margin that a fixed backup command, free drift, a collision avoidance
+manoeuvre then free drift, or full outward braking, keeps from x, so that command is always safe
+on the set h >= 0 (Theorem 4). They have no row and are enforced by a line search toward the
+backup on the exact held segment.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from scipy.optimize import minimize_scalar
 from ..constraints import KeepOut, interval_bounds
 from ..dynamics.cw import cw_discrete
 from ..solvers.qp import ACTUATOR_LAYOUTS, ActuatorSet
+from .sampled import held_segment_bound
 
 # Below this speed (m/s) the direction of v is undefined and the speed row is dropped; the
 # barrier value is then at least v0, far from its boundary.
@@ -806,6 +808,169 @@ class PassiveBarrier:
         """Return the backup command, zero thrust (m/s^2), which every actuator set contains."""
         _state(x)
         return np.zeros(3)
+
+
+@dataclass(frozen=True, kw_only=True)
+class CamBarrier:
+    """CAM-then-drift barrier: the margin of a held collision avoidance manoeuvre, then free drift.
+
+    Parameters
+    ----------
+    radius : float
+        The keep-out radius R, m, positive.
+    n : float
+        Mean motion of the target orbit, rad/s, positive.
+    dt : float
+        The hold time of a command, s, positive.
+    accel : sequence of float
+        The CAM acceleration a_c, m/s^2, Hill frame, three finite numbers.
+    steps : int
+        The number m of whole steps the CAM is held, positive.
+    grid : float
+        Spacing of the free-drift samples, s; it divides `dt` for the drift steps to keep the
+        set.
+    t_cap : float, optional
+        The longest free-drift horizon, s, within which the drift must reach the terminal set;
+        ten orbits, 20 pi / n, by default.
+    samples : int
+        Samples of each held CAM step for the certified in-step bound, endpoints included, at
+        least 2.
+
+    Raises
+    ------
+    ValueError
+        If a parameter is out of range or not finite, or `grid` and `t_cap` are refused by
+        `PassiveBarrier`.
+
+    Notes
+    -----
+    With h^0 the free-drift barrier `PassiveBarrier` with `terminal`, (Phi, Gamma) the exact
+    zero-order-hold CW step of `dt` and b(x) = held_segment_bound(x, a_c, dt, samples, R, n),
+
+        h^j(x) = min(b(x), h^(j-1)(Phi x + Gamma a_c)),  j = 1..m,
+        h(x) = max over j = 0..m of h^j(x),
+
+    so h^j is the certified margin of j CAM steps followed by free drift for all time. The
+    backup is beta(x) = 0 where h^0(x) >= 0 and a_c elsewhere. On h >= 0 the backup keeps the
+    set: if h^0(x) >= 0 the drift step does (`PassiveBarrier` with a grid that divides dt);
+    otherwise h(x) = h^j(x) for some j >= 1, whose terms bound the held CAM step and give
+    h^(j-1)(x+) >= h^j(x) >= 0. The CAM is held for whole steps from each state, so the
+    recursion closes; a fixed-length arc from every state would restart at each successor and
+    lose invariance. The set holds for nominal CW motion only, with a_c inside the thrust limit.
+    Fehse, *Automated Rendezvous and Docking of Spacecraft*, sec. 4.5, gives the CAM directions.
+    """
+
+    radius: float
+    n: float
+    dt: float
+    accel: tuple[float, float, float]
+    steps: int
+    grid: float = 5.0
+    t_cap: float | None = None
+    samples: int = 20
+    _drift: PassiveBarrier = field(init=False, repr=False, compare=False)
+    _phi: np.ndarray = field(init=False, repr=False, compare=False)
+    _push: np.ndarray = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        radius = _positive(self.radius, "radius")
+        n = _positive(self.n, "n")
+        dt = _positive(self.dt, "dt")
+        accel = _vector3(self.accel, "accel")
+        steps = self.steps
+        if isinstance(steps, bool) or int(steps) != steps or steps < 1:
+            raise ValueError("steps must be a positive integer")
+        samples = self.samples
+        if isinstance(samples, bool) or int(samples) != samples or samples < 2:
+            raise ValueError("samples must be an integer of at least 2")
+        drift = PassiveBarrier(radius=radius, n=n, grid=self.grid, t_cap=self.t_cap, terminal=True)
+        phi, gamma = cw_discrete(n, dt)
+        phi.flags.writeable = False
+        push = gamma @ np.array(accel)
+        push.flags.writeable = False
+        object.__setattr__(self, "radius", radius)
+        object.__setattr__(self, "n", n)
+        object.__setattr__(self, "dt", dt)
+        object.__setattr__(self, "accel", accel)
+        object.__setattr__(self, "steps", int(steps))
+        object.__setattr__(self, "grid", drift.grid)
+        object.__setattr__(self, "t_cap", drift.t_cap)
+        object.__setattr__(self, "samples", int(samples))
+        object.__setattr__(self, "_drift", drift)
+        object.__setattr__(self, "_phi", phi)
+        object.__setattr__(self, "_push", push)
+
+    def _value(self, x: np.ndarray) -> float:
+        accel = np.array(self.accel)
+        best = float(self._drift.value(x))
+        burn, state = math.inf, x
+        for _ in range(self.steps):
+            burn = min(
+                burn,
+                held_segment_bound(state, accel, self.dt, self.samples, self.radius, self.n),
+            )
+            # Every later level is at most the lowest burn bound so far, which only falls, so
+            # the maximum is settled and the costly drift margins can be skipped.
+            if burn <= best:
+                break
+            state = self._phi @ state + self._push
+            best = max(best, min(burn, float(self._drift.value(state))))
+        return best
+
+    def value(self, x) -> float:
+        """Return the certified CAM-then-drift margin h, m.
+
+        Parameters
+        ----------
+        x : array_like, shape (6,)
+            Hill-frame state, m and m/s.
+
+        Returns
+        -------
+        float
+            The largest over j = 0..steps of the certified lower bound on the keep-out margin of
+            j held CAM steps followed by free drift for all time; h >= 0 certifies that motion.
+
+        Raises
+        ------
+        ValueError
+            If `x` is not six finite numbers.
+        """
+        return self._value(_state(x))
+
+    def contains(self, x) -> bool:
+        """Return whether the CAM-then-drift margin of `x` (m, m/s) is nonnegative."""
+        return bool(self.value(x) >= 0.0)
+
+    def backup(self, x, actuator: ActuatorSet) -> np.ndarray:
+        """Return the backup command, m/s^2, Hill frame.
+
+        Parameters
+        ----------
+        x : array_like, shape (6,)
+            Hill-frame state, m and m/s.
+        actuator : ActuatorSet
+            The thrust limit, which must contain the CAM.
+
+        Returns
+        -------
+        ndarray, shape (3,)
+            Zero thrust where the free drift from `x` is certified (h^0(x) >= 0), the CAM
+            acceleration a_c elsewhere.
+
+        Raises
+        ------
+        ValueError
+            If `x` is not six finite numbers or a_c is outside the thrust limit.
+        """
+        x = _state(x)
+        accel = np.array(self.accel)
+        size = np.max(np.abs(accel)) if actuator.layout == "box" else np.linalg.norm(accel)
+        if size > actuator.a_max * (1.0 + 1e-12):
+            raise ValueError("the CAM acceleration is outside the thrust limit")
+        if self._drift.value(x) >= 0.0:
+            return np.zeros(3)
+        return accel
 
 
 def braking_deceleration(

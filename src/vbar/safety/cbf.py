@@ -10,9 +10,10 @@ first-order speed rows (Ames et al., *Control Barrier Functions: Theory and Appl
 ECC 2019, sec. II and IV). The rows are continuous-time conditions, so the filter is designed for
 the held step: its poles obey max(p) dt <= 0.6, the keep-out radius carries a buffer for riding
 the boundary, and it makes no certified claim. `BackupFilter` checks each held step on the exact
-Clohessy-Wiltshire solution and searches toward a backup command, free drift or full outward
-braking, whose safety is the barrier's own theorem (sec. III, Theorem 4). `SoftCbfFilter`
-penalizes the rows instead of enforcing them and is never a certified filter.
+Clohessy-Wiltshire solution and searches toward a backup command, free drift, a collision
+avoidance manoeuvre then free drift, or full outward braking, whose safety is the barrier's own
+theorem (sec. III, Theorem 4). `SoftCbfFilter` penalizes the rows instead of enforcing them and
+is never a certified filter.
 """
 
 from __future__ import annotations
@@ -30,10 +31,13 @@ import numpy as np
 from ..agents.base import CONTINUOUS_MODES, AgentView, action_scale, command_fraction
 from ..constraints import KeepOut
 from ..dynamics.cw import cw_discrete
+from ..metrics.passive import cam_direction
+from ..metrics.settings import MetricSettings
 from ..solvers.qp import ActuatorSet, Projection, Rows, project
 from . import FilterResult, InfeasibilityProof
 from .barriers import (
     BrakingBarrier,
+    CamBarrier,
     ClosingSpeedCbf,
     KeepOutEcbf,
     PassiveBarrier,
@@ -68,7 +72,8 @@ _CUT_TOL = 1e-3
 # Bisection steps on the keep-out row's tightening, as for the line search of the backups.
 _TIGHTEN_STEPS = 12
 _SPEED_TYPES = ("speed_limit", "closing_speed_limit")
-BACKUP_BARRIERS = ("passive", "braking")
+BACKUP_BARRIERS = ("passive", "braking", "cam")
+_BACKUP_NAMES = {"passive": "cbf-passive", "braking": "cbf-brake", "cam": "cbf-cam"}
 BACKUP_CANDIDATES = ("clipped", "projection")
 
 
@@ -145,7 +150,8 @@ class FilterDeclaration:
         The declared error sets: "navigation" (an error set on the state or None), "execution"
         (da_max, m/s^2) and "model_error" (m/s^2 or None).
     backup : str or None
-        The backup command, "zero thrust" or "full outward braking"; None without one.
+        The backup command, "zero thrust", "full outward braking" or "zero thrust, else the
+        CAM"; None without one.
     certificate : str or None
         The kind of guarantee of a step decided inside the safe set: "nominal", "bounded-W" with
         declared error sets, or None when the filter makes no certified claim.
@@ -845,7 +851,9 @@ class BackupFilter(_HeldCommandFilter):
     Parameters
     ----------
     barrier : str
-        "passive" (free drift, backup zero thrust) or "braking" (backup full outward braking).
+        "passive" (free drift, backup zero thrust), "braking" (backup full outward braking) or
+        "cam" (backup zero thrust where free drift is certified, else the CAM; see
+        `CamBarrier`).
     candidate : str
         "clipped" tries the clipped command first; "projection", with the passive barrier only,
         first projects it onto the first-order row grad h_p . f(x, u) >= -gamma h_p, which makes
@@ -883,8 +891,8 @@ class BackupFilter(_HeldCommandFilter):
     Raises
     ------
     ValueError
-        If a parameter is out of range, or the projection candidate is asked for the braking
-        barrier.
+        If a parameter is out of range, the projection candidate is asked for a barrier other
+        than the passive one, or the cam barrier is asked for with error sets.
 
     Notes
     -----
@@ -900,6 +908,14 @@ class BackupFilter(_HeldCommandFilter):
     backup is returned inside the set without the check, and a braking backup that fails it
     there is reported as "solver_failed" with no certificate. With error sets the free-drift set
     is certified up to t_cap only and recursive feasibility is not claimed.
+
+    The cam barrier holds the CAM a_c of magnitude a_max along the direction
+    `vbar.metrics.passive.cam_direction` gives for the view's goal (along-track away from a V-bar
+    approach, radially away with a fifth retrograde from an R-bar one) for
+    m = ceil(0.3 m/s / (a_max dt)) whole steps, the 0.3 m/s CAM of the passive-safety metrics.
+    Its set is kept by its backup (`CamBarrier`), so it too returns the backup inside the set
+    without the check and is recursively feasible at any dt under box and ball limits. Its
+    claim is nominal only, so it refuses error sets.
     """
 
     def __init__(
@@ -942,7 +958,9 @@ class BackupFilter(_HeldCommandFilter):
         self.samples = int(samples)
         self.iterations = int(iterations)
         self.navigation = navigation
-        self.name = "cbf-passive" if barrier == "passive" else "cbf-brake"
+        if barrier == "cam" and self.bounded:
+            raise ValueError("the cam barrier makes no claim under error sets")
+        self.name = _BACKUP_NAMES[barrier]
 
     @property
     def bounded(self) -> bool:
@@ -956,7 +974,8 @@ class BackupFilter(_HeldCommandFilter):
         ------
         ValueError
             If the action mode, frame, observation, dynamics or constraints are unsupported, the
-            scenario has no keep_out, or no braking barrier exists for the view (a_b <= 0).
+            scenario has no keep_out, no braking barrier exists for the view (a_b <= 0), or the
+            cam barrier is asked for a goal with no approach direction.
         """
         self._view = None
         self._declaration = None
@@ -964,8 +983,16 @@ class BackupFilter(_HeldCommandFilter):
         n, dt, radius = self._n, self._dt, self._radius
         phi, gamma = cw_discrete(n, dt)
         self._phi, self._gamma_u = phi, gamma
-        self._barrier: PassiveBarrier | BrakingBarrier
-        if self.barrier == "passive":
+        self._barrier: PassiveBarrier | BrakingBarrier | CamBarrier
+        if self.barrier == "cam":
+            self._barrier = self._cam_barrier(view)
+            self._end_tightening = 0.0
+            backup = "zero thrust, else the CAM"
+            safe_set = (
+                f"a CAM of at most {self._barrier.steps} steps, then free drift, certified "
+                "outside the keep-out for all time"
+            )
+        elif self.barrier == "passive":
             t_cap = self.t_cap
             if t_cap is None:
                 t_cap = (4.0 if self.bounded else 20.0) * math.pi / n
@@ -1038,6 +1065,26 @@ class BackupFilter(_HeldCommandFilter):
             ignored=self.ignore,
         )
 
+    def _cam_barrier(self, view: AgentView) -> CamBarrier:
+        """The CAM-then-drift barrier for the view's goal, thrust limit and dt."""
+        try:
+            direction = cam_direction(view.goal)
+        except ValueError as error:
+            raise ValueError("the scenario's goal declares no CAM direction") from error
+        a_max, dt = self._actuator.a_max, self._dt
+        # A quotient that rounds just above a whole number of steps is that number.
+        steps = max(1, math.ceil(MetricSettings().cam_dv / (a_max * dt) - 1e-9))
+        return CamBarrier(
+            radius=self._radius,
+            n=self._n,
+            dt=dt,
+            accel=tuple(a_max * direction),
+            steps=steps,
+            grid=dt / math.ceil(dt / self.grid),
+            t_cap=self.t_cap,
+            samples=self.samples,
+        )
+
     def _deviation(self, phi_r, phi_v, gamma_r, gamma_v) -> tuple[float, float]:
         """Bounds on the position (m) and velocity (m/s) error of a predicted state."""
         da = self.da_max
@@ -1084,7 +1131,7 @@ class BackupFilter(_HeldCommandFilter):
     def _end_value(self, x1: np.ndarray) -> float:
         """A lower bound on the barrier value at the true end state of the step, m."""
         barrier = self._barrier
-        if isinstance(barrier, PassiveBarrier):
+        if isinstance(barrier, (PassiveBarrier, CamBarrier)):
             return float(barrier.value(x1)) - self._end_tightening
         g_r, g_v = self._end_deviation
         if g_r == 0.0 and g_v == 0.0:
@@ -1168,7 +1215,10 @@ class BackupFilter(_HeldCommandFilter):
             return self._monitor(u_c, t0)
         barrier = self._barrier
         h0 = float(barrier.value(x))
-        inside = h0 >= 0.0 if isinstance(barrier, PassiveBarrier) else barrier.contains(x)
+        if isinstance(barrier, BrakingBarrier):
+            inside = barrier.contains(x)
+        else:
+            inside = h0 >= 0.0
         floor_s = min(0.0, float(np.linalg.norm(x[:3])) - self._radius)
         floor_b = min(0.0, h0)
 
@@ -1192,8 +1242,12 @@ class BackupFilter(_HeldCommandFilter):
         found = line_search(accept, start, beta, self.iterations)
         status, slack, certified = "feasible", 0.0, True
         # Inside the terminal free-drift set the drift step is covered by h(x) and ends in the
-        # set again, so the backup needs no check there.
-        kept = inside and isinstance(barrier, PassiveBarrier) and barrier.terminal
+        # set again, and inside the CAM set the backup step is covered by the level of h(x) it
+        # starts, so the backup needs no check there.
+        kept = inside and (
+            isinstance(barrier, CamBarrier)
+            or (isinstance(barrier, PassiveBarrier) and barrier.terminal)
+        )
         if (found.theta == 0.0 and not kept) or not inside:
             held, end = self._margins(x, found.u)
             shortfall = max(0.0, floor_s - held, floor_b - end)

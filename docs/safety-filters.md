@@ -5,7 +5,8 @@ Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`
 `EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `ecbf_bias`,
 `first_order_bias`, `box_hull`, `tube_margin`, `delay_margin`, `per_draw_sigma`,
 `scenario_sample_count`, `scenario_margin`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`,
-`ClosingSpeedCbf`, `ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`),
+`ClosingSpeedCbf`, `ConeEcbf`, `PassiveBarrier`, `CamBarrier`, `BrakingBarrier`,
+`braking_deceleration`),
 `vbar.safety.sampled` (`held_segment_bound`, `line_search`, `LineSearch`), `vbar.safety.cbf`
 (`CbfFilter`, `BackupFilter`, `SoftCbfFilter`, `FilterDeclaration`), `vbar.safety.corridor`
 (`CorridorCamFilter`) and `vbar.safety.audit` (`audit_filter`, `FilterAudit`, `RunAudit`,
@@ -597,9 +598,9 @@ boundary and is also "feasible".
 
 ### Backup filters
 
-`BackupFilter(barrier="passive" | "braking", candidate="clipped", ...)` checks each held step on
-the exact CW solution and searches toward the barrier's backup with `line_search`. A command $u$
-is accepted when
+`BackupFilter(barrier="passive" | "braking" | "cam", candidate="clipped", ...)` checks each held
+step on the exact CW solution and searches toward the barrier's backup with `line_search` (the
+cam barrier has its own subsection below). A command $u$ is accepted when
 
 1. `held_segment_bound(x, u, dt, 20, R, n, error, da_max)` $\ge f_s$, and
 2. the barrier value at the end of the step, $x_1 = \Phi(\Delta t) x + \Gamma(\Delta t) u$, is
@@ -661,6 +662,121 @@ The status is "feasible" in every row but the last, which is "solver_failed". Wh
 `slack` is the predicted violation of the returned action, $\max(0, f_s - \text{bound},
 f_b - h(x_1))$ in m. Without error sets the horizon is inf for both barriers; with them it is
 `t_cap` for free drift and inf for braking.
+
+### CAM backup filter
+
+`BackupFilter(barrier="cam")`, named "cbf-cam", is the free-drift filter with a larger set: a
+state also counts as safe when a collision avoidance manoeuvre (CAM) held for a few steps, then
+free drift, keeps it outside the keep-out for all time. Its backup is zero thrust where free drift
+alone is certified and the CAM elsewhere, so the filter lets the chaser closer than free drift
+does while keeping a certified way out (Fehse sec. 4.5).
+
+`CamBarrier(radius, n, dt, accel, steps, grid=5.0, t_cap=None, samples=20)` holds the CAM
+acceleration $a_c$ (`accel`, m/s^2, Hill frame) for $m$ = `steps` whole steps of `dt`. With
+$h^0$ the terminal free-drift barrier `PassiveBarrier(radius, n, grid, t_cap, terminal=True)`,
+$(\Phi, \Gamma)$ the exact held CW step of `dt` and
+$b(x)$ = `held_segment_bound(x, a_c, dt, samples, radius, n)`, the certified margin of the
+held CAM step from $x$,
+
+$$
+h^j(x) = \min\bigl(b(x),\ h^{j-1}(\Phi x + \Gamma a_c)\bigr), \quad j = 1, \dots, m,
+\qquad h(x) = \max_{j = 0, \dots, m} h^j(x).
+$$
+
+$h^j$ is the lowest certified margin of $j$ CAM steps, each bounded over the whole step, followed
+by free drift for all time, so $h(x) \ge 0$ certifies that some CAM length from 0 to $m$ steps
+keeps the chaser clear. `value(x)` returns $h$, `contains(x)` tests $h \ge 0$, and
+`backup(x, actuator)` returns $\beta(x) = 0$ where $h^0(x) \ge 0$ and $a_c$ elsewhere; it raises
+`ValueError` when $a_c$ is outside the thrust limit. Every $h^j$ is at most the lowest burn bound
+so far, which only falls with $j$, so `value` stops once that bound is no higher than the best
+level found; the maximum is the same.
+
+The set $S = \{h \ge 0\}$ is kept by $\beta$:
+
+- if $h^0(x) \ge 0$, $\beta = 0$ and the drift step keeps $h^0 \ge 0$, since the grid divides
+  `dt` (terminal set, above), so $h(\Phi x) \ge h^0(\Phi x) \ge 0$;
+- otherwise $h(x) = h^j(x) \ge 0$ for some $j \ge 1$ and $\beta = a_c$. The term $b(x)$ inside
+  $h^j$ bounds the held step, and $h^{j-1}(x^+) \ge h^j(x) \ge 0$ at
+  $x^+ = \Phi x + \Gamma a_c$, so $h(x^+) \ge 0$.
+
+The successor is evaluated by the same code path as the levels of $x$, so the recursion holds in
+floating point as well, up to rounding at the free-drift thresholds. Since $a_c$ lies in the
+thrust limit, the filter is recursively feasible at any dt under box and ball limits, and inside
+$S$ it returns the backup without the held check, as the free-drift filter does. The CAM is held
+for whole steps from each state, so after it the motion is free drift and the terminal set
+argument carries over. A fixed-length arc started afresh from every state would not work: at the
+successor the arc restarts, and the set is no longer kept.
+
+`reset` builds the barrier from the view:
+
+- `accel`: $a_{\max}$ along `vbar.metrics.passive.cam_direction` of the view's goal, the
+  direction the passive-safety metrics use: along-track away from the target on a V-bar
+  approach, and radially away with a retrograde part of one fifth,
+  $(5\,\mathrm{sign}(x), -1, 0)/\sqrt{26}$, on an R-bar approach (Fehse secs. 4.5 and 5.7). A
+  goal with neither a `port_axis` nor an in-plane `hold_point` raises `ValueError`.
+- `steps`: $m = \lceil 0.3 / (a_{\max}\,\Delta t) \rceil$, the fewest whole steps that give the
+  0.3 m/s CAM of the metrics: 2 at 0.02 m/s^2 and 10 s, 15 at 1 s.
+- `grid`: $\Delta t / \lceil \Delta t / \text{grid} \rceil$, so that it divides the step; `t_cap`
+  and `samples` are the filter's.
+
+The declaration has `certificate` "nominal" with horizon inf, `backup` "zero thrust, else the
+CAM", and counts toward certification. The acceptance checks, floors and outcomes are those of the
+table above, with $h$ in check 2.
+
+Assumptions and limits:
+
+- Nominal CW only: the claim assumes perfect navigation and execution and the CW model, so the
+  filter refuses `navigation`, `execution` and `model_error` when it is built, and with them
+  every other dynamics.
+- No commit zone of its own: inside the goal's commit radius it only watches, and that radius is
+  measured from the target's centre, so on a docking goal the zone is empty (gap G-1142).
+- The CAM direction is fixed per scenario; a state whose only escape is another direction is
+  outside the set and is treated as recovering.
+- A check costs up to $m + 1$ terminal free-drift evaluations against one for the free-drift
+  filter, and a line search makes up to 13 checks.
+
+Validation, in `tests/test_safety_cam.py`:
+
+- A 1 ms burn of 300 m/s^2 along -V-bar from 20 m behind, the 0.3 m/s CAM of Fehse sec. 4.5,
+  fig. 4.16, passes under the target at $x$ = -396.220 m and is 4978.3 m ahead one orbit later,
+  at 400 km ($r$ = 6778.137 km; at Fehse's $r$ = 6766 km the crossing is at -395.209 m).
+- Radially away from $d$ = 20, 50 and 100 m below the target (Fehse figs. 4.17 and 4.18), the
+  chaser is $12\pi d$ ahead after an orbit: 753.98, 1884.96 and 3769.91 m.
+- `value` equals the definition built from `PassiveBarrier` and `held_segment_bound` on five
+  planted states, and is never below the free-drift value; a state only the CAM saves is in the
+  set with the CAM as its backup, and a state at rest 400 m out gets zero thrust.
+- On 200 seeded members, from the hold side and near the keep-out, the backup step stays in the
+  set and its exact held step, sampled at 201 points, stays outside the keep-out. The same check
+  kills three mutants of the definition on planted states: the successor without $\Gamma a_c$,
+  the burn bound dropped, and $h^0$ without the terminal set.
+- The filter's barrier has the view's radius, mean motion and dt, a grid that divides dt, $a_c$
+  along -V-bar or radially away with a fifth retrograde under box and ball limits, and
+  $m$ = 15, 3, 2 and 1 at dt 1, 5, 10 and 20 s; error sets are refused.
+- From a state only the CAM saves, a command toward the target is filtered with a "nominal"
+  certificate, not as recovery, and the backup returned inside the set is certified.
+- Closed loop on approach-vbar with a PD nominal at dt 10 s, the lowest certified keep-out bound
+  stays above -1 mm and every step is "feasible".
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.safety.barriers import PassiveBarrier
+from vbar.safety.cbf import BackupFilter
+
+view = ApproachEnv(ApproachConfig(action_mode="accel")).agent_view()  # commands in m/s^2
+cam = BackupFilter(barrier="cam")
+cam.reset(view)
+barrier = cam.declaration.barriers[0]
+print(barrier.accel, barrier.steps, barrier.grid)  # (0.0, -0.02, 0.0) 2 5.0
+
+x = np.array([0.0, -60.0, 0.0, 0.0, 0.3, 0.0])  # m and m/s, closing on the keep-out from 10 m
+drift = PassiveBarrier(radius=50.0, n=view.n, grid=barrier.grid, terminal=True)
+print(round(drift.value(x), 3), round(barrier.value(x), 3))  # -37.196 0.856
+result = cam.filter(x, np.array([0.0, 0.02, 0.0]))  # full thrust toward the target
+print(result.action.round(5), result.certificate, result.recovering)
+# [0.      0.00849 0.     ] nominal False
+```
 
 ### Soft filter
 

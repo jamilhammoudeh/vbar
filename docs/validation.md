@@ -238,6 +238,13 @@ Earth constants and converted from Fehse's ISS-style axes.
 - Eq. 3.28 on approach-vbar (500 km, keep-out 50 m): the corridor margin of
   `CorridorCamFilter` is zero at 0.116 m/s closing at 100 m, and the filter aborts 1e-6 m/s above
   it on both sides of the V-bar (tests/test_safety_corridor.py).
+- Sec. 4.5 and fig. 4.16: the -V-bar CAM of `CamBarrier`, a 1 ms burn of 300 m/s^2 from 20 m
+  behind, passes under the target at $x$ = -396.220 m and ends 4978.3 m ahead after an orbit at
+  400 km ($r$ = 6778.137 km); at Fehse's $r$ = 6766 km the crossing is at -395.209 m
+  (tests/test_safety_cam.py).
+- Figs. 4.17 and 4.18: the radial CAM of `CamBarrier` from $d$ = 20, 50 and 100 m below the
+  target ends $12\pi d$ ahead after an orbit, 753.98, 1884.96 and 3769.91 m
+  (tests/test_safety_cam.py).
 - Eq. 3.22 and sec. 5.7.2: the R-bar passive-speed envelope $n\sqrt{(4h - d)^2 - 9h^2}$ gives
   0.1225, 0.0612 and 0.0283 m/s at 50, 30 and 20 m with 15 m of structure; the book's approach
   flies 0.1, 0.05 and 0.02 m/s there.
