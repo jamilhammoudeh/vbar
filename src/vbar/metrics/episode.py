@@ -27,8 +27,9 @@ class Episode:
     """One run: public spec, truth and step records.
 
     `start` is the true state at t = 0 (m, m/s, Hill). `hard` names the constraints whose
-    violation fails the run. `isp` (s) and the view's `mass_kg` and `thrust_limit` describe the
-    actuator; `dynamics`, `body`, `altitude_m` and `inclination` (rad) the propagation model.
+    violation fails the run. `isp` (s), `drive` ("accel" or "thrust") and the view's `mass_kg`
+    and `thrust_limit` describe the actuator; `dynamics`, `body`, `altitude_m` and `inclination`
+    (rad) the propagation model.
     `agent_log` holds the agent's own per-decision log when it keeps one (LLM agents), and
     `first_obs` the observation the first decision was made on. `scenario_id` is the identifier
     of what was flown, which can differ from the one in `view` where the briefing hides the
@@ -45,6 +46,7 @@ class Episode:
     terminated: bool
     truncated: bool
     isp: float
+    drive: str = "accel"
     dynamics: str = "cw"
     body: str = "earth"
     altitude_m: float = 500e3
@@ -149,6 +151,7 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         terminated=bool(terminated),
         truncated=bool(truncated),
         isp=cfg.isp,
+        drive=cfg.drive,
         dynamics=cfg.dynamics,
         body=cfg.body,
         altitude_m=cfg.altitude_m,

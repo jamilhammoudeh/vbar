@@ -20,6 +20,8 @@ from .mission import success
 
 # A run this far below its certified lower bound is reported; closer is rounding.
 _BOUND_TOL = 1e-9
+# Delivered acceleration this far above a bound's limit voids it; closer is rounding.
+_ACCEL_TOL = 1e-12
 
 
 def _segments(ep: Episode) -> Iterator[tuple[int, float, np.ndarray]]:
@@ -77,25 +79,59 @@ def chatter(ep: Episode) -> float:
 
 @dataclass(frozen=True)
 class FuelBounds:
-    """Bounds on the least delta-v (m/s) from a start state to the scenario's success set.
+    """Bounds on the least delta-v from a start state to the scenario's success set.
 
-    `lower` must be certified (a dual-feasible bound), `upper` the best known feasible cost, both
-    for the same success set, time window and actuator norm: "l1" for box thrusters, "l2" for a
-    ball (Boyd and Vandenberghe, Convex Optimization, sections 5.1 and 5.5). `rung` names the
-    dynamics model the lower bound is a theorem for; on any other model it is only a model bound,
-    since the true optimum there can lie on either side of it.
+    Both bounds are for the same success set, time window and actuator norm (Boyd and
+    Vandenberghe, Convex Optimization, sections 5.1 and 5.5). A lower bound is a theorem only for
+    the dynamics model it was computed on and for acceleration histories within the limit it
+    assumed; for any other run it is a model bound, since the true optimum there can lie on
+    either side of it.
+
+    Parameters
+    ----------
+    lower : float
+        Certified (dual-feasible) lower bound (m/s).
+    upper : float
+        Best known feasible cost (m/s); inf when no plan was verified.
+    norm : {"l1", "l2"}
+        Actuator norm: "l1" for box thrusters, "l2" for a ball.
+    rung : str
+        `Episode.dynamics` name of the model the bounds are computed on, such as "cw".
+    accel_limit : float
+        Acceleration `lower` assumes the run never exceeds (m/s^2, Hill frame), per axis for
+        "l1" and in the 2-norm for "l2". The default inf states a bound that holds for any
+        acceleration, as an impulsive one does.
+    impulsive_lower : float or None
+        Lower bound for impulsive control on the same rung (m/s), which holds for any
+        acceleration; used in place of `lower` for a run that exceeded `accel_limit`.
+
+    Raises
+    ------
+    ValueError
+        For an unknown norm, bounds outside 0 <= lower <= upper, a negative or NaN
+        `accel_limit`, or a negative or non-finite `impulsive_lower` or one above `upper`.
     """
 
     lower: float
     upper: float
     norm: str
     rung: str
+    accel_limit: float = math.inf
+    impulsive_lower: float | None = None
 
     def __post_init__(self):
         if self.norm not in ("l1", "l2"):
             raise ValueError(f"unknown norm {self.norm!r}, expected l1 or l2")
         if not 0.0 <= self.lower <= self.upper:
             raise ValueError("bounds must satisfy 0 <= lower <= upper")
+        if not self.accel_limit >= 0.0:
+            raise ValueError("accel_limit must be a nonnegative number or inf")
+        if self.impulsive_lower is not None and not (
+            math.isfinite(self.impulsive_lower) and self.impulsive_lower >= 0.0
+        ):
+            raise ValueError("impulsive_lower must be finite and nonnegative")
+        if self.impulsive_lower is not None and self.impulsive_lower > self.upper:
+            raise ValueError("impulsive_lower must not exceed upper")
 
 
 class Oracle(Protocol):
@@ -104,13 +140,65 @@ class Oracle(Protocol):
     def bounds(self, view: AgentView, start: np.ndarray) -> FuelBounds: ...
 
 
+def _peak_accel(ep: Episode) -> float:
+    """Largest delivered acceleration in the record (m/s^2): per axis for box, 2-norm for ball.
+
+    Under the constant-thrust drive the acceleration rises over each burn, which the record keeps
+    as two half-burn segments whose second is at least the burn's initial acceleration, so a
+    step's segments times its mass ratio cover the acceleration at the step's final mass.
+    """
+    order = np.inf if ep.view.thrust_limit == "box" else 2
+    ratios = np.ones(len(ep.records))
+    if ep.drive == "thrust":
+        if ep.view.mass_kg is None:
+            raise ValueError("the constant-thrust drive needs the initial mass")
+        burned = np.cumsum([0.0, *(rec.actuation.propellant_kg for rec in ep.records)])
+        mass = ep.view.mass_kg - burned
+        ratios = mass[:-1] / mass[1:]
+    return max(
+        (
+            ratio * float(np.linalg.norm(accel, ord=order))
+            for ratio, rec in zip(ratios, ep.records, strict=True)
+            for _, accel in rec.actuation.segments
+        ),
+        default=0.0,
+    )
+
+
+def _ratio(dv: float, bound: float) -> float:
+    """Delta-v over a bound, inf for a zero bound."""
+    return dv / bound if bound > 0.0 else math.inf
+
+
 def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | bool | str]:
     """E3: delta-v in the actuator's norm over the lower bound, and over the upper.
 
-    When the bound is certified for the episode's dynamics model (its `rung`), the ratio is at
-    least 1 by theorem, and a successful run below it means a simulator or metric bug and is
-    flagged. On another model the same ratio is reported apart, as a model ratio that may fall
-    below 1, and never flagged. Ratios are NaN for failed runs and when no bounds are given.
+    The lower bound is certified for a run on the bound's rung whose delivered acceleration,
+    read from the record and never from the agent, stayed within `accel_limit` (1e-12 relative).
+    The ratio is then at least 1 by theorem, and a successful run below it means a simulator or
+    metric bug and is flagged. A run that exceeded the limit is held to `impulsive_lower`
+    instead, when given. A lower bound not certified for the run gives the model ratio, which
+    may fall below 1 and is never flagged.
+
+    Parameters
+    ----------
+    ep : Episode
+        The recorded run.
+    bounds : FuelBounds or None
+        Bounds for the run's start state, in the norm of its thruster layout.
+
+    Returns
+    -------
+    dict
+        "optimality_gap" (E3), "optimality_gap_model" (E3m) and "optimality_gap_upper" (E3u),
+        each NaN for a failed run, without bounds or where it does not apply, E3u also for an
+        infinite upper bound; "below_lower_bound" (E3f), "bound_certified" (E3c) and
+        "bound_rung" (E3r).
+
+    Raises
+    ------
+    ValueError
+        When the bounds' norm does not match the thruster layout.
     """
     gap: dict[str, float | bool | str] = {
         "optimality_gap": math.nan,
@@ -125,15 +213,23 @@ def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | 
     expected = "l1" if ep.view.thrust_limit == "box" else "l2"
     if bounds.norm != expected:
         raise ValueError(f"{ep.view.thrust_limit} thrusters need {expected} bounds")
-    certified = bounds.rung == ep.dynamics
-    gap.update(bound_certified=certified, bound_rung=bounds.rung)
+    lower_certified = False
+    certified_lower = None
+    if bounds.rung == ep.dynamics:
+        limit = bounds.accel_limit
+        lower_certified = limit == math.inf or _peak_accel(ep) <= limit * (1.0 + _ACCEL_TOL)
+        certified_lower = bounds.lower if lower_certified else bounds.impulsive_lower
+    gap.update(bound_certified=certified_lower is not None, bound_rung=bounds.rung)
     if not success(ep):
         return gap
     dv = layout_delta_v(ep)
-    ratio = dv / bounds.lower if bounds.lower > 0.0 else math.inf
-    gap["optimality_gap" if certified else "optimality_gap_model"] = ratio
-    gap["below_lower_bound"] = certified and bool(dv < bounds.lower * (1.0 - _BOUND_TOL))
-    gap["optimality_gap_upper"] = dv / bounds.upper if bounds.upper > 0.0 else math.inf
+    if certified_lower is not None:
+        gap["optimality_gap"] = _ratio(dv, certified_lower)
+        gap["below_lower_bound"] = bool(dv < certified_lower * (1.0 - _BOUND_TOL))
+    if not lower_certified:
+        gap["optimality_gap_model"] = _ratio(dv, bounds.lower)
+    if bounds.upper < math.inf:
+        gap["optimality_gap_upper"] = _ratio(dv, bounds.upper)
     return gap
 
 
