@@ -213,6 +213,18 @@ def test_a_declared_approach_cone_bounds_the_corridor_at_its_surface():
     np.testing.assert_allclose(outside, np.array(CAM) / A_MAX, atol=1e-12)
 
 
+def test_a_corridor_margin_of_exactly_zero_is_inside_the_corridor():
+    # At rest on the keep-out surface the V-bar envelope n (rho - R) / kappa and the closing
+    # speed are both exactly 0, so the margin is exactly 0; only a negative margin aborts.
+    on_surface = vbar_state(ApproachConfig().keep_out_radius, 0.0)
+    (envelope_margin,) = corridor().declaration.barriers
+    assert float(envelope_margin.margin(on_surface)) == 0.0
+    command = (0.1, -0.2, 0.05)
+    np.testing.assert_allclose(acts(corridor(), on_surface, command), command, atol=1e-12)
+    closing = vbar_state(ApproachConfig().keep_out_radius, 1e-9)
+    np.testing.assert_allclose(acts(corridor(), closing, command), np.array(CAM) / A_MAX)
+
+
 def test_corridor_filter_declares_no_certificate():
     declaration = corridor().declaration
     assert declaration.certificate is None
@@ -342,6 +354,26 @@ def test_a_cam_is_needed_only_below_minus_1_mm_on_the_off_run(off_margin, needed
 def test_a_fired_cam_is_missed_when_the_on_run_is_below_minus_1_mm(on_margin, missed):
     probe = pair(VIOLATED, fired=True, on_margin=on_margin)
     check(audit.cam_rates([*anchors(), probe]).missed_cam, int(missed), 2)
+
+
+def no_trials(rate):
+    assert rate.count == 0
+    assert rate.trials == 0
+    assert math.isnan(rate.rate)
+    assert all(math.isnan(end) for end in rate.interval)
+
+
+def test_a_rate_with_no_trials_is_nan():
+    quiet = audit.cam_rates([pair(CLEAN, fired=True), pair(CLEAN, fired=False)])
+    check(quiet.false_cam, 1, 2)
+    no_trials(quiet.missed_cam)
+    needed = audit.cam_rates([pair(VIOLATED, fired=True)])
+    check(needed.missed_cam, 0, 1)
+    no_trials(needed.false_cam)
+    no_trials(needed.cam_induced)
+    empty = audit.cam_rates([])
+    for rate in (empty.false_cam, empty.missed_cam, empty.cam_induced):
+        no_trials(rate)
 
 
 def test_a_cam_fired_at_a_later_step_counts_as_fired():
