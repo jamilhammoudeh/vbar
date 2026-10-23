@@ -3,12 +3,14 @@
 from .certificate import PrimerCertificate, certify_impulsive, hamiltonian, indirect_optimum
 from .fuel import FuelOracle, OracleConfig, OracleSolution
 from .lq import LQBound, LQOracle
+from .minimum_time import MinimumTime, minimum_time, verify_infeasible
 from .primer import dual_bound, primer
 
 __all__ = [
     "FuelOracle",
     "LQBound",
     "LQOracle",
+    "MinimumTime",
     "OracleConfig",
     "OracleSolution",
     "PrimerCertificate",
@@ -16,5 +18,7 @@ __all__ = [
     "dual_bound",
     "hamiltonian",
     "indirect_optimum",
+    "minimum_time",
     "primer",
+    "verify_infeasible",
 ]

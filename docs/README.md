@@ -43,4 +43,5 @@ and how it is tested.
 | [mutants.md](mutants.md) | mutant agents: deliberately broken controllers that check which metric catches which defect |
 | [oracles.md](oracles.md) | fuel oracles: the primer vector and the finite-thrust dual lower bound, the fixed-window fuel oracle, and the exact constrained LQ value |
 | [oracle-certificates.md](oracle-certificates.md) | primer-vector certificates: Lawden's conditions checked over the whole transfer for box thrusters and one engine, the certified primer peak and impulsive lower bound, the indirect finite-thrust optimum by the switching control, and the Hamiltonian along it |
+| [minimum-time-oracle.md](minimum-time-oracle.md) | minimum-time oracle: the fewest held steps into the capture ball for box thrusters, a verified plan, and a primer-vector proof that each smaller step is out of reach |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |
