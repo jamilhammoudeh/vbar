@@ -129,7 +129,10 @@ class FilterResult:
     `status` is "feasible", "infeasible_certified" (proven infeasible by a certificate) or
     "solver_failed" (no answer and no proof, a filter defect); `slack` is the constraint violation
     the returned action accepts, `conflicting` names the constraints that could not all hold, and
-    `compute_s` is the filter's wall time (s).
+    `compute_s` is the filter's wall time (s). A filter that prepares its next decision in a
+    `prepare()` call has that call's wall time in `prep_s` and the `filter` call's in
+    `feedback_s` (s); `run_filter` measures all three, and `prep_s` stays None for a filter
+    without `prepare`.
 
     Filters that know more report it: `active` that a safety row was active (a positive
     multiplier, or a line search that stopped short) even if the action did not move,
@@ -147,6 +150,8 @@ class FilterResult:
     slack: float = 0.0
     conflicting: tuple[str, ...] = ()
     compute_s: float = 0.0
+    prep_s: float | None = None
+    feedback_s: float | None = None
     active: bool = False
     recovering: bool | None = None
     fallback_level: int | None = None
@@ -171,14 +176,19 @@ class FilterResult:
 def run_filter(safety_filter, obs: np.ndarray, command: np.ndarray) -> tuple[FilterResult, float]:
     """The filter's decision on `command` and its measured wall time.
 
-    The filter gets copies, so it cannot rewrite the caller's command or observation. The
-    measured time replaces the filter's own `compute_s`, so a filter cannot report its latency
-    lower than it was.
+    A filter with a `prepare()` method has it called first, with no arguments, then
+    `filter(obs, action)`. One clock runs from the lookup of `prepare` to the return of `filter`
+    without a gap: `prep_s` covers the lookup and the `prepare` call, `feedback_s` the copies of
+    the inputs, the `filter` call and, for a filter without `prepare`, the lookup. The filter gets
+    those copies, so it cannot rewrite the caller's command or observation. The measured times
+    replace whatever the filter reported, so a filter cannot report its latency lower or higher
+    than it was. Work done outside these calls, in `reset` or on another thread, is not measured.
 
     Parameters
     ----------
     safety_filter : SafetyFilter
-        Any object with `filter(obs, action)` returning a `FilterResult`.
+        Any object with `filter(obs, action)` returning a `FilterResult`, and optionally
+        `prepare()`.
     obs : np.ndarray
         The observation the agent acted on.
     command : np.ndarray
@@ -187,21 +197,31 @@ def run_filter(safety_filter, obs: np.ndarray, command: np.ndarray) -> tuple[Fil
     Returns
     -------
     FilterResult
-        The filter's result with `compute_s` set to the measured wall time.
+        The filter's result with `prep_s` the wall time of `prepare` (None without it),
+        `feedback_s` that of `filter` and `compute_s` their sum (s).
     float
-        The wall time of the `filter` call (s).
+        The same `compute_s` (s).
 
     Raises
     ------
     TypeError
-        If the filter returns anything but a `FilterResult`, a bare action included.
+        If the filter returns anything but a `FilterResult`, a bare action or a subclass
+        included; a subclass could rewrite the measured times when the result is rebuilt.
     """
     t0 = time.perf_counter()
+    prepare = getattr(safety_filter, "prepare", None)
+    prep_s = None
+    if prepare is not None:
+        prepare()
+        t1 = time.perf_counter()
+        prep_s = t1 - t0
+        t0 = t1
     out = safety_filter.filter(np.array(obs, dtype=float), np.array(command, dtype=float))
-    elapsed = time.perf_counter() - t0
-    if not isinstance(out, FilterResult):
+    feedback_s = time.perf_counter() - t0
+    if type(out) is not FilterResult:
         raise TypeError(f"filter returned {type(out).__name__}, expected FilterResult")
-    return replace(out, compute_s=elapsed), elapsed
+    compute_s = feedback_s if prep_s is None else prep_s + feedback_s
+    return replace(out, prep_s=prep_s, feedback_s=feedback_s, compute_s=compute_s), compute_s
 
 
 class PassThroughFilter:
@@ -220,15 +240,17 @@ class FilteredAgent:
     """Agent + safety filter, presented as a single agent.
 
     After each `act`, `last_command` is the agent's own command, `last_result` the filter's
-    `FilterResult` and `last_filter_s` the filter's measured wall time (s); `interventions` counts
-    the decisions the filter reported as `intervened` and `decisions` all of them.
+    `FilterResult` and `last_filter_s` the filter's measured wall time, `prepare` included (s);
+    `interventions` counts the decisions the filter reported as `intervened` and `decisions` all
+    of them.
 
     Parameters
     ----------
     agent : Agent
         The wrapped agent; its commands go to the filter.
     safety_filter : SafetyFilter
-        Has `reset(view)` and `filter(obs, action)` returning a `FilterResult`.
+        Has `reset(view)` and `filter(obs, action)` returning a `FilterResult`, and optionally
+        `prepare()`, called before each `filter`.
 
     Raises
     ------

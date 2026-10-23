@@ -445,6 +445,18 @@ around any agent with `FilteredAgent`.
   backup command, certificate kind, whether the filter counts toward certification, and the
   ignored constraint types. `contains(x)` tests membership of the declared safe set. Names are
   fixed at construction: "cbf-ecbf-p0.05", "cbf-passive", "cbf-brake", "cbf-ecbf-soft-p0.05".
+- **Timing.** `vbar.safety.run_filter`, which `FilteredAgent` and the training wrapper go
+  through, times every decision itself. A filter may split a decision into a `prepare()` call
+  with no arguments, for work that needs no new observation (shifting and warm-starting a plan),
+  and the `filter(obs, action)` call that answers it. `run_filter` calls `prepare` first when the
+  filter has one, then `filter`, and sets `prep_s` and `feedback_s` of the `FilterResult` to the
+  two measured wall times and `compute_s` to their sum (s), whatever the filter reported. One
+  clock runs without a gap from the lookup of `prepare`, which counts toward `prep_s`, to the
+  return of `filter`. Without `prepare`, `prep_s` is None and `compute_s` equals `feedback_s`,
+  which then includes the lookup. An exception in `prepare` propagates and `filter` is not
+  called, and a result of a `FilterResult` subclass raises `TypeError`. Work moved into
+  `prepare` still counts in `compute_s`, which the filter metrics read; work done in `reset` or
+  on another thread is not measured.
 
 ### Exponential barrier filter
 
