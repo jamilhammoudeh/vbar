@@ -180,9 +180,10 @@ state, margin, t = cover.counterexamples[0]
 print(round(margin, 3), t)  # -3.0 1282.0
 ```
 
-`benchmarks/filter_audit.py --parts cover` runs the cover on the free-drift backup filter's
-declared set over the audited approach-vbar run; see the Audit section of
-[safety-filters.md](safety-filters.md).
+`benchmarks/filter_audit.py --parts cover` runs the cover over the audited approach-vbar run on
+the free-drift backup filter's declared set, in free drift, and on each level of the cam filter's
+set, with that level's held CAM burn (see Collision avoidance burn below); see the Audit section
+of [safety-filters.md](safety-filters.md).
 
 ### Collision avoidance burn
 
@@ -203,8 +204,8 @@ cover to the bit. A positive `burn_time` without `accel` raises `ValueError`.
 
 A 30 s inward radial burn of 5e-4 m/s^2 from the hold at 100 m leaves the drift centered
 $D = 100 - 2 a t_b / n$ = 72.894 m behind the target on an ellipse of radial semi-axis
-$b = 2 a \sin(n t_b / 2) / n^2$ = 13.552 m and along-track semi-axis $2b$; since $D \ge 1.5 b$ the least range is $D - 2b$ = 45.790 m, half
-an orbit after mid-burn:
+$b = 2 a \sin(n t_b / 2) / n^2$ = 13.552 m and along-track semi-axis $2b$; since $D \ge 1.5 b$
+the least range is $D - 2b$ = 45.790 m, half an orbit after mid-burn:
 
 ```python
 import math

@@ -1339,14 +1339,17 @@ well, so neither is covered again: the script asserts both equalities and covers
 set once, when "free drift" is among `--filters`. The declared sets already certify the motion
 for all time; the cover adds an independent check over the audited run, by bounds on whole boxes
 of states rather than the barrier's value at one state, and without start draws: a center in the
-set whose motion enters by more than 1 mm is a counterexample, and the script asserts none. It
-also draws `--starts` starts from the set as the inside audit draws them, from one recorded
-128-bit root seed per cover and box, and asserts that at least 99% lie in certified boxes. How
-much of a six-dimensional box a budget of boxes certifies is not known in advance, so a shortfall
-is reported as a failure. Each box is halved once along every axis and the 64 parts are covered
-in `--workers` processes with an equal share of `--boxes` (20000 by default), so the result is the
-same for every worker count. The script prints the certified, excluded and undecided volume
-fractions, each counterexample, the share of starts in certified boxes, the run time and the seed.
+set whose motion enters by more than 1 mm is a counterexample, and a counterexample is the only
+way the part fails. It also draws `--starts` starts from the set as the inside audit draws them,
+from one recorded 128-bit root seed per cover and box, and reports the share that lie in
+certified boxes, marking a region below 99% with "coverage below 99%" without failing it. The
+share describes the box method and its budget, since how much of a six-dimensional box a budget
+of boxes certifies is not known in advance; it is never a safety claim. The undecided region is
+covered only by the sampled audit and the falsification search. Each box is halved once along
+every axis and the 64 parts are covered in `--workers` processes with an equal share of `--boxes`
+(20000 by default), so the result is the same for every worker count. The script prints the
+certified, excluded and undecided volume fractions, each counterexample, the share of starts in
+certified boxes, the run time and the seed.
 `--filters` selects filters by name ("ecbf p 0.06", "ecbf p 0.03", "free drift", "braking",
 "cam", "predictive"; all by default) for every part, so `--filters cam predictive` runs only
 those two.

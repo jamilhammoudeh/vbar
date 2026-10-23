@@ -44,9 +44,12 @@ both equalities and covers each set once, the free-drift set when "free drift" i
 Each box is first halved once along every axis and the 64 parts are covered in `--workers`
 processes with an equal share of `--boxes`, so the result does not depend on the worker count.
 The script asserts no counterexample, a center in the set whose motion enters by more than
-1 mm, and that at least 99% of `--starts` starts drawn from the set as the inside audit draws
-them lie in certified boxes. Each cover draws its own 128-bit root seed for those starts and
-prints it; `--seed` uses one given seed for all.
+1 mm. It prints the certified, excluded and undecided volume fractions and the share of
+`--starts` starts, drawn from the set as the inside audit draws them, that lie in certified
+boxes, and marks a region below 99% with "coverage below 99%" without failing it. The share
+describes the box method and its budget and is never a safety claim: the undecided region is
+covered only by the sampled audit and the falsification search. Each cover draws its own
+128-bit root seed for those starts and prints it; `--seed` uses one given seed for all.
 """
 
 import argparse
@@ -291,7 +294,10 @@ def cover(env, args, failed):
             bool(np.any(np.all((boxes_lo <= x) & (x <= boxes_hi), axis=1))) for x in starts
         )
         counterexamples = [found for c in covers for found in c.counterexamples]
-        passed = not counterexamples and covered >= COVERED_SHARE * len(starts)
+        passed = not counterexamples
+        short = (
+            "" if covered >= COVERED_SHARE * len(starts) else f" coverage below {COVERED_SHARE:.0%}"
+        )
         motion = "drift" if steps == 0 else f"cam {steps}"
         print(
             f"{name:12s} {motion:7s} {label:18s} cover   "
@@ -301,7 +307,7 @@ def cover(env, args, failed):
             f"boxes {sum(c.boxes for c in covers)} counterexamples {len(counterexamples)} "
             f"starts in certified boxes {covered} of {len(starts)} "
             f"({100.0 * covered / len(starts):.1f}%) seed {root:#034x} "
-            f"{time.perf_counter() - t0:.0f} s {'pass' if passed else 'FAIL'}",
+            f"{time.perf_counter() - t0:.0f} s {'pass' if passed else 'FAIL'}{short}",
             flush=True,
         )
         for x, margin, t in counterexamples:
