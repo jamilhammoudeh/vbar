@@ -208,15 +208,19 @@ independent uniform direction, from a seed in $[0, 2^{128})$.
 `benchmarks/afrl_reproduction.py` flies 100 starts, each from a 128-bit seed spawned from a
 printed root seed, with the primary alone and inside each filter, at $2.15n$ and $4n$. A sample
 violates when $\varphi_1 < -10^{-5}$ m/s or some $|v_i| > v_{\max} + 10^{-5}$ m/s. At $2.15n$ it
-asserts no violating sample for any filter, an intervention in at least 95 runs for each filter
-and a violation in at least 95 runs for the primary alone; min $\varphi_1 \ge 10^{-3}$ m/s in
-every explicit optimization run; a median of at least 10 switches between command and backup per
+prints thirteen criteria, each with its threshold and whether it is met. The paper's safety claim
+(sec. III) becomes no violating sample for any filter, an intervention in at least 95 runs for each filter
+and a violation in at least 95 runs for the primary alone. The behaviours it reports (sec. IV)
+become min $\varphi_1 \ge 10^{-3}$ m/s in every explicit optimization run; a median of at least 10 switches between command and backup per
 implicit switching run and at least 5 times that of explicit switching; and the two optimization
 filters within 98.5 m and 0.02 m/s of each other over their common samples in at least 95 runs.
 At $4n$ it prints the same counts. It prints each filter's per-run filter time over the mean of
-explicit switching beside Table I.
+explicit switching beside Table I. The script reports and does not gate: it exits with status 0
+whether or not the criteria are met, and with status 1 only when the run is broken, that is when a
+run's min $\varphi_1$, speed excess or filter time is not finite, or a compute table entry is not
+finite and positive.
 
-Two more cases from the authors' code are flown at $2.15n$ and reported, never asserted: its
+Two more cases from the authors' code are flown at $2.15n$ and reported: its
 standard start, $(-5800, 6690, 4700)$ m at rest (main.py:40), and its random rule, position
 uniform in $[-5000, 5000]$ m and velocity uniform in $[-1, 1]$ m/s per axis (main.py:34-37).
 
@@ -235,7 +239,7 @@ Every filter intervenes in every run, and every filtered run reaches the stop ra
 explicit optimization keeps min $\varphi_1 \ge 10^{-3}$ m/s in no run; implicit switching switches
 a median 833 times per run against 2 for explicit switching; the two optimization filters stay
 within 98.5 m and 0.02 m/s of each other in no run (largest gaps 311.7 m and 2.76 m/s). Six of the
-thirteen criteria at $2.15n$ fail, so the script exits with status 1. An independent
+thirteen criteria at $2.15n$ are not met. An independent
 re-implementation of the four filters matches these runs, and finds:
 
 - Explicit switching: the box clips the backup. The command that puts $\varphi_1$ on zero at the
@@ -248,8 +252,17 @@ re-implementation of the four filters matches these runs, and finds:
   invariant without a row on the rollout's end; they stay feasible and tight on the last rollout
   point while a velocity component crosses $v_{\max}$.
 
-Implicit switching still violates in 61 runs with the authors' backup gain; its six-point check
-samples a backup that is not shown to keep $C_A$, and the cause is not analysed further here.
+- Implicit switching: the backup, an LQR clipped to the box that tracks a natural-motion point
+  kilometres away, accelerates past the per-axis limit $v_{\max}$ on its way there; Lemma 3 covers
+  the target orbit, not that transient. Most starts of the paper's rule therefore lie outside the
+  implicit set $C_S$ of eq. 6, but the six-point check over 5 s cannot see an exit that comes later,
+  so the agent's command is accepted up to the edge and the backup then crosses the limit. In all
+  61 violating runs the first exit is under the backup after at least 6 backup steps (60 on a
+  velocity component, 1 on the speed limit), and the last state that passed the check lies 5 steps
+  earlier (4 in one run), with the backup rollout leaving $C_A$ one step past the horizon. A longer
+  horizon (up to 100 s) or holding the target for 20 steps leaves the count at 59 to 61. From the
+  authors' code start the backup rollout stays inside $C_A$ (lowest $\varphi_1$ +11.9 m/s, largest
+  $|v_i|$ 7.97 m/s), which matches no violation there.
 
 The authors' code uses different rows: for explicit optimization the gradient of the squared
 speed limit $(\nu_0 + \nu_1|r|)^2 - |v|^2$ with $\alpha$ of the unsquared value, and for implicit

@@ -10,26 +10,33 @@ each from its own 128-bit seed spawned from the printed root seed. The same star
 every filter and both slopes.
 
 A sample violates when phi1 < -1e-5 m/s or some |v_i| > v_max + 1e-5 m/s, the resolution of the
-speed limit; samples are the Euler steps. At 2.15 n the script asserts:
+speed limit; samples are the Euler steps. At 2.15 n the script prints each criterion below with
+its threshold and whether it is met:
 
-1. no filter has a violating sample in any run; every filter intervenes in at least 95 runs; the
+1. the paper's safety claim, that each filter keeps the allowable set (sec. III, Lemmas 1 to 3):
+   no filter has a violating sample in any run; every filter intervenes in at least 95 runs; the
    primary alone violates in at least 95 runs;
-2. explicit optimization keeps min phi1 >= 1e-3 m/s in every run; implicit switching has a median
-   of at least 10 switches between command and backup per run, and at least 5 times the median of
-   explicit switching; implicit and explicit optimization stay within 98.5 m and 0.02 m/s of each
-   other, over their common samples, in at least 95 runs.
+2. the behaviours the paper reports in sec. IV: explicit optimization never reaches the boundary,
+   as min phi1 >= 1e-3 m/s in every run; implicit switching chatters, as a median of at least 10
+   switches between command and backup per run and at least 5 times the median of explicit
+   switching; implicit optimization tracks explicit optimization, as within 98.5 m and 0.02 m/s
+   of each other, over their common samples, in at least 95 runs.
 
-At 4 n the same counts are printed and not asserted. Two more start cases from the authors' code
+At 4 n the same counts are printed without criteria. Two more start cases from the authors' code
 (github.com/kyle-dunlap/rta-for-spacecraft-docking) are flown at 2.15 n, the code's slope, and
-reported, never asserted: its standard start, (-5800, 6690, 4700) m at rest (main.py:40), and its
-random rule, position uniform in [-5000, 5000] m and velocity uniform in [-1, 1] m/s per axis
-(main.py:34-37), drawn from the same run seeds.
+reported: its standard start, (-5800, 6690, 4700) m at rest (main.py:40), and its random rule,
+position uniform in [-5000, 5000] m and velocity uniform in [-1, 1] m/s per axis (main.py:34-37),
+drawn from the same run seeds.
 
 The compute table gives each filter's mean and standard deviation of per-run filter time over the
 mean of explicit switching, beside Table I of the paper (1.00, 3.25, 11.31, 13.33; SD 0.03, 0.13,
 1.05, 0.52); the paper's hardware and code are unknown, and runs shared over `--workers`
-processes time each other's load. The script prints every result before it fails, and exits with
-status 1 if any assertion fails.
+processes time each other's load.
+
+The script reports the reproduction and does not gate on the criteria: it exits with status 0
+whether or not they are met. It exits with status 1 only when the run is broken, that is when a
+run's min phi1, speed excess or filter time is not finite, or a compute table entry is not finite
+and positive.
 """
 
 import argparse
@@ -129,7 +136,7 @@ def apart(a, b):
 
 
 def report(case, variant, runs):
-    """Print one case's counts and table; return the criteria as (label, passed)."""
+    """Print one case's counts and table; return the criteria as (label, met) and the table."""
     by = {name: [r for r in runs if r["name"] == name] for name in (*FILTERS, PRIMARY)}
     starts = len(by[PRIMARY])
     print(f"\n{case}, nu1 = {variant}, {starts} starts")
@@ -159,13 +166,15 @@ def report(case, variant, runs):
         f"optimization filters within 98.5 m and 0.02 m/s: {close} runs; largest "
         f"{max(dr for dr, _ in pairs):.3f} m and {max(dv for _, dv in pairs):.4f} m/s"
     )
+    table = {}
     if case == PAPER_RULE:
         base = np.mean([r["filter_s"] for r in by["explicit switching"]])
         print(f"{'compute, over explicit switching':34s} {'mean':>6s} {'SD':>6s}   Table I (SD)")
         for name, (paper_mean, paper_sd) in TABLE_I.items():
             times = np.array([r["filter_s"] for r in by[name]]) / base
+            table[name] = (times.mean(), times.std(ddof=1))
             print(
-                f"{name:34s} {times.mean():6.2f} {times.std(ddof=1):6.2f}"
+                f"{name:34s} {table[name][0]:6.2f} {table[name][1]:6.2f}"
                 f"   {paper_mean:.2f} ({paper_sd:.2f})"
             )
     checks = [
@@ -185,7 +194,7 @@ def report(case, variant, runs):
         ("implicit switching: median >= 5 x explicit switching", implicit >= 5 * explicit),
         ("optimization filters within 98.5 m and 0.02 m/s in >= 95 runs", close >= 95),
     ]
-    return checks
+    return checks, table
 
 
 def main():
@@ -194,6 +203,9 @@ def main():
     parser.add_argument("--workers", type=int, default=os.cpu_count())
     parser.add_argument("--seed", type=int)
     args = parser.parse_args()
+    # The compute table's SD needs two runs per filter.
+    if args.starts < 2:
+        raise SystemExit("--starts must be at least 2")
     root = args.seed
     while root is None or (args.seed is None and root < 2**64):
         root = secrets.randbits(128)
@@ -214,17 +226,24 @@ def main():
     with ProcessPoolExecutor(args.workers) as pool:
         runs = list(pool.map(fly, tasks))
     print(f"flown {len(runs)} runs in {time.perf_counter() - t0:.0f} s on {args.workers} workers")
-    failed = []
+    broken = [
+        f"{r['case']}, {r['variant']}, {r['name']}, seed {r['seed']}"
+        for r in runs
+        if not np.all(np.isfinite([r["min_phi1"], r["excess"], r["filter_s"]]))
+    ]
     for case, variant, _ in cases:
         flown = [r for r in runs if r["case"] == case and r["variant"] == variant]
-        checks = report(case, variant, flown)
+        checks, table = report(case, variant, flown)
         if case == PAPER_RULE and variant == "2.15n":
-            for label, passed in checks:
-                print(f"{'PASS' if passed else 'FAIL'}  {label}")
-                if not passed:
-                    failed.append(label)
-    if failed:
-        raise SystemExit(f"{len(failed)} criteria failed at nu1 = 2.15 n")
+            for label, met in checks:
+                print(f"{'met' if met else 'not met':7s}  {label}")
+        broken += [
+            f"compute table, {variant}, {name}"
+            for name, entry in table.items()
+            if not (np.all(np.isfinite(entry)) and min(entry) > 0)
+        ]
+    if broken:
+        raise SystemExit(f"{len(broken)} broken results, first: {broken[0]}")
 
 
 if __name__ == "__main__":
