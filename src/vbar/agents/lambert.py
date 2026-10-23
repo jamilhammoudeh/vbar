@@ -17,7 +17,7 @@ import numpy as np
 from ..conventions import hill_frame, hill_to_inertial
 from ..dynamics import EARTH
 from ..dynamics.lambert import lambert
-from .base import AgentView, action_scale
+from .base import AgentView, action_scale, hold_point
 from .elements import Element, ElementAgent
 from .planning import Impulse, impulse_action
 
@@ -113,16 +113,16 @@ class LambertAgent:
         Raises
         ------
         ValueError
-            If the action mode is "disc27" or unknown, or thrust actions come without
-            `mass_kg`.
+            If the goal is not a hold or a berthing or has no hold point, the action mode is
+            "disc27" or unknown, or thrust actions come without `mass_kg`.
         """
+        self.hold = hold_point(view, "Lambert agent")
         if view.action_mode == "disc27":
             raise ValueError("disc27 actions cannot deliver a planned impulse")
         if view.action_mode != "impulse_coast":
             action_scale(view)
         self.view = view
         self.radius = (self.mu / view.n**2) ** (1.0 / 3.0)
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
         self.t0: float | None = None
         self.braking = False
         self.arrived = False

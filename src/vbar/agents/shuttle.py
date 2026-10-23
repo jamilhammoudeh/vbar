@@ -15,7 +15,7 @@ from numpy.typing import ArrayLike
 from scipy.optimize import brentq
 
 from ..dynamics import cw_discrete
-from .base import AgentView, action_scale, command_fraction, zero_action
+from .base import AgentView, action_scale, command_fraction, hold_point, zero_action
 from .cw_targeting import TwoImpulseAgent
 from .planning import impulse_action, predicted_margin
 
@@ -204,9 +204,12 @@ class ElevationTimedAgent:
         Raises
         ------
         ValueError
-            If the action mode is "disc27" or unknown, thrust actions come without `mass_kg`, or
-            `n_tf` lies within 1e-2 of the singular set of CW targeting.
+            If the goal is not a hold or a berthing or has no hold point, the action mode is
+            "disc27" or unknown, thrust actions come without `mass_kg`, or `n_tf` lies within
+            1e-2 of the singular set of CW targeting.
         """
+        # The transfer reads the hold point too; checking here names this agent in the refusal.
+        hold_point(view, "elevation-timed agent")
         self.view = view
         self.transfer = TwoImpulseAgent(n_tf=self.n_tf, name=self.name)
         self.transfer.reset(view, rng)
@@ -399,9 +402,11 @@ class PilotAgent:
         Raises
         ------
         ValueError
-            If the action mode is "disc27" or unknown, thrust actions come without `mass_kg`, or
-            `pulse` is more than one step of thrust, max_accel dt.
+            If the goal is not a hold or a berthing or has no hold point, the action mode is
+            "disc27" or unknown, thrust actions come without `mass_kg`, or `pulse` is more than
+            one step of thrust, max_accel dt.
         """
+        self.hold = hold_point(view, "pilot agent")
         if view.action_mode == "disc27":
             raise ValueError("disc27 actions cannot deliver a pulse")
         if view.action_mode != "impulse_coast":
@@ -409,7 +414,6 @@ class PilotAgent:
         if self.pulse > view.max_accel * view.dt:
             raise ValueError("pulse exceeds one step of thrust")
         self.view = view
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
         self.capture_radius = float(view.goal.get("capture_radius", 0.0))
         self.phi, self.gamma = cw_discrete(view.n, view.dt)
         self.quiet_until = -math.inf

@@ -19,7 +19,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from ..dynamics import cw_discrete
-from .base import AgentView, action_scale, command_fraction
+from .base import AgentView, action_scale, command_fraction, hold_point
 from .cw_targeting import SINGULAR_SET, conditioning, cw_lambert
 from .lyapunov import CWTrackingAgent
 from .planning import Impulse, impulse_action, predicted_margin
@@ -802,10 +802,12 @@ class FehseSequenceAgent(_FlightAgent):
         Raises
         ------
         ValueError
-            If the action mode takes no continuous command, thrust actions come without
-            `mass_kg`, `n_tf` lies within 1e-2 of the CW singular set, or the hop and the final
-            leg take longer than the episode.
+            If the goal is not a hold or a berthing or has no hold point, the action mode takes
+            no continuous command, thrust actions come without `mass_kg`, `n_tf` lies within
+            1e-2 of the CW singular set, or the hop and the final leg take longer than the
+            episode.
         """
+        self.hold = hold_point(view, "Fehse sequence agent")
         action_scale(view)
         g, h = conditioning(view.n, self.n_tf / view.n)
         if abs(g) < 1e-2 or abs(h) < 1e-2:
@@ -818,7 +820,6 @@ class FehseSequenceAgent(_FlightAgent):
                 f"longer than the {episode:.1f} s episode"
             )
         self._start(view)
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
         self.leg = ""
         self.mode = ""
         self.waypoint = np.zeros(3)
@@ -916,13 +917,13 @@ class NominalTrackingAgent:
         Raises
         ------
         ValueError
-            If the action mode takes no continuous command, the thrust layout is unknown, or
-            the planner refuses the view.
+            If the goal is not a hold or a berthing or has no hold point, the action mode takes
+            no continuous command, the thrust layout is unknown, or the planner refuses the view.
         """
+        self.hold = hold_point(view, "nominal tracking agent")
         self.law.reset(view, rng)
         self.planner.reset(view, rng)
         self.view = view
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
         self.log = []
         self.t0: float | None = None
 

@@ -238,6 +238,8 @@ two-body model of the plan. A predicted violation is logged and the plan flown a
   time, so large impulses flown with long steps miss by the finite-burn error, as for
   `TwoImpulseAgent`.
 - `disc27` actions are refused at reset.
+- The agent refuses at reset goals other than a hold or a berthing, and goals without a hold
+  point, with a `ValueError`.
 
 **Validation.** Tests: `tests/test_lambert_agent.py`, at 500 km.
 

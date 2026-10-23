@@ -102,6 +102,8 @@ for tests only; the recorder never reads them.
 - No certified constraint satisfaction under Gaussian navigation error: the regulator ignores the
   keep-out zone, and the estimate error is unbounded in the tails.
 - The delay must be a whole number of steps, as for `LQRAgent`.
+- The regulator refuses at reset goals other than a hold or a berthing, and goals without a
+  hold point, with a `ValueError`.
 - Only the continuous action modes are supported: `reset` raises `ValueError` from
   `action_scale` for `"disc27"` and `"impulse_coast"`.
 - `info` is passed to the regulator, which does not read it; the agent needs no environment

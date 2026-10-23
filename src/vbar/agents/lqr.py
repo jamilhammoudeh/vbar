@@ -18,7 +18,7 @@ from numpy.typing import ArrayLike
 from scipy.linalg import expm, solve_discrete_are
 
 from ..dynamics import cw_discrete, cw_system
-from .base import AgentView, action_scale
+from .base import AgentView, action_scale, hold_point
 
 # The scaled Riccati residual sits at 1e-14 for steps from 1e-6 s to 1e4 s; a solve that lost
 # the stabilizing solution (an unstabilizable pair gives 1e-5) is far above this.
@@ -433,10 +433,11 @@ class LQRAgent:
         Raises
         ------
         ValueError
-            If the action mode takes no continuous command, the thrust layout is unknown, the
-            hold point needs more than `max_accel` of steady thrust, or the design fails (see
-            `dlqr`).
+            If the goal is not a hold or a berthing or has no hold point, the action mode takes
+            no continuous command, the thrust layout is unknown, the hold point needs more than
+            `max_accel` of steady thrust, or the design fails (see `dlqr`).
         """
+        hold = hold_point(view, "LQR agent")
         cfg = self.config
         self.scale = action_scale(view)
         if view.thrust_limit not in ("box", "ball"):
@@ -479,7 +480,7 @@ class LQRAgent:
                 r_z = r + rd
         self.k, _ = dlqr(phi_z, gamma_z, q_z, r_z, s_z)
 
-        xs = np.array([*view.goal["hold_point"], 0.0, 0.0, 0.0], dtype=float)
+        xs = np.concatenate([hold, np.zeros(3)])
         self.us = steady_state_input(phi, gamma, xs)
         if view.thrust_limit == "box":
             size = float(np.max(np.abs(self.us)))

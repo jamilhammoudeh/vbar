@@ -115,6 +115,8 @@ sec. 10.1.2, under which the gains scale with the orbit and carry over between b
   not implemented, and the agent refuses one at the first act whose waits show it.
 - Only the continuous action modes are supported: `reset` raises `ValueError` from
   `action_scale` for `"disc27"` and `"impulse_coast"`.
+- The agent refuses at reset goals other than a hold or a berthing, and goals without a hold
+  point, with a `ValueError`.
 - The observation is used as the state. Under navigation noise the noise passes straight into
   the command.
 - `info` is not read; the agent needs no environment object.

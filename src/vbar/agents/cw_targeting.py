@@ -16,7 +16,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from ..dynamics import cw_discrete
-from .base import AgentView, action_scale
+from .base import AgentView, action_scale, hold_point
 from .planning import impulse_action, predicted_margin
 
 if TYPE_CHECKING:
@@ -256,10 +256,11 @@ class TwoImpulseAgent:
         Raises
         ------
         ValueError
-            If the action mode is "disc27" or unknown, "track" is asked for in
-            "impulse_coast", thrust actions come without `mass_kg`, or `n_tf` lies within
-            `singular_tol` of the singular set.
+            If the goal is not a hold or a berthing or has no hold point, the action mode is
+            "disc27" or unknown, "track" is asked for in "impulse_coast", thrust actions come
+            without `mass_kg`, or `n_tf` lies within `singular_tol` of the singular set.
         """
+        self.hold = hold_point(view, "two-impulse agent")
         if view.action_mode == "disc27":
             raise ValueError("disc27 actions cannot deliver a planned impulse")
         if view.action_mode != "impulse_coast":
@@ -271,7 +272,6 @@ class TwoImpulseAgent:
             raise ValueError(f"n_tf = {self.n_tf} is near the singular set ({SINGULAR_SET})")
         n = view.n
         self.view = view
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
         self.hover = np.array([-3.0 * n**2 * self.hold[0], 0.0, n**2 * self.hold[2]])
         self.phi, self.gamma = cw_discrete(n, view.dt)
         self.log = []
@@ -434,15 +434,16 @@ class TwoImpulseBound:
         Raises
         ------
         ValueError
-            If the thrust layout is unknown, `start` is not six finite numbers, or no grid
-            angle fits the episode away from the singular set.
+            If the goal is not a hold or a berthing or has no hold point, the thrust layout is
+            unknown, `start` is not six finite numbers, or no grid angle fits the episode away
+            from the singular set.
         """
+        hold = hold_point(view, "two-impulse bound")
         norms = {"box": ("l1", 1), "ball": ("l2", 2)}
         if view.thrust_limit not in norms:
             raise ValueError(f"unknown thrust limit {view.thrust_limit!r}")
         norm, order = norms[view.thrust_limit]
         start = _finite(start, 6, "start")
-        hold = np.array(view.goal["hold_point"], dtype=float)
         longest = view.n * (view.max_steps - 1) * view.dt
         if self.n_tf_grid is None:
             grid = np.linspace(0.05, min(5.0, longest), self.grid_points)

@@ -17,7 +17,7 @@ from numpy.typing import ArrayLike
 from scipy.linalg import matrix_balance, solve_discrete_are
 
 from ..dynamics import cw_discrete
-from .base import AgentView, action_scale
+from .base import AgentView, action_scale, hold_point
 from .lqr import LQRAgent, LQRConfig, _pending_slots
 
 # The scaled filter Riccati residual stays below 1e-13 of P on the CW model at steps from 1 s to
@@ -308,11 +308,13 @@ class LQGAgent:
         Raises
         ------
         ValueError
-            If the process noise is zero, or the bias walk is zero with bias states (the
-            steady-state gain on a state without process noise is zero), if the action mode
-            takes no continuous command, or if the filter or regulator design fails (see
-            `kalman_gain` and `LQRAgent.reset`).
+            If the goal is not a hold or a berthing or has no hold point, if the process noise
+            is zero, or the bias walk is zero with bias states (the steady-state gain on a state
+            without process noise is zero), if the action mode takes no continuous command, or
+            if the filter or regulator design fails (see `kalman_gain` and `LQRAgent.reset`).
         """
+        # The regulator checks the goal too; checking here names this agent in the refusal.
+        hold_point(view, "LQG agent")
         cfg = self.config
         if not cfg.process_sigma_mps2 > 0.0 or (cfg.bias_states and not cfg.bias_walk > 0.0):
             raise ValueError("process noise must be positive: with none the filter gain collapses")

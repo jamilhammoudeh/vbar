@@ -112,6 +112,8 @@ keyword-only.
   `action_scale` for `"disc27"` and `"impulse_coast"`. An unknown declared dynamics raises
   `ValueError` at `reset`, and a gain that is not positive and finite raises `ValueError` at
   construction.
+- Both agents refuse at reset goals other than a hold or a berthing, and goals without a hold
+  point, with a `ValueError`.
 - The observation is used as the state; navigation noise passes straight into the command.
 - `info` is read only for `time_s`.
 

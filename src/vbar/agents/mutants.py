@@ -104,11 +104,13 @@ class Mutant:
         Raises
         ------
         ValueError
-            If the action mode takes no continuous command.
+            If the inner agent refuses the view, or the action mode takes no continuous
+            command.
         """
+        # The inner agent goes first so its refusal of the goal's task is the error reported.
+        self.agent.reset(view, rng)
         self.scale = action_scale(view)
         self.view = view
-        self.agent.reset(view, rng)
         # A spawned child leaves the parent's stream untouched, so a random inner agent draws
         # what it would unwrapped and the dither does not depend on how much it draws.
         self.noise = np.random.default_rng(self.noise_seed) if rng is None else rng.spawn(1)[0]

@@ -157,6 +157,9 @@ the true trajectory.
   `"contingency"` leg adds `n_tf` $/ n$ and can run past the end of the episode.
 - `TorvaAgent`, `FehseSequenceAgent` and `NominalTrackingAgent` need continuous thrust and refuse
   the `impulse_coast` action mode; every agent here refuses `disc27`.
+- `FehseSequenceAgent` and `NominalTrackingAgent` refuse at reset goals other than a hold or a
+  berthing, and goals without a hold point, with a `ValueError`; `ElementAgent` and
+  `TorvaAgent` never read the goal.
 - The twice-rate circle's start burn and the hop's first burn are set by where the chaser is, not
   by the goal: from rest on the V-bar both point radially, so `vbar.agents.sign_check` fails in
   the along-track directions by design.

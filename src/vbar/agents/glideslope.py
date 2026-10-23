@@ -19,7 +19,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from ..dynamics import cw_discrete
-from .base import CONTINUOUS_MODES, AgentView, action_scale
+from .base import CONTINUOUS_MODES, AgentView, action_scale, hold_point
 from .cw_targeting import conditioning, cw_lambert
 from .planning import Impulse, impulse_action, predicted_margin
 
@@ -236,9 +236,11 @@ class GlideslopeAgent:
         Raises
         ------
         ValueError
-            If the action mode is "disc27" or unknown, `pulse_interval` is not a whole number of
-            steps, or n `pulse_interval` is not below pi with CW targeting conditioned to 1e-2.
+            If the goal is not a hold or a berthing or has no hold point, the action mode is
+            "disc27" or unknown, `pulse_interval` is not a whole number of steps, or
+            n `pulse_interval` is not below pi with CW targeting conditioned to 1e-2.
         """
+        self.hold = hold_point(view, "glideslope agent")
         if view.action_mode != "impulse_coast":
             if view.action_mode not in CONTINUOUS_MODES:
                 raise ValueError(f"action mode {view.action_mode!r} cannot fly planned burns")
@@ -253,7 +255,6 @@ class GlideslopeAgent:
             raise ValueError("pulse_interval is too close to half an orbit")
         self.view = view
         self.pulse_steps = steps
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
         self.one_step = cw_discrete(view.n, view.dt)
         self.log: list[dict[str, Any]] = []
         self.schedule: list[int] = []

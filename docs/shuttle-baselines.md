@@ -135,6 +135,8 @@ violation is logged and the agent flies on; the metrics score the true trajector
 - A pulse larger than one step of thrust is refused at reset; the predicted margin covers the
   whole read coast even where the episode ends inside it.
 - `disc27` actions are refused at reset by both agents.
+- Both agents refuse at reset goals other than a hold or a berthing, and goals without a hold
+  point, with a `ValueError`.
 
 ## Validation
 

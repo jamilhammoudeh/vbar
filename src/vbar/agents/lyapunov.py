@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..dynamics import TwoBodyDynamics, make_dynamics, relative_acceleration
-from .base import AgentView, action_scale
+from .base import AgentView, action_scale, hold_point
 
 Reference = Callable[[float], tuple[np.ndarray, np.ndarray, np.ndarray]]
 
@@ -107,13 +107,14 @@ class CWTrackingAgent:
         Raises
         ------
         ValueError
-            If the action mode takes no continuous command or the thrust layout is unknown.
+            If the goal is not a hold or a berthing or has no hold point, the action mode takes
+            no continuous command, or the thrust layout is unknown.
         """
+        self.hold = hold_point(view, "CW tracking agent")
         self.scale = action_scale(view)
         _check_thrust_limit(view)
         self.view = view
         self.n = view.n
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
 
     def act(self, obs: np.ndarray, info: dict) -> np.ndarray:
         """Command toward the reference.
@@ -244,13 +245,14 @@ class LyapunovAgent:
         Raises
         ------
         ValueError
-            If the action mode takes no continuous command, the thrust layout is unknown, or
-            the declared dynamics or body is unknown.
+            If the goal is not a hold or a berthing or has no hold point, the action mode takes
+            no continuous command, the thrust layout is unknown, or the declared dynamics or
+            body is unknown.
         """
+        self.hold = hold_point(view, "Lyapunov agent")
         self.scale = action_scale(view)
         _check_thrust_limit(view)
         self.view = view
-        self.hold = np.array(view.goal["hold_point"], dtype=float)
         m = self.config.model
         self.model = make_dynamics(m.dynamics, m.body, m.altitude_m, m.inclination)
         self.n = self.model.n

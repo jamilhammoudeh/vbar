@@ -113,6 +113,8 @@ the keep-out zone is logged and flown; the metrics score what happened.
   `vbar.agents.cw_targeting.conditioning` at least 1e-2 there; reset refuses it otherwise. Every
   segment is then shorter than the first singular transfer time.
 - The agent does not avoid the keep-out zone; an approach line through the target goes through it.
+- The agent refuses at reset goals other than a hold or a berthing, and goals without a hold
+  point, with a `ValueError`.
 - A chaser that starts within the capture radius of the hold point, or so close that the arrival
   rounds to no whole step, is treated as arrived: the agent commands no thrust and logs each
   decision.
