@@ -30,24 +30,47 @@ over $O_{t^*}$. Then $O_{t^*+1} = O_{t^*}$, so $F O_{t^*} \subseteq O_{t^*}$, no
 the set, and $O_\infty = O_{t^*}$.
 
 Redundancy of a candidate row $c$ is one linear program, $\max c\,\mathbf x$ over $O_t$, by
-`scipy.optimize.linprog` (HiGHS). $O_t$ is symmetric about the origin, so the minimum is minus
-the maximum and one program covers both signs. The row is redundant when the maximum is at most
-its bound times $1 + 10^{-9}$. The margin absorbs the rounding of a row whose maximum equals its
-bound exactly, which would otherwise add rows the set does not need. An unbounded program (the
-set is still open along $c$) keeps the row.
+`scipy.optimize.linprog` (HiGHS dual simplex, presolve off; on these nearly parallel rows the
+presolve has reported an unbounded program as infeasible and stopped short of the optimum of
+another). The origin is always feasible, so a reported infeasibility is a numerical failure and
+the program is solved again by interior point. $O_t$ is symmetric about the origin, so the
+minimum is minus the maximum and one program covers both signs. The row is redundant when the
+maximum is at most its bound times $1 + 10^{-9}$. The margin absorbs the rounding of a row whose
+maximum equals its bound exactly, which would otherwise add rows the set does not need. An
+unbounded program (the set is still open along $c$) keeps the row.
 
-The programs run in scaled coordinates: each row is divided by its bound, and the state by the
-largest entry of the result, so every program has right-hand side 1 and entries of at most 1.
-The rows and $t^*$ then do not depend on the units of $h$ or of the bounds.
+The programs run in scaled coordinates: each row is divided by its bound, each state column by
+its largest entry, and each row, the candidate included, by its norm, with the right-hand sides
+scaled to match. Gains in SI units span many decades between position and velocity columns and
+rows decay as $F^t$, which unscaled would put entries below the solver's $10^{-9}$ threshold. The
+rows and $t^*$ then do not depend on the units of $h$ or of the bounds.
 
 The function returns the raw rows $h, hF, \dots, hF^{t^*}$ stacked by time, so row $j$ carries
 the bound `bound[j % p]` for $p$ output rows, together with $t^*$. The set is
 $\{\mathbf x : |\text{rows}\,\mathbf x| \le b\}$ row by row.
 
+**Certificate.** Before returning, each row $c$ of $hF^{t^*+1}$ is proved redundant over the
+returned rows $r_j$ with bounds $b_j$ without relying on the solver's tolerances. For any
+multipliers $\lambda$ with $\sum_j \lambda_j r_j = c$, every $\mathbf x$ in the set has
+$|c\,\mathbf x| \le \sum_j |\lambda_j|\, b_j$ (weak duality on the symmetric set). The function
+takes a maximal set of independent rows in order of their activity at the LP maximizer, solves
+for $\lambda$ in exact rational arithmetic on the floating-point entries, and requires the sum to
+be at most the bound of $c$ times $1 + 10^{-9}$. When the rows span only the observable subspace,
+a row $c$ in their span is certified the same way; a row with no exact solution lies outside the
+span, where the set is unbounded, so it is kept and the iteration goes on, as after an unbounded
+program. Where the set is so long and thin that the LP's optimum is
+not accurate to that margin, the proof fails and the function refuses the set rather than return
+one that may not be invariant. On CW at 500 km, steps of 10 and 60 s and a 0.02 m/s^2 box, over
+discrete LQR scales from (0.1 m, 1e-4 m/s, 0.002 m/s^2) to (1e4 m, 10 m/s, 0.2 m/s^2), it refused
+7 of 658 sets, all with position weights 1e13 or more times below the velocity weights and sets
+reaching 1e11 m or more; in 6 of them a feasible point puts a next row above its bound by 2e-6
+to 1.1e-4.
+
 It raises `ValueError` when the spectral radius of $F$ is $1 - 10^{-12}$ or more ("terminal set
 needs a stable closed loop") and when the rows at $t_{\max} + 1$ are still not redundant
 ("terminal set is not finitely determined within t_max steps"), and `RuntimeError` when a program
-ends without an optimum or a proof of unboundedness.
+ends without an optimum or a proof of unboundedness, or when the certificate fails ("terminal
+set could not be certified").
 
 ### Assumptions and limits
 
@@ -56,7 +79,10 @@ ends without an optimum or a proof of unboundedness.
   Diehl, exercise 2.5), and close to the circle $t^*$ grows without limit: 4, 12 and 30 for a
   slow pole at 0.5, 0.9 and 0.99 in the exercise's system.
 - Every bound must be positive, so the origin is in the interior. If $(F, h)$ is not observable
-  the set contains the unobservable subspace and is unbounded along it.
+  the set contains the unobservable subspace and is unbounded along it. The certificate then
+  needs each row of $hF^{t^*+1}$ exactly in the span of the returned rows, so a pair that is
+  unobservable only up to rounding, as after a change of coordinates that mixes the subspaces,
+  is refused at the cap with `ValueError`; write it in exactly unobservable coordinates instead.
 - Rows are symmetric, $|h_i \mathbf x| \le b_i$. A one-sided row is written about the hold point
   by the caller. The keep-out halfspace $\mathbf n_h \cdot \mathbf r \ge R + b_h$, with
   $\mathbf n_h$ the unit vector to the hold point, becomes

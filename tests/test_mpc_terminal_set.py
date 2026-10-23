@@ -118,6 +118,45 @@ def test_row_unbounded_over_the_rows_so_far_is_kept():
     np.testing.assert_array_equal(rows, [[1.0, 0.0], [0.5, 0.5], [0.25, 0.5]])
 
 
+def test_unobservable_state_leaves_the_set_unbounded_along_it():
+    # z2 never reaches the output, so the set is |z1| <= 1 with z2 free and h alone describes it.
+    rows, t_star = admissible_set(np.diag([0.5, 0.5]), np.array([[1.0, 0.0]]), np.array([1.0]))
+    assert t_star == 0
+    np.testing.assert_array_equal(rows, [[1.0, 0.0]])
+
+
+def test_unobservable_state_appended_to_exercise_2_5_keeps_its_rows():
+    # The set is the exercise's set times a free third coordinate.
+    f = np.zeros((3, 3))
+    f[:2, :2] = EX25_F
+    f[2, 2] = 0.5
+    rows, t_star = admissible_set(f, np.array([[1.0, 1.0, 0.0]]), np.array([1.0]))
+    assert t_star == 2
+    expected = [[1.0, 1.0, 0.0], [0.9, 1.09, 0.0], [0.81, 0.9981, 0.0]]
+    np.testing.assert_allclose(rows, expected, rtol=1e-12, atol=0.0)
+
+
+def test_pair_unobservable_only_up_to_rounding_is_refused():
+    # The unobservable pair diag(0.5, 0.4), h = (1, 0) in coordinates z = T w. Rounding in
+    # T^-1 F T and h T leaves each row h F^t a tiny component along the direction the set leaves
+    # unbounded, so the LP keeps finding the next row unbounded and no exact certificate of a
+    # finite description exists; the search runs into the cap (20 here for time: the default
+    # 200 takes about 6 s).
+    t = np.array([[1.0, 0.3], [0.2, 1.0]])
+    f = np.linalg.solve(t, np.diag([0.5, 0.4]) @ t)
+    with pytest.raises(ValueError, match="within t_max"):
+        admissible_set(f, np.array([[1.0, 0.0]]) @ t, np.array([1.0]), t_max=20)
+
+
+def test_certificate_bounds_the_maximum_by_absolute_multipliers():
+    # Over the box |z_i| <= 1, z1 - z2 reaches 2 although its multipliers (1, -1) sum to 0, so
+    # only the sum of their absolute values bounds it; (0.5, 0.5) reaches exactly 1.
+    box = np.eye(2)
+    limits = np.ones(2)
+    assert not mpc._certified(np.array([1.0, -1.0]), 1.0, box, limits, np.array([1.0, -1.0]))
+    assert mpc._certified(np.array([0.5, 0.5]), 1.0, box, limits, np.array([1.0, 1.0]))
+
+
 @pytest.mark.parametrize("status", [1, 2, 4])
 def test_failed_redundancy_lp_raises(monkeypatch, status):
     # Iteration limit, infeasible and numerical trouble are not answers about redundancy.
@@ -204,6 +243,42 @@ def test_lqr_thrust_box_set_and_its_along_track_reach(dt, t_star, offset_m):
     along = np.abs(rows @ ALONG_TRACK)
     reach = np.min(row_bounds(rows, np.full(3, A_MAX))[along > 0.0] / along[along > 0.0])
     assert reach == pytest.approx(offset_m, rel=1e-6)
+    assert worst_image(rows, np.full(3, A_MAX), f) <= 1.0 + 1e-9
+
+
+def scaled_loop(pos_scale_m, vel_scale_mps, accel_scale_mps2, dt=10.0):
+    """Closed loop and gain of the LQR whose scales cost 1, summed once per step."""
+    phi, gamma = cw_discrete(N, dt)
+    q = np.diag([pos_scale_m**-2] * 3 + [vel_scale_mps**-2] * 3)
+    k, _ = dlqr(phi, gamma, q, np.eye(3) / accel_scale_mps2**2)
+    return phi - gamma @ k, k
+
+
+def test_badly_scaled_gain_rows_give_a_set():
+    # Position gains sit about 1e-8 below velocity gains here; an LP with presolve on these
+    # nearly parallel rows reported a feasible program as infeasible. t* = 2 from an independent
+    # interior-point computation on column-scaled rows (the t = 3 rows peak 2e-6 below the bound).
+    f, k = scaled_loop(1e4, 1e-4, 0.002)
+    rows, t_star = admissible_set(f, k, np.full(3, A_MAX))
+    assert t_star == 2
+    expected = np.vstack([k @ np.linalg.matrix_power(f, t) for t in range(3)])
+    np.testing.assert_allclose(rows, expected, rtol=0.0, atol=1e-12 * np.max(np.abs(expected)))
+
+
+def test_set_that_cannot_be_certified_is_refused():
+    # Without the certificate this returns t* = 2, yet an independent interior-point LP puts a
+    # row of h F^3 at 1.0001 times its bound over that set: a wrong set, so it must raise.
+    f, k = scaled_loop(10**2.5, 1e-4, 0.2)
+    with pytest.raises(RuntimeError, match="could not be certified"):
+        admissible_set(f, k, np.full(3, A_MAX))
+
+
+@pytest.mark.parametrize(
+    "scales", [(10.0, 0.01, 0.02), (1.0, 1e-3, 0.02), (100.0, 0.1, 0.02), (10.0, 0.01, 0.002)]
+)
+def test_returned_set_is_invariant_for_ordinary_weights(scales):
+    f, k = scaled_loop(*scales)
+    rows, _ = admissible_set(f, k, np.full(3, A_MAX))
     assert worst_image(rows, np.full(3, A_MAX), f) <= 1.0 + 1e-9
 
 
