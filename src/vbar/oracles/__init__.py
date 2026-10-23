@@ -6,6 +6,7 @@ from .expert import OracleAgent
 from .fuel import DualBank, FuelOracle, OracleConfig, OracleSolution, bounds_for
 from .lq import LQBound, LQOracle
 from .minimum_time import MinimumTime, minimum_time, verify_infeasible
+from .passing import PassingSide, PassingSideOracle, PassingSolution
 from .primer import dual_bound, primer
 
 __all__ = [
@@ -18,6 +19,9 @@ __all__ = [
     "OracleAgent",
     "OracleConfig",
     "OracleSolution",
+    "PassingSide",
+    "PassingSideOracle",
+    "PassingSolution",
     "PrimerCertificate",
     "bounds_for",
     "certify_impulsive",
