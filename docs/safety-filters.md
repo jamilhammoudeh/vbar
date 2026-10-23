@@ -1325,22 +1325,31 @@ print(found.violations, found.uncertified, found.infeasible, found.passed)  # 0 
 print(found.drawn, found.rejected, found.runs[0].seed != found.runs[0].agent_seed)  # 5 0 True
 ```
 
-`benchmarks/filter_audit.py --parts cover` checks the free-drift filter's declared set without
-drawing starts. `drift_cover` ([reachability.md](reachability.md)) splits the approach-vbar start
-box and the box near the keep-out into parts whose free drift over 3610 s, the audited run and
-one step more, is certified clear of the keep-out, parts from which every drift enters it, and
-undecided parts, and asks the filter's `contains` at each part's center. The declared set already
-certifies the drift for all time through its terminal set; the cover adds an independent check of
-that set over the audited run, by bounds on whole boxes of states rather than the barrier's value
-at one state, and without start draws: a center in the set whose drift enters by more than 1 mm
-is a counterexample, and the script asserts none. It also draws `--starts` starts from the set as
-the inside audit draws them, from one recorded 128-bit root seed per box, and asserts that at
-least 99% lie in certified boxes. How much of a
-six-dimensional box a budget of boxes certifies is not known in advance, so a shortfall is
-reported as a failure. Each box is halved once along every axis and the 64 parts are covered in
-`--workers` processes with an equal share of `--boxes` (20000 by default), so the result is the
+`benchmarks/filter_audit.py --parts cover` checks the declared sets of the free-drift, cam and
+predictive filters without drawing starts. `drift_cover` ([reachability.md](reachability.md))
+splits the approach-vbar start box and the box near the keep-out into parts whose motion over
+3610 s, the audited run and one step more, is certified clear of the keep-out, parts from which
+every such motion enters it, and undecided parts, and asks the set at each part's center. For the
+free-drift filter the motion is free drift and the set is the filter's `contains`. The cam
+filter's set is the union over j = 0 to m of the levels $h^j \ge 0$ of `CamBarrier`, each of
+which claims j held CAM steps and then free drift; level j >= 1 is covered with the filter's CAM
+acceleration as `accel` and `burn_time` = j dt against that level, m = 2 on approach-vbar.
+Level 0 is the free-drift set, and the predictive filter's terminal set is the free-drift set as
+well, so neither is covered again: the script asserts both equalities and covers the free-drift
+set once, when "free drift" is among `--filters`. The declared sets already certify the motion
+for all time; the cover adds an independent check over the audited run, by bounds on whole boxes
+of states rather than the barrier's value at one state, and without start draws: a center in the
+set whose motion enters by more than 1 mm is a counterexample, and the script asserts none. It
+also draws `--starts` starts from the set as the inside audit draws them, from one recorded
+128-bit root seed per cover and box, and asserts that at least 99% lie in certified boxes. How
+much of a six-dimensional box a budget of boxes certifies is not known in advance, so a shortfall
+is reported as a failure. Each box is halved once along every axis and the 64 parts are covered
+in `--workers` processes with an equal share of `--boxes` (20000 by default), so the result is the
 same for every worker count. The script prints the certified, excluded and undecided volume
 fractions, each counterexample, the share of starts in certified boxes, the run time and the seed.
+`--filters` selects filters by name ("ecbf p 0.06", "ecbf p 0.03", "free drift", "braking",
+"cam", "predictive"; all by default) for every part, so `--filters cam predictive` runs only
+those two.
 
 ## Falsification
 
@@ -1697,7 +1706,7 @@ of 40 at 20 s, the braking first-order row in 40 of 40 at every dt, and the brak
 in none at 1, 5, 10, 20 s; at least 393 of 400 approach-vbar starts are certified passively safe
 and the free-drift backup filter flies 40 of them with no violation, all reaching the hold point.
 
-`benchmarks/filter_audit.py` runs 1000 starts for each of the four filters: inside the declared
+`benchmarks/filter_audit.py` runs 1000 starts for each of the six filters: inside the declared
 set from the scenario's start ranges around the PD and the inward nominal, inside it near the
 keep-out around the inward nominal, and outside it near the keep-out around the PD nominal, each
 for the scenario's 360 steps, and asserts that every audit passes; it prints each audit's counts,

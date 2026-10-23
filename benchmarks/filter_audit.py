@@ -1,15 +1,17 @@
 """Audit of the certified keep-out filters over seeded starts inside and outside their safe sets.
 
 Run with `python benchmarks/filter_audit.py [--starts 1000] [--budget 2000] [--workers N]
-[--seed S] [--boxes 20000] [--parts audit|falsify|both|cover]`. Every
+[--seed S] [--boxes 20000] [--parts audit|falsify|both|cover] [--filters NAME ...]`. Every
 audit is on approach-vbar (500 km, keep-out 50 m, box 0.02 m/s^2, dt 10 s, 360 steps) with
 perfect navigation and no execution error, flown by `vbar.safety.audit.audit_filter`; the full
 run takes hours on one core, so the runs are shared over `--workers` processes (all cores by
 default).
 
 Filters: `CbfFilter` at the pole rule's limit (poles 0.06 1/s, gamma 0.06 1/s, v_cap 0.1 m/s)
-and below it (poles 0.03 1/s, gamma 0.03 1/s, v_cap 0.2 m/s), and `BackupFilter` with the
-free-drift and the braking barrier. Each one is audited
+and below it (poles 0.03 1/s, gamma 0.03 1/s, v_cap 0.2 m/s), `BackupFilter` with the
+free-drift, the braking and the cam barrier, and `PredictiveFilter` with its defaults, named
+"ecbf p 0.06", "ecbf p 0.03", "free drift", "braking", "cam" and "predictive"; `--filters`
+picks some of them, all by default. Each one is audited
 
 1. from starts inside its declared safe set drawn from the scenario's start ranges, with the PD
    nominal and with a nominal that pushes at full thrust straight at the target;
@@ -30,16 +32,21 @@ inward nominal and `--budget` runs each (2000 by default), and the script assert
 "none_found" with a certified robustness of at least -1 resolution. That verdict is the best a
 search can give; it is not a proof that no failing start exists.
 
-`--parts cover` runs neither and checks the free-drift filter's declared set without sampling:
-`vbar.reach.drift_cover` splits the scenario's start box and the box near the keep-out into
-boxes whose free drift over the audited run and one step more (3610 s) is certified clear of
-the keep-out, boxes from which every drift enters it, and undecided boxes, asking the declared
-set at each box center. Each box is first halved once along every axis and the 64 parts are
-covered in `--workers` processes with an equal share of `--boxes`, so the result does not
-depend on the worker count. The script asserts no counterexample, a center in the declared set
-whose drift enters by more than 1 mm, and that at least 99% of `--starts` starts drawn from the
-declared set as the inside audit draws them lie in certified boxes. Each of the two boxes draws
-its own 128-bit root seed for those starts and prints it; `--seed` uses one given seed for both.
+`--parts cover` runs neither and checks declared sets without sampling: `vbar.reach.drift_cover`
+splits the scenario's start box and the box near the keep-out into boxes whose motion over the
+audited run and one step more (3610 s) is certified clear of the keep-out, boxes from which
+every such motion enters it, and undecided boxes, asking the set at each box center. For the
+free-drift filter the motion is free drift and the set its declared one. The cam filter's set
+is the union of the levels h^j >= 0 of `CamBarrier`, j = 0 to m, each claiming j held CAM steps
+and then free drift; level j >= 1 is covered with that CAM as `accel` held for j dt, and level 0
+is the free-drift set. The predictive filter's set is the free-drift set too. The script asserts
+both equalities and covers each set once, the free-drift set when "free drift" is selected.
+Each box is first halved once along every axis and the 64 parts are covered in `--workers`
+processes with an equal share of `--boxes`, so the result does not depend on the worker count.
+The script asserts no counterexample, a center in the set whose motion enters by more than
+1 mm, and that at least 99% of `--starts` starts drawn from the set as the inside audit draws
+them lie in certified boxes. Each cover draws its own 128-bit root seed for those starts and
+prints it; `--seed` uses one given seed for all.
 """
 
 import argparse
@@ -54,9 +61,13 @@ import numpy as np
 
 from vbar import ApproachEnv
 from vbar.agents.base import action_scale
+from vbar.dynamics import cw_discrete
 from vbar.reach import drift_cover
 from vbar.safety.audit import audit_filter, falsify_filter
+from vbar.safety.barriers import PassiveBarrier
 from vbar.safety.cbf import BackupFilter, CbfFilter
+from vbar.safety.predictive import PredictiveFilter
+from vbar.safety.sampled import held_segment_bound
 
 NEAR = ((-80.0, 52.0, -30.0, -0.1, -0.1, -0.1), (80.0, 150.0, 30.0, 0.1, 0.1, 0.1))
 FAST = ((-80.0, 52.0, -30.0, -0.5, -0.5, -0.5), (80.0, 150.0, 30.0, 0.5, 0.5, 0.5))
@@ -65,6 +76,8 @@ FILTERS = {
     "ecbf p 0.03": lambda: CbfFilter(poles=(0.03, 0.03), gamma=0.03, v_cap=0.2),
     "free drift": lambda: BackupFilter(barrier="passive"),
     "braking": lambda: BackupFilter(barrier="braking"),
+    "cam": lambda: BackupFilter(barrier="cam"),
+    "predictive": lambda: PredictiveFilter(),
 }
 # Most halvings of each axis in the drift cover; in the full run the box budget stops it first.
 COVER_DEPTH = 12
@@ -119,7 +132,8 @@ def falsify_line(name, found, seconds):
 
 
 def falsify(env, args, failed):
-    for name, make in FILTERS.items():
+    for name in args.filters:
+        make = FILTERS[name]
         for nominal in (None, Inward()):
             t0 = time.perf_counter()
             found = falsify_filter(
@@ -137,11 +151,51 @@ def falsify(env, args, failed):
 
 
 @functools.cache
-def free_drift_contains():
-    """`contains` of the free-drift filter reset on approach-vbar, built once per process."""
-    declared = BackupFilter(barrier="passive")
-    declared.reset(ApproachEnv().agent_view())
-    return declared.contains
+def declared(name):
+    """The filter `name` reset on approach-vbar, built once per process."""
+    safety_filter = FILTERS[name]()
+    safety_filter.reset(ApproachEnv().agent_view())
+    return safety_filter
+
+
+def barrier(name):
+    """The one barrier the filter `name` declares."""
+    (found,) = declared(name).declaration.barriers
+    return found
+
+
+def cam_drift():
+    """The free-drift set h^0 of the cam filter's `CamBarrier`, rebuilt from its fields."""
+    cam = barrier("cam")
+    return PassiveBarrier(radius=cam.radius, n=cam.n, grid=cam.grid, t_cap=cam.t_cap, terminal=True)
+
+
+@functools.cache
+def arc(name, steps):
+    """(contains, accel, burn_time) of the arc whose clearance the set of `name` claims.
+
+    For "free drift" the arc is free drift and the set the filter's own. For "cam" it is `steps`
+    held CAM steps, then free drift, and the set is the level h^steps >= 0 of `CamBarrier`: the
+    filter's set is the union of the levels 0 to m, and only on its own level does a state claim
+    that arc.
+    """
+    if name == "free drift":
+        return declared(name).contains, None, 0.0
+    cam = barrier("cam")
+    drift = cam_drift()
+    phi, gamma = cw_discrete(cam.n, cam.dt)
+    accel = np.array(cam.accel)
+    # The successor as CamBarrier forms it, so the level is the one the filter evaluates.
+    push = gamma @ accel
+
+    def contains(x):
+        for _ in range(steps):
+            if held_segment_bound(x, accel, cam.dt, cam.samples, cam.radius, cam.n) < 0.0:
+                return False
+            x = phi @ x + push
+        return bool(drift.value(x) >= 0.0)
+
+    return contains, accel, steps * cam.dt
 
 
 def halves(lo, hi):
@@ -157,13 +211,24 @@ def halves(lo, hi):
     return pieces
 
 
-def cover_piece(n, radius, duration, max_boxes, piece):
+def cover_piece(n, radius, duration, max_boxes, name, steps, piece):
     lo, hi = piece
     samples = round(duration / COVER_SPACING) + 1
     # The piece is already one halving deep on every axis.
     depth = COVER_DEPTH - 1
+    contains, accel, burn_time = arc(name, steps)
     return drift_cover(
-        n, lo, hi, radius, duration, samples, free_drift_contains(), max_boxes, depth
+        n,
+        lo,
+        hi,
+        radius,
+        duration,
+        samples,
+        contains,
+        max_boxes,
+        depth,
+        accel=accel,
+        burn_time=burn_time,
     )
 
 
@@ -179,11 +244,27 @@ def in_set_starts(contains, count, lo, hi, root):
     return np.array(starts)
 
 
+def cover_arcs(filters):
+    """(name, steps) of each cover the selected filters need, every set covered once."""
+    free = barrier("free drift")
+    arcs = []
+    if "predictive" in filters:
+        assert barrier("predictive") == free, "the predictive set is not the free-drift set"
+    if "free drift" in filters:
+        arcs.append(("free drift", 0))
+    if "cam" in filters:
+        assert cam_drift() == free, "the cam level 0 is not the free-drift set"
+        arcs += [("cam", steps) for steps in range(1, barrier("cam").steps + 1)]
+    return arcs
+
+
 def cover(env, args, failed):
     cfg = env.cfg
     start_box = tuple(zip(*cfg.start_pos_range, *cfg.start_vel_range, strict=True))
     duration = (cfg.max_steps + 1) * cfg.dt
-    for label, box in (("scenario starts", start_box), ("near the keep-out", NEAR)):
+    for (name, steps), (label, box) in itertools.product(
+        cover_arcs(args.filters), (("scenario starts", start_box), ("near the keep-out", NEAR))
+    ):
         t0 = time.perf_counter()
         lo, hi = (np.asarray(corner, dtype=float) for corner in box)
         pieces = halves(lo, hi)
@@ -193,6 +274,8 @@ def cover(env, args, failed):
             cfg.keep_out_radius,
             duration,
             max(1, args.boxes // len(pieces)),
+            name,
+            steps,
         )
         if args.workers == 1:
             covers = [piece(p) for p in pieces]
@@ -202,15 +285,16 @@ def cover(env, args, failed):
             with ProcessPoolExecutor(args.workers) as pool:
                 covers = list(pool.map(piece, pieces))
         root = secrets.randbits(128) if args.seed is None else args.seed
-        starts = in_set_starts(free_drift_contains(), args.starts, lo, hi, root)
+        starts = in_set_starts(arc(name, steps)[0], args.starts, lo, hi, root)
         boxes_lo, boxes_hi = np.concatenate([c.certified_boxes for c in covers]).transpose(1, 0, 2)
         covered = sum(
             bool(np.any(np.all((boxes_lo <= x) & (x <= boxes_hi), axis=1))) for x in starts
         )
         counterexamples = [found for c in covers for found in c.counterexamples]
         passed = not counterexamples and covered >= COVERED_SHARE * len(starts)
+        motion = "drift" if steps == 0 else f"cam {steps}"
         print(
-            f"{'free drift':12s} {'drift':7s} {label:18s} cover   "
+            f"{name:12s} {motion:7s} {label:18s} cover   "
             f"certified {sum(c.certified for c in covers) / len(pieces):.5f} "
             f"excluded {sum(c.excluded for c in covers) / len(pieces):.5f} "
             f"undecided {sum(c.undecided for c in covers) / len(pieces):.5f} "
@@ -223,7 +307,7 @@ def cover(env, args, failed):
         for x, margin, t in counterexamples:
             print(f"  counterexample {np.array2string(x, precision=6)} {margin:.4f} m at {t:.0f} s")
         if not passed:
-            failed.append(f"free drift, cover, {label}")
+            failed.append(f"{name}, {motion}, cover, {label}")
 
 
 def main():
@@ -234,11 +318,14 @@ def main():
     parser.add_argument("--seed", type=lambda s: int(s, 0), default=None)
     parser.add_argument("--boxes", type=int, default=20000)
     parser.add_argument("--parts", choices=("audit", "falsify", "both", "cover"), default="both")
+    parser.add_argument("--filters", nargs="+", choices=tuple(FILTERS), default=tuple(FILTERS))
     args = parser.parse_args()
+    args.filters = [name for name in FILTERS if name in args.filters]
     env = ApproachEnv()
     failed: list[str] = []
     t_all = time.perf_counter()
-    for name, make in FILTERS.items() if args.parts in ("audit", "both") else ():
+    for name in args.filters if args.parts in ("audit", "both") else ():
+        make = FILTERS[name]
         for label, mode, box, nominal in audits():
             t0 = time.perf_counter()
             found = audit_filter(
