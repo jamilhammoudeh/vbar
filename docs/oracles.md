@@ -197,6 +197,214 @@ assert 2 * accel * delta / n * (1 - 2e-4) <= finite <= 2 * accel * delta / n
 assert n * z0 * (1 - 2e-4) <= impulsive <= n * z0
 ```
 
+## Fixed-window fuel oracle
+
+Code: `FuelOracle`, `OracleConfig` and `OracleSolution` in `vbar.oracles.fuel`, exported from
+`vbar.oracles`. Hill frame, SI units.
+
+`FuelOracle.solve(view, start, arrival_step=k)` bounds the least delta-v, in the norm of the
+thruster layout, that puts the chaser in the capture ball at the end of step $k$. The lower
+bounds are certificates from `dual_bound` and hold in continuous time; the upper bound is the
+cost of a plan flown by exact propagation. `FuelOracle.bounds(view, start)` returns the
+`FuelBounds` for $k$ = `max_steps` with every listed constraint hard, the `Oracle` protocol of
+the optimality gap metric.
+
+### How it is built
+
+**Step grid.** With inputs $\mathbf u_j$ held over $[j\Delta t, (j+1)\Delta t)$, the state at the
+end of step $k$ is
+
+$$
+\mathbf x_k = \Phi(k\Delta t)\,\mathbf x_0 + \sum_{j<k} \Phi\bigl((k-1-j)\Delta t\bigr)\,\Gamma\,\mathbf u_j,
+$$
+
+with $\Phi$ and $\Gamma$ from `cw_discrete` at each duration, so long windows carry no product
+rounding. Positions are scaled by
+$L = \max(|\mathbf r_0|, |\mathbf r_g|, \rho_r, |\mathbf v_0|/n, |\mathbf v_g|/n, \rho_v/n)$,
+velocities and the cost by $Ln$, and inputs by the thrust limit $a$; scaling the start, the goal,
+the capture ball and $a$ together leaves the scaled program unchanged.
+
+**Box LP.** For box thrusters, $|u_{j,i}| \le a$ and delta-v $\Delta t\sum_j |\mathbf u_j|_1$,
+the least cost is a linear program in $\mathbf u = \mathbf u^+ - \mathbf u^-$ (Boyd and
+Vandenberghe, *Convex Optimization*, 2004, section 4.3). The capture ball enters through its
+bounding box, $|x_{k,i} - x_{g,i}| \le \rho$ per component, $\rho_r$ for positions and $\rho_v$
+for velocities. This outer LP has no path constraints and no thrust inhibit, so it is a
+relaxation: its optimum, `finite_optimum`, is below the cost of every input history held over
+steps that reaches the ball within the limit.
+
+**Ball bracket.** For a ball, $|\mathbf u_j|_2 \le a$ and delta-v
+$\Delta t\sum_j|\mathbf u_j|_2$, the 2-norm is bracketed by one shared set $D$ of unit
+directions. From outside, $s_j \ge \mathbf d^T\mathbf u_j/a$ for every $\mathbf d \in D$ and
+$s_j \le 1$, at cost $a\Delta t\sum_j s_j$; since $\mathbf d^T\mathbf u \le |\mathbf u|_2$, this
+is again a relaxation. $D$ starts with the 6 axes and 8 diagonals, and after each solve gains
+$\mathbf u_j/|\mathbf u_j|$ for every step where $|\mathbf u_j|/a - s_j$ is at least `cut_tol`
+times $|\mathbf u_j|/a$ and above HiGHS's feasibility tolerance $10^{-7}$ (J. E. Kelley, *The
+cutting-plane method for solving convex programs*, J. SIAM 8, 1960). The loop stops when no
+step is short or after `cut_rounds` solves. A cut that binds at no step for three solves in a
+row leaves the set, and Kelley's rule adds it back if a step needs it again. Each solve goes
+through the LP's dual, which has one row per variable instead of one per cut and step. From
+inside, the plan draws each $\mathbf u_j$ from the convex hull of the final $D$,
+`inner_directions` Fibonacci directions and the origin:
+$\mathbf u_j = a\sum_d \lambda_{jd}\mathbf d$ with $\lambda \ge 0$ and
+$\sum_d\lambda_{jd} \le 1$, at cost $a\Delta t\sum_{j,d}\lambda_{jd}$. Then
+$|\mathbf u_j|_2 \le a\sum_d\lambda_{jd} \le a$, so every solution lies within the thrust ball
+and costs at most the LP value.
+
+**Lower bounds.** The terminal multipliers $\nu$ of the outer LP, unscaled to the Hill state, go
+into `dual_bound` with the one constraint time $k\Delta t$ and `cells_per_step` cells per step:
+with the acceleration limit `max_accel` for `finite_lower`, without one for `impulsive_lower`.
+Dividing $\nu$ by its certified primer peak removes the excess integral and turns the impulsive
+value into a finite-thrust bound, so `finite_lower` is the larger of the two; both are at least
+0. The certificate does not depend on the solver: a poor $\nu$ gives a weaker bound, not a wrong
+one. If the outer LP is infeasible within the limit, $\nu$ comes from the LP without the limit
+and `finite_optimum` is inf; if that is infeasible too, both lower bounds are 0.
+
+**Plan and upper bound.** The inner LP aims inside the box of half-width
+$\text{aim}\cdot\rho/\sqrt3$, which lies in aim times the ball, and holds the inputs of steps that
+overlap a `thrust_inhibit` window at zero. Its inputs, which meet the thrust limit to HiGHS's
+tolerance, are clipped exactly into it, propagated step by step with `cw_discrete`, and accepted
+when the end state lies within $(1 + \text{aim})/2$ of the capture radius and of the capture
+speed and, if keep-out is hard, when the certified lower bound of `segment_minima` on the range
+margin is nonnegative on every step, sampled 20 times per step as the environment samples it.
+`upper` is the plan's cost $\Delta t\sum_j|\mathbf u_j|$ in the layout's norm. It is inf when no
+plan passed, when the capture radius or speed is zero, when the goal asks for a dwell
+(`hold_time` > 0), which the plan does not hold, or when a hard constraint other than keep-out is
+listed; that constraint is then named in `unmodelled`. With `hard=None` every listed constraint
+counts as hard. The `hard` argument of `solve` decides which listed constraints the plan is checked
+against: marking keep-out soft gives a finite upper bound that was not checked against it.
+`bounds` treats every listed constraint as hard.
+
+**Bounds.** `bounds` is a `FuelBounds` with lower `finite_lower`, `upper`, norm `"l1"` (box) or
+`"l2"` (ball), rung `"cw"`, `accel_limit` equal to `max_accel` and `impulsive_lower`, so the
+optimality gap metric falls back to the impulsive bound for a run that exceeded the limit.
+
+### Parameters and defaults
+
+| Parameter | Default | Reason |
+|---|---|---|
+| `cells_per_step` | 8 | The default of `dual_bound`; more cells tighten the certified bound at linear cost (the tests use 500) |
+| `aim` | 0.9 | The plan aims inside 90% of the capture ball and must land inside 95%, which absorbs HiGHS's tolerance and the clipping into the limit and keeps the rest as margin |
+| `cut_rounds` | 20 | The bracket on the half-orbit ball transfer below closes within 0.5% |
+| `cut_tol` | $10^{-4}$ | Relative gap between a step's cutting-plane value and its 2-norm below which no cut is added |
+| `inner_directions` | 64 | Fibonacci directions that let the plan thrust where the cuts have not reached |
+| `arrival_step` | `max_steps` | `solve` only; 1 to `max_steps` |
+| `hard` | every listed constraint | `solve` only; names of the hard constraints |
+
+### Assumptions and limits
+
+- Exact CW motion with no other forcing. Every bound carries rung `"cw"` and is no theorem on
+  another rung.
+- One arrival step. The bounds are for a chaser in the capture ball at the end of step $k$; a run
+  captured at another step, or one that must also hold a dwell, is not covered by them. `bounds`
+  takes $k$ = `max_steps`.
+- The lower bounds hold in continuous time for every acceleration history within `max_accel` in
+  the actuator norm (`finite_lower`) or for any acceleration (`impulsive_lower`).
+  `finite_optimum` and `upper` are step-grid values, for inputs held over each step, and differ
+  from the continuous figures at first order in $n\Delta t$: on the Fehse transfers below with
+  720 steps the step-grid optimum lies up to 0.79% (one orbit) and 0.33% (half an orbit) above
+  the impulsive optimum, and the impulsive bound from its multipliers up to 0.60% and 0.25% below
+  it.
+- The lower bounds relax every path constraint and the thrust inhibit windows, which keeps them
+  valid and makes them looser. The plan is checked against keep-out and thrust inhibit only; any
+  other hard constraint, such as `speed_limit`, `approach_cone` or `zone_entry`, voids the upper
+  bound. Goal waypoints are ignored.
+- The goal must be a hold or berthing with `hold_point`, `capture_radius` and `capture_speed`.
+  Other goals, an unknown thruster layout, a start that is not 6 finite numbers and an arrival
+  step outside 1 to `max_steps` raise `ValueError`; a HiGHS failure other than infeasibility
+  raises `RuntimeError`. A zero capture radius or speed is allowed and gives an infinite upper
+  bound.
+- For a ball the outer LP is a relaxation at every round, so the bracket is as wide as the Kelley
+  loop leaves it after `cut_rounds` solves.
+
+### Validation
+
+Tests: `tests/test_fuel_oracle.py`. Values marked as independent were computed with
+`cw_discrete`, HiGHS and a separate implementation of the LPs and of the cell bound.
+
+- Boyd and Vandenberghe, sections 4.3 and 5.1.3: the half-orbit transfer from
+  $(-200, -1500, 50)$ m to $(0, -100, 0)$ m at rest on a 6778 km orbit with a
+  $2 \times 10^{-3}$ m/s^2 limit on 40 steps, at 500 cells per step. Box, point target:
+  `finite_optimum` is 0.8977056 m/s to $10^{-6}$, and `finite_lower` lies in
+  $[0.892140, 0.8947293]$, the upper end being the cost of a 640-step plan; the step-grid
+  optimum, the bound without its excess term or with half of it, and the 2-norm dual norm would
+  each leave that window (independent). Box with a capture ball of 1 m and $10^{-3}$ m/s: the
+  outer optimum 0.8901371 m/s and the plan's cost 0.8937729 m/s match an independent LP to
+  $10^{-6}$, and the bound lies in $[0.886695, 0.8904004]$. With 20 m and 0.02 m/s the plan costs
+  0.8242298 m/s and the bound lies in $[0.80105, 0.8163351]$, a window the bound without the
+  capture ball's support terms would exceed (independent). Ball with 0.01 m and $10^{-5}$ m/s:
+  `finite_optimum` is at least 0.8280, the plan costs at most 0.8330 and within 0.5% of it, and
+  the certified bound lies in $[0.8265, 0.8324776]$ and within 0.8% of the plan; 0.8324776 m/s
+  is the cost of an independent plan checked against the thrust ball on every step.
+- Fehse, *Automated Rendezvous and Docking of Spacecraft*, 2003, eqs 3.29 to 3.32 and 3.37:
+  500 m along the V-bar at 500 km, one orbit with tangential impulses ($n\,\Delta y/(3\pi)$) and
+  half an orbit with radial ones ($n\,\Delta y/2$), with a 1 m/s^2 box limit on 720 steps.
+  `finite_optimum` lies between the impulsive optimum and 0.79% (0.33%) above it, the impulsive
+  bound between 0.60% (0.25%) below it and the optimum, and `finite_lower` between the impulsive
+  bound and `finite_optimum`. A plan into a 0.01 m, $10^{-5}$ m/s ball costs at most 0.79%
+  (0.33%) above the impulsive optimum. With a ball layout on 40 steps the impulsive bound is
+  positive and at most the optimum.
+- Curtis, *Orbital Mechanics for Engineering Students*, example 7.5: 2 km behind the target on a
+  300 km orbit, rendezvous in 1.49 h, capture ball 1 m and $10^{-3}$ m/s. The two-impulse
+  solution costs 0.245230 m/s in the 2-norm (the book's 0.2452) and 0.263461 m/s in the 1-norm.
+  The impulsive bound stays below the two-impulse cost in the layout's norm and below
+  `TwoImpulseBound`'s upper bound, and is at least 0.249 (box, 120 steps) and 0.218 (ball, 40
+  steps), independent. A plan with burns on the first and last steps costs at least
+  `finite_lower`, and for box thrusters at least `upper`, since it is a feasible point of the
+  inner LP.
+- Alfriend, Vadali, Gurfil, How and Breger, *Spacecraft Formation Flying*, example 5.2, with
+  $n = 1$ over $nT = 5$ on 500 steps and a limit far above need: the plan costs less than 85% of
+  the best two-impulse 1-norm cost on a 400-point grid (0.0457373) and no less than the
+  impulsive optimum 0.0375601 (independent); the impulsive bound lies in $[0.0370, 0.0375601]$.
+- A PD run of the approach scenario, saturated per axis at `max_accel`, spends at least
+  `finite_lower` and `impulsive_lower` up to the step at which it first enters the capture ball.
+- Properties on 10 to 16 random starts within 200 m and 0.2 m/s per axis at 500 km, with
+  $\Delta t$ = 20 s, 30 steps and a 0.02 m/s^2 box. Scaling the start, the capture ball and the
+  limit by 0.01 and 3.7 scales both lower bounds and the upper bound to $10^{-9}$. The bound for
+  $\mathbf x_1 + \mathbf x_2$ stays below the sum of the plans for $\mathbf x_1$ and
+  $\mathbf x_2$ with half the limit and half the ball. Reversing the start and mirroring it
+  across the orbit plane leave both lower bounds and `finite_optimum` unchanged to $10^{-9}$.
+  The bound at the midpoint of two starts stays below the mean of their plans' costs, and
+  `finite_optimum` is convex in the start. Every plan, flown step by step, lands in the ball
+  within the aim margin, stays within the limit and costs `upper` to $10^{-12}$, for arrival at
+  steps 10 and 30.
+- A hard `speed_limit` the plan was not checked against makes `upper` inf and is named in
+  `unmodelled`; with no hard constraints the plan counts, and the lower bound does not change.
+  A goal without a capture ball and arrival steps 0 and 31 of 30 raise `ValueError`.
+
+### Example
+
+The box transfer above with a capture ball of 1 m and $10^{-3}$ m/s:
+
+```python
+import math
+
+import numpy as np
+
+from vbar.agents.base import AgentView
+from vbar.dynamics import mean_motion
+from vbar.oracles import FuelOracle, OracleConfig
+
+n = mean_motion(6778e3)
+view = AgentView(
+    scenario_id="half-orbit",
+    dt=math.pi / n / 40,
+    max_steps=40,
+    n=n,
+    action_mode="accel",
+    max_accel=2e-3,
+    thrust_limit="box",
+    goal={"hold_point": (0.0, -100.0, 0.0), "capture_radius": 1.0, "capture_speed": 1e-3},
+)
+start = np.array([-200.0, -1500.0, 50.0, 0.0, 0.0, 0.0])
+
+sol = FuelOracle(config=OracleConfig(cells_per_step=500)).solve(view, start)
+assert 0.886695 <= sol.finite_lower <= sol.finite_optimum <= sol.upper
+assert abs(sol.finite_optimum - 0.8901371) < 1e-6
+assert abs(sol.upper - 0.8937729) < 1e-6
+assert sol.plan.shape == (40, 3) and np.abs(sol.plan).max() <= view.max_accel
+assert sol.bounds.rung == "cw" and sol.bounds.accel_limit == view.max_accel
+```
+
 ## Exact constrained LQ value
 
 Code: `LQOracle` and `LQBound` in `vbar.oracles.lq`, exported from `vbar.oracles`. Hill frame,
