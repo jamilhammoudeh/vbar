@@ -16,6 +16,10 @@ time until the true state is back in the set.
 `falsify_filter` flies the same runs from starts chosen by a cross-entropy search over the
 declared safe set (`vbar.stress.cross_entropy`) that minimizes the certified in-step bound, and
 judges the worst start found as the audit judges any run.
+
+`cam_rates` measures how often a switching filter's collision avoidance manoeuvre (CAM) fires
+without need, fails to save a run that needed it, or causes a violation, from runs flown with the
+filter on and off; it reads the CAM from the recorded commands, never from the filter's report.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ import functools
 import math
 import operator
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -37,7 +41,9 @@ import numpy as np
 from ..agents.pd import PDAgent
 from ..constraints import Constraint, segment_minimum
 from ..dynamics.cw import cw_states
-from ..metrics.episode import Episode, record_episode
+from ..metrics.episode import Episode, FilterPair, record_episode
+from ..metrics.safety import lowest_margin
+from ..metrics.summary import clopper_pearson
 from ..scenarios.base import EnvConfig
 from ..spacecraft import PerfectNav
 from ..stress.falsify import SearchResult, cross_entropy
@@ -743,15 +749,100 @@ def falsify_filter(
     )
 
 
+@dataclass(frozen=True)
+class CamRate:
+    """One CAM rate over paired runs.
+
+    `count` of `trials` pairs, `rate` = count / trials and `interval` its 95% Clopper-Pearson
+    interval; with no trials the rate and both ends of the interval are NaN.
+    """
+
+    count: int
+    trials: int
+    rate: float
+    interval: tuple[float, float]
+
+
+@dataclass(frozen=True)
+class CamRates:
+    """The false-CAM, missed-CAM and CAM-induced rates of one filter, as in `cam_rates`."""
+
+    false_cam: CamRate
+    missed_cam: CamRate
+    cam_induced: CamRate
+
+
+def _rate(count: int, trials: int) -> CamRate:
+    if trials == 0:
+        return CamRate(0, 0, math.nan, (math.nan, math.nan))
+    return CamRate(count, trials, count / trials, clopper_pearson(count, trials))
+
+
+def _violates(episode: Episode) -> bool:
+    """Whether the run's S1 on the keep-out, its lowest margin and not the bound, is below minus
+    the keep-out resolution (1 mm)."""
+    keep_out = episode.constraint("keep_out")
+    if keep_out is None:
+        raise ValueError("the run has no keep_out constraint")
+    return lowest_margin(episode, keep_out)[0] < -keep_out.resolution
+
+
+def _fired(episode: Episode) -> bool:
+    """Whether some applied command differs from the agent's recorded one."""
+    return any(not np.array_equal(rec.filtered, rec.command) for rec in episode.records)
+
+
+def cam_rates(pairs: Sequence[FilterPair]) -> CamRates:
+    """The CAM rates of a switching filter from runs flown with it on and off.
+
+    Parameters
+    ----------
+    pairs : sequence of FilterPair
+        Seeds flown by `vbar.metrics.episode.record_pair`, each with the filter on and off.
+
+    Returns
+    -------
+    CamRates
+        `false_cam`: pairs where the CAM fired, among those that did not need one.
+        `missed_cam`: pairs where the CAM did not fire or the on run violates, among those that
+        needed one. `cam_induced`: pairs whose on run violates, among those that did not need a
+        CAM. Each with its count, trials, rate and 95% Clopper-Pearson interval.
+
+    Raises
+    ------
+    ValueError
+        If a run has no keep_out constraint.
+
+    Notes
+    -----
+    A run violates when its S1 on the keep-out (its lowest margin, not the certified bound) is
+    below -1 mm, the keep-out resolution; a pair needed a CAM when its off run violates. The CAM
+    fired when some step of the on run applied a command different from the agent's recorded
+    one, so any change counts, a change the filter did not report included, and a reported
+    intervention that changed nothing does not.
+    """
+    flags = [(_violates(pair.off), _fired(pair.on), _violates(pair.on)) for pair in pairs]
+    needed = [(fired, bad) for need, fired, bad in flags if need]
+    not_needed = [(fired, bad) for need, fired, bad in flags if not need]
+    return CamRates(
+        false_cam=_rate(sum(fired for fired, _ in not_needed), len(not_needed)),
+        missed_cam=_rate(sum(not fired or bad for fired, bad in needed), len(needed)),
+        cam_induced=_rate(sum(bad for _, bad in not_needed), len(not_needed)),
+    )
+
+
 __all__ = [
     "AUDIT_MODES",
     "FALSIFY_VERDICTS",
     "REFINEMENTS",
+    "CamRate",
+    "CamRates",
     "FilterAudit",
     "FilterFalsification",
     "FlaggedDecision",
     "Refinement",
     "RunAudit",
     "audit_filter",
+    "cam_rates",
     "falsify_filter",
 ]

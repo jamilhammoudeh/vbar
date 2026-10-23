@@ -235,6 +235,9 @@ Earth constants and converted from Fehse's ISS-style axes.
 
 - Eq. 3.28 and fig. 3.13: thrust stopped at 0.1 m/s on the V-bar coasts forward 0.47755 v / n,
   42.21 m, the basis of the V-bar passive-speed envelope 2.094 n (gap).
+- Eq. 3.28 on approach-vbar (500 km, keep-out 50 m): the corridor margin of
+  `CorridorCamFilter` is zero at 0.116 m/s closing at 100 m, and the filter aborts 1e-6 m/s above
+  it on both sides of the V-bar (tests/test_safety_corridor.py).
 - Eq. 3.22 and sec. 5.7.2: the R-bar passive-speed envelope $n\sqrt{(4h - d)^2 - 9h^2}$ gives
   0.1225, 0.0612 and 0.0283 m/s at 50, 30 and 20 m with 15 m of structure; the book's approach
   flies 0.1, 0.05 and 0.02 m/s there.

@@ -7,8 +7,9 @@ Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`
 `scenario_sample_count`, `scenario_margin`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`,
 `ClosingSpeedCbf`, `ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`),
 `vbar.safety.sampled` (`held_segment_bound`, `line_search`, `LineSearch`), `vbar.safety.cbf`
-(`CbfFilter`, `BackupFilter`, `SoftCbfFilter`, `FilterDeclaration`) and `vbar.safety.audit`
-(`audit_filter`, `FilterAudit`, `RunAudit`, `Refinement`, `FlaggedDecision`).
+(`CbfFilter`, `BackupFilter`, `SoftCbfFilter`, `FilterDeclaration`), `vbar.safety.corridor`
+(`CorridorCamFilter`) and `vbar.safety.audit` (`audit_filter`, `FilterAudit`, `RunAudit`,
+`Refinement`, `FlaggedDecision`, `cam_rates`, `CamRates`, `CamRate`).
 
 A safety filter sits between an agent and the spacecraft and changes a command only when it would
 lead out of a safe set. This page starts with the building blocks the filters use: closed-form
@@ -941,6 +942,170 @@ for _ in range(4):
 # 0 nominal [0.02   0.0129 0.    ]
 # 0 nominal [0.02   0.0197 0.    ]
 print(round(float(np.linalg.norm(x[:3])), 1))  # 58.5
+```
+
+## Corridor monitor and CAM rates
+
+`vbar.safety.corridor.CorridorCamFilter(phases=...)` is the switching filter of operational
+practice: it passes the agent's command through unchanged while the state stays inside the
+approach corridor, and on the first decision outside the corridor it latches an abort that flies a
+collision-avoidance manoeuvre (CAM) open loop, then holds zero thrust (Fehse, *Automated
+Rendezvous and Docking of Spacecraft*, 2003, secs. 4.5 and 5.7). It makes no certified claim.
+`vbar.safety.audit.cam_rates` measures how often its CAM fires without need, fails to save a run
+that needed it, or causes a violation, from runs flown with the filter on and off.
+
+### Method
+
+At `reset(view)` the corridor is built from the view's constraints:
+
+- The V-bar passive-safety speed envelope, `PassiveSpeed("vbar", extent=R, n)` with $R$ the
+  largest keep-out radius. A chaser whose thrust stops at closing speed $v$ on the V-bar coasts
+  forward $\kappa v / n$, $\kappa = \sqrt7 - 3 \arccos(3/4) = 0.47755$ (Fehse eq. 3.28,
+  fig. 3.13), so the margin at range $\rho = |r|$ is
+  $$
+  m_v(x) = \frac{n (\rho - R)}{\kappa} - \max(0, -\dot\rho),
+  $$
+  in m/s, zero at 0.116 m/s closing at 100 m on approach-vbar (500 km, $R$ = 50 m).
+- When the scenario declares an `approach_cone`, an `ApproachCone` built from its public
+  parameters, whose margin is the signed distance to the cone in m (see "Approach cone" above).
+
+The corridor margin is the smallest of these margins; only its sign is used, so the mixed units do
+not matter. A decision is outside the corridor when $\rho$ exceeds the goal's `commit_radius`
+(0 when the goal has none) and the corridor margin is negative.
+
+`phases` is a sequence of $(\rho_{lo}, \rho_{hi}, a_c, m)$: the range band
+$\rho_{lo} \le \rho < \rho_{hi}$ (m), the CAM's acceleration $a_c$ (m/s^2, Hill frame) and the
+number of decisions $m \ge 1$ it is held. The bands must tile $[0, \infty)$ in increasing order.
+There is no default; the CAM along +V-bar, away from the target for a chaser ahead of it, at full
+thrust for $\lceil 0.3\ \text{m/s} / (a_{\max} \Delta t) \rceil$ decisions is the benchmark's
+choice, 2 decisions and 0.4 m/s on approach-vbar. `reset` refuses a CAM outside the thrust limit
+(per axis for a box, in norm for a ball), a view without a keep_out constraint, and a
+non-continuous action mode.
+
+### Latch and abort
+
+1. Until the abort, every command is returned as given, with `intervened` False.
+2. The first decision outside the corridor latches the abort and takes the phase whose band holds
+   $\rho$ at that decision.
+3. That decision and the next $m - 1$ return $a_c$ in the view's action units, whatever the state.
+4. Every later decision returns zero thrust, whatever the state, until `reset`.
+
+During the abort `active` is True, `fallback_level` 2, and `intervened` is True when the returned
+action differs from the command. The declaration has `certificate` None and
+`counts_toward_certification` False.
+
+### Rates
+
+`cam_rates(pairs)` takes `FilterPair`s from `vbar.metrics.episode.record_pair` and returns
+`CamRates` with `false_cam`, `missed_cam` and `cam_induced`, each a `CamRate` with `count`,
+`trials`, `rate` = count / trials and `interval`, the 95% Clopper-Pearson interval of
+`vbar.metrics.clopper_pearson`. A rate with no trials has NaN for its rate and both ends of its
+interval.
+
+- A run **violates** when its S1 on the keep-out, the lowest margin over the run and not its
+  certified bound, is below -1 mm, the keep-out resolution.
+- A pair **needed** a CAM when its off run violates.
+- The CAM **fired** when some step of the on run applied a command (`filtered`) different from the
+  agent's recorded command. The filter's `intervened` and `active` are never read, so a change the
+  filter did not report counts, and a reported intervention that changed nothing does not.
+
+| Rate | Count | Trials |
+|---|---|---|
+| false-CAM | fired and not needed | not needed |
+| missed-CAM | needed and (not fired, or the on run violates) | needed |
+| CAM-induced | not needed and the on run violates | not needed |
+
+`benchmarks/cam_rates.py` reports the three rates on approach-vbar for four nominals: the PD law
+to the scenario's hold point, the PD law to a hold point 150 m ahead on the V-bar, full thrust
+straight at the target, and the PD law switching to full thrust at a step drawn uniformly from 0
+to 179. Each nominal flies 1000 seeds from a printed 128-bit root seed. The rates characterise the
+filter and are not asserted.
+
+### Assumptions and limits
+
+- No certificate: the CAM is open loop and nothing checks that it clears the keep-out, and a
+  latched zero thrust ignores the state for the rest of the run. `audit_filter` and
+  `falsify_filter` refuse the filter, since it declares no safe set.
+- Keep-out only: a CAM is a collision-avoidance manoeuvre, so the rates judge violations on the
+  keep-out alone. A run that leaves an approach cone or breaks a speed limit is not counted.
+- The commit radius is measured from the target's centre, as by every filter. On a docking goal
+  whose port lies outside that radius the commit zone is empty, so the monitor never stands down
+  near the port (gap G-1142).
+- No R-bar phases yet: the corridor is the V-bar envelope, and a phase's CAM is a fixed Hill
+  vector, so an R-bar approach needs its own envelope and phases.
+- "Fired" is any difference between the applied and the recorded command, a clipped command
+  included; the corridor filter itself never clips, so on its runs a difference is the abort.
+
+### Validation
+
+The tests in `tests/test_safety_corridor.py` check:
+
+- The V-bar envelope on approach-vbar is 0.116 m/s at 100 m, $1/\kappa$ = 2.094 (Fehse eq. 3.28
+  and fig. 3.13), and on both sides of the V-bar the filter passes a command at $10^{-6}$ m/s
+  below the envelope and aborts at $10^{-6}$ m/s above it.
+- Commands inside the corridor pass through unchanged; the latch holds the CAM for $m$ decisions,
+  then zero thrust, after the state is back inside; `reset` clears it.
+- The CAM is that of the phase whose band holds the range at the aborting decision.
+- No abort inside the commit radius, and no latch left behind by a state there.
+- A declared 10 deg approach cone has margin 0 on its surface at 200 m and -cos(10 deg) cm 1 cm
+  outside it; 1 cm inside passes the command, 1 cm outside aborts.
+- The declaration has no certificate and does not count toward certification; `audit_filter`
+  refuses the filter.
+- Flown by `record_pair`, the CAM replaces a reckless agent's commands for $m$ steps and zero
+  thrust the rest.
+- `cam_rates` counts each definition on constructed pairs. An off run at -0.9 mm or exactly -1 mm
+  needs no CAM and one at -1.1 mm does; a fired CAM whose on run reaches -1.1 mm is missed and one
+  at -0.9 mm is not. A CAM at a later step counts, and a filter that misreports its
+  interventions, flown by `record_pair`, is counted from its recorded commands.
+
+```python
+import math
+
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.agents import PDAgent
+from vbar.metrics.episode import record_pair
+from vbar.safety.audit import cam_rates
+from vbar.safety.corridor import CorridorCamFilter
+
+cfg = ApproachConfig()
+cam = (0.0, cfg.max_accel, 0.0)  # m/s^2, along +V-bar, away from the target for a chaser ahead
+phases = ((0.0, 150.0, cam, 2), (150.0, math.inf, cam, 1))
+corridor = CorridorCamFilter(phases=phases)
+corridor.reset(ApproachEnv().agent_view())
+print(corridor.declaration.certificate)  # None
+
+command = np.array([0.0, -1.0, 0.0])  # full thrust toward the target
+print(corridor.filter(np.array([0.0, 100.0, 0.0, 0.0, -0.1, 0.0]), command).action)  # [ 0. -1.  0.]
+for _ in range(4):
+    # 0.3 m/s closing at 100 m is above the envelope n (100 - 50) / 0.47755 = 0.116 m/s
+    print(corridor.filter(np.array([0.0, 100.0, 0.0, 0.0, -0.3, 0.0]), command).action)
+# [0. 1. 0.]
+# [0. 1. 0.]
+# [0. 0. 0.]
+# [0. 0. 0.]
+
+# From rest at 400 m the PD law speeds up past the envelope; from 120 m closing at 0.5 m/s it
+# enters the keep-out without the filter.
+starts = ((0.0, 400.0, 0.0, 0.0, 0.0, 0.0), (0.0, 120.0, 0.0, 0.0, -0.5, 0.0))
+pairs = [
+    record_pair(
+        ApproachEnv(ApproachConfig(start_state=x0, max_steps=12)),
+        PDAgent,
+        CorridorCamFilter(phases=phases),
+        seed=2**100 + k,
+        agent_seed=2**101 + k,
+    )
+    for k, x0 in enumerate(starts)
+]
+rates = cam_rates(pairs)
+for name in ("false_cam", "missed_cam", "cam_induced"):
+    rate = getattr(rates, name)
+    print(name, rate.count, rate.trials, np.round(rate.interval, 3))
+# false_cam 1 1 [0.025 1.   ]
+# missed_cam 0 1 [0.    0.975]
+# cam_induced 0 1 [0.    0.975]
 ```
 
 ## Audit
