@@ -179,6 +179,10 @@ state, margin, t = cover.counterexamples[0]
 print(round(margin, 3), t)  # -3.0 1282.0
 ```
 
+`benchmarks/filter_audit.py --parts cover` runs the cover on the free-drift backup filter's
+declared set over the audited approach-vbar run; see the Audit section of
+[safety-filters.md](safety-filters.md).
+
 ## Propagation, containment and invariance
 
 - `propagate(loop, x0, w, steps, order=None)` returns the explicit sets $R_0$ to $R_N$, each the
