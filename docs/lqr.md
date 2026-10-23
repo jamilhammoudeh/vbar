@@ -100,6 +100,15 @@ mode as `PDAgent` does: fractions, m/s^2, or newtons at the initial mass.
 $Q = \operatorname{diag}(1, 1, 1, n^{-2}, n^{-2}, n^{-2})$, $R = I/n^4$ of Alfriend et al.,
 sec. 10.1.2, under which the gains scale with the orbit and carry over between bodies.
 
+**Shared design.** `regulator_model(view, config)` builds everything above except the command
+and returns it as a frozen `RegulatorModel`: the augmented $\Phi$ and $\Gamma$, the stage
+weights $Q$, $R$ and $S$ on the deviation from $(\mathbf z_s, \mathbf u_s)$, the gain $K$, the
+Riccati solution $P$, $\mathbf x_s$, $\mathbf u_s$, $\mathbf z_s$, the pending-command slot
+indices and whether the agent keeps its own last command. `LQRAgent.reset` calls it, and the MPC
+baselines reuse it for their stage and terminal cost, so an MPC and `LQRAgent` with the same
+`LQRConfig` give the same command wherever no constraint binds. It refuses the same views as
+`reset`, with the same messages.
+
 ## Assumptions and limits
 
 - The design model is CW about a circular target. On the two-body rungs the unmodelled

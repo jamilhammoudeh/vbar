@@ -396,6 +396,153 @@ def _check_zero_order_hold(
             raise ValueError("cw step and system matrices disagree")
 
 
+@dataclass(frozen=True)
+class RegulatorModel:
+    """Regulator design on the CW model, augmented for delay and rate, about the hold point.
+
+    The augmented state is z = (x, u_{k-d}, ..., u_{k-1}) with d pending-command slots, or
+    z = (x, u_{k-1}) when a rate weight is set and there is no delay, or z = x. Commands are
+    Hill accelerations (m/s^2); x is the Hill state (m, m/s). The arrays are read-only, so one
+    model can be shared between controllers; copy one before changing it.
+
+    Parameters
+    ----------
+    phi : numpy.ndarray, shape (nz, nz)
+        Transition matrix of one step on z.
+    gamma : numpy.ndarray, shape (nz, 3)
+        Input matrix of one step on z.
+    q : numpy.ndarray, shape (nz, nz)
+        Stage weight on z - zs.
+    r : numpy.ndarray, shape (3, 3)
+        Stage weight on u - us.
+    s : numpy.ndarray, shape (nz, 3)
+        Stage cross weight, the stage cost being z' Q z + u' R u + 2 z' S u on the deviations.
+    k : numpy.ndarray, shape (3, nz)
+        LQR gain, u = us - K (z - zs).
+    p : numpy.ndarray, shape (nz, nz)
+        Symmetric DARE solution, (z - zs)' P (z - zs) the optimal cost from z.
+    xs : numpy.ndarray, shape (6,)
+        Hold point at rest (m, m/s).
+    us : numpy.ndarray, shape (3,)
+        Constant input that holds xs (m/s^2).
+    zs : numpy.ndarray, shape (nz,)
+        xs followed by one copy of us per augmented command.
+    slots : list of list of int
+        Observation indices of (wait, x, y, z) of each pending-command slot, oldest first.
+    own_last : bool
+        Whether z ends with the controller's own last command (rate weight without delay).
+    """
+
+    phi: np.ndarray
+    gamma: np.ndarray
+    q: np.ndarray
+    r: np.ndarray
+    s: np.ndarray
+    k: np.ndarray
+    p: np.ndarray
+    xs: np.ndarray
+    us: np.ndarray
+    zs: np.ndarray
+    slots: list[list[int]]
+    own_last: bool
+
+
+def regulator_model(view: AgentView, config: LQRConfig) -> RegulatorModel:
+    """Design the LQR regulator for the view's orbit, step, thrust and delay.
+
+    The design shared by `LQRAgent` and the predictive controllers, so that they agree wherever
+    no constraint binds.
+
+    Parameters
+    ----------
+    view : AgentView
+        Scenario description; uses `n`, `dt`, `max_accel`, `thrust_limit`, `action_mode`,
+        `mass_kg`, `goal["hold_point"]` (Hill frame, m) and the observation names.
+    config : LQRConfig
+        Weights, stage-cost convention and rate weight.
+
+    Returns
+    -------
+    RegulatorModel
+        The augmented model, stage cost, gain, DARE solution and hold point.
+
+    Raises
+    ------
+    ValueError
+        If the goal is not a hold or a berthing or has no hold point, the action mode takes no
+        continuous command, the thrust layout is unknown, the hold point needs more than
+        `max_accel` of steady thrust, or the design fails (see `dlqr`).
+    """
+    hold = hold_point(view, "LQR agent")
+    action_scale(view)
+    if view.thrust_limit not in ("box", "ball"):
+        raise ValueError(f"unknown thrust limit {view.thrust_limit!r}")
+    accel_scale = view.max_accel if config.accel_scale_mps2 is None else config.accel_scale_mps2
+    phi, gamma = cw_discrete(view.n, view.dt)
+    qc = np.diag([config.pos_scale_m**-2] * 3 + [config.vel_scale_mps**-2] * 3)
+    rc = np.eye(3) / accel_scale**2
+    if config.stage_cost == "sampled":
+        a, b = cw_system(view.n)
+        _check_zero_order_hold(a, b, phi, gamma, view.dt)
+        q, r, s = sampled_data_cost(a, b, qc, rc, view.dt)
+    else:
+        q, r, s = qc, rc, np.zeros((6, 3))
+
+    slots = _pending_slots(view.observation)
+    d = len(slots)
+    phi_z, gamma_z = delay_augmented(phi, gamma, d)
+    q_z = np.zeros(phi_z.shape)
+    q_z[:6, :6] = q
+    s_z = np.zeros(gamma_z.shape)
+    if d:
+        # The cross term pairs x_k with the input acting on it, u_{k-d}, and the input weight
+        # moves to u_k: the infinite sum changes only by the already committed inputs.
+        q_z[:6, 6:9] = s
+        q_z[6:9, :6] = s.T
+    else:
+        s_z[:] = s
+    r_z = r
+    own_last = config.rate_weight > 0.0 and d == 0
+    if config.rate_weight > 0.0:
+        rd = config.rate_weight * np.eye(3) / accel_scale**2
+        if own_last:
+            phi_z, gamma_z, q_z, r_z, s_z = rate_augmented(phi_z, gamma_z, q_z, r_z, s_z, rd)
+        else:
+            # u_{k-1} is already the newest pending slot.
+            q_z[-3:, -3:] += rd
+            s_z[-3:] -= rd
+            r_z = r + rd
+    k, p = dlqr(phi_z, gamma_z, q_z, r_z, s_z)
+
+    xs = np.concatenate([hold, np.zeros(3)])
+    us = steady_state_input(phi, gamma, xs)
+    if view.thrust_limit == "box":
+        size = float(np.max(np.abs(us)))
+    else:
+        size = float(np.linalg.norm(us))
+    if size > view.max_accel:
+        raise ValueError(
+            f"hold point needs {size:.2e} m/s^2 of steady thrust, above max_accel {view.max_accel}"
+        )
+    zs = np.concatenate([xs, np.tile(us, (len(phi_z) - 6) // 3)])
+    for array in (phi_z, gamma_z, q_z, r_z, s_z, k, p, xs, us, zs):
+        array.flags.writeable = False
+    return RegulatorModel(
+        phi=phi_z,
+        gamma=gamma_z,
+        q=q_z,
+        r=r_z,
+        s=s_z,
+        k=k,
+        p=p,
+        xs=xs,
+        us=us,
+        zs=zs,
+        slots=slots,
+        own_last=own_last,
+    )
+
+
 class LQRAgent:
     """Discrete LQR regulator to the hold point on the CW model, with target-input feedforward.
 
@@ -437,61 +584,14 @@ class LQRAgent:
             no continuous command, the thrust layout is unknown, the hold point needs more than
             `max_accel` of steady thrust, or the design fails (see `dlqr`).
         """
-        hold = hold_point(view, "LQR agent")
-        cfg = self.config
+        model = regulator_model(view, self.config)
         self.scale = action_scale(view)
-        if view.thrust_limit not in ("box", "ball"):
-            raise ValueError(f"unknown thrust limit {view.thrust_limit!r}")
         self.view = view
-        accel_scale = view.max_accel if cfg.accel_scale_mps2 is None else cfg.accel_scale_mps2
-        phi, gamma = cw_discrete(view.n, view.dt)
-        qc = np.diag([cfg.pos_scale_m**-2] * 3 + [cfg.vel_scale_mps**-2] * 3)
-        rc = np.eye(3) / accel_scale**2
-        if cfg.stage_cost == "sampled":
-            a, b = cw_system(view.n)
-            _check_zero_order_hold(a, b, phi, gamma, view.dt)
-            q, r, s = sampled_data_cost(a, b, qc, rc, view.dt)
-        else:
-            q, r, s = qc, rc, np.zeros((6, 3))
-
-        self.slots = _pending_slots(view.observation)
-        d = len(self.slots)
-        phi_z, gamma_z = delay_augmented(phi, gamma, d)
-        q_z = np.zeros(phi_z.shape)
-        q_z[:6, :6] = q
-        s_z = np.zeros(gamma_z.shape)
-        if d:
-            # The cross term pairs x_k with the input acting on it, u_{k-d}, and the input weight
-            # moves to u_k: the infinite sum changes only by the already committed inputs.
-            q_z[:6, 6:9] = s
-            q_z[6:9, :6] = s.T
-        else:
-            s_z[:] = s
-        r_z = r
-        self.own_last = cfg.rate_weight > 0.0 and d == 0
-        if cfg.rate_weight > 0.0:
-            rd = cfg.rate_weight * np.eye(3) / accel_scale**2
-            if self.own_last:
-                phi_z, gamma_z, q_z, r_z, s_z = rate_augmented(phi_z, gamma_z, q_z, r_z, s_z, rd)
-            else:
-                # u_{k-1} is already the newest pending slot.
-                q_z[-3:, -3:] += rd
-                s_z[-3:] -= rd
-                r_z = r + rd
-        self.k, _ = dlqr(phi_z, gamma_z, q_z, r_z, s_z)
-
-        xs = np.concatenate([hold, np.zeros(3)])
-        self.us = steady_state_input(phi, gamma, xs)
-        if view.thrust_limit == "box":
-            size = float(np.max(np.abs(self.us)))
-        else:
-            size = float(np.linalg.norm(self.us))
-        if size > view.max_accel:
-            raise ValueError(
-                f"hold point needs {size:.2e} m/s^2 of steady thrust, above max_accel "
-                f"{view.max_accel}"
-            )
-        self.zs = np.concatenate([xs, np.tile(self.us, (len(phi_z) - 6) // 3)])
+        self.slots = model.slots
+        self.own_last = model.own_last
+        self.k = model.k
+        self.us = model.us
+        self.zs = model.zs
         self.last = np.zeros(3)
 
     def act(self, obs: np.ndarray, info: dict) -> np.ndarray:
