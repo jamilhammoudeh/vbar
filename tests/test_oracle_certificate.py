@@ -266,7 +266,7 @@ def test_a_verified_ball_plan_beats_the_two_impulse_plan_the_certificate_rejects
         thrust_limit="ball",
         goal={"hold_point": (0.0, 0.0, 0.0), "capture_radius": 1e-6, "capture_speed": 1e-6},
     )
-    sol = FuelOracle().solve(view, X0_ALFRIEND)
+    sol = FuelOracle().solve(view, X0_ALFRIEND, arrival_step=40)
     two = 0.03572017826320445
     # The oracle's 40-step plan costs 0.0339611, 4.9% below the two-impulse plan, and its
     # impulsive lower bound is 0.0318867 (independent computation).

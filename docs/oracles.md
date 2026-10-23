@@ -206,9 +206,10 @@ Code: `FuelOracle`, `OracleConfig` and `OracleSolution` in `vbar.oracles.fuel`, 
 `FuelOracle.solve(view, start, arrival_step=k)` bounds the least delta-v, in the norm of the
 thruster layout, that puts the chaser in the capture ball at the end of step $k$. The lower
 bounds are certificates from `dual_bound` and hold in continuous time; the upper bound is the
-cost of a plan flown by exact propagation. `FuelOracle.bounds(view, start)` returns the
-`FuelBounds` for $k$ = `max_steps` with every listed constraint hard, the `Oracle` protocol of
-the optimality gap metric.
+cost of a plan flown by exact propagation. Without `arrival_step` the final time is free; that
+case, the dwell of a hold goal, `FuelOracle.bounds` (the `Oracle` protocol of the optimality gap
+metric) and `DualBank` are described in
+[Free final time and the dual bank](#free-final-time-and-the-dual-bank).
 
 ### How it is built
 
@@ -268,9 +269,9 @@ when the end state lies within $(1 + \text{aim})/2$ of the capture radius and of
 speed and, if keep-out is hard, when the certified lower bound of `segment_minima` on the range
 margin is nonnegative on every step, sampled 20 times per step as the environment samples it.
 `upper` is the plan's cost $\Delta t\sum_j|\mathbf u_j|$ in the layout's norm. It is inf when no
-plan passed, when the capture radius or speed is zero, when the goal asks for a dwell
-(`hold_time` > 0), which the plan does not hold, or when a hard constraint other than keep-out is
-listed; that constraint is then named in `unmodelled`. With `hard=None` every listed constraint
+plan passed, when the capture radius or speed is zero, when the dwell of a hold goal does not
+fit after step $k$, or when a hard constraint other than keep-out is listed; that constraint is
+then named in `unmodelled`. With `hard=None` every listed constraint
 counts as hard. The `hard` argument of `solve` decides which listed constraints the plan is checked
 against: marking keep-out soft gives a finite upper bound that was not checked against it.
 `bounds` treats every listed constraint as hard.
@@ -288,16 +289,16 @@ optimality gap metric falls back to the impulsive bound for a run that exceeded 
 | `cut_rounds` | 20 | The bracket on the half-orbit ball transfer below closes within 0.5% |
 | `cut_tol` | $10^{-4}$ | Relative gap between a step's cutting-plane value and its 2-norm below which no cut is added |
 | `inner_directions` | 64 | Fibonacci directions that let the plan thrust where the cuts have not reached |
-| `arrival_step` | `max_steps` | `solve` only; 1 to `max_steps` |
+| `arrival_step` | None | `solve` only; 1 to `max_steps`, a free final time when None |
 | `hard` | every listed constraint | `solve` only; names of the hard constraints |
 
 ### Assumptions and limits
 
 - Exact CW motion with no other forcing. Every bound carries rung `"cw"` and is no theorem on
   another rung.
-- One arrival step. The bounds are for a chaser in the capture ball at the end of step $k$; a run
-  captured at another step, or one that must also hold a dwell, is not covered by them. `bounds`
-  takes $k$ = `max_steps`.
+- One arrival step. The bounds are for a chaser in the capture ball at the end of step $k$, and
+  with a dwell at the boundaries after it that the dwell covers; a run captured at another step
+  is not covered by them. The free final time is in the next section.
 - The lower bounds hold in continuous time for every acceleration history within `max_accel` in
   the actuator norm (`finite_lower`) or for any acceleration (`impulsive_lower`).
   `finite_optimum` and `upper` are step-grid values, for inputs held over each step, and differ
@@ -399,12 +400,235 @@ view = AgentView(
 )
 start = np.array([-200.0, -1500.0, 50.0, 0.0, 0.0, 0.0])
 
-sol = FuelOracle(config=OracleConfig(cells_per_step=500)).solve(view, start)
+sol = FuelOracle(config=OracleConfig(cells_per_step=500)).solve(view, start, arrival_step=40)
 assert 0.886695 <= sol.finite_lower <= sol.finite_optimum <= sol.upper
 assert abs(sol.finite_optimum - 0.8901371) < 1e-6
 assert abs(sol.upper - 0.8937729) < 1e-6
 assert sol.plan.shape == (40, 3) and np.abs(sol.plan).max() <= view.max_accel
 assert sol.bounds.rung == "cw" and sol.bounds.accel_limit == view.max_accel
+```
+
+## Free final time and the dual bank
+
+Code: `FuelOracle.solve` without `arrival_step`, `FuelOracle.bounds`, `DualBank` and
+`bounds_for` in `vbar.oracles.fuel`, exported from `vbar.oracles`. Hill frame, SI units.
+
+A run may reach the goal at any step, and a hold goal with a dwell must then stay in the capture
+ball for `hold_time`. `FuelOracle.solve(view, start)` bounds the least delta-v of a success at any
+time within the episode, and `FuelOracle.bounds(view, start)` returns those bounds with every
+listed constraint hard. `bounds_for(ep, oracle=None)` is the call a harness makes before
+`optimality_gap` or `evaluate`: the bounds from the episode's start with its hard constraints.
+`DualBank` gives lower bounds for many starts from one set of linear programs.
+
+### How it is built
+
+**Windows.** The capture predicate is strict, so a dwell is an open time interval of length at
+least `hold_time` in the open ball, and its closure, of the same length, lies in the closed ball.
+It contains at least $m = \lfloor \text{hold\_time}/\Delta t \rfloor$ step boundaries; without a
+dwell, $m = 1$. A success therefore puts the chaser in the closed ball at the boundaries
+$k, \dots, k + m - 1$ of some window $k$ from 1 to $N - m + 1$, $N$ = `max_steps`. With
+$0 < \text{hold\_time} < \Delta t$, $m = 0$: the dwell can fall between two boundaries, and both
+lower bounds are 0. A dwell longer than the episode raises `ValueError`.
+
+**Window bound.** For window $k$ and multipliers $\nu_j$ at $t_j = (k + j)\Delta t$,
+$j = 0, \dots, m - 1$, `dual_bound` gives
+
+$$
+LB_k(\nu) = \sum_j \bigl[\nu_j^T(\mathbf x_g - \Phi(t_j)\mathbf x_0) - \rho_r|\nu_{j,r}|_2
+- \rho_v|\nu_{j,v}|_2\bigr] - a\,E_k(\nu),
+$$
+
+with $E_k$ the certified excess integral over $[0, t_{m-1}]$, and the impulsive bound
+$D_k(\nu)/M_k(\nu)$ with $M_k$ the certified primer peak. The window's own multipliers come from
+the outer LP of the previous section with the box rows at all $m$ boundaries. For box thrusters
+the rows after the first boundary are written in state form,
+$\mathbf e_{i+1} = A\,\mathbf e_i + B\,\mathbf w_{k+i} + \mathbf d$, with $\mathbf e$ the scaled
+error from the goal state and $\mathbf d$ the goal's free drift over a step, so a long dwell keeps
+the program sparse; the multipliers are the reduced costs of the error variables. The free-final-
+time lower bound is $\max(0, \min_k \max_\nu LB_k(\nu))$ over the multipliers at hand, each a
+theorem whatever the solver returned.
+
+**Time shift.** The primer of multipliers at $t_j = (k + j)\Delta t$ depends on $t$ only through
+$\sigma = t_{m-1} - t$:
+
+$$
+\mathbf p(\sigma) = \sum_{j:\ \sigma \ge (m-1-j)\Delta t} B^T\Phi\bigl(\sigma - (m-1-j)\Delta t\bigr)^T\nu_j .
+$$
+
+Moving the same multipliers to window $k'$ moves only the upper end of the excess integral and of
+the peak, from $\sigma = (k + m - 1)\Delta t$ to $(k' + m - 1)\Delta t$. One profile per set of
+multipliers, accumulated step by step over $\sigma$ on the cells of `dual_bound`, therefore gives
+every window, and the displacement term is affine in the start,
+$C - G_{k'}\mathbf x_0$ with $G_{k'} = \sum_j \Phi(t'_j)^T\nu_j$. The rounding floor is
+$64\varepsilon$ times the sum of the absolute values of every product in the displacement term,
+at least the floor `dual_bound` takes, and the excess and peak carry the same $1 + 10^{-12}$.
+
+**Bank.** `DualBank.build(view, starts)` solves the LPs of windows $1, 1 + s, 1 + 2s, \dots$ and
+the last, $s$ = `bank_stride`, from every start and keeps their multipliers. `window_lowers(start)`
+is each window's largest bound over the kept multipliers, which can be negative, inf for windows
+that end after the episode; `bounds(start)` is a `FuelBounds` with `lower` the larger of 0 and the
+least window bound, `impulsive_lower` the same for the impulsive bounds, `upper` inf, rung
+`"cw"` and `accel_limit` = `max_accel`. A start, in the bank or not, costs one matrix product per
+kept set of multipliers.
+
+**Free final time in `solve`.** A one-start bank at `bank_stride` comes first; then the LP of the
+window whose bound is least is solved, and again, until that window has its own multipliers or
+`max_refinements` LPs are added; with 0 the bound is the bank's. The
+upper bound tries `arrival_candidates` arrival steps spread from $N - h$ down to 1, and the window
+whose lower bound is least, with $h = \lceil \text{hold\_time}/\Delta t \rceil$: the environment
+counts a dwell in whole steps from a step boundary, so a plan holds it for $h$ steps after
+arriving. Each inner LP aims inside the box of half-width
+$\text{aim}\cdot\rho/\sqrt3$ at the arrival boundary and the $h$ boundaries after it. Its plan,
+flown exactly, is accepted when it lies within $(1 + \text{aim})/2$ of the capture radius and
+speed at the arrival boundary and throughout the $h$ steps after it, and clears keep-out if that
+is hard. Between two of the 20 samples per step, $\delta$ apart, the distance from the goal
+grows by at most $M\delta^2/8$ over the larger of the two sampled ones, with $M$ the acceleration
+bound of `interval_bounds` for the position and $3n^2|\mathbf v| + 2n|\mathbf a|$ for the
+velocity, the thrust being constant over a step. `upper` is the cheapest accepted plan,
+`arrival_step` its arrival step (None without a plan) and `finite_optimum` NaN: the least outer
+LP optimum over the windows would need every window's LP, and the bank solves only some of them.
+
+**Fixed arrival with a dwell.** `solve(view, start, arrival_step=k)` with a dwell bounds membership
+at the boundaries $k$ to $\min(k + m - 1, N)$ and plans the dwell from step $k$ when
+$k + h \le N$; otherwise `upper` is inf.
+
+**Refusals.** A docking goal (contact is an event at a continuous time, not a hold at step
+boundaries) and a briefed target whose `goal["target"]["burns"]` is not empty (a relative
+acceleration the CW bound does not model) raise `ValueError` in `solve`, `bounds` and `DualBank`;
+a manoeuvring mode with an empty schedule adds no acceleration and is accepted.
+
+### Parameters and defaults
+
+| Parameter | Default | Reason |
+|---|---|---|
+| `arrival_candidates` | 16 | At most 17 inner LPs for the upper bound; any choice gives a valid upper bound |
+| `bank_stride` | 10 | A 360-step episode needs 37 window LPs per start; 1 solves every window |
+| `max_refinements` | 8 | Extra window LPs a free-final-time `solve` adds where the bound is least; caps the cost of a ball layout, whose window LPs are Kelley loops; 0 keeps the bank's bound |
+| `cells_per_step`, `aim`, `cut_rounds`, `cut_tol`, `inner_directions` | as above | Shared with the fixed window |
+| `hard` | every listed constraint | `solve` only; `bounds_for` passes the episode's hard constraints |
+| `oracle` | `FuelOracle()` | `bounds_for` only |
+
+### Assumptions and limits
+
+- The fixed window's assumptions hold: exact CW motion with no other forcing, rung `"cw"`, lower
+  bounds that relax path constraints and thrust inhibit, plans checked against keep-out and
+  thrust inhibit only.
+- A window whose LP is infeasible even without the thrust limit has no multipliers of its own; its
+  bound comes from multipliers shifted from other windows, which are valid there and may be weak.
+- The upper bound is the cheapest plan over the candidates, not over every window. The bracket is
+  wide when the dwell is long, since the plans aim inside a box of half-width
+  $\text{aim}\cdot\rho/\sqrt3$ through the whole dwell; the tests assert at most 8% on
+  approach-rbar and 17% on rbar-acquisition at shortened lengths.
+- The view carries the briefing only: a target that burns while the briefing says it does not is
+  not refused, and the bound is then a model bound.
+- `bounds_for` reads the true start `ep.start` and returns rung `"cw"` whatever the episode's
+  dynamics, so `optimality_gap` certifies it only on a CW run.
+- A ball layout solves one Kelley loop per window it visits, each of up to `cut_rounds` LPs, so
+  a free-final-time ball solve costs many times a fixed-window one; a fixed `arrival_step` or a
+  larger `bank_stride` keeps it short.
+
+### Validation
+
+Tests: `tests/test_fuel_oracle_free_time.py`. Values marked as independent were computed with a
+separate implementation of the window LPs (HiGHS on the state-space form) and of the cell bound;
+an independent every-window bound is the largest bound over the multipliers of every window's own
+LP shifted to it.
+
+- approach-rbar shortened to 100 steps, from its nominal start $(-400, 0, 0)$ m at rest, with its
+  600 s dwell, keep-out hard, 4 arrival candidates and a stride of 20: the plan keeps the strict
+  capture predicate at 50 samples per step through the dwell, stays more than 50 m from the
+  target and costs at most 8% above `finite_lower`; `finite_lower` is at most an independent
+  verified plan's cost, 2.4505454253 m/s, and `upper` at least the independent every-window
+  bound, 2.2669232883 m/s, both to $10^{-9}$. Without the dwell the bound is no higher, and with it
+  the bound is more than 0.5 m/s above the independent dwell-free bound 1.2434996264 m/s. A
+  halved lower bound would leave a bracket above 50%.
+- A one-start bank of the same case with the default stride: its lower bound is at most the
+  plan's cost and at least 95% of the solve's, `window_lowers` is finite for windows 1 to 41 and
+  inf after, and `lower` is the larger of 0 and their least.
+- rbar-acquisition shortened to 200 steps, from $(0, -3000, 0)$ m at rest to 500 m below the
+  target with a 300 s dwell: the bracket is at most 17%, the plan holds the dwell and stays more
+  than 200 m from the target, `finite_lower` is at most the independent verified plan's
+  4.9221014980 m/s and `upper` at least the independent every-window bound 4.1303658977 m/s; the
+  dwell lifts the bound more than 0.5 m/s above the independent
+  dwell-free 3.1400200881 m/s.
+- A bank of 20 starts drawn from the approach-vbar dispersion, 60 steps without the dwell, a
+  stride of 20: for every start its lower bound is at most the cost of the start's verified plan,
+  keep-out not checked, and at least 95% of the start's own free-time lower bound.
+- A start that drifts onto $(-100, 0, 0)$ m at rest at the end of step 17 of 20 s, at 500 km with a
+  ball of 0.01 m and $10^{-4}$ m/s, and misses it at every other boundary: with every window's own
+  LP, window 17's bound is at most 0 and every other at least 0.0072 m/s (independent 0.0072022);
+  with a stride of 10, window 17 is reached only by shifted multipliers and is still at most 0
+  while every other window is positive; both banks and `solve` report 0. A bank that skipped
+  window 17 would report a positive bound.
+- 30 steps of 20 s, a 1 m and 0.01 m/s ball at the origin, random starts within 200 m and
+  0.2 m/s per axis: the shifted bounds of a two-start bank stay below the verified fixed-arrival
+  plan at every odd window that has one, at least 10 of them, for a start in the bank and one
+  outside it, with at least 20 windows positive; for two starts the free-time lower bound is
+  positive and below every fixed-arrival plan at steps 3 to 30 by 3, and its plan lands in the
+  ball.
+- `hold_time` 5 s and 9.999 s at $\Delta t$ = 10 s give 0 from `solve` and from a bank; 10 s and
+  0 give positive bounds.
+- A briefed `Maneuvering` target raises in `solve` (free and fixed), `bounds` and
+  `DualBank.build`; the docking scenario raises; `bounds` equals the free-time solve's bounds;
+  `arrival_candidates` and `bank_stride` default to 16 and 10 and refuse 0.
+- approach-rbar with a 100 s dwell and keep-out as its only constraint, 50 steps, flown open loop
+  by an agent that solves the oracle from its first observation: the run succeeds, E3 is
+  certified, not below the bound and between 1 and upper over lower, E3u is 1 to $10^{-6}$, and
+  `bounds_for`'s upper bound equals the flown plan's cost to $10^{-12}$. A speed limit listed but
+  not hard for the run leaves `bounds_for` unchanged, while `bounds`, with every listed
+  constraint hard, has an infinite upper bound.
+
+### Example
+
+approach-rbar shortened to 100 steps from its nominal start, then a recorded run that flies the
+oracle's plan:
+
+```python
+from dataclasses import replace
+
+import numpy as np
+
+from vbar.metrics import optimality_gap, record_episode
+from vbar.oracles import DualBank, FuelOracle, OracleConfig, bounds_for
+from vbar.scenarios import HoldPointEnv, get, make
+
+view = replace(make("vbar:approach-rbar:cw:box:dv:v1").agent_view(), max_steps=100)
+draw = get("approach-rbar").nominal()
+start = np.r_[draw["start_pos"], draw["start_vel"]]
+
+config = OracleConfig(arrival_candidates=4, bank_stride=20)
+sol = FuelOracle(config=config).solve(view, start, hard={"keep_out"})
+# The 600 s dwell is 60 steps of 10 s after the arrival step.
+assert sol.plan.shape == (sol.arrival_step + 60, 3)
+assert (sol.upper - sol.finite_lower) / sol.upper <= 0.08
+
+bank = DualBank.build(view, [start], config=config)
+lows = bank.window_lowers(start)
+assert np.all(np.isinf(lows[41:])) and bank.bounds(start).lower == max(0.0, lows.min())
+assert bank.bounds(start).lower <= sol.upper
+
+
+class OpenLoopOracle:
+    name = "open-loop-oracle"
+
+    def reset(self, view, rng=None):
+        self.view, self.plan, self.step = view, None, 0
+
+    def act(self, obs, info):
+        if self.plan is None:
+            self.plan = FuelOracle(config=config).solve(self.view, obs).plan
+        u = self.plan[self.step] if self.step < len(self.plan) else np.zeros(3)
+        self.step += 1
+        return u / self.view.max_accel
+
+
+spec = get("approach-rbar")
+short = {**spec.parameters, "hold_time": 100.0, "closing_limit": None, "passive_axis": None}
+env = HoldPointEnv(replace(spec, parameters={**short, "soft": ()}), {"max_steps": 50})
+ep = record_episode(env, OpenLoopOracle(), seed=7, agent_seed=8)
+gap = optimality_gap(ep, bounds_for(ep, oracle=FuelOracle(config=config)))
+assert gap["bound_certified"] and not gap["below_lower_bound"]
+assert gap["optimality_gap"] >= 1.0 and abs(gap["optimality_gap_upper"] - 1.0) < 1e-6
 ```
 
 ## Exact constrained LQ value
