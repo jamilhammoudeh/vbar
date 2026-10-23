@@ -3,19 +3,36 @@ import math
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from scipy.integrate import solve_ivp
+from scipy.linalg import solve_discrete_are
 from scipy.stats import norm
 
+from vbar.dynamics import EARTH, cw_discrete, mean_motion
+from vbar.reach import LinearLoop, Zonotope, cw_loop, support
 from vbar.safety.tightening import (
     BallError,
     BoxError,
     EllipsoidError,
+    box_hull,
     chance_margin,
+    delay_margin,
     ecbf_bias,
     first_order_bias,
     halfspace_margin,
     keep_out_margin,
+    per_draw_sigma,
+    scenario_margin,
+    scenario_sample_count,
+    tube_margin,
 )
+from vbar.solvers import ActuatorSet
+
+N_500 = mean_motion(EARTH.radius + 500e3)
+# Execution error at full thrust a_max = 0.02 m/s^2: 2% scale, 0.5% noise and 1 deg
+# misalignment, per axis a_max (0.025 + sqrt(3) sin 1 deg) = 1.1046e-3 m/s^2 (5.5% of a_max).
+DA_EXE = 0.02 * (0.025 + math.sqrt(3.0) * math.sin(math.radians(1.0)))
 
 
 def unit_rows(rng, count, dim):
@@ -229,3 +246,315 @@ def test_error_sets_and_biases_refuse_invalid_parameters():
         first_order_bias(1e-4, 0.0)
     with pytest.raises(TypeError, match="unknown"):
         halfspace_margin(np.ones(6), "box")
+
+
+def lqr_gain(phi, gamma, q, r):
+    """The discrete LQR gain K of u = K x."""
+    p = solve_discrete_are(phi, gamma, q, r)
+    return -np.linalg.solve(r + gamma.T @ p @ gamma, gamma.T @ p @ phi)
+
+
+def support_sum(a_k, w_bar, a, terms):
+    """sum_{j < terms} |a . A_K^j| w_bar, the support of the box tube along a."""
+    rows, lam = np.empty((terms, len(w_bar))), np.asarray(a, dtype=float)
+    for j in range(terms):
+        rows[j] = lam
+        lam = lam @ a_k
+    return float(np.sum(np.abs(rows) @ w_bar))
+
+
+def k22_loop():
+    """The CW LQR loop with Q = diag(1e-2, 10), R = 1e3 I at dt = 10 s, 500 km."""
+    phi, gamma = cw_discrete(N_500, 10.0)
+    k = lqr_gain(phi, gamma, np.diag([1e-2] * 3 + [10.0] * 3), 1e3 * np.eye(3))
+    # The disturbance bound is |Gamma 1| x 2e-4, the image of one corner of the 2e-4 m/s^2 box,
+    # not its box hull |Gamma| 1 x 2e-4; the known answers below are computed with this w_bar.
+    w_bar = np.abs(gamma @ np.full(3, 2e-4))
+    return phi + gamma @ k, w_bar
+
+
+def test_box_hull_of_a_box_is_the_largest_vertex_image_per_axis():
+    _, gamma = cw_discrete(N_500, 10.0)
+    w = Zonotope.box(np.zeros(3), np.full(3, DA_EXE))
+    vertices = np.array(list(itertools.product((-1.0, 1.0), repeat=3))) * DA_EXE
+    h = box_hull(gamma, w)
+    assert h.shape == (6,)
+    np.testing.assert_allclose(h, np.max(vertices @ gamma.T, axis=0), rtol=1e-12)
+    np.testing.assert_allclose(h, np.abs(gamma) @ np.full(3, DA_EXE), rtol=1e-12)
+
+
+def test_box_hull_of_a_thrust_ball_is_a_max_times_the_row_norms():
+    _, gamma = cw_discrete(N_500, 10.0)
+    h = box_hull(gamma, ActuatorSet(0.02, "ball"))
+    np.testing.assert_allclose(h, 0.02 * np.linalg.norm(gamma, axis=1), rtol=1e-12)
+
+
+def test_box_hull_along_track_exceeds_the_image_of_one_corner():
+    _, gamma = cw_discrete(N_500, 10.0)
+    h = box_hull(gamma, Zonotope.box(np.zeros(3), np.full(3, 2e-4)))
+    corner = np.abs(gamma @ np.full(3, 2e-4))
+    # The Coriolis entries of Gamma add along y and v_y in the hull and cancel at the corner:
+    # 1.00734e-2 m against 9.92581e-3 m.
+    assert h[1] > corner[1] * 1.01
+    assert np.all(h >= corner * (1.0 - 1e-12))
+
+
+def test_tube_margin_of_the_scalar_loop_is_two():
+    # Rawlings, Mayne and Diehl (2nd ed.), sec. 5.3.5, p. 347: A_K = 0.5, W = [-1, 1] gives
+    # phi_inf = 1 / (1 - 0.5) = 2, which (1 - alpha)^-1 phi_N reproduces at every N. The printed
+    # factor (1 - alpha^-1) gives a negative margin, and phi_N alone misses the tail.
+    assert tube_margin(np.array([[0.5]]), np.array([1.0]), np.array([1.0])) == pytest.approx(
+        2.0, rel=1e-12
+    )
+
+
+def test_tube_margin_of_the_cw_lqr_loop_bounds_the_infinite_sum():
+    a_k, w_bar = k22_loop()
+    c = np.eye(6)[0]
+    bound = tube_margin(a_k, w_bar, c)
+    # First N with max_i (|A_K^N| w_bar)_i / w_bar_i < 0.5 is N = 8, alpha = 0.3752,
+    # phi_8 = 0.10660 m, so phi_8 / (1 - alpha) = 0.17061 m; the factor is (1 - alpha)^-1 per
+    # the corrected sec. 5.3.5 of Rawlings, Mayne and Diehl.
+    assert bound == pytest.approx(0.17061, rel=1e-4)
+    phi_8 = support_sum(a_k, w_bar, c, 8)
+    assert phi_8 == pytest.approx(0.10660, rel=1e-4)
+    # 20000 terms of a loop with spectral radius 0.712 leave no tail.
+    phi_inf = support_sum(a_k, w_bar, c, 20000)
+    assert phi_inf == pytest.approx(0.11978, rel=1e-4)
+    assert phi_8 < phi_inf <= bound
+
+
+def test_tube_margin_uses_the_first_n_below_alpha_and_its_own_ratio():
+    a_k, w_bar = k22_loop()
+    c = np.eye(6)[0]
+    m8 = np.linalg.matrix_power(a_k, 8)
+    alpha_8 = float(np.max((np.abs(m8) @ w_bar) / w_bar))
+    assert alpha_8 == pytest.approx(0.3752, abs=1e-4)
+    expected = support_sum(a_k, w_bar, c, 8) / (1.0 - alpha_8)
+    assert tube_margin(a_k, w_bar, c) == pytest.approx(expected, rel=1e-12)
+    assert tube_margin(a_k, w_bar, c, alpha=0.3753) == pytest.approx(expected, rel=1e-12)
+    assert tube_margin(a_k, w_bar, c, alpha=0.3751) != pytest.approx(expected, rel=1e-6)
+
+
+@pytest.mark.parametrize(
+    "alpha, big_n, alpha_n",
+    # Rawlings, Mayne and Diehl, Example 3.13, pp. 231 to 233: alpha(N) = 2, 1.4, 0.72, 0.296,
+    # 0.0928 for N = 1 to 5, so alpha < 1 first at N = 3.
+    [(1.0, 3, 0.72), (0.3, 4, 0.296), (0.1, 5, 0.0928)],
+)
+def test_tube_margin_reproduces_the_contraction_steps_of_example_3_13(alpha, big_n, alpha_n):
+    a_k = np.array([[1.0, 1.0], [0.0, 1.0]]) + np.array([[0.0], [1.0]]) @ np.array([[-0.4, -1.2]])
+    w_bar = np.array([0.1, 0.1])
+    c = np.array([1.0, 0.0])
+    expected = support_sum(a_k, w_bar, c, big_n) / (1.0 - alpha_n)
+    assert tube_margin(a_k, w_bar, c, alpha=alpha) == pytest.approx(expected, rel=1e-9)
+
+
+def test_example_3_25_tube_half_width_is_one_minus_two_to_the_minus_i():
+    # Rawlings, Mayne and Diehl, Example 3.25, p. 254: K = -1/2 (printed 1/2), A_K = 1/2,
+    # w uniform on [-1/2, 1/2], so S_K(i) has half-width 1 - 2^-i and S_K(inf) half-width 1.
+    loop = LinearLoop(np.array([[0.5]]), np.array([[1.0]]), np.zeros(1))
+    w = Zonotope.box(np.zeros(1), np.array([0.5]))
+    for i in range(6):
+        assert support(loop, np.zeros(1), w, np.ones(1), i) == pytest.approx(1 - 2.0**-i, abs=1e-12)
+    assert tube_margin(np.array([[0.5]]), np.array([0.5]), np.ones(1)) == pytest.approx(
+        1.0, rel=1e-12
+    )
+
+
+def test_tube_margin_bounds_the_lqr_tubes_of_execution_and_navigation_error():
+    a_max = 0.02
+    phi, gamma = cw_discrete(N_500, 10.0)
+    k = lqr_gain(phi, gamma, np.diag([1 / 10.0**2] * 3 + [1 / 0.1**2] * 3), np.eye(3) / a_max**2)
+    a_k = phi + gamma @ k
+    exe_loop = LinearLoop(a_k, gamma, np.zeros(6))
+    exe_box = Zonotope.box(np.zeros(3), np.full(3, DA_EXE))
+    nav_loop = cw_loop(N_500, 10.0, gain=-k)
+    # Navigation error treated as a 3-sigma box of 3 m and 3 mm/s.
+    nav_box = Zonotope.box(np.zeros(6), np.array([3.0] * 3 + [3e-3] * 3))
+    exe_hull = box_hull(gamma, exe_box)
+    nav_hull = box_hull(nav_loop.B, nav_box)
+    exe_tube, nav_tube, exe_bound, nav_bound = [], [], [], []
+    for e in np.eye(6):
+        # Spectral radius 0.905: 400 terms leave a tail below 1e-16 of the sum.
+        exe_tube.append(support(exe_loop, np.zeros(6), exe_box, e, 400))
+        nav_tube.append(support(nav_loop, np.zeros(6), nav_box, e, 400))
+        exe_bound.append(tube_margin(a_k, exe_hull, e))
+        nav_bound.append(tube_margin(a_k, nav_hull, e))
+    # Largest per-axis tubes of this loop: 1.42 m and 0.024 m/s under execution error,
+    # 3.35 m and 0.057 m/s under the navigation box.
+    assert max(exe_tube[:3]) == pytest.approx(1.42, abs=0.005)
+    assert max(exe_tube[3:]) == pytest.approx(0.024, abs=0.0005)
+    assert max(nav_tube[:3]) == pytest.approx(3.35, abs=0.015)
+    assert max(nav_tube[3:]) == pytest.approx(0.057, abs=0.0005)
+    assert np.all(np.array(exe_bound) >= np.array(exe_tube))
+    assert np.all(np.array(nav_bound) >= np.array(nav_tube))
+
+
+@settings(max_examples=25, deadline=None)
+@given(
+    dim=st.integers(2, 4),
+    entries=st.lists(st.floats(-1.0, 1.0), min_size=16, max_size=16),
+    radius=st.floats(0.1, 0.9),
+    widths=st.lists(st.floats(1e-3, 1.0), min_size=4, max_size=4),
+    direction=st.lists(st.floats(-1.0, 1.0), min_size=4, max_size=4),
+)
+def test_tube_margin_bounds_every_finite_reach_support(dim, entries, radius, widths, direction):
+    a_k = np.array(entries[: dim * dim]).reshape(dim, dim)
+    rho = float(np.max(np.abs(np.linalg.eigvals(a_k))))
+    if rho > 1e-6:
+        a_k *= radius / rho
+    w_bar = np.array(widths[:dim])
+    a = np.array(direction[:dim])
+    loop = LinearLoop(a_k, np.eye(dim), np.zeros(dim))
+    finite = support(loop, np.zeros(dim), Zonotope.box(np.zeros(dim), w_bar), a, 150)
+    assert finite <= tube_margin(a_k, w_bar, a) * (1.0 + 1e-9) + 1e-12
+
+
+def test_tube_margin_refuses_unstable_loops_zero_widths_and_bad_alpha():
+    with pytest.raises(ValueError):
+        tube_margin(np.diag([1.0, 0.5]), np.array([0.1, 0.1]), np.array([1.0, 0.0]))
+    with pytest.raises(ValueError):
+        tube_margin(np.diag([1.2, 0.3]), np.array([0.1, 0.1]), np.array([1.0, 0.0]))
+    with pytest.raises(ValueError, match="w_bar"):
+        tube_margin(np.diag([0.5, 0.5]), np.array([0.1, 0.0]), np.array([1.0, 0.0]))
+    with pytest.raises(ValueError):
+        tube_margin(np.diag([0.5, 0.5]), np.array([0.1, 0.1]), np.array([1.0, 0.0]), alpha=0.0)
+    with pytest.raises(ValueError):
+        tube_margin(np.diag([0.5, 0.5]), np.array([0.1, 0.1]), np.array([1.0, 0.0]), alpha=1.5)
+
+
+def test_tube_margin_at_alpha_one_waits_for_a_strict_contraction():
+    # A_K = [[0, 1], [0, 0]] maps the unit box onto the segment |x_1| <= 1, x_2 = 0, so
+    # alpha_1 = 1 is not below 1; A_K^2 = 0 gives alpha_2 = 0 and phi_2 = 1 + 1 = 2.
+    a_k = np.array([[0.0, 1.0], [0.0, 0.0]])
+    margin = tube_margin(a_k, np.array([1.0, 1.0]), np.array([1.0, 0.0]), alpha=1.0)
+    assert margin == pytest.approx(2.0, rel=1e-12)
+
+
+def test_delay_margin_of_one_step_is_the_execution_error_through_gamma():
+    _, gamma = cw_discrete(N_500, 10.0)
+    w = Zonotope.box(np.zeros(3), np.full(3, DA_EXE))
+    # Cross-track the step is uncoupled: dt^2 / 2 x 1.1046e-3 = 0.0552 m and
+    # dt x 1.1046e-3 = 0.01105 m/s.
+    assert delay_margin(N_500, 10.0, 10.0, w, np.eye(6)[2]) == pytest.approx(0.0552, rel=0.01)
+    assert delay_margin(N_500, 10.0, 10.0, w, np.eye(6)[5]) == pytest.approx(0.01105, rel=0.01)
+    hull = box_hull(gamma, w)
+    for i, e in enumerate(np.eye(6)):
+        assert delay_margin(N_500, 10.0, 10.0, w, e) == pytest.approx(hull[i], rel=1e-12)
+
+
+def test_delay_margin_is_the_open_loop_reach_support():
+    rng = np.random.default_rng(47)
+    w = Zonotope.box(np.zeros(3), np.full(3, DA_EXE))
+    loop = cw_loop(N_500, 10.0)
+    for _ in range(20):
+        a = rng.uniform(-1.0, 1.0, 6)
+        expected = support(loop, np.zeros(6), w, a, 3)
+        assert delay_margin(N_500, 10.0, 30.0, w, a) == pytest.approx(expected, rel=1e-12)
+    assert delay_margin(N_500, 10.0, 0.0, w, np.ones(6)) == 0.0
+
+
+def test_delay_margin_grows_without_bound_along_track_with_no_feedback():
+    w = Zonotope.box(np.zeros(3), np.full(3, DA_EXE))
+    e_y = np.eye(6)[1]
+    # Open-loop along-track half-widths of the 5.5% execution error: 719 m after 100 steps and
+    # 2.47e4 m after 360 steps (one hour at dt = 10 s); a feedback gain would keep them near 1.4 m.
+    assert delay_margin(N_500, 10.0, 1000.0, w, e_y) == pytest.approx(719.0, abs=0.5)
+    assert delay_margin(N_500, 10.0, 3600.0, w, e_y) == pytest.approx(2.47e4, abs=50.0)
+
+
+def test_delay_margin_refuses_a_negative_delay():
+    w = Zonotope.box(np.zeros(3), np.full(3, DA_EXE))
+    with pytest.raises(ValueError):
+        delay_margin(N_500, 10.0, -10.0, w, np.ones(6))
+
+
+def test_delay_margin_takes_only_whole_steps_rounded_to_the_nearest():
+    w = Zonotope.box(np.zeros(3), np.full(3, DA_EXE))
+    with pytest.raises(ValueError, match="whole number"):
+        delay_margin(N_500, 10.0, 15.0, w, np.ones(6))
+    # 0.3 / 0.1 is 2.9999999999999996 in floating point: three steps, not two.
+    expected = support(cw_loop(N_500, 0.1), np.zeros(6), w, np.ones(6), 3)
+    assert delay_margin(N_500, 0.1, 0.3, w, np.ones(6)) == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.parametrize("draws, sigma", [(1080, 4.91), (2160, 5.04)])
+def test_per_draw_sigma_splits_eps_over_both_tails_of_every_draw(draws, sigma):
+    # Phi^-1(1 - 1e-3 / (2 draws)) = 4.9068 at 1080 draws and 5.0411 at 2160; without the union
+    # over draws it would be Phi^-1(1 - 5e-4) = 3.29.
+    assert per_draw_sigma(1e-3, draws) == pytest.approx(sigma, abs=0.005)
+    assert per_draw_sigma(1e-3, draws) == pytest.approx(norm.isf(1e-3 / (2 * draws)), rel=1e-12)
+
+
+def test_per_draw_sigma_refuses_invalid_eps_and_draws():
+    with pytest.raises(ValueError):
+        per_draw_sigma(0.0, 1080)
+    with pytest.raises(ValueError):
+        per_draw_sigma(1.5, 1080)
+    with pytest.raises(ValueError):
+        per_draw_sigma(1e-3, 0)
+    with pytest.raises(TypeError):
+        per_draw_sigma(1e-3, True)
+
+
+@pytest.mark.parametrize("eps, count", [(0.1, 113), (0.01, 1122), (0.001, 11211)])
+def test_scenario_sample_count_is_the_ceiling_of_eq_3_25(eps, count):
+    # Rawlings, Mayne and Diehl, eq. (3.25): M* = (2 / eps)(ln(1 / beta) + n_theta) = 112.10,
+    # 1121.03 and 11210.3 at beta = 0.01 and n_theta = 1.
+    m = scenario_sample_count(eps=eps, beta=0.01, n_theta=1)
+    assert m == count
+    assert isinstance(m, int)
+
+
+def test_scenario_sample_count_refuses_invalid_eps_and_beta():
+    with pytest.raises(ValueError):
+        scenario_sample_count(eps=0.0, beta=0.01, n_theta=1)
+    with pytest.raises(ValueError):
+        scenario_sample_count(eps=0.1, beta=0.0, n_theta=1)
+    with pytest.raises(TypeError):
+        scenario_sample_count(eps=0.1, beta=0.01, n_theta=True)
+
+
+@pytest.mark.parametrize("eps, count", [(0.1, 133), (0.01, 1322)])
+def test_scenario_sample_count_grows_with_the_decision_variables(eps, count):
+    # Eq. (3.25) with n_theta = 2 and beta = 0.01: (2 / eps)(ln 100 + 2) = 132.10 and 1321.03.
+    assert scenario_sample_count(eps=eps, beta=0.01, n_theta=2) == count
+
+
+def test_scenario_margin_has_one_decision_variable():
+    # The margin program min theta s.t. a . e(i) <= theta has n_theta = 1, so 113 draws suffice
+    # at eps = 0.1, beta = 0.01, fewer than the 133 that n_theta = 2 would need.
+    rng = np.random.default_rng(61)
+    samples = rng.standard_normal((113, 6))
+    a = np.ones(6)
+    assert scenario_margin(a, samples, eps=0.1, beta=0.01) == pytest.approx(
+        float(np.max(samples @ a)), rel=1e-12
+    )
+
+
+def test_scenario_functions_take_eps_and_beta_by_keyword_only():
+    with pytest.raises(TypeError):
+        scenario_sample_count(0.1, 0.01)
+    with pytest.raises(TypeError):
+        scenario_margin(np.ones(6), np.zeros((113, 6)), 0.1, 0.01)
+
+
+def test_scenario_margin_is_the_largest_draw_and_needs_m_star_draws():
+    rng = np.random.default_rng(53)
+    a = rng.uniform(-1.0, 1.0, 6)
+    samples = rng.standard_normal((113, 6))
+    margin = scenario_margin(a, samples, eps=0.1, beta=0.01)
+    assert margin == pytest.approx(float(np.max(samples @ a)), rel=1e-12)
+    with pytest.raises(ValueError):
+        scenario_margin(a, samples[:112], eps=0.1, beta=0.01)
+
+
+def test_scenario_margin_is_exceeded_less_often_than_eps():
+    rng = np.random.default_rng(59)
+    root = rng.uniform(-1.0, 1.0, (6, 6))
+    a = rng.uniform(-1.0, 1.0, 6)
+    margin = scenario_margin(a, rng.standard_normal((1122, 6)) @ root.T, eps=0.01, beta=0.01)
+    fresh = rng.standard_normal((200000, 6)) @ root.T
+    # The maximum of 1122 draws is exceeded with probability 1 / 1123 on average.
+    assert np.mean(fresh @ a > margin) < 0.01

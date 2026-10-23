@@ -3,11 +3,12 @@
 Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`,
 `keep_out_projection`, `KeepOutProjection`) and `vbar.safety.tightening` (`BoxError`, `BallError`,
 `EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `ecbf_bias`,
-`first_order_bias`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`, `ClosingSpeedCbf`,
-`ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`), `vbar.safety.sampled`
-(`held_segment_bound`, `line_search`, `LineSearch`), `vbar.safety.cbf` (`CbfFilter`,
-`BackupFilter`, `SoftCbfFilter`, `FilterDeclaration`) and `vbar.safety.audit` (`audit_filter`,
-`FilterAudit`, `RunAudit`, `Refinement`, `FlaggedDecision`).
+`first_order_bias`, `box_hull`, `tube_margin`, `delay_margin`, `per_draw_sigma`,
+`scenario_sample_count`, `scenario_margin`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`,
+`ClosingSpeedCbf`, `ConeEcbf`, `PassiveBarrier`, `BrakingBarrier`, `braking_deceleration`),
+`vbar.safety.sampled` (`held_segment_bound`, `line_search`, `LineSearch`), `vbar.safety.cbf`
+(`CbfFilter`, `BackupFilter`, `SoftCbfFilter`, `FilterDeclaration`) and `vbar.safety.audit`
+(`audit_filter`, `FilterAudit`, `RunAudit`, `Refinement`, `FlaggedDecision`).
 
 A safety filter sits between an agent and the spacecraft and changes a command only when it would
 lead out of a safe set. This page starts with the building blocks the filters use: closed-form
@@ -137,6 +138,76 @@ which settles at $h = -\delta a / (p_1 p_2)$. `ecbf_bias(da_max, poles)` returns
 $\delta a_{\max} / (p_1 p_2)$ in m, the amount by which the barrier must be moved out. For a
 first-order barrier $\dot h = -\gamma h - \delta a$, `first_order_bias(da_max, gamma)` returns
 $\delta a_{\max} / \gamma$ in the barrier's units. Poles and gains must be positive.
+
+### Tubes, delays and sampled margins
+
+The sets above bound the error at one decision. A predictive filter or an MPC also needs the error
+that a disturbance builds up over many steps. Each function below returns $h(a)$ for a row
+$a \cdot x \le d$, met on the whole set when the nominal state meets $a \cdot \hat x \le d - h(a)$.
+The box tube is symmetric, so the same margin serves $a \cdot x \ge b$; for the delay and
+sampled margins, whose sets need not be symmetric, pass $-a$ for such a row.
+
+`box_hull(B, W)` returns $h_{BW}(e_i) = h_W(B^T e_i)$ on each state axis, the half-widths of the
+smallest box around $B W$ when $W$ is symmetric. $W$ is a `Zonotope`, `Polytope` or `ActuatorSet`
+from `vbar.reach` and `vbar.solvers`; the values are one step of `vbar.reach.support`. A thrust
+error that enters through $\Gamma$ (6x3) spans only three dimensions, so $A_K^N \Gamma W$ never
+lies inside $\alpha \Gamma W$ and the contraction test below cannot pass on it (Rawlings, Mayne and
+Diehl, sec. 3.5.3, Example 3.13); its box hull has interior. Along-track the hull is wider than the
+image of one corner of $W$, since the Coriolis entries of $\Gamma$ add in the hull and cancel at
+the corner.
+
+`tube_margin(A_K, w_bar, a, alpha=0.5)` bounds the support of the infinite tube
+$S = \sum_{j \ge 0} A_K^j W$ of the loop $x^+ = A_K x + w$ under the box $|w_i| \le \bar w_i$, the
+error a feedback $u = K x$ leaves around a nominal plan. Its support is
+$\phi_\infty = \sum_{j \ge 0} |a \cdot A_K^j| \bar w$, and with $\phi_N$ the first $N$ terms,
+
+$$
+\alpha_N = \max_i \frac{(|A_K^N| \bar w)_i}{\bar w_i}, \qquad
+h_S(a) \le \frac{\phi_N}{1 - \alpha_N},
+$$
+
+at the first $N \ge 1$ with $\alpha_N$ below `alpha`. The bound holds because $A_K^N W \subseteq
+\alpha_N W$ gives $S \subseteq S_N + \alpha_N S$ (Rawlings, Mayne and Diehl, 2nd ed., sec. 3.5.3
+and sec. 5.3.5, p. 347). The book prints the state tightening there with the factor
+$(1 - \alpha^{-1})$, which is negative and would loosen the constraint; the factor
+$(1 - \alpha)^{-1}$, which the same page prints for the input constraint, is the one used. The
+attained $\alpha_N$ sets the factor, which is tighter than the threshold. `alpha` lies in
+$(0, 1]$; at 1 the first $N$ with $A_K^N W$ strictly inside $W$ is used, where $\alpha_N < 1$, so
+the margin is finite and comes from the fewest terms. A smaller `alpha` sums more terms, and the
+bound approaches $\phi_\infty$. The spectral radius of $A_K$ must be below 1 and every $\bar w_i$ positive,
+otherwise `ValueError`; the search stops with `ValueError` after 100 000 powers. The margin holds
+only while the feedback $K$ the tube assumes is applied and the commands stay inside the thrust
+limit after the tightening.
+
+`delay_margin(n, dt, delay_s, W, a)` is the support along $a$ of the error that commands already
+sent build up while they are pending: the open-loop reachable set of $e^+ = \Phi e + \Gamma w$
+from $e = 0$ after `delay_s / dt` steps, computed by `support` on `cw_loop(n, dt)` without a gain
+(Kochenderfer et al., *Algorithms for Validation*, eq. 8.20), with $W$ the error of each held
+acceleration in m/s$^2$. No feedback acts in that window, so along-track the margin grows without
+bound: 719 m after 100 steps and 24.7 km after one hour at a 5.5% execution error, where an LQR
+tube of the same error stays near 1.4 m. The delay must be a whole number of steps, to 1e-9 of a
+step, and nonnegative; otherwise `ValueError`. A delay of zero gives 0.
+
+`per_draw_sigma(eps, draws)` is $k = \Phi^{-1}(1 - \epsilon / (2 \cdot \text{draws}))$. Each
+Gaussian draw leaves $[-k\sigma, k\sigma]$ with probability $2 \Phi(-k) = \epsilon / \text{draws}$,
+so by Boole's inequality any draw does with probability at most $\epsilon$, however the draws are
+correlated: 4.907 at 1080 draws and 5.041 at 2160 for $\epsilon = 10^{-3}$, against 3.29 for a
+single draw. Pass it as `k` to `EllipsoidError.from_gaussian`, or use
+$\eta = 1 - \epsilon / (2 \cdot \text{draws})$ in `chance_margin`.
+
+`scenario_margin(a, samples, eps=..., beta=...)` is $\max_i a \cdot e^{(i)}$ over sampled errors,
+the solution of the scenario program $\min \theta$ subject to $a \cdot e^{(i)} \le \theta$
+(Rawlings, Mayne and Diehl, sec. 3.7.3, eq. 3.24). It has one decision variable, so with at least
+
+$$
+M^* = \left\lceil \frac{2}{\epsilon} \left(\ln \frac{1}{\beta} + n_\theta\right) \right\rceil
+$$
+
+independent draws (eq. 3.25, $n_\theta = 1$) a new error exceeds it with probability at most
+$\epsilon$, at confidence $1 - \beta$ over the draws. `scenario_sample_count(eps=..., beta=...,
+n_theta=1)` returns $M^*$: 113, 1122 and 11211 at $\epsilon$ = 0.1, 0.01 and 0.001 with
+$\beta = 0.01$. Fewer draws raise `ValueError`. The draws must come from the law the run uses,
+and the guarantee is per row and per decision; several rows or decisions need a union bound.
 
 ## Control barrier functions
 
@@ -951,6 +1022,34 @@ The tests in `tests/test_safety_tightening.py` check:
   $(0.1, 2\cdot10^{-4})$ and $(0.05, 2\cdot10^{-5})$ with a double pole, to 1e-5 m, and equals minus
   the steady state of the barrier dynamics integrated numerically for the poles (0.05, 0.05),
   (0.03, 0.08) and (0.02, 0.5); `first_order_bias` likewise.
+- `box_hull` of a box equals the largest vertex image on each axis and $|\Gamma| \bar w$, of a
+  thrust ball $a_{\max}$ times the row norms of $\Gamma$, to 1e-12; along-track it exceeds the
+  image of one corner by more than 1%.
+- `tube_margin` gives 2 for $A_K = 0.5$, $W = [-1, 1]$, where the printed factor of sec. 5.3.5
+  gives -1 and $\phi_N$ alone misses the tail. On a CW LQR loop ($Q$ = diag(1e-2, 10),
+  $R = 10^3 I$, 10 s steps, 500 km) it stops at $N = 8$ with $\alpha_8 = 0.3752$,
+  $\phi_8 = 0.10660$ m and the bound 0.17061 m to 1e-4, which lies above $\phi_\infty = 0.11978$ m
+  summed over 20 000 terms; a threshold just above $\alpha_8$ gives the same bound and one just
+  below gives another. It
+  reproduces Example 3.13 (pp. 231 to 233): $\alpha_N$ below 1 first at $N = 3$ (0.72), below 0.3
+  at $N = 4$ (0.296) and below 0.1 at $N = 5$ (0.0928). For Example 3.25 (p. 254, with
+  $K = -1/2$) `support` gives the tube half-widths $1 - 2^{-i}$ and `tube_margin` the limit 1.
+- On an LQR loop under the 5.5% execution error and a 3 m, 3 mm/s navigation box, the per-axis
+  tubes summed over 400 steps peak at 1.42 m and 0.024 m/s, and 3.35 m and 0.057 m/s, and
+  `tube_margin` of each box hull bounds every axis; on 25 drawn loops of spectral radius 0.1 to
+  0.9 it bounds the 150-step support.
+- `delay_margin` over one step equals `box_hull` on every axis, cross-track 0.0552 m and
+  0.01105 m/s to 1%; over three steps it equals `support` on the open loop to 1e-12 for 20 random
+  rows; along-track it reaches 719 m after 100 steps and 2.47e4 m after 360. A delay of zero
+  gives 0.
+- `per_draw_sigma(1e-3, draws)` is 4.91 at 1080 draws and 5.04 at 2160, equal to
+  `scipy.stats.norm.isf` of $\epsilon / (2 \cdot \text{draws})$ to 1e-12.
+- `scenario_sample_count` returns the integers 113, 1122 and 11211 (eq. 3.25 at $\beta = 0.01$,
+  $n_\theta = 1$). `scenario_margin` equals the largest projected draw and refuses 112 draws at
+  $\epsilon = 0.1$; from 1122 draws at $\epsilon = 0.01$ it is exceeded by fewer than 1% of
+  200 000 fresh draws.
+- Unstable loops, zero half-widths, `alpha` of 0 or 1.5, negative delays, `eps` of 0 or 1.5, zero
+  draws and `beta` of 0 raise `ValueError`.
 
 The tests in `tests/test_safety_barriers.py` check:
 
@@ -1169,6 +1268,40 @@ error = EllipsoidError.from_gaussian(cov, 3.0)
 print(round(halfspace_margin(a, error), 6), f"{error.exceedance:.4f}")  # 3.0 0.1736
 print(round(chance_margin(a, cov, 1.0 - 1e-6), 3))  # 4.753
 print(round(ecbf_bias(2e-4, (0.05, 0.05)), 6))  # 0.08
+```
+
+```python
+import numpy as np
+from scipy.linalg import solve_discrete_are
+
+from vbar.dynamics import cw_discrete, mean_motion
+from vbar.reach import Zonotope
+from vbar.safety.tightening import (
+    box_hull,
+    delay_margin,
+    per_draw_sigma,
+    scenario_margin,
+    scenario_sample_count,
+    tube_margin,
+)
+
+n = mean_motion(6378137.0 + 500e3)  # rad/s, 500 km circular
+phi, gamma = cw_discrete(n, 10.0)
+w = Zonotope.box(np.zeros(3), np.full(3, 1.1e-3))  # m/s^2, 5.5% of a 0.02 m/s^2 thrust limit
+w_bar = box_hull(gamma, w)
+print(w_bar.round(5))  # [0.05541 0.0554  0.055   0.01112 0.01112 0.011  ]
+
+q, r = np.diag([1e-2] * 3 + [1e2] * 3), 2.5e3 * np.eye(3)  # LQR weights of the ancillary law
+p = solve_discrete_are(phi, gamma, q, r)
+a_k = phi - gamma @ np.linalg.solve(r + gamma.T @ p @ gamma, gamma.T @ p @ phi)
+e_y = np.eye(6)[1]  # a row on the along-track position
+print(round(tube_margin(a_k, w_bar, e_y), 3))  # 2.176
+print(round(delay_margin(n, 10.0, 30.0, w, e_y), 3))  # 0.506
+
+print(round(per_draw_sigma(1e-3, 1080), 3))  # 4.907
+m = scenario_sample_count(eps=0.01, beta=0.01)
+samples = np.random.default_rng(0).standard_normal((m, 6))
+print(m, round(scenario_margin(e_y, samples, eps=0.01, beta=0.01), 3))  # 1122 2.973
 ```
 
 ```python
