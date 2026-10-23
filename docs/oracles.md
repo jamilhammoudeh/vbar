@@ -132,7 +132,8 @@ Tests: `tests/test_oracle_primer.py`.
 - The primer matches $B^T\Phi^T\nu$ from `cw_stm` to $10^{-12}$ of its summed terms at
   $n\tau = 0.3$ and 4, and the nine-term power series of $e^{A\tau}B$ at $n\tau = 10^{-6}$, where
   the textbook form loses four digits; at $\tau = 0$ it equals the velocity multiplier exactly.
-- Boyd and Vandenberghe, sections 4.3 and 5.1.3, the half-orbit transfer from
+- A computed case, not a book example, with the LP and its duality from Boyd and Vandenberghe,
+  sections 4.3 and 5.1.3: the half-orbit transfer from
   $(-200, -1500, 50)$ m to $(0, -100, 0)$ m at rest on a 6778 km orbit with $|a_i| \le 2 \times
   10^{-3}$ m/s^2, posed as a zero-order-hold LP solved with HiGHS: optima 0.8977056 m/s on 40
   steps and 0.8949323 m/s on 160. The bound from the 40-step dual at 20000 cells lies in
@@ -321,7 +322,8 @@ optimality gap metric falls back to the impulsive bound for a run that exceeded 
 Tests: `tests/test_fuel_oracle.py`. Values marked as independent were computed with
 `cw_discrete`, HiGHS and a separate implementation of the LPs and of the cell bound.
 
-- Boyd and Vandenberghe, sections 4.3 and 5.1.3: the half-orbit transfer from
+- A computed case, not a book example, with the LP and its duality from Boyd and Vandenberghe,
+  sections 4.3 and 5.1.3: the half-orbit transfer from
   $(-200, -1500, 50)$ m to $(0, -100, 0)$ m at rest on a 6778 km orbit with a
   $2 \times 10^{-3}$ m/s^2 limit on 40 steps, at 500 cells per step. Box, point target:
   `finite_optimum` is 0.8977056 m/s to $10^{-6}$, and `finite_lower` lies in

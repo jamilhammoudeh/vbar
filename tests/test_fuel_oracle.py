@@ -6,14 +6,14 @@ step grid, solved exactly; the ball layout is bracketed by an outer cutting-plan
 polyhedral LP. The lower bounds come from the LP duals through the primer-vector bound, so they
 hold for continuous time; the upper bound is the cost of a plan checked by exact propagation.
 
-Known answers: the half-orbit transfer of x0 = (-200, -1500, 50) m at rest to (0, -100, 0) m at
-rest on a 6778 km orbit with 2e-3 m/s^2 thrusters (Boyd and Vandenberghe, Convex Optimization,
-2004, sections 4.3 and 5.1.3); Fehse's tangential and radial V-bar transfers (Automated
-Rendezvous and Docking of Spacecraft, 2003, eqs 3.29 to 3.32 and 3.37); Curtis, Orbital Mechanics
-for Engineering Students, example 7.5; Alfriend, Vadali, Gurfil, How and Breger, Spacecraft
-Formation Flying, example 5.2. Values marked "independent computation" were computed with
-`cw_discrete`, scipy's HiGHS and a separate implementation of the LPs and of the cell bound, not
-with the module under test.
+Known answers: Fehse's tangential and radial V-bar transfers (Automated Rendezvous and Docking of
+Spacecraft, 2003, eqs 3.29 to 3.32 and 3.37); Curtis, Orbital Mechanics for Engineering Students,
+example 7.5; Alfriend, Vadali, Gurfil, How and Breger, Spacecraft Formation Flying, example 5.2.
+The half-orbit transfer of x0 = (-200, -1500, 50) m at rest to (0, -100, 0) m at rest on a 6778 km
+orbit with 2e-3 m/s^2 thrusters is a computed case, not a book example; the LP and its duality
+follow Boyd and Vandenberghe, Convex Optimization, 2004, sections 4.3 and 5.1.3. Values marked
+"independent computation" were computed with `cw_discrete`, scipy's HiGHS and a separate
+implementation of the LPs and of the cell bound, not with the module under test.
 """
 
 import math
@@ -126,7 +126,7 @@ def assert_bounds_consistent(sol, view):
     assert sol.finite_lower <= sol.upper
 
 
-def test_box_lp_reaches_the_boyd_and_vandenberghe_zoh_optimum():
+def test_box_lp_reaches_the_zoh_optimum_of_the_half_orbit_transfer():
     sol = solve(half_view(), X0_HALF, config=FINE)
     assert sol.finite_optimum == pytest.approx(0.8977056, rel=1e-6)
     # The 40-step dual through the cell bound at 20000 cells gives 0.8921478; its continuous
@@ -163,7 +163,7 @@ def test_support_terms_of_a_wide_capture_ball_lower_the_bound():
     assert_verified_plan(sol, view, X0_HALF, 40)
 
 
-def test_ball_bracket_closes_on_the_boyd_and_vandenberghe_transfer():
+def test_ball_bracket_closes_on_the_half_orbit_transfer():
     view = half_view("ball", radius=0.01, speed=1e-5)
     sol = solve(view, X0_HALF, config=FINE)
     # The outer cutting-plane LP is a relaxation of the 40-step problem and the inner plan a

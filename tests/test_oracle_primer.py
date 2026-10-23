@@ -196,8 +196,8 @@ def test_primer_at_the_constraint_time_is_the_velocity_multiplier():
 def test_box_bound_from_a_coarse_dual_is_below_the_finer_optima():
     p40, nu40 = box_optimum(40)
     p160, _ = box_optimum(160)
-    # Boyd and Vandenberghe, sections 4.3 and 5.1.3: the ZOH problem is an LP; values to their
-    # printed digits, independent computation (0.8977056 and 0.8949323).
+    # The ZOH problem is an LP (Boyd and Vandenberghe, sections 4.3 and 5.1.3); the values are an
+    # independent computation of this computed case, to 7 digits.
     assert p40 == pytest.approx(0.8977056, abs=1e-7)
     assert p160 == pytest.approx(0.8949323, abs=1e-7)
     lb = half_bound(nu40)
