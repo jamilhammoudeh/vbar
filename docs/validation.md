@@ -947,6 +947,11 @@ Docking"** (IEEE Control Systems Letters 6, 2022; arXiv:2110.00447v1)
   after one period to 1e-9 relative, and meet the speed limit at 3600 phases of their orbit.
 - Eq. 11 with the corrected bracket: each implicit row matches central differences to 1e-6
   relative, and the backup command meets every row inside the declared set.
+- Sec. IV, 100 seeded starts at $2.15n$ (benchmark): every filter intervenes in every run and
+  every filtered run docks; runs that leave the allowable set: explicit switching 31, explicit
+  optimization 71, implicit switching 61, implicit optimization 60, against none reported, with
+  the causes on run-time-assurance.md; compute ratios 1.00, 7.20, 8.57 and 25.14 against Table
+  I's 1.00, 3.25, 11.31 and 13.33.
 
 ## Methods
 

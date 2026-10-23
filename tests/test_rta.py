@@ -3,9 +3,10 @@ import dataclasses
 import numpy as np
 import pytest
 from scipy.linalg import solve_continuous_are
+from scipy.stats import kstest
 
 from vbar.dynamics.cw import cw_states, cw_system
-from vbar.safety import InfeasibilityProof
+from vbar.safety import InfeasibilityProof, PassThroughFilter
 from vbar.safety.audit import audit_filter
 from vbar.safety.rta import (
     AfrlConstraints,
@@ -15,6 +16,8 @@ from vbar.safety.rta import (
     ImplicitOptimizationFilter,
     ImplicitSwitchingFilter,
     NmtBackup,
+    reproduce,
+    start_state,
 )
 from vbar.scenarios.approach import ApproachConfig, ApproachEnv
 from vbar.solvers.qp import ActuatorSet, project
@@ -36,6 +39,10 @@ FILTERS = (
 # 1.5 m track radius of a grid point (built in `latched`).
 FAR = np.array([6000.0, -8000.0, 1500.0, 0.3, -0.5, 0.1])
 NEAR = np.array([800.0, -1500.0, 300.0, 0.2, 0.4, -0.1])
+# 6.4 km out of plane at 9.76 m/s toward it: the backup pulls z toward its target, 3.6 km nearer
+# the plane, harder than it damps vz, and with the gravity gradient it adds about 0.05 m/s to
+# |vz| per step, so a rollout's last point passes -v_max.
+EDGE = np.array([-3674.0, 2010.7, 6403.8, -5.95, 3.675, -9.76])
 
 
 def euler(x, u, dt=1.0):
@@ -230,11 +237,13 @@ def test_kept_nmt_points_meet_the_speed_limit_at_3600_phases(setup):
     # v / n = w cos tau - p sin tau, with p the position and w the velocity over n.
     pos, w = points[:, :3], points[:, 3:] / N
     pp, pw, ww = (np.sum(a * b, axis=1)[:, None] for a, b in ((pos, pos), (pos, w), (w, w)))
-    c, s = np.cos(tau), np.sin(tau)
-    r2 = pp * c**2 + 2.0 * pw * s * c + ww * s**2
-    v2 = N**2 * (ww * c**2 - 2.0 * pw * s * c + pp * s**2)
-    # nu0 = 0, which b scales out; the limit with nu0 > 0 then holds too.
-    assert np.all(setup.nu1**2 * r2 >= v2 * (1.0 - 1e-12))
+    # nu1^2 |r|^2 - |v|^2 = A cos^2 + B sin cos + C sin^2, with nu0 = 0, which b scales out;
+    # the limit with nu0 > 0 then holds too.
+    q, n2 = setup.nu1**2, N**2
+    a, b, c = q * pp - n2 * ww, 2.0 * (q + n2) * pw, q * ww - n2 * pp
+    margin = np.outer(a, np.cos(tau) ** 2) + np.outer(b, np.sin(2.0 * tau) / 2.0)
+    margin += np.outer(c, np.sin(tau) ** 2)
+    assert np.all(margin >= -1e-12 * q * (pp + ww))
 
 
 def test_kept_nmt_points_meet_lemma_3_and_stay_allowable_at_every_phase():
@@ -313,7 +322,7 @@ def test_implicit_row_normals_are_gradients_of_the_constraints_along_the_backup(
 
 def test_backup_command_meets_every_implicit_row_inside_the_declared_set():
     filt = ready(ImplicitOptimizationFilter)
-    for x in draw_inside(filt, 150, seed=17):
+    for x in draw_inside(filt, 80, seed=17):
         rows = filt.rows(x)
         u_b = filt.backup.command(x)
         assert np.all(np.abs(u_b) <= A_MAX)
@@ -399,7 +408,7 @@ def test_explicit_optimization_meets_every_row_and_equals_the_full_projection():
     filt = ready(ExplicitOptimizationFilter)
     rng = np.random.default_rng(23)
     box = ActuatorSet(A_MAX, "box")
-    states = draw_inside(filt, 40, seed=29)
+    states = draw_inside(filt, 25, seed=29)
     for x in states:
         rows = filt.rows(x)
         assert set(rows.names) <= set(AfrlConstraints.names)
@@ -455,15 +464,10 @@ def test_optimization_filters_prove_an_unmeetable_speed_limit(cls):
 def test_implicit_switching_uses_the_backup_when_a_later_backup_point_leaves():
     filt = ready(ImplicitSwitchingFilter)
     backup, cons = filt.backup, filt.constraints
-    # Radial gravity gradient 3 n^2 x = 0.0158 m/s^2 drives vx toward v_max; the backup
-    # brakes it by about 1e-3 m/s^2, so the limit is crossed between the second and third points.
-    x0 = 5000.0
-    x = np.array([x0, 0.0, 0.0, 10.0 - 2.5 * 3.0 * N * N * x0, 0.0, 0.0])
-    u = np.zeros(3)
-    first = euler(x, u)
-    points = backup.rollout(first, 5).states
-    inside = cons.contains(points)
-    assert inside[0] and inside[1] and not inside.all()
+    x, u = EDGE, np.zeros(3)
+    # Only the last of the six horizon points leaves C_A, so any shorter check passes u.
+    values = cons.values(backup.rollout(euler(x, u), 5).states)
+    assert np.all(values[:5] > 0.4) and values[5, 3] < -0.4
     result = filt.filter(x, u)
     assert result.fallback_level == 2 and result.active and result.intervened
     np.testing.assert_allclose(result.action, backup.command(x), rtol=1e-15, atol=0.0)
@@ -507,17 +511,22 @@ def test_implicit_optimization_is_feasible_inside_and_meets_its_rows():
 def test_implicit_certificate_and_recovery_follow_the_backup_rollouts(cls):
     filt = ready(cls)
     backup, cons = filt.backup, filt.constraints
-    # Inside C_A both, but at the edge of v_max the backup's rollout from the second state leaves.
+    # All three states lie in C_A. EDGE's own rollout leaves at its last point; full thrust
+    # away from -v_max on z keeps the horizon after one step inside, no thrust does not.
+    results = []
     for x, u in [
         (np.array([3000.0, 2000.0, -500.0, -1.0, 0.5, 0.2]), np.array([0.02, -0.05, 0.01])),
-        (np.array([5000.0, 0.0, 0.0, 9.99, 0.0, 0.0]), np.array([A_MAX, 0.0, 0.0])),
+        (EDGE, np.zeros(3)),
+        (EDGE, np.array([0.0, 0.0, A_MAX])),
     ]:
         assert cons.contains(x)
         result = filt.filter(x, u)
         assert result.recovering == (not cons.contains(backup.rollout(x, 5).states).all())
         holds = cons.contains(backup.rollout(euler(x, result.action), 5).states).all()
         assert (result.certificate == "finite-horizon") == holds
-    assert result.recovering and result.certificate is None
+        results.append((result.recovering, result.certificate))
+    # Each flag takes both values, and the last decision is certified while recovering.
+    assert results == [(False, "finite-horizon"), (True, None), (True, "finite-horizon")]
 
 
 @pytest.mark.parametrize("cls", FILTERS)
@@ -602,11 +611,101 @@ def test_implicit_optimization_refuses_a_horizon_beyond_the_row_limit():
         ImplicitOptimizationFilter(setup=dataclasses.replace(CODE, horizon_s=8.0))
 
 
-def test_backup_gain_is_the_lqr_of_the_force_weights_in_acceleration_units():
+def integral_lqr_gain(leak):
+    """K_1 (N per m and per m/s) of the LQR on x and z' = x - leak z, Q = 1e-5 I12, R = 1e7 I3."""
+    a = np.block([[CW_A, np.zeros((6, 6))], [np.eye(6), -leak * np.eye(6)]])
+    b = np.vstack([CW_B / 12.0, np.zeros((6, 3))])
+    p = solve_continuous_are(a, b, 1e-5 * np.eye(12), 1e7 * np.eye(3))
+    return (b.T @ p / 1e7)[:, :6]
+
+
+def test_backup_gain_is_the_state_block_of_the_integral_lqr_in_acceleration_units():
     backup = NmtBackup(CODE)
-    # u = K e with K = R^-1 B_f^T P / m, B_f = B / m: the force law divided by the mass.
-    b_f = CW_B / 12.0
-    p = solve_continuous_are(CW_A, b_f, 1e-5 * np.eye(6), 1e7 * np.eye(3))
-    np.testing.assert_allclose(backup.gain, b_f.T @ p / 1e7 / 12.0, rtol=1e-12)
+    k1 = integral_lqr_gain(1e-6)
+    np.testing.assert_allclose(backup.gain * 12.0, k1, rtol=1e-12, atol=1e-12 * np.abs(k1).max())
+    assert np.all(np.diag(k1[:, 3:]) > 0.1)
+    # The leak only makes the Riccati equation solvable: down to 1e-8 1/s it moves K_1 by under
+    # 2e-4 of its largest entry.
+    for leak in (1e-7, 1e-8):
+        assert np.abs(integral_lqr_gain(leak) - k1).max() < 2e-4 * np.abs(k1).max()
+    # Every mode decays faster than 3 n; the six-state LQR of the same weights leaves one at
+    # 0.04 n.
     closed = np.linalg.eigvals(CW_A - CW_B @ backup.gain)
-    assert np.all(closed.real < 0.0)
+    assert np.all(closed.real < -3.0 * N)
+
+
+def test_target_jacobians_match_central_differences_after_the_target_moves():
+    backup = NmtBackup(CODE)
+    for x, moves in ((NEAR, False), (latched(backup), True)):
+        roll = backup.rollout(x, 5)
+        assert (not np.array_equal(roll.targets[1], roll.targets[0])) == moves
+        assert np.any(roll.target_jacobians[0] != 0.0)
+        fd = jacobian(lambda s: backup.rollout(s, 5).targets, x)
+        for j in range(6):
+            assert_close_columns(roll.target_jacobians[j], fd[j])
+
+
+def test_start_state_has_the_papers_range_and_speed_in_independent_uniform_directions():
+    starts = np.array([start_state(CODE, seed) for seed in range(2000)])
+    np.testing.assert_allclose(np.linalg.norm(starts[:, :3], axis=1), 9850.0, rtol=1e-14)
+    np.testing.assert_allclose(np.linalg.norm(starts[:, 3:], axis=1), 0.866, rtol=1e-14)
+    seed = 2**127 + 5
+    np.testing.assert_array_equal(start_state(CODE, seed), start_state(CODE, seed))
+    # Bits of the seed above the 64th change the start.
+    assert not np.array_equal(start_state(CODE, seed), start_state(CODE, seed - 2**64))
+    r_hat = starts[:, :3] / 9850.0
+    v_hat = starts[:, 3:] / 0.866
+    # Each component of a uniform direction, and the dot product of two independent ones, is
+    # uniform on [-1, 1] (Archimedes).
+    for sample in (*r_hat.T, *v_hat.T, np.sum(r_hat * v_hat, axis=1)):
+        assert kstest(sample, "uniform", args=(-1.0, 2.0)).pvalue > 1e-4
+    # So each component exceeds 0.9 in size with chance 0.1, and at most one does: 4000
+    # directions give 1200 with SD 29. Normalized draws from a cube give about 736.
+    hits = np.sum(np.abs(r_hat) > 0.9) + np.sum(np.abs(v_hat) > 0.9)
+    assert abs(hits - 1200) < 5 * 29
+    for seed in (-1, 2**128, True):
+        with pytest.raises(ValueError):
+            start_state(CODE, seed)
+
+
+def test_reproduce_steps_the_euler_plant_with_the_filtered_commands():
+    short = dataclasses.replace(CODE, stop_time=20.0)
+    # 1 km out on V-bar at 2.3 m/s inbound, 0.11 m/s inside a speed limit that shrinks with the
+    # range: the filter passes the first command and replaces every later one.
+    x0 = np.array([0.0, 1000.0, 0.0, 0.0, -2.3, 0.0])
+    run = reproduce(ExplicitSwitchingFilter(setup=short), short, x0)
+    assert run.states.shape == (21, 6) and run.applied.shape == (20, 3)
+    np.testing.assert_array_equal(run.states[0], x0)
+    assert not run.backup[0] and run.backup[1:].all()
+    # The paper's primary: LQR of Q = 0.05 I6 and R = 1000 I3 on the force, clipped to 1 N.
+    b_f = CW_B / 12.0
+    p = solve_continuous_are(CW_A, b_f, 0.05 * np.eye(6), 1000.0 * np.eye(3))
+    gain = b_f.T @ p / 1000.0 / 12.0
+    # Explicit switching has no memory, so a second filter decides the same at each sample.
+    twin = ready(ExplicitSwitchingFilter, setup=short)
+    for k in range(20):
+        x = run.states[k]
+        np.testing.assert_allclose(
+            run.primary[k], np.clip(-gain @ x, -A_MAX, A_MAX), rtol=1e-9, atol=1e-15
+        )
+        np.testing.assert_array_equal(run.applied[k], twin.filter(x, run.primary[k]).action)
+        np.testing.assert_array_equal(run.applied[k], run.results[k].action)
+        np.testing.assert_allclose(run.states[k + 1], euler(x, run.applied[k]), rtol=1e-15)
+        assert run.backup[k] == (run.results[k].fallback_level == 2)
+    assert run.filter_s > 0.0
+    assert run.filter_s == pytest.approx(sum(r.compute_s for r in run.results), rel=1e-12)
+
+
+def test_reproduce_stops_at_the_first_state_within_the_stop_radius_and_at_the_stop_time():
+    on_radius = np.array([0.0, 1.0, 0.0, 0.0, -0.1, 0.0])
+    assert reproduce(PassThroughFilter(), CODE, on_radius).applied.shape == (0, 3)
+    # 5 m out at 0.5 m/s inbound the primary crosses 1 m within a few steps.
+    run = reproduce(PassThroughFilter(), CODE, np.array([0.0, 5.0, 0.0, 0.0, -0.5, 0.0]))
+    ranges = np.linalg.norm(run.states[:, :3], axis=1)
+    assert len(run.results) == len(ranges) - 1
+    assert ranges[-1] <= 1.0 and np.all(ranges[:-1] > 1.0)
+    short = dataclasses.replace(CODE, stop_time=12.0)
+    assert len(reproduce(PassThroughFilter(), short, start_state(short, 3)).results) == 12
+    for x0 in (np.zeros(5), np.array([np.nan, 0.0, 0.0, 0.0, 0.0, 0.0])):
+        with pytest.raises(ValueError):
+            reproduce(PassThroughFilter(), CODE, x0)

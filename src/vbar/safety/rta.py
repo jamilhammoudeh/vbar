@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import functools
 import math
+import numbers
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -32,7 +33,7 @@ from scipy.linalg import solve_continuous_are
 from ..agents.base import CONTINUOUS_MODES, AgentView, action_scale, command_fraction
 from ..dynamics.cw import cw_system
 from ..solvers.qp import MAX_ROWS, ActuatorSet, Projection, Rows, project
-from . import FilterResult, InfeasibilityProof
+from . import FilterResult, InfeasibilityProof, run_filter
 from .cbf import FilterDeclaration
 
 SCENARIO_ID = "dunlap2021-euler"
@@ -47,6 +48,11 @@ _MOVED = 1e-6
 _MATCH = 1e-12
 # Lemma 3 asks c <= v_max / n; with b up to v_max / (2 n) that is c / b <= 2.
 _C_OVER_B = 2.0
+# Leak (1/s) on the integrators of the backup's augmented LQR design. The authors' augmented
+# system is not stabilizable, since the velocity integral repeats the position, and the Riccati
+# equation has no solution without it. An assumption: K_1 moves by under 2e-4 of its largest
+# entry between leaks of 1e-6 and 1e-8 1/s.
+_INTEGRATOR_LEAK = 1e-6
 
 
 def _positive(value: float, name: str) -> float:
@@ -99,13 +105,14 @@ class AfrlSetup:
         Grid sizes over theta1, theta2 and psi of the backup's trajectories; from the authors'
         code.
     backup_q, backup_r : float
-        Backup LQR weights Q = q I6 on the state (m, m/s) and R = r I3 on the force (N); from the
-        authors' code.
+        Backup LQR weights Q = q I12 on the state (m, m/s) augmented with the integral of the
+        tracking error (m s, m), and R = r I3 on the force (N); from the authors' code.
     track_radius : float
         Position error below which the backup's desired point starts to move, m; from the
         authors' code.
     primary_q, primary_r : float
-        LQR weights of the paper's primary controller, as for the backup; from the authors' code.
+        LQR weights Q = q I6 on the state and R = r I3 on the force (N) of the paper's primary
+        controller; from the authors' code.
     stop_radius, stop_time : float
         A run ends at |r| <= stop_radius (m) or at stop_time (s); from the authors' code.
 
@@ -319,6 +326,28 @@ def _unit_orbits(n: float, nu1: float, grid: tuple[int, int, int]) -> np.ndarray
     return points
 
 
+def _lqr_gain(setup: AfrlSetup, q: float, r: float) -> np.ndarray:
+    """LQR gain of Q = q I6 and R = r I3 on the force (N), in m/s^2 per state unit."""
+    a, b = cw_system(setup.n)
+    b_force = b / setup.mass_kg
+    p = solve_continuous_are(a, b_force, q * np.eye(6), r * np.eye(3))
+    return b_force.T @ p / r / setup.mass_kg
+
+
+def _backup_gain(setup: AfrlSetup) -> np.ndarray:
+    """K_1 of the LQR on the state augmented with the integral of the tracking error.
+
+    The augmented system is x' = A x + B_F u, z' = x - leak z, with Q = q I12 and R = r I3 on the
+    force (N), as the authors design their backup; K_1, the block on x, is returned in m/s^2 per
+    state unit and the integral block is dropped.
+    """
+    a, b = cw_system(setup.n)
+    a_aug = np.block([[a, np.zeros((6, 6))], [np.eye(6), -_INTEGRATOR_LEAK * np.eye(6)]])
+    b_aug = np.vstack([b / setup.mass_kg, np.zeros((6, 3))])
+    p = solve_continuous_are(a_aug, b_aug, setup.backup_q * np.eye(12), setup.backup_r * np.eye(3))
+    return (b_aug.T @ p / setup.backup_r)[:, :6] / setup.mass_kg
+
+
 @dataclass(frozen=True)
 class BackupRollout:
     """An Euler rollout of `NmtBackup` from one state.
@@ -333,12 +362,15 @@ class BackupRollout:
         The backup's acceleration at phi_0 .. phi_{k-1}, m/s^2, on the box.
     sensitivities : ndarray, shape (k + 1, 6, 6)
         S_j = d phi_j / d x, the Jacobian of the rollout with respect to its start.
+    target_jacobians : ndarray, shape (k + 1, 6, 6)
+        T_j, the Jacobian of the target at point j with respect to the start.
     """
 
     states: np.ndarray
     targets: np.ndarray
     commands: np.ndarray
     sensitivities: np.ndarray
+    target_jacobians: np.ndarray
 
 
 class NmtBackup:
@@ -364,8 +396,10 @@ class NmtBackup:
     [0, 2 pi).
 
     At a state x the backup takes b = min(sqrt(x^2 + (y/2)^2), v_max / (2 n)) and targets the
-    kept point b p nearest the position. It commands u_b = clip(K (x_des - x)), with K the LQR
-    gain of the force weights divided by the mass (m/s^2 per m and per m/s). Along a rollout the
+    kept point b p nearest the position. It commands u_b = clip(K (x_des - x)), with K the block
+    K_1 on the state of the authors' LQR on the state augmented with the integral of the tracking
+    error (a leak of 1e-6 1/s on the integrators makes it solvable), divided by the mass (m/s^2
+    per m and per m/s). The integral term itself is left out. Along a rollout the
     target is held, and moves by Euler free motion once the position comes within the track
     radius. The target is chosen again at every rollout start, so the backup has no memory
     between decisions. `points` holds the kept unit orbits (b = 1), Hill frame.
@@ -379,11 +413,7 @@ class NmtBackup:
         if len(self.points) == 0:
             raise ValueError("no grid point meets Lemma 3 at this nu1")
         self._a, self._b = cw_system(setup.n)
-        b_force = self._b / setup.mass_kg
-        p = solve_continuous_are(
-            self._a, b_force, setup.backup_q * np.eye(6), setup.backup_r * np.eye(3)
-        )
-        self.gain = b_force.T @ p / setup.backup_r / setup.mass_kg
+        self.gain = _backup_gain(setup)
         self._drift_step = np.eye(6) + self.dt * self._a
 
     def target(self, x) -> tuple[np.ndarray, np.ndarray]:
@@ -428,12 +458,12 @@ class NmtBackup:
         Returns
         -------
         BackupRollout
-            The states, targets, commands and sensitivities.
+            The states, targets, commands, sensitivities and target Jacobians.
         """
         s = np.array(x, dtype=float)
         desired, jac = self.target(s)
         sens = np.eye(6)
-        states, targets, sensitivities = [s], [desired], [sens]
+        states, targets, sensitivities, jacobians = [s], [desired], [sens], [jac]
         commands = []
         moving = False
         for _ in range(steps):
@@ -448,12 +478,14 @@ class NmtBackup:
             states.append(s)
             targets.append(desired)
             sensitivities.append(sens)
+            jacobians.append(jac)
             commands.append(u)
         return BackupRollout(
             np.array(states),
             np.array(targets),
             np.reshape(commands, (-1, 3)),
             np.array(sensitivities),
+            np.array(jacobians),
         )
 
 
@@ -1064,6 +1096,141 @@ class ImplicitOptimizationFilter(_ImplicitFilter):
         )
 
 
+def start_state(setup: AfrlSetup, seed: int) -> np.ndarray:
+    """A start at the paper's range and speed in seeded directions.
+
+    The paper gives |r| = 9.85 km and |v| = 0.866 m/s but no directions (sec. IV). Here the
+    position is uniform on the sphere of radius `start_range` and the velocity, of size
+    `start_speed`, points in an independent uniform direction.
+
+    Parameters
+    ----------
+    setup : AfrlSetup
+        Supplies the range (m) and speed (m/s).
+    seed : int
+        Seed of the draw, in [0, 2**128).
+
+    Returns
+    -------
+    ndarray, shape (6,)
+        The Hill-frame start state, m and m/s.
+
+    Raises
+    ------
+    ValueError
+        If `seed` is not an integer in [0, 2**128).
+    """
+    if isinstance(seed, bool) or not isinstance(seed, numbers.Integral) or not 0 <= seed < 2**128:
+        raise ValueError("seed must be an integer in [0, 2**128)")
+    rng = np.random.default_rng(int(seed))
+    r, v = rng.normal(size=3), rng.normal(size=3)
+    return np.concatenate(
+        [setup.start_range * r / np.linalg.norm(r), setup.start_speed * v / np.linalg.norm(v)]
+    )
+
+
+class _PaperLqr:
+    """The paper's primary controller (sec. IV), not a V-BAR baseline.
+
+    Unconstrained LQR to the origin with the authors' code's weights, clipped to the box.
+    """
+
+    def __init__(self, setup: AfrlSetup) -> None:
+        self.gain = _lqr_gain(setup, setup.primary_q, setup.primary_r)
+        self.a_max = setup.a_max
+
+    def command(self, x: np.ndarray) -> np.ndarray:
+        return np.clip(-self.gain @ x, -self.a_max, self.a_max)
+
+
+@dataclass(frozen=True)
+class Reproduction:
+    """One run of `reproduce`.
+
+    Attributes
+    ----------
+    states : ndarray, shape (k + 1, 6)
+        The Euler plant's states, Hill frame (m, m/s), start included.
+    primary : ndarray, shape (k, 3)
+        The paper's controller's commands, m/s^2.
+    applied : ndarray, shape (k, 3)
+        The filtered commands the plant received, m/s^2.
+    backup : ndarray, shape (k,)
+        Whether each decision used the filter's backup (`fallback_level` 2).
+    results : tuple of FilterResult
+        The filter's decisions, with `compute_s` measured by `run_filter`.
+    filter_s : float
+        The filter's total wall time over the run, s.
+    """
+
+    states: np.ndarray
+    primary: np.ndarray
+    applied: np.ndarray
+    backup: np.ndarray
+    results: tuple[FilterResult, ...]
+    filter_s: float
+
+
+def reproduce(safety_filter, setup: AfrlSetup, x0) -> Reproduction:
+    """Fly the paper's docking run with a filter around the paper's controller.
+
+    The plant is the Euler step x + (A x + B u) dt of the Clohessy-Wiltshire equations with
+    perfect state knowledge. Each step the paper's LQR primary (sec. IV; weights and clipping
+    from the authors' code, not a V-BAR baseline) gives a command, `run_filter` passes it to the
+    filter and times it, and the returned command, clipped to the box, is applied. The run stops
+    once |r| <= `stop_radius` or after `stop_time`.
+
+    Parameters
+    ----------
+    safety_filter : SafetyFilter
+        Reset here with `setup.view()`; `vbar.safety.PassThroughFilter` flies the primary alone.
+    setup : AfrlSetup
+        The problem.
+    x0 : array_like, shape (6,)
+        The start, Hill frame (m, m/s).
+
+    Returns
+    -------
+    Reproduction
+        States, commands, backup flags, results and the filter's wall time.
+
+    Raises
+    ------
+    ValueError
+        If `x0` is not six finite numbers, or the filter refuses the view.
+    """
+    if np.shape(x0) != (6,):
+        raise ValueError("x0 must be six finite numbers")
+    x = _state(x0)
+    view = setup.view()
+    safety_filter.reset(view)
+    primary = _PaperLqr(setup)
+    a, b = cw_system(setup.n)
+    states, commands, applied, backup, results = [x], [], [], [], []
+    filter_s = 0.0
+    for _ in range(view.max_steps):
+        if float(np.linalg.norm(x[:3])) <= setup.stop_radius:
+            break
+        u_des = primary.command(x)
+        result, elapsed = run_filter(safety_filter, x, u_des)
+        u = np.clip(np.asarray(result.action, dtype=float), -setup.a_max, setup.a_max)
+        x = x + setup.dt * (a @ x + b @ u)
+        filter_s += elapsed
+        states.append(x)
+        commands.append(u_des)
+        applied.append(u)
+        backup.append(result.fallback_level == 2)
+        results.append(result)
+    return Reproduction(
+        np.array(states),
+        np.reshape(commands, (-1, 3)),
+        np.reshape(applied, (-1, 3)),
+        np.array(backup, dtype=bool),
+        tuple(results),
+        filter_s,
+    )
+
+
 __all__ = [
     "CONSTRAINT_NAMES",
     "SCENARIO_ID",
@@ -1075,4 +1242,7 @@ __all__ = [
     "ImplicitOptimizationFilter",
     "ImplicitSwitchingFilter",
     "NmtBackup",
+    "Reproduction",
+    "reproduce",
+    "start_state",
 ]
