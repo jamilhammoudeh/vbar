@@ -109,7 +109,7 @@ source_paths = [
     "src/vbar/metrics/safety.py",
     "src/vbar/metrics/efficiency.py",
 ]
-also_copy = ["src", "CITATION.cff", "pyproject.toml", "README.md", "docs", "examples"]
+also_copy = ["src", "benchmarks", "CITATION.cff", "pyproject.toml", "README.md", "docs", "examples"]
 # Stats, clean and mutant runs each start from a process that has only collected the tests; with
 # plain fork, state a test leaves behind in the stats run leaks into every mutant's run.
 process_isolation = "forkserver"
