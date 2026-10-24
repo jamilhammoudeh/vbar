@@ -5,7 +5,7 @@ Run with `python benchmarks/predictive_comparison.py [--parts table|states|both]
 filters are `PredictiveFilter()`, `CbfFilter()` and `BackupFilter(barrier="passive")` with their
 defaults, on approach-vbar (500 km, keep-out 50 m, dt 10 s, box 0.02 m/s^2) with perfect
 navigation. The checks are those of `tests/test_safety_comparison.py`, whose tests run them on
-one start and one state:
+one start for 150 s and on one or two states for 100 s:
 
 1. The table: `--starts` approach-vbar starts inside all three declared sets, in the seed-1903
    order of `benchmarks/filter_known_answers.py`, flown for `--duration` s with the PD nominal and
