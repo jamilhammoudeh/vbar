@@ -31,6 +31,7 @@ PROFILES = {
 # Opset 17 with IR version 8 loads in every onnxruntime since 1.13; newer onnx releases default
 # to IR versions that older runtimes refuse.
 OPSET, IR_VERSION = 17, 8
+_INSTALL = 'pip install "vbar[onnx]"'
 
 
 @dataclass(frozen=True)
@@ -118,8 +119,11 @@ def export_onnx(policy: MLPPolicy, path: str | Path | None = None, dtype: str = 
     Normalization, every layer and the squashing are in the graph; weights are stored in `dtype`
     ("float32" or "float64"). Returns the serialized model and writes it to `path` if given.
     """
-    import onnx
-    from onnx import TensorProto, helper, numpy_helper
+    try:
+        import onnx
+        from onnx import TensorProto, helper, numpy_helper
+    except ModuleNotFoundError as err:
+        raise ModuleNotFoundError(f"ONNX export needs {err.name}: {_INSTALL}") from err
 
     if dtype not in ("float32", "float64"):
         raise ValueError("dtype is float32 or float64")
@@ -167,9 +171,16 @@ def export_onnx(policy: MLPPolicy, path: str | Path | None = None, dtype: str = 
     return data
 
 
-def _session(model: str | Path | bytes, profile: str):
-    import onnxruntime as ort
+def _onnxruntime():
+    try:
+        import onnxruntime
+    except ModuleNotFoundError as err:
+        raise ModuleNotFoundError(f"ONNX inference needs {err.name}: {_INSTALL}") from err
+    return onnxruntime
 
+
+def _session(model: str | Path | bytes, profile: str):
+    ort = _onnxruntime()
     if profile not in PROFILES:
         raise ValueError(f"unknown profile {profile!r}, expected {tuple(PROFILES)}")
     options = ort.SessionOptions()
@@ -210,8 +221,7 @@ def profile_latency(
     Returns the median, 95th percentile and maximum with the profile and the machine, Python and
     onnxruntime versions, since latencies compare only within one machine.
     """
-    import onnxruntime as ort
-
+    ort = _onnxruntime()
     session = _session(model, profile)
     name = session.get_inputs()[0].name
     dtype = np.float64 if session.get_inputs()[0].type == "tensor(double)" else np.float32

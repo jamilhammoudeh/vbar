@@ -5,7 +5,10 @@ Code: `vbar.agents.policy` (`MLPPolicy`, `PolicyAgent`, `export_onnx`, `OnnxAgen
 observation and the command travels with it. V-BAR's export puts the observation
 normalization, the network and the action squashing into one ONNX file, and measures how long
 one inference takes. ONNX support needs the optional extra: `pip install "vbar[onnx]"`
-(onnx, Apache-2.0, and onnxruntime, MIT).
+(onnx, Apache-2.0, and onnxruntime, MIT); without it `export_onnx`, `OnnxAgent` and
+`profile_latency` raise `ImportError` with that command. On Windows, onnxruntime fails to install
+under a deep path (`WinError 206`, the 260-character path limit): use a virtual environment with
+a short path or enable long paths.
 
 ## The policy
 

@@ -1,8 +1,10 @@
-"""Plotting helpers (requires matplotlib: pip install vbar[plot])."""
+"""Plotting helpers (requires matplotlib: pip install "vbar[plot]")."""
 
 from __future__ import annotations
 
 import numpy as np
+
+_INSTALL = 'pip install "vbar[plot]"'
 
 
 def plot_trajectories(results: list[dict], env, ax=None, title: str | None = None):
@@ -10,7 +12,10 @@ def plot_trajectories(results: list[dict], env, ax=None, title: str | None = Non
 
     Draws the keep-out zone, the target, and the hold point. One line per result.
     """
-    import matplotlib.pyplot as plt
+    try:
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError as err:
+        raise ModuleNotFoundError(f"plotting needs {err.name}: {_INSTALL}") from err
 
     if ax is None:
         _, ax = plt.subplots(figsize=(7, 5))

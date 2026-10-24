@@ -10,7 +10,10 @@ Saves a plot to outputs/v0_trajectories.png.
 
 from pathlib import Path
 
-import matplotlib
+try:
+    import matplotlib
+except ModuleNotFoundError as err:
+    raise ModuleNotFoundError(f'the demo needs {err.name}: pip install "vbar[plot]"') from err
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
