@@ -3,7 +3,7 @@ import math
 
 import numpy as np
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from scipy.optimize import OptimizeResult, minimize
 
@@ -154,6 +154,40 @@ def kkt_residuals(qp, sol):
     )
     complementarity = float(np.max(np.abs(lam * slack), initial=0.0))
     return stationarity, primal, complementarity, lam
+
+
+def relative_kkt_residuals(qp, sol):
+    """Largest KKT residuals of a solution in the scale-free form the IPM stops on.
+
+    Each stationarity and equality component is divided by the sum of the magnitudes of the terms
+    it sums and a row's violation by sum_j |G_ij w_j| + |h_i|. A row is complementary to the
+    smaller of that relative slack and its force,
+    lam_i max_j G_ij^2 / (|G_ij| sigma_j + H_jj sum_l |G_il w_l|), with sigma_j the cost and
+    dynamics terms of component j and x_0 excluded (docs/solvers.md). The fallbacks for unused
+    axes and rounding-only rows are left out. The dynamics multipliers are the least-squares
+    ones, as in `kkt_residuals`.
+    """
+    h_mat, g, e_mat, f, g_mat, h_vec = assemble(qp)
+    nx = qp.A.shape[1]
+    w = stack(qp, sol.x, sol.u)
+    lam = row_multipliers(sol, qp)
+    grad = h_mat @ w + g - g_mat.T @ lam
+    nu, *_ = np.linalg.lstsq(e_mat.T, -grad, rcond=None)
+    sigma = np.abs(h_mat) @ np.abs(w) + np.abs(g) + np.abs(e_mat.T) @ np.abs(nu)
+    stationarity = np.max(np.abs(grad + e_mat.T @ nu) / (sigma + np.abs(g_mat.T) @ np.abs(lam)))
+    equality = np.abs(e_mat @ w - f) / (np.abs(e_mat) @ np.abs(w) + np.abs(f))
+    g_abs = np.abs(g_mat)
+    terms = g_abs @ np.abs(w)
+    slack = g_mat @ w - h_vec
+    row_scale = terms + np.abs(h_vec)
+    primal = max(np.max(equality), np.max(-slack / row_scale, initial=0.0))
+    resisted = g_abs * sigma + np.diagonal(h_mat) * terms[:, None]
+    force = np.divide(g_abs**2, resisted, out=np.zeros(g_abs.shape), where=g_abs > 0.0)
+    force[:, :nx] = 0.0
+    complementarity = np.max(
+        np.minimum(np.abs(slack) / row_scale, lam * np.max(force, axis=1)), initial=0.0
+    )
+    return float(stationarity), float(primal), float(complementarity), lam
 
 
 def objective(qp, x, u):
@@ -475,15 +509,8 @@ def test_a_weakly_active_row_on_the_box_limited_approach_leaves_its_plan(box_cas
     assert max(stationarity, primal, complementarity) < 1e-6
 
 
-@st.composite
-def small_stage_problems(draw):
-    """Random stage problems whose rows hold with slack at the unconstrained optimum."""
-    seed = draw(st.integers(0, 2**32 - 1))
-    n = draw(st.integers(2, 6))
-    nx = draw(st.integers(1, 4))
-    nu = draw(st.integers(1, 3))
-    m = draw(st.integers(1, 3))
-    margin = draw(st.floats(0.05, 1.0, allow_nan=False, allow_subnormal=False))
+def small_stage_problem(seed, n, nx, nu, m, margin):
+    """Random stage problem whose rows hold with slack at the unconstrained optimum."""
     rng = np.random.default_rng(seed)
     nz = nx + nu
     q = np.zeros((n, nz, nz))
@@ -511,14 +538,34 @@ def small_stage_problems(draw):
     return StageQP(**fields, C=c, e=e, C_N=None, e_N=None), u
 
 
+@st.composite
+def small_stage_problems(draw):
+    return small_stage_problem(
+        seed=draw(st.integers(0, 2**32 - 1)),
+        n=draw(st.integers(2, 6)),
+        nx=draw(st.integers(1, 4)),
+        nu=draw(st.integers(1, 3)),
+        m=draw(st.integers(1, 3)),
+        margin=draw(st.floats(0.05, 1.0, allow_nan=False, allow_subnormal=False)),
+    )
+
+
 @settings(max_examples=25, deadline=None)
 @given(small_stage_problems())
+# Converged with absolute complementarity 1.1e-6: the multipliers of these inactive rows are
+# judged per row against the row's force, not as products lam_i s_i.
+@example(small_stage_problem(seed=286, n=4, nx=4, nu=2, m=1, margin=0.71875))
 def test_random_small_problems_converge_to_kkt_points(case):
     qp, u_free = case
     sol = solve_horizon(qp)
     assert sol.status == "converged"
-    stationarity, primal, complementarity, lam = kkt_residuals(qp, sol)
-    assert max(stationarity, primal, complementarity) < 1e-6
+    stationarity, primal, complementarity, lam = relative_kkt_residuals(qp, sol)
+    # The default tol_feas and tol_gap. Stationarity is measured with the least-squares dynamics
+    # multipliers, not the solver's, which moves it up to 2.2 tol_feas; complementarity uses the
+    # slack C z - e, not the solver's s. A solver stopping at 10 tol_gap exceeds 6 tol_gap here.
+    tol = 1e-8
+    assert max(stationarity, primal) <= 4 * tol
+    assert complementarity <= 2 * tol
     assert np.all(lam >= 0.0)
     # The rows hold with slack at the unconstrained optimum, so it is also the constrained one.
     assert np.max(np.abs(sol.u - u_free)) < 1e-6 * max(1.0, np.max(np.abs(u_free)))

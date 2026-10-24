@@ -370,7 +370,8 @@ while its product is small. No test has a
 floor of 1 or an absolute scale, so a problem and the same problem with every cost multiplied by
 $k$, or posed in `HillScaling` units, take the same steps and stop at the same iterate; the tests
 solve the 40-stage approach with an active box for $k$ from 1e-9 to 1e6 and in Hill units and
-require the same plan to 1e-6.
+require the same plan to 1e-6. A converged solution therefore bounds no residual and no product
+$\lambda_i s_i$ in absolute terms: a residual whose terms are large can exceed `tol_feas` itself.
 
 ### Statuses and outputs
 
