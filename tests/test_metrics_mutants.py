@@ -1,4 +1,4 @@
-"""Each metric detects the defect it is responsible for and ranks severities in order (V5)."""
+"""Each metric detects the defect it is responsible for and ranks severities in order."""
 
 import numpy as np
 import pytest

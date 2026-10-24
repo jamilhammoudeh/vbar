@@ -449,7 +449,7 @@ def per_draw_level(episode_probability: float, draws: int) -> float:
 
 @dataclass(frozen=True)
 class Observation:
-    """What the agent sees and what it would need for the task to be Markov (the V9 audit).
+    """What the agent sees and what it would need for the task to be Markov.
 
     `horizon` is "indefinite" (the time cap is a truncation; the default) or "finite" (time to
     go is observed through `t_remaining` and the cap is a terminal state). `hidden` names the
@@ -492,7 +492,7 @@ class ScenarioSpec:
     `(spec, config)`. `config` holds `EnvConfig` fields, `parameters` the kind's own, and
     `dispersions` the per-episode draws in the order they are made. `variants` map a suffix
     such as "nav1" or "iss" to overrides of those three mappings. `cost` is the ID's cost
-    field. `oracle` holds reference figures with their sources and `audit` the V9 audit
+    field. `oracle` holds reference figures with their sources and `audit` the audit
     record. `rules` are operational rules as temporal-logic formulas.
 
     Parameters
@@ -522,7 +522,7 @@ class ScenarioSpec:
     oracle : mapping
         Reference figures with their sources.
     audit : str
-        The V9 audit record.
+        The scenario audit record.
     cost : str
         The identifier's cost field.
     variants : mapping of str to mapping
