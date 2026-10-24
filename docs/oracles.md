@@ -640,6 +640,155 @@ assert gap["bound_certified"] and not gap["below_lower_bound"]
 assert gap["optimality_gap"] >= 1.0 and abs(gap["optimality_gap_upper"] - 1.0) < 1e-6
 ```
 
+## Lower-bound check
+
+Code: `benchmarks/lower_bound_check.py`, with `DualBank` and `optimality_gap`. Hill frame, SI
+units.
+
+A lower bound from a dual point is a theorem for exact CW motion: no acceleration history within
+the limit reaches the goal for less (Boyd and Vandenberghe, *Convex Optimization*, 2004,
+section 5.1.3). A successful run that spends less therefore points to a bug in the simulator,
+the actuator accounting or the metrics, not to a good controller. The check flies the classical
+baselines and the mutants on the CW scenarios and counts the runs that beat the bound.
+
+**Certification rule.** `optimality_gap` holds a run to a lower bound only when the bound is
+certified for it: the bound's rung (`FuelBounds.rung`) equals the episode's dynamics, and the
+acceleration the run delivered, read from the record and never from the agent, stayed within
+`accel_limit` (per axis for box thrusters, in the 2-norm for one engine, $10^{-12}$ relative). A
+run that exceeded the limit is held to `impulsive_lower`, which holds for any acceleration. E3c
+reports whether a bound is certified. A successful run below the certified bound by more than
+$10^{-9}$ relative, in E1b for box thrusters and E1 for one engine, is flagged E3f. On another
+rung the bound is a model bound: E3c is False, E3f is never set, and the ratio goes to E3m.
+
+**How it runs.** For each scenario the script builds the environment, draws `--count` seeds of
+the split, and builds one `DualBank` with the default `OracleConfig` from the true start of every
+seed; a bank's bound holds for any start, so the starts only make it tighter. Each agent is reset
+once on the scenario's view and skipped, with the reason on standard error, when it refuses the
+task or the action mode (a mutant refuses `"disc27"` and `"impulse_coast"`). Every seed is then
+flown with `record_episode` and scored against `bank.bounds(ep.start)`; a run whose view differs
+from the bank's raises `RuntimeError`, since the bound would not apply to it. A run the agent
+ends by raising `RuntimeError` (`OracleAgent` when its solve verifies no plan) counts as a failed
+run, and the reason is logged once per scenario and agent with the seed indices it ended. A bank
+the oracle refuses (`ValueError`) leaves the scenario without certified bounds and its agents are
+flown; a bank whose solver fails (`RuntimeError`, a HiGHS error) leaves the scenario not scored,
+with the reason on standard error, and the script goes on to the next scenario.
+
+```bash
+python benchmarks/lower_bound_check.py
+python benchmarks/lower_bound_check.py --scenario vbar:approach-rbar:cw:box:dv:v1 --agent pd --count 2
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--scenario` | approach-vbar (box and ball), approach-rbar, approach-hbar, rbar-acquisition, docking-afrl, all `cw` with `dv` cost, v1 | Scenario identifier, repeatable |
+| `--agent` | every agent below | Agent name, repeatable |
+| `--count` | 20 | Seeds per scenario, indices 0 to count - 1 |
+| `--split` | `validation` | `train` or `validation`; the hidden test split is refused |
+| `--max-steps` | the scenario's | Episode length in steps; the bank is built on the same view |
+| `--violation-samples` | the scenario's | Constraint samples per step |
+
+The agents are `PDAgent`, `LQRAgent`, `LQGAgent`, `CWTrackingAgent`, `LyapunovAgent`,
+`TwoImpulseAgent`, `GlideslopeAgent` and `LambertAgent` (each in its default re-targeting mode and
+open loop, the two-impulse agent also tracking), `FehseSequenceAgent`, `NominalTrackingAgent`
+around the open-loop two-impulse plan, `ElevationTimedAgent` at the 42 deg trigger of STORRM's
+terminal-phase burn, `PilotAgent`, `DriftAgent` and `OracleAgent`, each with its defaults, and one
+`Mutant` of `PDAgent` per kind at the middle level of its ordered row in
+[mutants.md](mutants.md): `position_bias` 10 m, `velocity_bias` 0.03 m/s, `delay` 3 steps,
+`dither` 0.15, `chatter` 0.1, `bang_bang` 0.3, `no_coriolis` 1, `sign_flip` and `radial_sign`.
+Names are the agents' `name` attributes, with the mode added where two would match
+(`two-impulse-open-loop`), and `pd:<kind>:<severity>` for the mutants. `ElementAgent`,
+`TorvaAgent`, `MissionManagerAgent` and `LLMAgent` are left out: each needs a plan, a stop angle,
+a mode sequence or a model that no default gives.
+
+**Reading the table.** Standard output has one row per scenario and agent that was flown, with
+the columns `scenario agent runs successes certified e3f`: the runs, the successful runs, the
+successful runs held to a certified bound (the runs the check covers), and the runs flagged E3f.
+Every row has `--count` runs. The exit status is:
+
+| Status | When |
+|---|---|
+| 0 | certified runs were checked and none was flagged |
+| 1 | any run is flagged E3f |
+| 2 | usage error: an unknown `--agent`, the test split, or a count or step option below 1 |
+| 3 | no successful run on any scenario was held to a certified bound, so nothing was checked |
+
+Status 3 covers a sweep where every scenario was not scored, refused by the bank or without
+successes. Raised runs and unscored scenarios change the status only through the certified count.
+Standard error has the skipped agents, the scenarios not scored, the reasons of raised runs, the
+time of each bank and row, and one line per flagged run with the scenario, the agent, the split,
+the seed index, the run's delta-v and the bank's `lower` and `impulsive_lower` for its start. A
+row with fewer certified runs than successes has runs that no bound covers; a row with no
+successes checks nothing.
+
+### Assumptions and limits
+
+- Docking and contact goals get no certified bound: `DualBank` refuses them (contact is an event
+  at a continuous time), the script logs the refusal and flies the agents without bounds, and
+  their rows show 0 certified. docking-afrl is checked: its goal is a capture ball of 0.5 m and
+  0.2 m/s at the port with no dwell, not a contact event.
+- The two-body rung is never certified: the bank's bounds are for CW motion, so a scenario on
+  any other rung, such as `twobody`, gives E3c False on every run, and its rows show 0 certified.
+- The bank relaxes keep-out, speed limits and thrust inhibit, so its bound is valid and may be
+  loose; a zero E3f count says no run beat the bound, not that the bound is tight. Tightness is
+  tested on approach-rbar, below.
+- A briefed target with burns is refused like a docking goal; a target that burns while the
+  briefing says it does not is not detected, and the bound is then a model bound.
+- A ball layout's bank solves a Kelley loop per window LP for every start, which dominates the
+  cost of the ball scenario.
+
+### Validation
+
+Tests: `tests/test_lower_bound_check.py`. approach-rbar runs 120 steps of 10 s, 210 for
+`LQRAgent`, with 2 constraint samples per step, keeping its 600 s dwell; each bank is built on the
+view of its episode length from the true starts of validation seeds 0 and 1, with 4 arrival
+candidates and a stride of 20.
+
+- `PDAgent` (natural frequency 0.02 rad/s), `LQRAgent` (default weights, velocity scale
+  0.03 m/s), the re-targeting `TwoImpulseAgent` (0.5 rad transfer) and `OracleAgent` on both
+  seeds: each successful run is on the CW rung with a positive bound whose `accel_limit` is the
+  view's `max_accel`, E3c is True, E3f is False, E1b is at least the bound times $1 - 10^{-9}$
+  and E3 at least $1 - 10^{-9}$
+  (`test_successful_baseline_runs_stay_above_the_certified_lower_bound`); each agent completes
+  the dwell at least once (`test_every_listed_baseline_completes_the_dwell_at_least_once`).
+- The oracle agent succeeds on both seeds with E3 between 1 and 1.35, so a bank that lost its
+  entries and reported 0 would fail
+  (`test_oracle_agent_run_is_within_its_stated_ratio_of_the_bank_bound`).
+- The oracle agent's run on seed 0 with every executed acceleration, delta-v and propellant
+  halved and the truth kept still succeeds, falls below the bound, and is flagged E3f with E3c
+  True and E3 below 1 (`test_halved_actuation_is_flagged_below_the_certified_bound`).
+- The oracle agent on approach-rbar on the two-body rung, 20 steps of 60 s, succeeds; its
+  `bounds_for` bound has rung `"cw"`, E3c and E3f are False, E3 is NaN and E3m is E1b over the
+  bound to $10^{-12}$ (`test_two_body_run_gets_a_model_ratio_and_no_flag`).
+- The script exits with status 2, a message on standard error and nothing on standard output
+  for the test split (`test_lower_bound_script_refuses_the_test_split`) and for an unknown
+  `--agent`, before any bank is built or run flown
+  (`test_lower_bound_script_rejects_an_unknown_agent_as_a_usage_error_before_flying`).
+- For one scenario, `pd`, one seed and 70 steps, too short for the dwell, the script prints the
+  header and one row of 1 run, 0 successes, 0 certified and 0 flagged, and returns 3
+  (`test_lower_bound_script_prints_counts_for_one_scenario_seed_and_agent`).
+- An agent that raises `RuntimeError` on its second step, flown on 2 seeds of 3 steps before
+  `DriftAgent`, gets a row of 2 runs, 0 successes, 0 certified and 0 flagged, its reason reaches
+  standard error once, the drift row still has 2 runs, and the script returns 3, since the bank
+  refuses the 3-step view
+  (`test_lower_bound_script_counts_an_agent_that_raises_as_a_failed_run`).
+- With the bank's solver failing on approach-rbar, that scenario has no row and `not scored` on
+  standard error, and approach-vbar is still flown (1 run, 0 certified, 0 flagged), returning 3
+  (`test_lower_bound_script_skips_a_scenario_whose_bank_solver_fails_and_scores_the_next`). A
+  bank the oracle refuses leaves the scenario flown with 0 certified, the reason on standard
+  error and status 3 (`test_lower_bound_script_flies_a_scenario_without_a_bank_uncertified`).
+  When every bank's solver fails the table has no rows and the status is 3
+  (`test_lower_bound_script_reports_no_certified_run_when_every_bank_solver_fails`).
+- The oracle agent's recorded run on seed 0, replayed through the script against its bank, gives
+  a row of 1 run, 1 success, 1 certified and 0 flagged and status 0
+  (`test_lower_bound_script_passes_a_certified_run_above_the_bound`); the same run halved gives
+  1 flagged and status 1 (`test_lower_bound_script_fails_a_run_below_the_certified_bound`).
+  The same halved run against bounds stated for the two-body rung gives 1 success, 0 certified
+  and 0 flagged and status 3
+  (`test_lower_bound_script_neither_certifies_nor_flags_a_run_below_an_uncertified_bound`).
+- The oracle agent's 120-step run on seed 0, scored against an empty bank built on the 210-step
+  view, raises `RuntimeError`
+  (`test_lower_bound_script_refuses_a_run_scored_against_a_bank_built_on_another_view`).
+
 ## Exact constrained LQ value
 
 Code: `LQOracle` and `LQBound` in `vbar.oracles.lq`, exported from `vbar.oracles`. Hill frame,
