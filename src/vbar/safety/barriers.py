@@ -355,14 +355,16 @@ class ConeEcbf:
     apex : array_like, shape (3,)
         The apex p, m, Hill frame.
     active_range : float
-        The barrier is enforced within this distance of the apex, m, positive.
+        The barrier is enforced within this distance of the apex, m, positive; inf enforces it
+        at every distance.
     poles : tuple of float
         The closed-loop poles p1, p2 of h, 1/s, real and positive.
 
     Raises
     ------
     ValueError
-        If a parameter is out of range, not finite or `axis` is zero.
+        If a parameter is out of range, `axis` is zero, or a parameter other than
+        `active_range` is not finite.
 
     Notes
     -----
@@ -371,7 +373,7 @@ class ConeEcbf:
     gradient and v_perp the part of v normal to d. On the cone surface |g| = sin(theta), so h is
     the signed distance to the surface scaled by sin(theta) there. The gradient is undefined at
     the apex, and with a lateral speed v_lat the curvature term needs more than a ball limit
-    a_max gives within `infeasible_radius` of it.
+    a_max gives within `infeasible_radius` of it; a box limit can still meet the row closer in.
     """
 
     half_angle: float
@@ -391,7 +393,10 @@ class ConeEcbf:
         object.__setattr__(self, "half_angle", theta)
         object.__setattr__(self, "axis", _vector3(axis / norm, "axis"))
         object.__setattr__(self, "apex", _vector3(self.apex, "apex"))
-        object.__setattr__(self, "active_range", _positive(self.active_range, "active_range"))
+        active_range = float(self.active_range)
+        if not active_range > 0.0:
+            raise ValueError("active_range must be positive")
+        object.__setattr__(self, "active_range", active_range)
         object.__setattr__(self, "poles", _poles(self.poles))
 
     @property
@@ -487,8 +492,11 @@ class ConeEcbf:
         -------
         float
             cot(theta) v_lat^2 / a_max. On the surface with h = h' = 0 the row needs
-            g . u >= cos(theta) v_lat^2 / |d| and a ball of radius a_max offers at most
-            a_max sin(theta); a box contains that ball, so the radius holds for both.
+            g . u >= cos(theta) v_lat^2 / |d|, and a ball of radius a_max offers at most
+            a_max sin(theta), so no ball command meets it inside this radius. A box of half-width
+            a_max contains that ball, so outside the radius the row is feasible under both
+            limits; inside it the box offers up to a_max |g|_1, as much as sqrt(3) a_max
+            sin(theta), and can still meet the row.
 
         Raises
         ------

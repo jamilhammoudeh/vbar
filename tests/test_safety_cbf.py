@@ -349,13 +349,13 @@ def test_reset_refuses_non_cw_dynamics_without_a_declared_model_error(kind):
 
 @pytest.mark.parametrize("kind", FILTERS)
 def test_reset_refuses_an_unenforced_constraint_unless_ignored(kind):
-    cone = {"type": "approach_cone", "half_angle": 0.3, "axis": (0.0, -1.0, 0.0)}
-    widened = dataclasses.replace(view(), constraints=(*view().constraints, cone))
-    with pytest.raises(ValueError, match="approach_cone"):
+    sun = {"type": "sun_exclusion", "half_angle": 0.3, "sun_direction": (1.0, 0.0, 0.0), "rate": N}
+    widened = dataclasses.replace(view(), constraints=(*view().constraints, sun))
+    with pytest.raises(ValueError, match="sun_exclusion"):
         FILTERS[kind]().reset(widened)
-    filt = FILTERS[kind](ignore=("approach_cone",))
+    filt = FILTERS[kind](ignore=("sun_exclusion",))
     filt.reset(widened)
-    assert filt.declaration.ignored == ("approach_cone",)
+    assert filt.declaration.ignored == ("sun_exclusion",)
 
 
 def test_backup_filters_refuse_a_speed_limit_the_cbf_filter_enforces():

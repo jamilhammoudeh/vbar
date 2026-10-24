@@ -482,7 +482,10 @@ def _setup(safety_filter, env, box, seed, max_steps, workers) -> _Setup:
     safety_filter.reset(base.agent_view())
     declaration = safety_filter.declaration
     if not declaration.counts_toward_certification:
-        raise ValueError(f"{safety_filter.name} does not count toward certification (soft filter)")
+        raise ValueError(
+            f"{safety_filter.name} does not count toward certification; safe set: "
+            f"{declaration.safe_set}"
+        )
     lo, hi = _box(box, cfg)
     return _Setup(base, cfg, steps, flown_filter, declaration, lo, hi, _root_seed(seed))
 

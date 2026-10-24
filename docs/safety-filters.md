@@ -2,8 +2,8 @@
 
 Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`,
 `keep_out_projection`, `KeepOutProjection`) and `vbar.safety.tightening` (`BoxError`, `BallError`,
-`EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `ecbf_bias`,
-`first_order_bias`, `box_hull`, `tube_margin`, `delay_margin`, `per_draw_sigma`,
+`EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `error_zonotope`,
+`ecbf_bias`, `first_order_bias`, `box_hull`, `tube_margin`, `delay_margin`, `per_draw_sigma`,
 `scenario_sample_count`, `scenario_margin`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`,
 `ClosingSpeedCbf`, `ConeEcbf`, `PassiveBarrier`, `CamBarrier`, `BrakingBarrier`,
 `braking_deceleration`),
@@ -276,13 +276,17 @@ where $v_\perp$ is the part of $v$ normal to $d$; the first term is the curvatur
 cone surface $|g| = \sin\theta$ (0.173648 at 10 degrees), so $h_c$ is the signed distance to the
 surface scaled by $\sin\theta$. `row` returns the condition within `active_range` of the apex,
 including outside the cone, where it drives $h_c$ back up, and None beyond it or at the apex.
+`active_range` may be inf, the `ApproachCone` default; the row is then given at every distance
+from the apex but zero.
 
 On the surface with $h_c = \dot h_c = 0$ and a lateral speed $v_{lat}$ the row needs
 $g \cdot u \ge \cos\theta\, v_{lat}^2 / |d|$, and a ball of radius $a_{\max}$ offers at most
-$a_{\max} \sin\theta$. `infeasible_radius(v_lat, a_max)` returns the distance inside which that
-fails, $\cot\theta\, v_{lat}^2 / a_{\max}$: 0.028, 0.255 and 0.709 m for 0.01, 0.03 and 0.05 m/s
-at 10 degrees and 0.02 m/s^2. A box contains the ball, so the radius holds for both thrust
-limits.
+$a_{\max} \sin\theta$. `infeasible_radius(v_lat, a_max)` returns the distance inside which no
+ball command meets the row, $\cot\theta\, v_{lat}^2 / a_{\max}$: 0.028, 0.255 and 0.709 m for
+0.01, 0.03 and 0.05 m/s at 10 degrees and 0.02 m/s^2. A box contains the ball, so outside the
+radius the row is feasible under both thrust limits. Inside it the box offers up to
+$a_{\max}|g|_1 \le \sqrt3\, a_{\max} \sin\theta$ and can still meet the row: at 0.03 m/s, with $g$
+along a diagonal of the box, the box fails only inside 0.147 m, against 0.255 m for the ball.
 
 ### Assumptions and limits
 
@@ -537,8 +541,9 @@ around any agent with `FilteredAgent`.
 `CbfFilter(poles=(0.03, 0.03), gamma=0.03, v_cap=0.2, execution=0.0, model_error=None,
 ignore=())` builds, at every decision, the keep-out row of `KeepOutEcbf` with the radius
 $R_f = R + b$, a speed-cap row `SpeedCbf(v_cap, 0, gamma)`, and a `SpeedCbf` or `ClosingSpeedCbf`
-row for each declared `speed_limit` and `closing_speed_limit`, and projects the clipped command
-onto them under the thrust limit with `vbar.solvers.project`. The result is the minimal correction
+row for each declared `speed_limit` and `closing_speed_limit`, a `ConeEcbf` row with the
+keep-out's poles for each declared `approach_cone`, and projects the clipped command onto them
+under the thrust limit with `vbar.solvers.project`. The result is the minimal correction
 for these rows, not the least restrictive safe command: the rows describe a strict subset of the
 states from which the keep-out can be kept.
 
@@ -553,11 +558,32 @@ The rows are continuous-time conditions, so the filter is designed for the held 
   $\delta a_{\max}$ = `execution` + `model_error`. For the double pole 0.03 1/s,
   $v_{\text{cap}} = 0.2$ m/s and $\Delta t = 10$ s at 500 km, $b = 9.8$ mm.
 - **Declared safe set** $S_E$: `KeepOutEcbf.contains` at $R_f$, $|v| \le v_{\text{cap}}$, the
-  declared speed limits met, and $|a_{cw}(x)| + 1.1\,(2 p_{\max} + v_1)\, v_{\text{cap}} \le
-  a_{\max}$ with $v_1$ the largest declared speed slope. On $S_E$ the command $u^* = -a_{cw} + 2
-  p_{\max} c\, \hat r - v_1 c\, \hat v$, $c = \max(0, -\dot\rho)$, meets every row and lies in the
-  ball of radius $a_{\max}$, so the projection is feasible under box and ball limits. With the
-  example values the acceleration condition holds for $|x| \lesssim 1.7$ km.
+  declared speed limits met, and $|a_{cw}(x)| + 1.1\,(2 p_{\max} + v_1)\, v_{\text{cap}} +
+  \delta a_{\max} \le a_{\max}$ with $v_1$ the largest declared speed slope. Without errors, on
+  $S_E$ the command $u^* = -a_{cw} + 2 p_{\max} c\, \hat r - v_1 c\, \hat v$, $c = \max(0,
+  -\dot\rho)$, meets every row and lies in the ball of radius $a_{\max}$, so the projection is
+  feasible under box and ball limits. With the example values the acceleration condition holds
+  for $|x| \lesssim 1.7$ km.
+- **Speed rows under declared errors.** A persistent error $\delta a_{\max}$ along the speed
+  holds $s' = -\gamma s - \delta a_{\max}$ at $s = -\delta a_{\max}/\gamma$, so every speed row,
+  the cap's and each declared limit's, enforces $v_0$ lowered by `first_order_bias`
+  $= \delta a_{\max}/\gamma$, and `declaration.barriers` lists the lowered barriers. `v_cap` keeps
+  its value in the buffer, the safe set and the end-of-step cut, and the safe set keeps the
+  declared limits. A lowered row asks up to $\delta a_{\max}$ more along its normal, which the
+  $\delta a_{\max}$ term of the budget reserves. `reset` raises `ValueError` when the depth leaves a
+  $v_0$ at or below zero. Under a held 2e-4 m/s^2 along the velocity at $\gamma$ = 0.03 1/s the
+  unlowered cap rides 6.3 mm/s over $v_{\text{cap}}$ on the samples (6.7 mm/s in continuous time);
+  with `execution=2e-4` the speed stays under it.
+- **Approach cones.** Each declared `approach_cone` becomes
+  `ConeEcbf(half_angle, axis, apex, active_range, poles)`, its rows named "approach_cone",
+  "approach_cone#1", ..., and left out beyond the active range. $S_E$ then also needs the cone's
+  start set, `ConeEcbf.contains`, wherever the state lies within the active range of the apex;
+  the apex itself is excluded. The row turns on at the active range, which makes the safe set a
+  max-composition of the cone and the range condition, and no declared set is invariant across
+  that switch. With a cone the safe
+  set says "cone activation untreated", `counts_toward_certification` is False and
+  `audit_filter` refuses the filter. The held-step check covers the keep-out only, so the cone
+  rows rest on the pole rule.
 - **Held-step checks.** A held command can break the rows between samples: thrust across the
   velocity raises the speed at second order in $\Delta t$, and $\hat r$ turns within the step, so
   $\hat r \cdot u$ changes. Each decision therefore caps the speed at the end of the step,
@@ -648,6 +674,21 @@ speed and can carry the state out of the region in which the braking argument ho
   predicted shortfall in m as `slack`.
   When a declared error set has a positive exceedance, such as an ellipsoid from
   `EllipsoidError.from_gaussian`, the kind is "chance-epsilon" instead of "bounded-W".
+- With a `navigation` set and the free-drift barrier the set is set-valued. With $Z_E$ the
+  zonotope of `tightening.error_zonotope` (the box itself; for two balls the box of their radii;
+  for an ellipsoid the generators $P$, both outer bounds), a state is in the set when
+  `vbar.reach.drift_clearance` certifies the drift of every state in $\hat x + Z_E$ outside the
+  keep-out over `t_cap`, on $\lceil t_{\text{cap}}/\text{grid} \rceil + 1$ samples. Check 2 is
+  the same clearance of $\Phi(\hat x + Z_E) + \Gamma u + \Gamma\, \delta a_{\max} B$, $B$ the unit
+  box, which holds every true end state under the declared errors; check 1 keeps the scalar
+  margin of `held_segment_bound`, since the held step is short. The floor $f_b$ is then the set
+  clearance at $\hat x$. With an execution error alone check 2 subtracts the largest range error
+  of the drift, as above. At the V-bar hold 100 m out at rest, R 50 m, 500 km, two orbits and a
+  30 s grid, the point drifts 50.000 m clear, yet a (3 m, 3 mm/s) box is outside the set and a
+  (0.6 m, 0.3 mm/s) box has a certified margin between -6.657 and -6.157 m. A velocity box of
+  1.38 mm/s is "bounded-W" over two orbits and one of 1.45 mm/s is outside; with
+  `execution=1e-5` the 1.38 mm/s box loses its certificate, since one 10 s step of that error
+  costs 3.5 m of a 0.854 m clearance.
   Every certificate is one of `vbar.safety.CERTIFICATE_KINDS`, given together with its
   horizon; `FilterResult` and `FilterDeclaration` refuse anything else with `ValueError`.
 - The filter enforces the keep-out only and refuses other constraint types: free drift or
@@ -666,6 +707,27 @@ The status is "feasible" in every row but the last, which is "solver_failed". Wh
 `slack` is the predicted violation of the returned action, $\max(0, f_s - \text{bound},
 f_b - h(x_1))$ in m. Without error sets the horizon is inf for both barriers; with them it is
 `t_cap` for free drift and inf for braking.
+
+The set-valued check at the V-bar hold, with velocity errors on either side of the 1.4148 mm/s
+threshold:
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.safety.cbf import BackupFilter
+from vbar.safety.tightening import BoxError
+
+hold = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])  # m and m/s
+view = ApproachEnv(ApproachConfig(action_mode="accel", start_state=tuple(hold))).agent_view()
+for r_vel in (1.38e-3, 1.45e-3):  # m/s per axis
+    error = BoxError(r_pos=0.0, r_vel=r_vel)
+    passive = BackupFilter(barrier="passive", grid=30.0, navigation=error)
+    passive.reset(view)
+    print(passive.contains(hold), passive.filter(hold, np.zeros(3)).certificate)
+# True bounded-W
+# False None
+```
 
 ### CAM backup filter
 
@@ -859,6 +921,35 @@ print(proof.names, proof.verify())  # ('keep_out', 'speed_cap') True
 print(result.action.round(4), round(result.slack, 5))  # [0.   0.01 0.  ] 0.011
 ```
 
+The keep-out and an approach cone can also conflict. With a 10 degree cone about -V-bar from the
+apex (0, -50, 0) m, active within 50 m, and the chaser 12 m beside the apex at the keep-out's edge
+(range 51.9 m), outside the cone and closing at 0.24 m/s, each row alone fits the 0.02 m/s^2 box
+with at least 0.0048 m/s^2 to spare. Weighting the cone row by 0.2350 cancels the radial parts:
+the combined normal $(0, -1.198, 0)$ has a box support of 0.02396 m/s^2 against a combined bound
+of 0.02669 m/s^2. `project` names exactly the keep-out and the cone, not a slack 0.5 m/s speed
+cap, and the filter returns the same names with a proof that verifies.
+
+```python
+import dataclasses
+import math
+
+from vbar.constraints import ApproachCone
+from vbar.scenarios.base import public_spec
+
+cone = ApproachCone(
+    half_angle=math.radians(10.0), axis=(0.0, -1.0, 0.0), apex=(0.0, -50.0, 0.0), active_range=50.0
+)
+coned = dataclasses.replace(view, constraints=(*view.constraints, public_spec(cone)))
+ecbf = CbfFilter(poles=(0.05, 0.05), v_cap=0.5, gamma=0.02)
+ecbf.reset(coned)
+print(ecbf.declaration.counts_toward_certification)  # False
+
+x = np.array([12.0, -50.5, 0.0, -0.2, 0.2, 0.0])  # m and m/s
+result = ecbf.filter(x, np.zeros(3))
+print(result.status, result.recovering)  # infeasible_certified True
+print(result.proof.names, result.proof.verify())  # ('keep_out', 'approach_cone') True
+```
+
 ### Assumptions and limits
 
 - All filters assume the CW model; other dynamics need a declared `model_error`, which enters as
@@ -870,6 +961,15 @@ print(result.action.round(4), round(result.slack, 5))  # [0.   0.01 0.  ] 0.011
   held for 10 s reaches 0.2 m/s, so with a 0.1 m/s cap the filter halves it. Declared
   `speed_limit` and `closing_speed_limit` rows are first-order conditions at the start of the
   step only; only the filter's own cap is checked at the end of the step.
+- The $\delta a_{\max}$ term of `CbfFilter`'s budget covers the extra demand of one lowered speed
+  row at a time. When several lowered rows bind together, feasibility inside $S_E$ under declared
+  errors is not proven.
+- `CbfFilter` with an approach cone makes no counted claim: the activation at the active range
+  is untreated, and the cone rows are not checked on the held step.
+- The set-valued free-drift check costs one `drift_clearance` per check, and a line search makes
+  up to 13. Measured at the V-bar hold over two orbits: 0.02 to 0.16 s per clearance for boxes up
+  to (0.6 m, 0.3 mm/s) at grids of 5 to 60 s, and 0.6 to 2.6 s for a (3 m, 3 mm/s) box, most of it
+  in the bounded least-squares refinement of `vbar.reach`; one decision took from 0.04 s to 40 s.
 - The braking barrier's region (`rho_cap`, `v_cap`) is declared, not enforced: a nominal that
   leaves it puts the filter in recovery.
 - The free-drift barrier evaluates up to 11 355 drift samples per check (ten orbits at 5 s); a
@@ -1713,13 +1813,66 @@ The tests in `tests/test_safety_infeasible.py` check:
 - From starts inside the declared sets, at dt 1, 2, 5, 10 and 20 s, `CbfFilter` and the braking
   backup filter have no infeasible step and no proof.
 
+The tests in `tests/test_safety_cone.py` check:
+
+- `ConeEcbf` accepts an infinite active range and gives its row 10 km from the apex.
+- `CbfFilter` lists one `ConeEcbf` per declared cone, in the order of the view, with the
+  keep-out's poles; with a cone `counts_toward_certification` is False and the safe set says
+  "cone activation untreated", and `audit_filter` refuses the filter on an approach scenario
+  with a 10 degree cone about -V-bar.
+- The cone row of Ames et al., sec. IV (our case), through the filter's own rows: on the
+  surface 5 m from the apex at 0.03 m/s across, $|g| = 0.173648$ and
+  $\ddot h = -1.77265 \times 10^{-4}$ m/s^2 at zero thrust, to 1e-5 relative. 100 m out,
+  9 degrees off the axis and moving outward at 0.08 m/s, the zero command breaks the row and
+  the filtered command meets it; the row equals the barrier's to 1e-12. The row is left out
+  beyond the active range, two cones give "approach_cone" and "approach_cone#1", and
+  `contains` needs the start set only within the active range.
+- Near the apex with $g$ along a box diagonal: at 0.2 m and 0.03 m/s a box command meets the row
+  and no ball command does; the box radius along that direction is 0.147 m, feasible at 1.02 and
+  certified infeasible at 0.98 of it; the docstring no longer claims the ball radius for the box.
+
+The tests in `tests/test_safety_conflict.py` check, at a state found by search and rounded to
+0.1 m and 0.1 m/s (12 m beside the apex of a 10 degree, 50 m cone, range 51.906 m, closing):
+
+- The keep-out, cone and 0.5 m/s speed rows are each feasible in the 0.02 m/s^2 box with more
+  than 0.004 m/s^2 to spare; the keep-out and cone rows weighted 1 and 0.2350 have box support
+  0.02396 m/s^2 against a bound of 0.02669 m/s^2.
+- `project` is "infeasible_certified" with a phase I margin equal to an independent linear
+  program's least total violation to 1e-6 relative; beyond the box faces it names exactly the
+  keep-out and the cone, not the speed row, and the proof on those rows verifies.
+- `CbfFilter` at that state is recovering and "infeasible_certified" with the same names, and
+  its proof's rows equal the barriers' rows to 1e-9 relative.
+
+The tests in `tests/test_safety_speed_bias.py` check:
+
+- With `execution` 2e-4 and `model_error` 1e-4 m/s^2 at $\gamma$ = 0.03 1/s the cap, a declared
+  speed limit and a declared closing-speed limit are each lowered by 0.01 m/s with $v_1$ and
+  $\gamma$ unchanged, `v_cap` keeps its value, and without errors the limits stay as declared; a
+  bias that uses up the 0.1 m/s closing-speed limit is refused.
+- Under a held 2e-4 m/s^2 along the velocity from 1000 m out on V-bar, with the agent pushing at
+  full thrust along it for 60 steps: declared, the speed on 11 samples per step stays at or
+  under 0.2 m/s; undeclared, it rides between 5 and 7.5 mm/s over.
+
+The tests in `tests/test_safety_navigation.py` check (Kochenderfer et al., *Algorithms for
+Validation*, eq. 8.29, our cases):
+
+- `error_zonotope` has the box's support exactly in 40 drawn directions, the box of the radii
+  for two balls and the generators $P$ for an ellipsoid, each at least the set's support.
+- At the V-bar hold 100 m out at rest, R 50 m, 500 km, two orbits: the point drifts 50.000 m
+  clear, while a (3 m, 3 mm/s) box is outside the set and its decision recovering with no
+  certificate. On a 30 s grid the (0.6 m, 0.3 mm/s) box has found minimum -6.157 m and a
+  certified margin between -6.657 and -6.157 m; a velocity box of 1.38 mm/s is "bounded-W" with
+  horizon $4\pi/n$ and one of 1.45 mm/s is outside.
+- With `execution=1e-5` the 1.38 mm/s box loses its certificate at the end check, and its slack
+  equals the end set's certified shortfall to 0.02 m.
+
 The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
 
 - Keyword-only constructors, fixed names, and every reset refusal just inside and just outside
   its limit: the pole and gain rule at 0.0599 and 0.0601 1/s for dt 10 s (and 0.03 1/s at 20 s),
   the action modes, frame, observation order, pending commands, dynamics without a model error,
-  an unenforced constraint with and without `ignore=`, a missing keep-out, and a default braking
-  deceleration that is not positive.
+  an unenforced constraint (a sun exclusion) with and without `ignore=`, a missing keep-out, and
+  a default braking deceleration that is not positive.
 - The declaration: buffer $1.2 \cdot 3 n^2 v_{\text{cap}} \Delta t/p^2$ plus $\delta a/p^2$ to 1e-9
   relative, certificate kinds "nominal" and "bounded-W", and the soft filter never counting.
 - Clipping in every continuous mode and both layouts is not an intervention, and each row of the

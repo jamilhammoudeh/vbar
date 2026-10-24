@@ -301,6 +301,36 @@ def keep_out_margin(phi_r, error: ErrorSet) -> float:
     raise TypeError(f"unknown error set {type(error).__name__}")
 
 
+def error_zonotope(error: ErrorSet) -> Zonotope:
+    """Return a zonotope centered at the zero error that contains the error set.
+
+    Parameters
+    ----------
+    error : BoxError, BallError or EllipsoidError
+        The error set E on the Hill-frame state, m and m/s.
+
+    Returns
+    -------
+    Zonotope
+        Six-dimensional, centered at zero, in m and m/s. The box itself for a `BoxError`; for a
+        `BallError` the box of half-widths r_pos and r_vel, which contains the two balls; for an
+        `EllipsoidError` the generators P, since |z|_2 <= 1 implies |z_j| <= 1. Only the box is
+        exact; the other two are outer bounds.
+
+    Raises
+    ------
+    TypeError
+        If `error` is not one of the error sets.
+    """
+    match error:
+        case BoxError() | BallError():
+            radii = np.array([error.r_pos] * 3 + [error.r_vel] * 3)
+            return Zonotope.box(np.zeros(6), radii)
+        case EllipsoidError():
+            return Zonotope(np.zeros(6), error.P)
+    raise TypeError(f"unknown error set {type(error).__name__}")
+
+
 def ecbf_bias(da_max: float, poles: tuple[float, float]) -> float:
     """Return the depth of the riding offset of an exponential CBF under a persistent bias.
 

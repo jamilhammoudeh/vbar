@@ -5,15 +5,15 @@ onto the thrust limit, changes it only as far as its barriers require, and retur
 view's action mode. Clipping is what the spacecraft does anyway, so it never counts as an
 intervention.
 
-`CbfFilter` projects the command onto the exponential barrier row of the keep-out sphere and
-first-order speed rows (Ames et al., *Control Barrier Functions: Theory and Applications*,
-ECC 2019, sec. II and IV). The rows are continuous-time conditions, so the filter is designed for
-the held step: its poles obey max(p) dt <= 0.6, the keep-out radius carries a buffer for riding
-the boundary, and it makes no certified claim. `BackupFilter` checks each held step on the exact
-Clohessy-Wiltshire solution and searches toward a backup command, free drift, a collision
-avoidance manoeuvre then free drift, or full outward braking, whose safety is the barrier's own
-theorem (sec. III, Theorem 4). `SoftCbfFilter` penalizes the rows instead of enforcing them and
-is never a certified filter.
+`CbfFilter` projects the command onto the exponential barrier rows of the keep-out sphere and
+of declared approach cones and first-order speed rows (Ames et al., *Control Barrier Functions:
+Theory and Applications*, ECC 2019, sec. II and IV). The rows are continuous-time conditions,
+so the filter is designed for the held step: its poles obey max(p) dt <= 0.6, the keep-out
+radius carries a buffer for riding the boundary, and it makes no certified claim.
+`BackupFilter` checks each held step on the exact Clohessy-Wiltshire solution and searches
+toward a backup command, free drift, a collision avoidance manoeuvre then free drift, or full
+outward braking, whose safety is the barrier's own theorem (sec. III, Theorem 4).
+`SoftCbfFilter` penalizes the rows instead of enforcing them and is never a certified filter.
 """
 
 from __future__ import annotations
@@ -29,16 +29,18 @@ from typing import Any
 import numpy as np
 
 from ..agents.base import CONTINUOUS_MODES, AgentView, action_scale, command_fraction
-from ..constraints import KeepOut
+from ..constraints import ApproachCone, KeepOut
 from ..dynamics.cw import cw_discrete
 from ..metrics.passive import cam_direction
 from ..metrics.settings import MetricSettings
+from ..reach import Zonotope, drift_clearance
 from ..solvers.qp import ActuatorSet, Projection, Rows, project
 from . import CERTIFICATE_KINDS, FilterResult, InfeasibilityProof
 from .barriers import (
     BrakingBarrier,
     CamBarrier,
     ClosingSpeedCbf,
+    ConeEcbf,
     KeepOutEcbf,
     PassiveBarrier,
     SpeedCbf,
@@ -46,7 +48,14 @@ from .barriers import (
 )
 from .projections import ball, box
 from .sampled import held_segment_bound, line_search
-from .tightening import EllipsoidError, ErrorSet, ecbf_bias, keep_out_margin
+from .tightening import (
+    EllipsoidError,
+    ErrorSet,
+    ecbf_bias,
+    error_zonotope,
+    first_order_bias,
+    keep_out_margin,
+)
 
 _STATE_NAMES = ("x", "y", "z", "vx", "vy", "vz")
 # Largest max(p) dt and gamma dt: the double integrator under hold loses the start set at 0.618
@@ -111,6 +120,11 @@ def _a_cw(x: np.ndarray, n: float) -> np.ndarray:
     return np.array(
         [3.0 * n * n * x[0] + 2.0 * n * x[4], -2.0 * n * x[3], -n * n * x[2]], dtype=float
     )
+
+
+def _numbered(kind: str, taken: int) -> str:
+    """The row name of a constraint of type `kind` after `taken` others of that type."""
+    return kind if taken == 0 else f"{kind}#{taken}"
 
 
 def _check_rule(rate: float, dt: float, name: str) -> None:
@@ -324,12 +338,13 @@ class CbfFilter(_HeldCommandFilter):
         state); anything but None raises.
     ignore : sequence of str
         Constraint types of the scenario not to enforce; every other type except keep_out,
-        speed_limit and closing_speed_limit makes reset raise.
+        speed_limit, closing_speed_limit and approach_cone makes reset raise.
 
     Raises
     ------
     ValueError
-        If a parameter is out of range or `navigation` is given.
+        If a parameter is out of range or `navigation` is given; at reset, if the declared
+        errors leave a speed row with v0 at or below zero.
 
     Notes
     -----
@@ -337,10 +352,21 @@ class CbfFilter(_HeldCommandFilter):
     buffer = 1.2 * 3 n^2 v_cap dt / (p1 p2) + da_max / (p1 p2), the speed cap
     s = v_cap - |v| and a first-order row for each declared speed limit (Ames et al., sec. II,
     Def. 2, and sec. IV, Def. 7). The declared safe set is the barrier's start set at R_f with
-    |v| <= v_cap and |a_cw(x)| + 1.1 (2 max(p) + v1) v_cap <= a_max, v1 the largest declared speed
-    slope: there the command -a_cw + 2 max(p) c rhat - v1 c vhat, c the closing speed, meets every
-    row inside the inscribed ball of the thrust limit, so the projection is feasible under box and
-    ball.
+    |v| <= v_cap and |a_cw(x)| + 1.1 (2 max(p) + v1) v_cap + da_max <= a_max, v1 the largest
+    declared speed slope: without errors the command -a_cw + 2 max(p) c rhat - v1 c vhat, c the
+    closing speed, meets every row inside the inscribed ball of the thrust limit, so the
+    projection is feasible under box and ball. Each speed row lowered for the declared errors
+    asks up to da_max more along its normal, which the da_max term reserves.
+
+    Under a persistent acceleration error the first-order row s' >= -gamma s settles at
+    s = -da_max / gamma (`tightening.first_order_bias`), so every speed row, the cap's and each
+    declared limit's, enforces v0 lowered by that depth; the safe set keeps the limits as
+    declared. Each declared approach cone adds the row of a `ConeEcbf` with the keep-out's poles
+    wherever the state lies within the cone's active range of its apex, and the safe set adds the
+    cone's start set there. The cone turns on at its active range, so no declared set is
+    invariant across it: with a cone the safe set says "cone activation untreated" and the
+    filter does not count toward certification. The held-step check covers the keep-out only;
+    the cone rows rest on the pole rule.
 
     The rows are continuous-time conditions, and a command held for dt can break both: thrust
     across the velocity raises the speed at second order in dt, and the turn of rhat within the
@@ -357,7 +383,7 @@ class CbfFilter(_HeldCommandFilter):
     `certificate` is None.
     """
 
-    _enforced = ("keep_out", *_SPEED_TYPES)
+    _enforced = ("keep_out", *_SPEED_TYPES, "approach_cone")
     _counts = True
 
     def __init__(
@@ -400,33 +426,53 @@ class CbfFilter(_HeldCommandFilter):
             self.da_max, self.poles
         )
         self._keep_out = KeepOutEcbf(radius=self._radius + self.buffer_m, poles=self.poles)
+        depth = first_order_bias(self.da_max, self.gamma)
         speed_rows: list[tuple[str, SpeedCbf | ClosingSpeedCbf]] = [
-            ("speed_cap", SpeedCbf(v0=self.v_cap, v1=0.0, gamma=self.gamma))
+            ("speed_cap", self._lowered(SpeedCbf, self.v_cap, 0.0, depth, "v_cap"))
         ]
+        limits: list[SpeedCbf | ClosingSpeedCbf] = []
+        cone_rows: list[tuple[str, ConeEcbf]] = []
         for spec in enforced:
             kind = spec["type"]
+            if kind == "approach_cone":
+                cone = ApproachCone(**{k: v for k, v in spec.items() if k != "type"})
+                barrier = ConeEcbf(
+                    half_angle=cone.half_angle,
+                    axis=cone.axis,
+                    apex=cone.apex,
+                    active_range=cone.active_range,
+                    poles=self.poles,
+                )
+                cone_rows.append((_numbered(kind, len(cone_rows)), barrier))
+                continue
             if kind not in _SPEED_TYPES:
                 continue
             barrier_type = SpeedCbf if kind == "speed_limit" else ClosingSpeedCbf
-            barrier = barrier_type(v0=float(spec["v0"]), v1=float(spec["v1"]), gamma=self.gamma)
-            taken = sum(name.split("#")[0] == kind for name, _ in speed_rows)
-            speed_rows.append((kind if taken == 0 else f"{kind}#{taken}", barrier))
+            v0, v1 = float(spec["v0"]), float(spec["v1"])
+            limits.append(barrier_type(v0=v0, v1=v1, gamma=self.gamma))
+            name = _numbered(kind, sum(row.split("#")[0] == kind for row, _ in speed_rows))
+            speed_rows.append((name, self._lowered(barrier_type, v0, v1, depth, name)))
         self._speed_rows = tuple(speed_rows)
-        self._v1 = max((b.v1 for _, b in speed_rows[1:]), default=0.0)
-        self._check_rows(1 + len(speed_rows))
+        self._limits = tuple(limits)
+        self._cone_rows = tuple(cone_rows)
+        self._v1 = max((b.v1 for b in limits), default=0.0)
+        self._check_rows(1 + len(speed_rows) + len(cone_rows))
         phi, gamma_u = cw_discrete(n, dt)
         self._phi, self._gamma_u = phi, gamma_u
         # Largest position and velocity errors at the end of the step from the execution error.
         self._end_r = self.da_max * float(np.linalg.norm(gamma_u[:3], 2))
         self._end_v = self.da_max * float(np.linalg.norm(gamma_u[3:], 2))
         self._view = view
+        safe_set = (
+            "keep-out barrier start set at R + buffer, |v| <= v_cap, declared speed limits "
+            "met, |a_cw| + 1.1 (2 max(p) + v1) v_cap + da_max <= a_max"
+        )
+        if cone_rows:
+            safe_set += ", cone start sets within their active ranges; cone activation untreated"
         self._declaration = FilterDeclaration(
             name=self.name,
-            safe_set=(
-                "keep-out barrier start set at R + buffer, |v| <= v_cap, declared speed limits "
-                "met, |a_cw| + 1.1 (2 max(p) + v1) v_cap <= a_max"
-            ),
-            barriers=(self._keep_out, *(b for _, b in speed_rows)),
+            safe_set=safe_set,
+            barriers=(self._keep_out, *(b for _, b in speed_rows), *(b for _, b in cone_rows)),
             poles=self.poles,
             gamma=self.gamma,
             design_dt=dt,
@@ -440,9 +486,24 @@ class CbfFilter(_HeldCommandFilter):
             },
             backup=None,
             certificate=None,
-            counts_toward_certification=self._counts,
+            counts_toward_certification=self._counts and not cone_rows,
             ignored=self.ignore,
         )
+
+    def _lowered(
+        self,
+        barrier_type: type[SpeedCbf] | type[ClosingSpeedCbf],
+        v0: float,
+        v1: float,
+        depth: float,
+        name: str,
+    ) -> SpeedCbf | ClosingSpeedCbf:
+        """The speed barrier with v0 (m/s) lowered by the riding depth `depth`, m/s."""
+        if not v0 - depth > 0.0:
+            raise ValueError(
+                f"the declared errors use up {name}: v0 {v0:g} m/s, riding depth {depth:g} m/s"
+            )
+        return barrier_type(v0=v0 - depth, v1=v1, gamma=self.gamma)
 
     def _check_rows(self, count: int) -> None:
         """Every row count is supported by the exact projection."""
@@ -461,15 +522,20 @@ class CbfFilter(_HeldCommandFilter):
             return False
         if float(np.linalg.norm(x[3:])) > self.v_cap:
             return False
-        if not all(barrier.contains(x) for _, barrier in self._speed_rows[1:]):
+        if not all(barrier.contains(x) for barrier in self._limits):
             return False
-        budget = (2.0 * max(self.poles) + self._v1) * _SPEED_OVERSHOOT * self.v_cap
+        for _, cone in self._cone_rows:
+            dist = float(np.linalg.norm(x[:3] - np.array(cone.apex)))
+            # The cone's gradient is undefined at its apex, which the start set leaves out.
+            if dist <= cone.active_range and (dist == 0.0 or not cone.contains(x)):
+                return False
+        budget = (2.0 * max(self.poles) + self._v1) * _SPEED_OVERSHOOT * self.v_cap + self.da_max
         return float(np.linalg.norm(_a_cw(x, self._n))) + budget <= self._actuator.a_max
 
     def _rows(self, x: np.ndarray) -> Rows:
         a_cw = _a_cw(x, self._n)
         normals, sides, names = [], [], []
-        for name, barrier in (("keep_out", self._keep_out), *self._speed_rows):
+        for name, barrier in (("keep_out", self._keep_out), *self._speed_rows, *self._cone_rows):
             row = barrier.row(x, a_cw)
             if row is None:
                 continue
@@ -890,7 +956,8 @@ class BackupFilter(_HeldCommandFilter):
     iterations : int
         Bisection steps of the line search.
     navigation : BoxError, BallError or EllipsoidError, optional
-        Bound on the error of the observed state, m and m/s.
+        Bound on the error of the observed state, m and m/s; with the passive barrier it makes
+        the barrier set-valued.
     execution : float
         Bound on the execution error of a held command, m/s^2, nonnegative.
     model_error : float, optional
@@ -921,6 +988,15 @@ class BackupFilter(_HeldCommandFilter):
     is certified up to t_cap only and recursive feasibility is not claimed. The certificate is
     "bounded-W" with error sets and "chance-epsilon" when the navigation set is an ellipsoid with
     a positive exceedance, since the error leaves it with that probability per draw.
+
+    With a navigation set E and the passive barrier the set is that of the estimate x_hat whose
+    whole error set drifts clear: `vbar.reach.drift_clearance` of the zonotope x_hat + Z_E, with
+    Z_E from `tightening.error_zonotope` (exact for a box, an outer bound otherwise), certified
+    >= 0 over t_cap on samples at most `grid` s apart. The end of a held step u is checked by the
+    same clearance of Phi (x_hat + Z_E) + Gamma u + Gamma da_max B, B the unit box, which holds
+    every true end state under the declared errors; the held step itself keeps the scalar margin
+    of `held_segment_bound`. With an execution error alone the end check subtracts the largest
+    range error of the drift instead.
 
     The cam barrier holds the CAM a_c of magnitude a_max along the direction
     `vbar.metrics.passive.cam_direction` gives for the view's goal (along-track away from a V-bar
@@ -1004,6 +1080,10 @@ class BackupFilter(_HeldCommandFilter):
         n, dt, radius = self._n, self._dt, self._radius
         phi, gamma = cw_discrete(n, dt)
         self._phi, self._gamma_u = phi, gamma
+        # Generators of the navigation set about the estimate and of the end-of-step set about
+        # its prediction, for the set-valued free-drift barrier; None for a point barrier.
+        self._start_set: np.ndarray | None = None
+        self._end_set: np.ndarray | None = None
         self._barrier: PassiveBarrier | BrakingBarrier | CamBarrier
         if self.barrier == "cam":
             self._barrier = self._cam_barrier(view)
@@ -1017,7 +1097,20 @@ class BackupFilter(_HeldCommandFilter):
             t_cap = self.t_cap
             if t_cap is None:
                 t_cap = (4.0 if self.bounded else 20.0) * math.pi / n
-            if self.bounded:
+            if self.navigation is not None:
+                self._barrier = PassiveBarrier(radius=radius, n=n, grid=self.grid, t_cap=t_cap)
+                self._end_tightening = 0.0
+                self._start_set = error_zonotope(self.navigation).generators
+                end = [phi @ self._start_set]
+                if self.da_max > 0.0:
+                    end.append(self.da_max * gamma)
+                self._end_set = np.hstack(end)
+                self._drift_samples = math.ceil(t_cap / self.grid) + 1
+                safe_set = (
+                    "free drift of every state within the navigation error of the estimate "
+                    "certified outside the keep-out up to the drift horizon"
+                )
+            elif self.bounded:
                 self._barrier = PassiveBarrier(radius=radius, n=n, grid=self.grid, t_cap=t_cap)
                 self._end_tightening = self._drift_tightening(phi, gamma)
                 safe_set = "certified free drift outside the keep-out up to the drift horizon"
@@ -1147,11 +1240,25 @@ class BackupFilter(_HeldCommandFilter):
             Before the first `reset`.
         """
         self._started()
-        return self._barrier.contains(np.asarray(x, dtype=float))
+        x = np.asarray(x, dtype=float)
+        if self._start_set is not None:
+            return self._set_value(x, self._start_set) >= 0.0
+        return self._barrier.contains(x)
+
+    def _set_value(self, center: np.ndarray, generators: np.ndarray) -> float:
+        """The certified free-drift clearance of every state in the zonotope, m."""
+        barrier = self._barrier
+        assert isinstance(barrier, PassiveBarrier) and barrier.t_cap is not None
+        found = drift_clearance(
+            self._n, Zonotope(center, generators), self._radius, barrier.t_cap, self._drift_samples
+        )
+        return found.certified
 
     def _end_value(self, x1: np.ndarray) -> float:
         """A lower bound on the barrier value at the true end state of the step, m."""
         barrier = self._barrier
+        if self._end_set is not None:
+            return self._set_value(x1, self._end_set)
         if isinstance(barrier, (PassiveBarrier, CamBarrier)):
             return float(barrier.value(x1)) - self._end_tightening
         g_r, g_v = self._end_deviation
@@ -1236,12 +1343,14 @@ class BackupFilter(_HeldCommandFilter):
             return self._monitor(u_c, t0)
         barrier = self._barrier
         h0 = float(barrier.value(x))
+        # The end check of a set-valued barrier is a set clearance, so its floor is one too.
+        h_set = h0 if self._start_set is None else self._set_value(x, self._start_set)
         if isinstance(barrier, BrakingBarrier):
             inside = barrier.contains(x)
         else:
-            inside = h0 >= 0.0
+            inside = h_set >= 0.0
         floor_s = min(0.0, float(np.linalg.norm(x[:3])) - self._radius)
-        floor_b = min(0.0, h0)
+        floor_b = min(0.0, h_set)
 
         rho_top = v_top = math.inf
         if isinstance(barrier, BrakingBarrier):

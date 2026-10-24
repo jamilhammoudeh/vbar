@@ -948,6 +948,11 @@ penalised objective and equals the hard projection when alpha exceeds every mult
   navigation boxes, found minima -50.000 m and -6.157 m with certified bounds below them, and the
   largest velocity box certified clear between 1.4140 and 1.4160 mm/s against the closed form
   1.4147 mm/s.
+- Eq. 8.29 in the free-drift backup filter (our cases): at the V-bar hold over two orbits on a
+  30 s grid, a (3 m, 3 mm/s) navigation box is outside the set although the point drifts
+  50.000 m clear, a (0.6 m, 0.3 mm/s) box has a certified margin between -6.657 and -6.157 m,
+  velocity boxes of 1.38 and 1.45 mm/s lie inside and outside, and an execution error of 1e-5
+  m/s^2 over one 10 s step withdraws the 1.38 mm/s box's certificate.
 - Eq. 8.24 and 8.27 (our case): minimum time 28 steps with a separating direction at 27.
 - Eq. 8.29 by box subdivision (our cases): velocity boxes at the V-bar hold of 1.4140 mm/s
   certified clear in one box and of 1.4160 mm/s split; a declared horizon shorter than the
