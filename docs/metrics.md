@@ -586,7 +586,9 @@ Summaries over several runs, here the PD baseline from six radial offsets. S1 co
 constraint; success is a rate with its exact interval:
 
 ```python
-from vbar.metrics import summarize
+from vbar import ApproachConfig, ApproachEnv
+from vbar.agents import PDAgent
+from vbar.metrics import evaluate, record_episode, summarize
 
 runs = []
 for x0 in (-150.0, -100.0, -50.0, 0.0, 50.0, 100.0):
@@ -604,8 +606,10 @@ every command:
 ```python
 import numpy as np
 
+from vbar import ApproachConfig, ApproachEnv
+from vbar.agents import PDAgent
 from vbar.constraints import GateTable
-from vbar.metrics import filter_behaviour, filter_metrics
+from vbar.metrics import filter_behaviour, filter_metrics, record_episode
 from vbar.safety import FilteredAgent, FilterResult
 
 # STS-130 +V-bar gates (Goodman, fig. 25.22), converted to m and m/s.

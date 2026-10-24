@@ -8,9 +8,11 @@ V-BAR is a headless Python benchmark for spacecraft rendezvous and proximity-ope
 controllers. Classical guidance laws, reinforcement learning agents and LLM agents fly the same
 scenarios and are scored with the same metrics.
 
-**Status: early development (0.2).** The dynamics, spacecraft, sensor and constraint layers are
-validated (see [Tests](#tests)). The environment has one scenario, the safety-filter interface has
-only its pass-through ("filter off") implementation, and interfaces may change before 1.0.
+**Status: early development (0.3).** The dynamics, spacecraft, sensor and constraint layers are
+validated (see [Tests](#tests)). Version 0.3 adds the metrics, agent tools (remote and ONNX
+policy agents, the sign check, reward and training interfaces), a catalogue of seventeen scenarios
+and `vbar.solvers` (command projection and horizon quadratic programs). Safety filters beyond the pass-through ("filter off")
+are not in yet, and interfaces may change before 1.0.
 
 ## Why
 
@@ -27,7 +29,8 @@ pip install vbar
 ```
 
 Python 3.12 or later. The core dependencies are numpy, scipy and gymnasium. Plotting needs the
-`plot` extra: `pip install "vbar[plot]"`. To work on V-BAR itself, see
+`plot` extra: `pip install "vbar[plot]"`; ONNX policy export and inference need the `onnx` extra:
+`pip install "vbar[onnx]"`. To work on V-BAR itself, see
 [CONTRIBUTING.md](https://github.com/jamilhammoudeh/vbar/blob/main/CONTRIBUTING.md).
 
 ## Quickstart
@@ -110,6 +113,18 @@ progress, docking contact, hold dwell), efficiency (delta-v in both norms, prope
 cycle, chatter, the optimality gap against oracle bounds), constraint margins with violation depth
 and duration, passive safety and collision-avoidance availability, thruster plume, safety-filter
 and agent metrics, a composite score with its breakdown, and a failure label for failed runs.
+These are the benchmark's scores; the keys `run_episode` returns are a quick check of one run.
+
+```python
+from vbar import ApproachConfig, ApproachEnv
+from vbar.agents import PDAgent
+from vbar.metrics import evaluate, record_episode
+
+env = ApproachEnv(ApproachConfig(start_state=(0, -400, 0, 0, 0, 0)))
+m = evaluate(record_episode(env, PDAgent()))
+print(m["success"], m["composite_score"], m["failure_label"])  # True 1.0 None
+```
+
 Definitions, tests and one card per metric are in
 [docs/metrics.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/metrics.md).
 
@@ -121,15 +136,26 @@ three numbers in [-1, 1] is an agent:
 ```python
 import numpy as np
 
+from vbar import ApproachConfig, ApproachEnv, run_episode
+from vbar.agents.sign_check import sign_check
 
-class BrakeAgent:
-    name = "brake"
+
+class SpringAgent:
+    name = "spring"
 
     def reset(self, view, rng=None):
         self.max_accel = view.max_accel
+        self.hold_point = np.array(view.goal["hold_point"])
 
     def act(self, obs, info):
-        return np.clip(-obs[3:6] / (10.0 * self.max_accel), -1.0, 1.0)
+        # Critically damped at 0.01 rad/s, nine times the orbital rate, so the CW terms are small.
+        a = 1e-4 * (self.hold_point - obs[:3]) - 0.02 * obs[3:6]
+        return np.clip(a / self.max_accel, -1.0, 1.0)
+
+
+print(sign_check(SpringAgent()).passed)  # True
+env = ApproachEnv(ApproachConfig(start_state=(0, -400, 0, 0, 0, 0)))
+print(run_episode(env, SpringAgent())["captured"])  # True
 ```
 
 `reset` receives a read-only `AgentView` with the scenario's public description (time step, mean
@@ -147,7 +173,8 @@ small seed by matching its first observation against the public scenario
 offered and returns the reply; `text_model` adapts a plain prompt-to-text function:
 
 ```python
-from vbar.agents import LLMAgent, Price, Reply
+from vbar import ApproachConfig, ApproachEnv, run_episode
+from vbar.agents import LLMAgent, Price, Reply, text_model
 
 
 def complete(messages, tools):
@@ -155,9 +182,12 @@ def complete(messages, tools):
     return Reply('{"ax": 0.0, "ay": 0.0, "az": 0.0}', input_tokens=900, output_tokens=20)
 
 
+env = ApproachEnv(ApproachConfig(start_state=(0, -400, 0, 0, 0, 0)))
 agent = LLMAgent(complete, name="my-model", price=Price(3.0, 15.0))
 result = run_episode(env, agent)
 print(agent.usage())  # decisions, model calls, tokens, cost and parse failures
+
+plain = LLMAgent(text_model(lambda prompt: '{"ax": 0.0, "ay": 0.0, "az": 0.0}'))
 ```
 
 Each step's prompt gives the frame, the goal, the keep-out radius, the mean motion, the current
