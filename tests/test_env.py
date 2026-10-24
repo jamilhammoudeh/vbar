@@ -180,5 +180,8 @@ def test_filter_result_rejects_an_unknown_fallback_level_or_a_horizon_that_is_no
         FilterResult(np.zeros(3), False, fallback_level=3)
     for horizon in (0.0, -5.0, float("nan")):
         with pytest.raises(ValueError, match="horizon"):
-            FilterResult(np.zeros(3), False, certificate_horizon=horizon)
-    assert FilterResult(np.zeros(3), False, certificate_horizon=float("inf")).certificate_horizon
+            FilterResult(np.zeros(3), False, certificate="nominal", certificate_horizon=horizon)
+    infinite = FilterResult(
+        np.zeros(3), False, certificate="nominal", certificate_horizon=float("inf")
+    )
+    assert infinite.certificate_horizon == float("inf")

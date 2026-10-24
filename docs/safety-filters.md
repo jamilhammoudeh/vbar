@@ -646,6 +646,10 @@ speed and can carry the state out of the region in which the braking argument ho
   horizon; a backup that fails them is still returned, as the most outward command, but with
   `certificate` and `certificate_horizon` None, `active` True, `fallback_level` 2 and its
   predicted shortfall in m as `slack`.
+  When a declared error set has a positive exceedance, such as an ellipsoid from
+  `EllipsoidError.from_gaussian`, the kind is "chance-epsilon" instead of "bounded-W".
+  Every certificate is one of `vbar.safety.CERTIFICATE_KINDS`, given together with its
+  horizon; `FilterResult` and `FilterDeclaration` refuse anything else with `ValueError`.
 - The filter enforces the keep-out only and refuses other constraint types: free drift or
   braking may leave them.
 

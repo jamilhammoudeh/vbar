@@ -375,13 +375,14 @@ def test_fallbacks_and_certificates_are_reported_as_given():
         PDAgent(),
         SequenceFilter(
             fallback_level=(0, 1, 0, 2),
-            certificate=("implicit",),
+            certificate=("finite-horizon",),
             certificate_horizon=(600.0, 450.0),
         ),
     )
     m = filter_behaviour(episode(agent, start_state=(0, -400, 0, 0, 0, 0), max_steps=4))
     assert m["fallback_count"] == 2.0 and m["fallback_level_max"] == 2.0
-    assert m["filter_certificates"] == ("implicit",) and m["certificate_horizon_min"] == 450.0
+    assert m["filter_certificates"] == ("finite-horizon",)
+    assert m["certificate_horizon_min"] == 450.0
     silent = filter_behaviour(episode(FilteredAgent(PDAgent(), SequenceFilter()), max_steps=3))
     assert np.isnan(silent["fallback_count"]) and np.isnan(silent["fallback_level_max"])
 

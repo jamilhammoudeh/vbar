@@ -243,10 +243,10 @@ power figures need real filters and are not given.
 - Changelog: v1, first version.
 
 ## F11 filter_certificates (v1)
-- Definition: the kinds of guarantee the filter reported over the episode (for example explicit, implicit), sorted.
+- Definition: the kinds of guarantee the filter reported over the episode, sorted; each is one of `vbar.safety.CERTIFICATE_KINDS`: nominal, bounded-W, chance-epsilon or finite-horizon.
 - Summary: not summarised across episodes (a label, a record or already an aggregate).
-- Why it matters: an implicit (backup) filter certifies only up to its backup horizon unless that ends in an invariant set (Rawlings, Mayne and Diehl, section 2.7).
-- Known-answer tests: ("implicit",) for a filter that reports it.
+- Why it matters: a finite-horizon certificate holds only up to its horizon unless the backup ends in an invariant set (Rawlings, Mayne and Diehl, section 2.7), and a chance-epsilon one only while the error stays in a declared set it leaves with a stated probability.
+- Known-answer tests: ("finite-horizon",) for a filter that reports it.
 - Convergence: not applicable.
 - Invariance: not applicable.
 - Mutation detection: not applicable.

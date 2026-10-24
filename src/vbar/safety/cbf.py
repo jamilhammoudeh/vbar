@@ -34,7 +34,7 @@ from ..dynamics.cw import cw_discrete
 from ..metrics.passive import cam_direction
 from ..metrics.settings import MetricSettings
 from ..solvers.qp import ActuatorSet, Projection, Rows, project
-from . import FilterResult, InfeasibilityProof
+from . import CERTIFICATE_KINDS, FilterResult, InfeasibilityProof
 from .barriers import (
     BrakingBarrier,
     CamBarrier,
@@ -46,7 +46,7 @@ from .barriers import (
 )
 from .projections import ball, box
 from .sampled import held_segment_bound, line_search
-from .tightening import ErrorSet, ecbf_bias, keep_out_margin
+from .tightening import EllipsoidError, ErrorSet, ecbf_bias, keep_out_margin
 
 _STATE_NAMES = ("x", "y", "z", "vx", "vy", "vz")
 # Largest max(p) dt and gamma dt: the double integrator under hold loses the start set at 0.618
@@ -153,12 +153,17 @@ class FilterDeclaration:
         The backup command, "zero thrust", "full outward braking" or "zero thrust, else the
         CAM"; None without one.
     certificate : str or None
-        The kind of guarantee of a step decided inside the safe set: "nominal", "bounded-W" with
-        declared error sets, or None when the filter makes no certified claim.
+        The kind of guarantee of a step decided inside the safe set, one of `CERTIFICATE_KINDS`,
+        or None when the filter makes no certified claim.
     counts_toward_certification : bool
         Whether the filter's runs may be counted as certified results.
     ignored : tuple of str
         Constraint types of the scenario the filter was told not to enforce.
+
+    Raises
+    ------
+    ValueError
+        If `certificate` is neither None nor one of `CERTIFICATE_KINDS`.
     """
 
     name: str
@@ -177,6 +182,12 @@ class FilterDeclaration:
     ignored: tuple[str, ...] = ()
 
     def __post_init__(self):
+        if self.certificate is not None and (
+            type(self.certificate) is not str or self.certificate not in CERTIFICATE_KINDS
+        ):
+            raise ValueError(
+                f"unknown certificate {self.certificate!r}, expected {CERTIFICATE_KINDS}"
+            )
         object.__setattr__(self, "tightening", MappingProxyType(dict(self.tightening)))
 
 
@@ -907,7 +918,9 @@ class BackupFilter(_HeldCommandFilter):
     filter is therefore recursively feasible at any dt under box and ball limits; the free-drift
     backup is returned inside the set without the check, and a braking backup that fails it
     there is reported as "solver_failed" with no certificate. With error sets the free-drift set
-    is certified up to t_cap only and recursive feasibility is not claimed.
+    is certified up to t_cap only and recursive feasibility is not claimed. The certificate is
+    "bounded-W" with error sets and "chance-epsilon" when the navigation set is an ellipsoid with
+    a positive exceedance, since the error leaves it with that probability per draw.
 
     The cam barrier holds the CAM a_c of magnitude a_max along the direction
     `vbar.metrics.passive.cam_direction` gives for the view's goal (along-track away from a V-bar
@@ -964,8 +977,16 @@ class BackupFilter(_HeldCommandFilter):
 
     @property
     def bounded(self) -> bool:
-        """Whether error sets are declared, which makes the certificate "bounded-W"."""
+        """Whether error sets are declared, which makes every check tightened."""
         return self.navigation is not None or self.da_max > 0.0
+
+    @property
+    def _certificate(self) -> str:
+        """The kind of guarantee of a step decided inside the set."""
+        # An ellipsoid left with a stated probability bounds the error only with that chance.
+        if isinstance(self.navigation, EllipsoidError) and self.navigation.exceedance > 0.0:
+            return "chance-epsilon"
+        return "bounded-W" if self.bounded else "nominal"
 
     def reset(self, view: AgentView) -> None:
         """Check the view and build the barrier for its dt and thrust limit.
@@ -1060,7 +1081,7 @@ class BackupFilter(_HeldCommandFilter):
                 "model_error": self.model_error,
             },
             backup=backup,
-            certificate="bounded-W" if self.bounded else "nominal",
+            certificate=self._certificate,
             counts_toward_certification=True,
             ignored=self.ignore,
         )
@@ -1263,7 +1284,7 @@ class BackupFilter(_HeldCommandFilter):
                 slack, certified = shortfall, False
         certificate, horizon = None, None
         if inside and certified:
-            certificate = "bounded-W" if self.bounded else "nominal"
+            certificate = self._certificate
             horizon = math.inf
             if isinstance(barrier, PassiveBarrier) and not barrier.terminal:
                 horizon = float(barrier.t_cap)  # type: ignore[arg-type]

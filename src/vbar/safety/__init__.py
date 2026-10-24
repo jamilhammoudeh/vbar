@@ -7,6 +7,7 @@ last command and result for the step record.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, replace
 
@@ -15,6 +16,7 @@ import numpy as np
 from ..agents.base import CONTINUOUS_MODES, AgentView
 
 FILTER_STATUSES = ("feasible", "infeasible_certified", "solver_failed")
+CERTIFICATE_KINDS = ("nominal", "bounded-W", "chance-epsilon", "finite-horizon")
 # Multipliers may be negative by this fraction of the largest, the rounding of the solver.
 _PROOF_SIGN_TOL = 1e-12
 # b . lam must exceed the support of the actuator set by this fraction of
@@ -140,8 +142,12 @@ class FilterResult:
     `fallback_level` which answer was used (0 the converged solution, 1 the previous plan shifted,
     2 the declared backup), `certificate` the kind of guarantee and `certificate_horizon` how long
     it holds (s, inf for an invariant set), and `iterations` the solver's count. None means not
-    reported. An "infeasible_certified" decision may carry its `proof`, which anyone can check
-    with `InfeasibilityProof.verify`; no other status may.
+    reported. The kind is one of `CERTIFICATE_KINDS`: "nominal" for the model without errors,
+    "bounded-W" for every error in the declared sets, "chance-epsilon" when a declared set is left
+    with a stated probability, and "finite-horizon" for a guarantee up to a finite horizon only;
+    a kind and its horizon are given together or not at all. An "infeasible_certified" decision
+    may carry its `proof`, which anyone can check with `InfeasibilityProof.verify`; no other
+    status may.
     """
 
     action: np.ndarray
@@ -165,8 +171,19 @@ class FilterResult:
             raise ValueError(f"unknown filter status {self.status!r}, expected {FILTER_STATUSES}")
         if self.fallback_level not in (None, 0, 1, 2):
             raise ValueError(f"fallback level {self.fallback_level!r} is not 0, 1 or 2")
+        # The exact type, so a str subclass cannot compare equal to a kind it is not.
+        if self.certificate is not None and (
+            type(self.certificate) is not str or self.certificate not in CERTIFICATE_KINDS
+        ):
+            raise ValueError(
+                f"unknown certificate {self.certificate!r}, expected {CERTIFICATE_KINDS}"
+            )
+        if (self.certificate is None) != (self.certificate_horizon is None):
+            raise ValueError("a certificate and its horizon are given together")
         if self.certificate_horizon is not None and not self.certificate_horizon > 0.0:
             raise ValueError("a certificate horizon must be positive (inf for an invariant set)")
+        if self.certificate == "finite-horizon" and math.isinf(self.certificate_horizon):
+            raise ValueError("a finite-horizon certificate needs a finite horizon")
         if self.proof is not None and self.status != "infeasible_certified":
             raise ValueError("only an infeasible_certified result carries a proof")
         if self.proof is not None and not isinstance(self.proof, InfeasibilityProof):
@@ -207,6 +224,9 @@ def run_filter(safety_filter, obs: np.ndarray, command: np.ndarray) -> tuple[Fil
     TypeError
         If the filter returns anything but a `FilterResult`, a bare action or a subclass
         included; a subclass could rewrite the measured times when the result is rebuilt.
+    ValueError
+        If the result fails the checks of `FilterResult`, which the rebuild runs again, so a
+        field written past them after construction is caught.
     """
     t0 = time.perf_counter()
     prepare = getattr(safety_filter, "prepare", None)
@@ -258,6 +278,8 @@ class FilteredAgent:
         At `reset`, for an action mode that is not continuous.
     TypeError
         At `act`, when the filter returns anything but a `FilterResult`.
+    ValueError
+        At `act`, when the filter's result fails the checks of `FilterResult`.
     """
 
     def __init__(self, agent, safety_filter):
@@ -289,6 +311,7 @@ class FilteredAgent:
 
 
 __all__ = [
+    "CERTIFICATE_KINDS",
     "FILTER_STATUSES",
     "PROOF_LAYOUTS",
     "FilterResult",
