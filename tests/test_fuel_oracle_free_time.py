@@ -28,6 +28,7 @@ from vbar.dynamics import cw_discrete, mean_motion
 from vbar.dynamics.cw import R_EARTH
 from vbar.metrics import FuelBounds, optimality_gap, record_episode
 from vbar.metrics.mission import captured, success
+from vbar.oracles import fuel
 from vbar.oracles.fuel import (
     _SAMPLES,
     DualBank,
@@ -38,6 +39,7 @@ from vbar.oracles.fuel import (
 )
 from vbar.oracles.primer import dual_bound
 from vbar.scenarios import HoldPointEnv, Maneuvering, get, make
+from vbar.scenarios.seeds import SeedSplit
 
 N_500 = mean_motion(R_EARTH + 500e3)
 KEEP_OUT = frozenset({"keep_out"})
@@ -396,6 +398,147 @@ def test_no_lower_bound_exceeds_a_verified_plan_with_a_large_capture_ball():
             assert math.isfinite(plan.upper)
             assert lows[k - 1] <= plan.upper * (1 + 1e-9)
             assert plan.finite_lower <= plan.upper * (1 + 1e-9)
+
+
+@pytest.mark.slow
+def test_a_ball_bank_builds_where_the_thrust_limit_makes_a_window_infeasible():
+    # Validation start 2 of approach-vbar with ball thrust, shortened to 101 steps so the bank's
+    # windows are 1, 21, 41 and 42. With the 600 s dwell, window 21 within 0.02 m/s^2 has no
+    # plan, and HiGHS ends the dual of its outer LP with a solve error instead of reporting it
+    # unbounded; the bank falls back to the LP without the limit rather than failing.
+    # 60 to 150 s.
+    scenario_id = "vbar:approach-vbar:cw:ball:dv:v1"
+    env = make(scenario_id)
+    view = replace(env.agent_view(), max_steps=101)
+    start = env.reset(seed=SeedSplit(scenario_id, "validation", 5).seed(2))[1]["true_state"]
+    bank = DualBank.build(view, [start], config=OracleConfig(bank_stride=20))
+    bounds = bank.bounds(start)
+    lows = bank.window_lowers(start)
+    assert 0.0 <= bounds.lower and bounds.norm == "l2"
+    assert np.all(np.isfinite(lows[:42]))
+    # Coarse Kelley settings: any plan that flies the dwell is an upper bound.
+    coarse = OracleConfig(cut_rounds=1, cut_tol=1e-2, inner_directions=16)
+    sol = FuelOracle(config=coarse).solve(view, start, arrival_step=41, hard=frozenset())
+    assert math.isfinite(sol.upper)
+    plan = np.asarray(sol.plan)
+    assert np.all(np.linalg.norm(plan, axis=1) <= view.max_accel * (1 + 1e-12))
+    assert view.dt * np.linalg.norm(plan, axis=1).sum() == pytest.approx(sol.upper, rel=1e-12)
+    phis, gammas = cw_discrete(view.n, np.linspace(0.0, view.dt, 51))
+    x = np.asarray(start, dtype=float)
+    for i, u in enumerate(plan[: 41 + dwell_steps(view)]):
+        path = phis @ x + gammas @ u
+        if i == 40:
+            assert captured(path[-1], view.goal)
+        elif i > 40:
+            assert np.all(captured(path, view.goal))
+        x = path[-1]
+    for lower in (bounds.lower, bounds.impulsive_lower, lows[40]):
+        assert lower <= sol.upper * (1 + 1e-9)
+
+
+def ball_failure_case():
+    # 15 steps with a one-step dwell and coarse Kelley settings keep each solve under a second;
+    # any settings give valid bounds.
+    view = replace(property_view(hold_time=20.0), thrust_limit="ball", max_steps=15)
+    config = OracleConfig(
+        cut_rounds=2,
+        cut_tol=1e-2,
+        inner_directions=16,
+        bank_stride=100,
+        arrival_candidates=1,
+        max_refinements=0,
+    )
+    return view, random_starts(1, 1)[0], config
+
+
+def fail_cut_lp(monkeypatch, *, limited_only, error=None):
+    """Makes the ball cut LP within the thrust limit, and without it unless `limited_only`,
+    raise `error` (a HiGHS failure by default); returns the window and solution of every LP
+    solved without the limit, in order."""
+    error = RuntimeError("HiGHS failed: (HiGHS Status 4: Solve error)") if error is None else error
+    solve = fuel._cut_lp
+    unlimited = []
+
+    def failing(win, ball, cuts, limit):
+        if limit or not limited_only:
+            raise error
+        solved = solve(win, ball, cuts, limit)
+        unlimited.append((win, solved))
+        return solved
+
+    monkeypatch.setattr(fuel, "_cut_lp", failing)
+    return unlimited
+
+
+def test_a_solver_failure_within_the_ball_limit_falls_back_to_bounds_below_a_plan(monkeypatch):
+    view, start, config = ball_failure_case()
+    oracle = FuelOracle(config=config)
+    verified = oracle.solve(view, start, arrival_step=13, hard=frozenset())
+    assert math.isfinite(verified.upper) and math.isfinite(verified.finite_optimum)
+    fail_cut_lp(monkeypatch, limited_only=True)
+    bank = DualBank.build(view, [start], config=config)
+    bounds = bank.bounds(start)
+    lows = bank.window_lowers(start)
+    fixed = oracle.solve(view, start, arrival_step=13, hard=frozenset())
+    free = oracle.solve(view, start, hard=frozenset())
+    assert isinstance(bounds, FuelBounds) and isinstance(free.bounds, FuelBounds)
+    # A failed LP proves nothing about the window: its optimum is unknown, not infinite, and the
+    # window still gets its plan.
+    assert math.isnan(fixed.finite_optimum)
+    assert math.isfinite(fixed.upper) and math.isfinite(free.upper)
+    lowers = [
+        bounds.lower,
+        bounds.impulsive_lower,
+        lows[12],
+        fixed.finite_lower,
+        fixed.impulsive_lower,
+        free.finite_lower,
+        free.impulsive_lower,
+    ]
+    assert all(math.isfinite(lower) and lower > 0.0 for lower in lowers)
+    assert all(lower <= verified.upper * (1 + 1e-9) for lower in lowers)
+    assert fixed.finite_lower <= fixed.upper * (1 + 1e-9)
+    assert free.finite_lower <= free.upper * (1 + 1e-9)
+
+
+def test_a_solver_failure_without_the_thrust_limit_is_raised(monkeypatch):
+    view, start, config = ball_failure_case()
+    fail_cut_lp(monkeypatch, limited_only=False)
+    with pytest.raises(RuntimeError, match="HiGHS failed"):
+        DualBank.build(view, [start], config=config)
+    with pytest.raises(RuntimeError, match="HiGHS failed"):
+        FuelOracle(config=config).solve(view, start, arrival_step=13, hard=frozenset())
+
+
+def test_a_fallback_window_takes_the_dual_bound_of_the_unlimited_multipliers(monkeypatch):
+    # The LP without the limit is a relaxation of the discrete problem only; its optimum is no
+    # bound in continuous time, the primer bound of its multipliers is.
+    view, start, config = ball_failure_case()
+    unlimited = fail_cut_lp(monkeypatch, limited_only=True)
+    sol = FuelOracle(config=config).solve(view, start, arrival_step=13, hard=frozenset())
+    # The Kelley loop's last LP is the one whose multipliers it returns.
+    win, (lp, _) = unlimited[-1]
+    nus = fuel._multipliers(lp, win)
+    m = dwell_steps(view)
+    times = view.dt * (13 + np.arange(m))
+    cells = config.cells_per_step * (13 + m - 1)
+    bound = {
+        accel: dual_bound(view.n, view, start, nus, times, norm="l2", accel=accel, cells=cells)
+        for accel in (None, np.inf)
+    }
+    impulsive = max(0.0, bound[np.inf])
+    assert sol.impulsive_lower == pytest.approx(impulsive, rel=1e-12, abs=1e-15)
+    assert sol.finite_lower == pytest.approx(max(impulsive, bound[None]), rel=1e-12, abs=1e-15)
+
+
+@pytest.mark.parametrize("error", [ValueError("bad row"), ZeroDivisionError("no step")])
+def test_an_error_other_than_a_solver_failure_within_the_limit_is_raised(monkeypatch, error):
+    view, start, config = ball_failure_case()
+    fail_cut_lp(monkeypatch, limited_only=True, error=error)
+    with pytest.raises(type(error), match=str(error)):
+        DualBank.build(view, [start], config=config)
+    with pytest.raises(type(error), match=str(error)):
+        FuelOracle(config=config).solve(view, start, arrival_step=13, hard=frozenset())
 
 
 @pytest.mark.parametrize(

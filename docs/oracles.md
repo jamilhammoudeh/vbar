@@ -259,7 +259,12 @@ Dividing $\nu$ by its certified primer peak removes the excess integral and turn
 value into a finite-thrust bound, so `finite_lower` is the larger of the two; both are at least
 0. The certificate does not depend on the solver: a poor $\nu$ gives a weaker bound, not a wrong
 one. If the outer LP is infeasible within the limit, $\nu$ comes from the LP without the limit
-and `finite_optimum` is inf; if that is infeasible too, both lower bounds are 0.
+and `finite_optimum` is inf; if that is infeasible too, both lower bounds are 0. For a ball,
+HiGHS can report a solve error instead of an unbounded dual on a window with no plan within the
+limit; $\nu$ then also comes from the LP without the limit, `finite_optimum` is NaN, and the plan
+is still tried. That LP is a relaxation, its optimum no larger, and its $\nu$ goes through
+`dual_bound` like any other, so the bounds stay valid. A solve error without the limit raises
+`RuntimeError`.
 
 **Plan and upper bound.** The inner LP aims inside the box of half-width
 $\text{aim}\cdot\rho/\sqrt3$, which lies in aim times the ball, and holds the inputs of steps that
@@ -513,6 +518,10 @@ a manoeuvring mode with an empty schedule adds no acceleration and is accepted.
 - The fixed window's assumptions hold: exact CW motion with no other forcing, rung `"cw"`, lower
   bounds that relax path constraints and thrust inhibit, plans checked against keep-out and
   thrust inhibit only.
+- A window whose LP is infeasible within the thrust limit, or on which HiGHS fails there for a
+  ball, takes the multipliers of its LP without the limit, as in the fixed window; its bound is
+  finite, never inf, though no plan within the limit may reach it. Proving such a window
+  unreachable would hold for one start only, while the bank's multipliers serve every start.
 - A window whose LP is infeasible even without the thrust limit has no multipliers of its own; its
   bound comes from multipliers shifted from other windows, which are valid there and may be weak.
 - The upper bound is the cheapest plan over the candidates, not over every window. The bracket is

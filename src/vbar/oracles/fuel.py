@@ -128,9 +128,10 @@ class OracleSolution:
     finite_optimum : float
         For a fixed arrival step, the optimum (m/s) of the outer LP on the step grid: the capture
         ball relaxed to its bounding box and, for a ball layout, the 2-norm to its cutting
-        planes; inf when that LP is infeasible. No acceleration history held over each step and
-        within the limit costs less. NaN at a free final time: the least optimum over the windows
-        would need every window's LP, and the bank solves only some of them.
+        planes; inf when that LP is infeasible, NaN when HiGHS failed on it. No acceleration
+        history held over each step and within the limit costs less. NaN at a free final time:
+        the least optimum over the windows would need every window's LP, and the bank solves
+        only some of them.
     upper : float
         Cost (m/s) of `plan`; inf when no plan was verified or `unmodelled` is not empty.
     plan : numpy.ndarray or None, shape (arrival_step + hold, 3)
@@ -378,17 +379,28 @@ def _kelley(
 def _outer(
     win: _Window, norm: str, config: OracleConfig
 ) -> tuple[_Solution | None, float, np.ndarray]:
-    """The outer LP within the thrust limit, or without it if that is infeasible; its optimum
-    (m/s) within the limit, inf if infeasible; and the final cuts of a ball layout."""
+    """The outer LP within the thrust limit, or without it if that is infeasible or HiGHS fails
+    on a ball layout's LP within it; its optimum (m/s) within the limit, inf if infeasible and
+    NaN if HiGHS failed; and the final cuts of a ball layout."""
     cuts = _FIRST_CUTS
+    optimum = math.inf
     for limit in (True, False):
         if norm == "l1":
             lp = _box_lp(win, win.ball, limit, inhibit=False)
         else:
-            lp, cuts = _kelley(win, win.ball, config, limit)
+            try:
+                lp, cuts = _kelley(win, win.ball, config, limit)
+            except RuntimeError:
+                # HiGHS reports a solve error instead of unboundedness on the dual of some
+                # windows that have no plan within the limit. The LP without the limit is a
+                # relaxation, its optimum no larger, and its multipliers give a valid bound
+                # through the primer bound like any others; a failure there is raised.
+                if not limit:
+                    raise
+                lp, optimum = None, math.nan
         if lp is not None:
-            return lp, lp.value * win.scale[3] if limit else math.inf, cuts
-    return None, math.inf, cuts
+            return lp, lp.value * win.scale[3] if limit else optimum, cuts
+    return None, optimum, cuts
 
 
 def _multipliers(lp: _Solution, win: _Window) -> np.ndarray:
@@ -578,8 +590,9 @@ class FuelOracle:
     boundaries, and has no path constraints; for a ball layout it also replaces |u_k|_2 by
     Kelley cuts, one set shared by all steps, started from the 6 axes and 8 diagonals, with cuts
     that bind nowhere for three solves dropped. Its multipliers give both lower bounds through
-    `dual_bound`; if it is infeasible within the thrust limit, they come from the LP without the
-    limit, and if that is infeasible too, both lower bounds are 0. A free final time takes the
+    `dual_bound`; if it is infeasible within the thrust limit, or HiGHS fails on a ball layout's
+    LP within it, they come from the LP without the limit, and if that is infeasible too, both
+    lower bounds are 0. A free final time takes the
     least bound over every window that fits in the episode, from a one-start `DualBank` refined
     until the least window has its own LP or `max_refinements` LPs are added; a dwell shorter
     than a step gives 0.
@@ -707,7 +720,8 @@ class FuelOracle:
                     dual_bound(view.n, view, x0, nus, times, norm=norm, cells=cells),
                 )
             cut_sets = {k: cuts}
-            candidates = [k] if math.isfinite(finite_optimum) and k + hold <= steps else []
+            # A plan is verified on its own, so only a proved infeasible window skips it.
+            candidates = [k] if finite_optimum != math.inf and k + hold <= steps else []
 
         plan, upper, arrival = None, math.inf, None
         if np.all(rho > 0.0):
