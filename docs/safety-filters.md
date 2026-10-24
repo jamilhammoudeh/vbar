@@ -1237,6 +1237,17 @@ result = filt.filter(hold, np.zeros(3))
 print(result.certificate, f"{result.certificate_horizon:.0f} s")  # bounded-W 11354 s
 ```
 
+### Comparison
+
+`benchmarks/predictive_comparison.py` flies 40 approach-vbar starts for 2000 s with a PD nominal
+and a full-thrust nominal that closes on the target head-on, through `PredictiveFilter`,
+`CbfFilter` and `BackupFilter(barrier="passive")`, and tabulates the filter metrics F1 to F6, F5f, F5l, F11 and
+F11h with the violations of each run. On at least 50 passes, drawn from a recorded seed, where
+`CbfFilter`'s keep-out row cannot be met under the box limit, `CbfFilter` reports
+"infeasible_certified" with a proof that verifies, while the two free-drift filters are certified
+at the first decision on the passes inside their declared set and fly them with no violation.
+`tests/test_safety_comparison.py` holds both checks and runs them on a few passes and one start.
+
 ### Relation to Wabersich and Zeilinger
 
 The filter follows the predictive safety filter of Wabersich and Zeilinger ("Linear model
