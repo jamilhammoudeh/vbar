@@ -130,7 +130,8 @@ def test_construction_refuses_a_delay_that_is_negative_or_not_finite(delay_s):
 def test_declared_set_is_the_terminal_free_drift_set_of_the_backup_filter():
     declared = ready(PredictiveFilter()).declaration
     assert declared.barriers == ready(BackupFilter(barrier="passive")).declaration.barriers
-    assert declared.certificate == "nominal" and declared.backup == "zero thrust"
+    assert declared.certificate == "nominal"
+    assert declared.backup == "zero thrust, else full outward braking outside the set"
 
 
 @pytest.mark.parametrize("dt", [1.0, 7.0, 10.0, 20.0])

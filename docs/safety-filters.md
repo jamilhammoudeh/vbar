@@ -891,7 +891,8 @@ delay_s=0.0, ignore=())` plans `horizon` held commands toward the agent's comman
 first one only when the whole plan is certified for all time. It declares the same set as
 `BackupFilter(barrier="passive")` without error sets: the terminal free-drift set $h_p \ge 0$ of
 `PassiveBarrier(terminal=True)`, with the grid shortened to $\Delta t / \lceil \Delta t / 5 \rceil$
-s so that it divides the step. Its backup is zero thrust, its certificate "nominal", and its name
+s so that it divides the step. Its backup is zero thrust, with full outward braking as a recovery
+outside the set (see Modes and fallbacks), its certificate "nominal", and its name
 "predictive-n10" for a horizon of 10. It enforces the keep-out only, refuses other constraint types
 unless they are listed in `ignore=`, and refuses dynamics other than "cw".
 
@@ -963,7 +964,9 @@ appended, has the same states and passes the same checks, so a certified decisio
 certified answer for the next one: the filter is recursively feasible without error sets, at any
 dt and under box and ball limits. Re-rolled from the observed state the shifted plan differs by
 rounding, so its re-check accepts a held-step shortfall up to the keep-out resolution, 1 mm, and
-requires $h_p \ge 0$ exactly.
+requires $h_p \ge 0$ exactly. The certificate covers the certified plan, not membership of the
+next state in the declared set: a certified command can carry the state outside that set, where
+the shifted plan stays certified.
 
 The solver's infeasibility certificate concerns the linearized program only. Its tangent planes
 and terminal rows exclude plans that the true problem allows, so that certificate proves nothing
@@ -981,9 +984,10 @@ about the true problem, and the filter never reports "infeasible_certified".
 
 A solve that hits `settings.max_iter` ("iteration_cap"), fails, or reports infeasibility returns no
 plan, since an interior-point iterate meets the dynamics only at convergence; the decision moves on
-to level 1. `recovering` is False on every certified decision. When nothing is certified the filter
-returns the converged solution if there is one, else the shifted plan, else zero thrust, with its
-predicted shortfall in m as `slack`. Zero thrust is certified wherever $h_p(x) \ge 0$, so this
+to level 1. `recovering` is False on every certified decision outside the finite-horizon mode.
+When nothing is certified the filter returns full outward braking in the braking region (Modes and
+fallbacks), else the converged solution if there is one, else the shifted plan, else zero thrust,
+with its predicted shortfall in m as `slack`. Zero thrust is certified wherever $h_p(x) \ge 0$, so this
 happens only outside the declared set, as a recovering step, and the filter never reports
 "solver_failed". The plan stored for the next decision is always the one applied: the agent's
 command followed by zero thrust, the solution, the shifted plan or zero thrust.
@@ -995,6 +999,104 @@ $\lceil \text{delay\_s}/\Delta t \rceil$ slots, checked at reset. `predict(obs)`
 observed state through the echoed commands, each held from its wait to the next one's and the last
 up to `delay_s`, on the exact CW solution; the plan starts from that state, where the command
 decided now takes effect. Without a delay `predict` returns the observed state.
+
+### Modes and fallbacks
+
+`PredictiveFilter(mode="terminal", drift_horizon=None, alpha=None, beta=None, backup="passive",
+brake_v_cap=1.0, rho_cap=2000.0)` adds two modes, a braking recovery, a CAM backup and a check of
+the delay's value. Every mode keeps the method, certificate check and fallback levels above;
+`drift_horizon` is accepted only in the finite-horizon mode and `alpha`, `beta` only in the soft
+mode.
+
+**Finite-horizon mode** (`mode="finite-horizon"`, name "predictive-fh-n10"). The drift after the
+last thrust is checked with `PassiveBarrier(terminal=False, t_cap=drift_horizon)`, ten orbits
+$20\pi/n$ by default, instead of the terminal set, and the program's terminal row is that
+barrier's gradient row alone; the far-part rows are left out. A certified decision has certificate
+"finite-horizon" with horizon `drift_horizon`. The declared set, capped free drift $h_p \ge 0$, is
+not kept by free drift: the capped window slides forward one step with each drift step and can
+reach an entry it did not see before. At the state $(5, 521, 0, 0, -7.5n, 0)$ the capped margin is
++0.0099 m and one drift step later it is -0.0727 m. A decision at a state outside the set therefore
+reports `recovering` True even when its plan is certified; on the reckless flights of the cost
+figures below, 22 of the 40 decisions did. The mode declares `counts_toward_certification` False and the audit
+refuses it.
+
+**Soft mode** (`mode="soft"`, name "predictive-soft-n10"). Each step's input becomes
+$(u_k, s_k, s_T)$ with slacks $s_k, s_T \ge 0$ in m. $s_k$ enlarges every keep-out row of step
+$k$; the terminal rows move to the last step through $x_N = \Phi x_{N-1} + \Gamma u_{N-1}$ and
+take $s_T$. The cost gains
+
+$$
+\alpha \sum_{k=0}^{N-1} s_k + \beta\, s_T + \tfrac12\,\epsilon n^4 \sum_k (s_k^2 + s_T^2),
+$$
+
+the quadratic term only keeping the input block positive definite, so the program always has a
+solution. The linear penalty is exact (Boyd and Vandenberghe, *Convex Optimization*, ex. 5.16):
+when $\alpha$ exceeds the sum of the hard program's multipliers on the keep-out rows of any one
+step, and $\beta$ the sum on the terminal rows, the soft solution is the hard one wherever the hard
+program has one. The defaults are $\alpha = \beta = 1$ per m; over 73 converged hard solves (200
+in-set states, two reckless flights and 100 states of the start box) the largest step sum was
+0.172 and the largest terminal sum $1.3 \cdot 10^{-8}$. The soft solution passes the same
+certificate check as any plan (the region check): certified, it is "nominal" with horizon inf;
+not certified, it is applied while recovering as "feasible" with its predicted shortfall in m as
+`slack` and no certificate. The solver's own stops never surface, so the mode reports neither
+"infeasible_certified" nor "solver_failed". It declares `counts_toward_certification` False and
+the audit refuses it.
+
+**Braking recovery.** At reset $a_b$ = `braking_deceleration(a_max, layout, v_cap=brake_v_cap,
+dt, radius, rho_cap, n)`. When $a_b > 0$, a decision with nothing certified at a state where
+`BrakingBarrier(radius, a_b, rho_cap, v_cap=brake_v_cap)` holds ($h_b \ge 0$, $\rho \le$
+`rho_cap`, $|v| \le$ `brake_v_cap`) applies full outward braking at level 2, recovering and with
+no certificate: $h_b$ does not fall under it in that region (Braking above). It comes before the
+uncertified solution, the soft one included, and before the uncertified shifted plan. The
+declaration's backup then reads "zero thrust, else full outward braking outside the set". At dt
+30 s the defaults give $a_b \le 0$; there is no braking level and the backup does not name it.
+
+**CAM backup** (`backup="cam"`, name "predictive-cam-n10"). The declared set is the CAM-then-drift
+set of `BackupFilter(barrier="cam")` (CAM backup filter above), with the same `CamBarrier`. Plans
+are still certified through the free-drift set; level 2 is `CamBarrier.backup(x)` wherever the
+CAM margin is nonnegative, certified "nominal" with horizon inf, and the stored plan is that
+backup rolled out until the free drift is certified, so a decision without a solution replays the
+rest of the CAM at level 1. The finite-horizon mode refuses it, since the CAM set holds for all
+time. With the soft mode the name is "predictive-soft-cam-n10".
+
+**Delay value.** A command issued at $t$ takes effect at $t +$ `delay_s`. With `delay_s` > dt the
+latest pending slot therefore waits `delay_s` - dt at every decision after the first, and the
+filter raises ValueError when it differs by more than $10^{-6}$ s: a declared 15 s or 11 s
+against a true 12 s at dt 10 s fills the same two slots and is caught at the second decision. With
+`delay_s` $\le$ dt every wait is zero, so a wrong value with the right slot count, such as 5 s
+declared against 8 s, cannot be seen.
+
+**Cost.** Wall time per decision on the reckless flights from V-bar at 150 m and from the 1.5 m/s
+pass, 40 decisions each, measured while other test runs shared the machine, so it is an upper
+figure: terminal median 395 ms (largest 962 ms), finite-horizon 291 ms (1274 ms), soft 436 ms
+(1209 ms) and the CAM backup 328 ms (1073 ms). Every solve converged, at 12.7 mean interior-point
+iterations in the terminal mode and 13.7 in the soft mode.
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.safety.predictive import PredictiveFilter
+
+view = ApproachEnv(ApproachConfig(action_mode="accel")).agent_view()  # commands in m/s^2
+for kw in ({}, {"mode": "finite-horizon"}, {"mode": "soft"}, {"mode": "soft", "backup": "cam"}):
+    filt = PredictiveFilter(**kw)
+    filt.reset(view)
+    declared = filt.declaration
+    print(filt.name, declared.certificate, declared.counts_toward_certification)
+# predictive-n10 nominal True
+# predictive-fh-n10 finite-horizon False
+# predictive-soft-n10 nominal False
+# predictive-soft-cam-n10 nominal False
+
+brake = PredictiveFilter()
+brake.reset(view)
+x = np.array([0.0, -60.0, 0.0, 0.0, 0.26, 0.0])  # m and m/s, 60 m out closing at 0.26 m/s
+print(brake.contains(x))  # False
+result = brake.filter(x, np.zeros(3))
+print(result.fallback_level, result.recovering, result.certificate, result.action.round(4))
+# 2 True None [ 0.   -0.02  0.  ]
+```
 
 ### Relation to Wabersich and Zeilinger
 
@@ -1649,8 +1751,8 @@ The tests in `tests/test_safety_predictive.py` check:
 
 - Defaults of 10 steps, 5 row samples and $\epsilon = 10^{-3}$; a negative, NaN or infinite delay
   is refused. The declared set equals that of `BackupFilter(barrier="passive")`, with certificate
-  "nominal" and backup zero thrust; for dt 1, 7, 10 and 20 s the drift grid divides the step to
-  1e-12, and over one drift step $h_p$ does not fall on 200 drawn states (100 from the start box,
+  "nominal" and backup "zero thrust, else full outward braking outside the set"; for dt 1, 7, 10
+  and 20 s the drift grid divides the step to 1e-12, and over one drift step $h_p$ does not fall on 200 drawn states (100 from the start box,
   100 near the keep-out, both in and out of the set) to 1e-9 m.
 - A certified agent command comes back bit for bit in the "normalized", "accel" and "thrust"
   modes, at level 0 with "nominal" and horizon inf. With a horizon of 1 the filter passes exactly
@@ -1669,6 +1771,55 @@ The tests in `tests/test_safety_predictive.py` check:
   true state at the same time to 1e-9 relative over 8 steps, every action lies in the actuator
   set, and no certified in-step bound falls below -1 mm. Reset refuses a delay with no pending
   slots, slots with no delay, and slot counts that disagree with the declared delay either way.
+
+The tests in `tests/test_safety_predictive_modes.py` check:
+
+- The names "predictive-n10", "predictive-fh-n10", "predictive-soft-n10" and
+  "predictive-soft-n4"; the terminal mode is the default and an unknown mode is refused. Both new
+  modes declare `counts_toward_certification` False, the terminal mode True, and `audit_filter`
+  refuses both.
+- Finite-horizon mode, at ten and two orbits: the declared barrier is
+  `PassiveBarrier(terminal=False, t_cap=drift_horizon)` with a 5 s grid, and a hold at 400 m is
+  "finite-horizon" with that horizon. At $(5, 521, 0, 0, -7.5n, 0)$, 500 km, R 50 m, dt 10 s, the
+  capped margin is +0.0099 m and the zero command is certified at level 0; one drift step later
+  the margin is -0.0727 m, the state is outside the set and the decision is recovering. The
+  terminal mode at that state has margin -1 mm and is recovering. From rest at 70 m on V-bar with
+  full thrust toward the target the terminal program has the 5 far-part rows and the
+  finite-horizon program at most one row.
+- Soft mode: on 20 seeded in-set states with full thrust toward the target, at least 5
+  intervening, the first input equals the terminal mode's to $10^{-6} a_{\max}$, "nominal" with
+  horizon inf. On the first 6 decisions of the reckless 1.5 m/s pass the soft first input equals
+  the hard one to $10^{-6} a_{\max}$, while a quadratic-penalty mutant, at the stage-0 hard
+  multiplier above 0.1 (0.172 measured), takes a slack between 0.01 m and $\lambda/2$ and moves
+  the first input by more than $10^{-6} a_{\max}$. The program has slack inputs that no dynamics
+  column reads, with nonnegative weights, some positive. A start 5 m out closing at 1 m/s is
+  applied as "feasible", recovering, with positive slack and no certificate or proof; with the
+  solver stopped at "iteration_cap", "solver_failed" or "infeasible_certified", from that start
+  and from a hold at 150 m, the decision is "feasible" with no proof and recovering exactly
+  outside the set.
+
+The tests in `tests/test_safety_predictive_fallbacks.py` check:
+
+- Defaults backup "passive", `brake_v_cap` 1 m/s and `rho_cap` 2000 m; an unknown backup is
+  refused.
+- Braking: at 60 m on -V-bar closing at 0.26 m/s ($h_b$ = +0.366 m, outside the free-drift set),
+  with the solver stopped, the decision is full outward braking at level 2, recovering, no
+  certificate, equal to `BrakingBarrier.backup` to 1e-12. Flown with the zero agent for 12
+  decisions, the first brakes, a "nominal" decision comes before the last, every decision is
+  "feasible" and no certified in-step bound falls below -1 mm; a mutant without braking enters the
+  keep-out by 30 to 40 m within 18 decisions. On 100 in-set states from 200 seeded draws, at least
+  50 of them in the braking set, with the solver stopped, braking is never applied. At dt 30 s, where $a_b \le 0$,
+  the backup does not name braking and zero thrust is applied at level 2; at dt 10 s it reads
+  "zero thrust, else full outward braking outside the set".
+- CAM backup: named "predictive-cam-n10" and refused with the finite-horizon mode; its declared
+  barrier equals that of `BackupFilter(barrier="cam")`. At 60 m on -V-bar closing at 0.3 m/s, in
+  the CAM set but not the free-drift set, with the solver stopped, the first decision is the CAM
+  at level 2, "nominal" with horizon inf, and the next replays its second step at level 1; flown
+  for 15 decisions every decision is "nominal" and not recovering with no bound below -1 mm,
+  while the passive backup is recovering at that start.
+- Delay value: with a true delay of 12 s at dt 10 s, declared 15 s and 11 s pass the first
+  decision and raise at the second, 12 s runs 20 decisions, and the latest slot waits 2 s; a
+  declared 5 s against a true 8 s runs 20 decisions, the limit for a delay within one step.
 
 The tests in `tests/test_safety_audit.py` check:
 
