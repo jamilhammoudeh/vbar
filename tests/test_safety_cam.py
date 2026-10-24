@@ -176,8 +176,8 @@ def cam_arc(barrier, x0):
 
 
 def test_minus_vbar_cam_passes_396_m_under_the_target_and_ends_4978_m_ahead():
-    # Fehse, Automated Rendezvous and Docking of Spacecraft, sec. 4.5, Fig. 4.16; review K25
-    # with the corrected crossing at 400 km, r = 6778.137 km (ERRATA.md, Fehse part 1 entry):
+    # Fehse, Automated Rendezvous and Docking of Spacecraft, 2003, sec. 4.5, Fig. 4.16, with the
+    # crossing recomputed at 400 km, r = 6778.137 km (the book's r = 6766 km gives -395.209 m):
     # x = -396.220 m at y = 0, y(T) = +4978.3 m one orbit after the burn.
     barrier = cam_barrier(radius=K_RADIUS, n=N_400, dt=BURN, accel=(0.0, -300.0, 0.0), steps=1)
     arc = cam_arc(barrier, np.array([0.0, -20.0, 0.0, 0.0, 0.0, 0.0]))
@@ -189,7 +189,7 @@ def test_minus_vbar_cam_passes_396_m_under_the_target_and_ends_4978_m_ahead():
 
 @pytest.mark.parametrize(("d", "y_end"), [(20.0, 753.98), (50.0, 1884.96), (100.0, 3769.91)])
 def test_radial_cam_from_rbar_drifts_12_pi_d_ahead_in_one_orbit(d, y_end):
-    # Fehse sec. 4.5, Figs. 4.17 to 4.18; review K23: x0 = -d, dvx = -0.3 m/s gives
+    # Fehse 2003, sec. 4.5, Figs. 4.17 to 4.18: x0 = -d, dvx = -0.3 m/s gives
     # y(T) = 12 pi d whatever the impulse.
     barrier = cam_barrier(radius=K_RADIUS, n=N_400, dt=BURN, accel=(-300.0, 0.0, 0.0), steps=1)
     arc = cam_arc(barrier, np.array([-d, 0.0, 0.0, 0.0, 0.0, 0.0]))
@@ -305,7 +305,7 @@ def test_cam_filter_declares_the_vbar_cam_and_a_nominal_certificate():
 
 @pytest.mark.parametrize(("dt", "steps"), [(1.0, 15), (5.0, 3), (10.0, 2), (20.0, 1)])
 def test_cam_lasts_the_fewest_whole_steps_giving_0_3_m_s(dt, steps):
-    # ceil(0.3 / (0.02 dt)): the 0.3 m/s CAM size of the spec, an assumption tied to S8.
+    # ceil(0.3 / (0.02 dt)): the declared 0.3 m/s CAM size, an assumption shared with S8.
     barrier = declared(dt)
     assert barrier.steps == steps and barrier.dt == dt
     assert dt / barrier.grid == round(dt / barrier.grid)
@@ -356,8 +356,9 @@ def test_the_backup_returned_inside_the_set_is_certified():
     assert np.asarray(result.action, dtype=float) == pytest.approx(CAM / A_MAX, abs=1e-12)
 
 
-# Closed loop on approach-vbar, KAT-8 setup (Ames et al. review, ames_cbf_survey.md): PD
-# nominal, dt 10 s, box 0.02 m/s^2. benchmarks run the check on 40 starts; the test runs one.
+# Closed loop on approach-vbar with the backup barrier of Ames et al. 2019, sec. III, eq. 12 and
+# Theorem 4: PD nominal, dt 10 s, box 0.02 m/s^2. Benchmarks run the check on 40 starts; the test
+# runs one.
 
 
 class HoldPD:

@@ -116,7 +116,7 @@ def acts(filt, obs, command=(0.0, 0.0, 0.0)):
 
 
 def test_fehse_vbar_envelope_at_100_m_on_approach_vbar_is_0_116():
-    # Review fehse_rendezvous_docking_part1.md C5: 2.094 n (rho - 50 m) at 500 km.
+    # Fehse 2003, eq. 3.28 and fig. 3.13: 2.094 n (rho - 50 m) at 500 km.
     assert envelope(100.0) == pytest.approx(0.116, abs=5e-4)
     assert 1.0 / KAPPA == pytest.approx(2.094, abs=5e-4)
 

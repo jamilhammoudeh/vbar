@@ -122,7 +122,7 @@ def test_certified_bound_lies_below_the_exact_minimum_within_l_h_over_2(seed):
     # and the second-order bound is tight enough to see that.
     assert found.lower_bound <= exact + 1e-6
     assert exact <= found.margin + 1e-9
-    # Never looser than the plan's form min_i m_i - L h / 2 with the largest interval L.
+    # Never looser than the plain form min_i m_i - L h / 2 with the largest interval L.
     m = CWDynamics(N)
     m.reset(state)
     _, sampled = m.advance(accel, duration, n_samples=20)

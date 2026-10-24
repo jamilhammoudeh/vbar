@@ -733,7 +733,7 @@ Assumptions and limits:
   filter refuses `navigation`, `execution` and `model_error` when it is built, and with them
   every other dynamics.
 - No commit zone of its own: inside the goal's commit radius it only watches, and that radius is
-  measured from the target's centre, so on a docking goal the zone is empty (gap G-1142).
+  measured from the target's centre, so on a docking goal the zone is empty.
 - The CAM direction is fixed per scenario; a state whose only escape is another direction is
   outside the set and is treated as recovering.
 - A check costs up to $m + 1$ terminal free-drift evaluations against one for the free-drift
@@ -1252,7 +1252,7 @@ filter and are not asserted.
   keep-out alone. A run that leaves an approach cone or breaks a speed limit is not counted.
 - The commit radius is measured from the target's centre, as by every filter. On a docking goal
   whose port lies outside that radius the commit zone is empty, so the monitor never stands down
-  near the port (gap G-1142).
+  near the port.
 - No R-bar phases yet: the corridor is the V-bar envelope, and a phase's CAM is a fixed Hill
   vector, so an R-bar approach needs its own envelope and phases.
 - "Fired" is any difference between the applied and the recorded command, a clipped command

@@ -430,7 +430,8 @@ ed., Nob Hill, 2017)
   keeps $P_k$ symmetric to rounding.
 - Sec. 8.8.4: condensing is avoided; at 200 stages of 60 s the condensed Hessian's condition
   number exceeds 1e10 while the stage-wise solve matches the sparse solve to 1e-9.
-- Sec. 5.3.5 with the tail factor corrected to $(1 - \alpha)^{-1}$ (ERRATA.md): the CW tube margin
+- Sec. 5.3.5 with the tail factor corrected to $(1 - \alpha)^{-1}$ (p. 347 prints $(1 - \alpha^{-1})$ for the state constraint, which
+  loosens it): the CW tube margin
   of known answer K22 (N = 8, alpha 0.3752, bound 0.17061 against an independent 20000-term sum of
   0.11978); Example 3.13's contraction steps 0.72, 0.296 and 0.0928; Example 3.25's tube
   $1 - 2^{-i}$; eq. 3.25's scenario sample counts 113, 1122 and 11211.

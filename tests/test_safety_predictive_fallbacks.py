@@ -25,9 +25,9 @@ The interface these tests assume, beyond that of `tests/test_safety_predictive.p
   pending slot's wait equals delay_s - dt within 1e-6 s. With delay_s <= dt every wait is 0 and
   the value is not checked.
 
-BRAKE, 60 m out on -V-bar closing at 0.26 m/s, stands in for the G-1150 start: from that start,
-(0, 80, 0, 0, -0.5, 0), the current filter certifies every decision and clears the keep-out by
-22 mm, and it lies outside the braking set at the defaults (h_b = -5.63 m with
+BRAKE, 60 m out on -V-bar closing at 0.26 m/s, stands in for a faster closing start: from
+that start, (0, 80, 0, 0, -0.5, 0), the current filter certifies every decision and clears the
+keep-out by 22 mm, and it lies outside the braking set at the defaults (h_b = -5.63 m with
 a_b = 3.508e-3 m/s^2). BRAKE is inside it (h_b = +0.37 m) and the filter without braking drifts
 about 35 m into the keep-out from it.
 """

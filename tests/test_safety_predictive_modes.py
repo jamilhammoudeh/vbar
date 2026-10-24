@@ -25,10 +25,10 @@ The interface these tests assume, beyond that of `tests/test_safety_predictive.p
   "infeasible_certified" or "solver_failed".
 
 Known answers, recomputed here at 500 km, R 50 m, dt 10 s, drift grid 5 s and drift_horizon
-20 pi / n: at the G-1135 state x = (5, 521, 0, 0, -7.5 n, 0) the capped free-drift margin is
-+0.0099 m (G-1135 states +0.0147 m) and one drift step later it is -0.0727 m (G-1135 states a
-0.068 m shortfall); the terminal margin at x is -1 mm, the value for a drift that reaches no
-terminal state.
+20 pi / n: at x = (5, 521, 0, 0, -7.5 n, 0), a slow drift down V-bar that enters the keep-out
+just after the cap, the capped free-drift margin is +0.0099 m (a first estimate gave +0.0147 m)
+and one drift step later it is -0.0727 m (first estimated as a 0.068 m shortfall); the
+terminal margin at x is -1 mm, the value for a drift that reaches no terminal state.
 """
 
 import dataclasses
@@ -68,9 +68,9 @@ REST = np.array([0.0, 70.0, 0.0, 0.0, 0.0, 0.0])
 X1 = np.array([60.0, 78.935, 0.0, 0.0, -1.5, 0.0])
 X0 = np.linalg.solve(PHI, X1 - GAMMA @ np.array([0.002, 0.0, 0.001]))
 NEAR_BOX = ((-80.0, 52.0, -30.0, -0.1, -0.1, -0.1), (80.0, 150.0, 30.0, 0.1, 0.1, 0.1))
-# G-1135: x_c = 4 x + 2 vy / n = 5 m and no ellipse, so the drift runs down V-bar at 7.5 n m/s
+# x_c = 4 x + 2 vy / n = 5 m and no ellipse, so the drift runs down V-bar at 7.5 n m/s
 # and reaches the keep-out just after ten orbits.
-G1135 = np.array([5.0, 521.0, 0.0, 0.0, -7.5 * N, 0.0])
+SLOW_DRIFT = np.array([5.0, 521.0, 0.0, 0.0, -7.5 * N, 0.0])
 # 5 m outside the keep-out closing at 1 m/s: full braking needs 25 m, so every plan enters.
 UNAVOIDABLE = np.array([0.0, -55.0, 0.0, 0.0, 1.0, 0.0])
 ZERO = np.zeros(3)
@@ -201,28 +201,28 @@ def test_finite_horizon_set_is_the_free_drift_set_capped_at_the_drift_horizon(dr
     assert result.certificate_horizon == pytest.approx(drift_horizon, rel=1e-12)
 
 
-def test_g1135_state_is_certified_for_the_drift_horizon_and_one_drift_step_later_is_not():
+def test_slow_vbar_drift_is_certified_for_the_drift_horizon_and_one_drift_step_later_is_not():
     filt = finite_horizon()
     (barrier,) = filt.declaration.barriers
-    assert barrier.value(G1135) == pytest.approx(0.0099, abs=1e-4)
-    first = filt.filter(G1135.copy(), ZERO.copy())
+    assert barrier.value(SLOW_DRIFT) == pytest.approx(0.0099, abs=1e-4)
+    first = filt.filter(SLOW_DRIFT.copy(), ZERO.copy())
     assert first.status == "feasible" and first.fallback_level == 0
     assert first.recovering is False
     assert first.certificate == "finite-horizon"
     assert first.certificate_horizon == pytest.approx(TEN_ORBITS, rel=1e-12)
     np.testing.assert_array_equal(first.action, ZERO)
     # The set is not invariant under drift: the capped window slides onto the later entry.
-    x1 = PHI @ G1135
+    x1 = PHI @ SLOW_DRIFT
     assert barrier.value(x1) == pytest.approx(-0.0727, abs=1e-4)
     assert filt.contains(x1) is False
     assert filt.filter(x1, ZERO.copy()).recovering is True
 
 
-def test_terminal_mode_at_the_g1135_state_is_recovering():
+def test_terminal_mode_on_a_slow_vbar_drift_into_the_keep_out_is_recovering():
     filt = ready(PredictiveFilter())
-    assert filt.declaration.barriers[0].value(G1135) == pytest.approx(-DEPTH, abs=1e-12)
-    assert filt.contains(G1135) is False
-    assert filt.filter(G1135.copy(), ZERO.copy()).recovering is True
+    assert filt.declaration.barriers[0].value(SLOW_DRIFT) == pytest.approx(-DEPTH, abs=1e-12)
+    assert filt.contains(SLOW_DRIFT) is False
+    assert filt.filter(SLOW_DRIFT.copy(), ZERO.copy()).recovering is True
 
 
 def test_finite_horizon_terminal_rows_are_the_gradient_row_only(monkeypatch):
