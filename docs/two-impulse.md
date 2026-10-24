@@ -82,12 +82,15 @@ feedback toward the hold point.
 
 **Log.** `agent.log` holds one entry per decision: the time `t`, the `phase` (`transfer`,
 `singular`, `departure`, `coast`, `arrival` or `hold`) and whether the command `saturated` the
-thrusters. The decision that ends the departure burn of `"open_loop"` or `"track"` commits a
-coast to the arrival burn and adds `coast_s`, the predicted minimum keep-out margin over it,
-`predicted_margin`, and a certified lower bound on that minimum, `predicted_margin_bound` (m),
-both from `vbar.agents.planning.predicted_margin` on the state after the burn step. A predicted
-violation is logged and the plan flown as is: the agent is an unfiltered reference, and the
-metrics score the true trajectory.
+thrusters. The decision that ends the departure burn of `"open_loop"` or `"track"` commits a coast
+to the arrival burn and adds `coast_s`, the predicted minimum keep-out margin over it,
+`predicted_margin`, and a certified lower bound on that minimum, `predicted_margin_bound` (m), both
+from `vbar.agents.planning.predicted_margin` on the state after the burn step. The coast is sampled
+20 times per step and passed to `vbar.constraints.segment_minimum`, so the bound is, on each sample
+interval, the larger of the speed bound and the keep-out sphere's second-order bound
+([constraints.md](constraints.md)), and the margin lies within the 1 mm keep-out resolution of the
+true minimum. A predicted violation is logged and the plan flown as is: the agent is an unfiltered
+reference, and the metrics score the true trajectory.
 
 **Fuel bound.** `TwoImpulseBound().bounds(view, start)` evaluates $|\Delta\mathbf v_1|_p +
 |\Delta\mathbf v_2|_p$ from `start` to rest at the hold point over a grid of transfer angles,
@@ -177,7 +180,9 @@ Tests: `tests/test_cw_targeting.py` and `tests/test_two_impulse_agent.py`.
   `"track"` arrives closer to the hold point than `"open_loop"` (median over five seeds).
 - On random starts, every coast whose certified predicted margin is non-negative keeps a
   non-negative true minimum margin in continuous time, and the bound never exceeds the predicted
-  margin.
+  margin. Over the 850 to 880 s coasts of seeds 0 to 29, against a minimum from 0.5 s samples
+  refined by Brent's method, the bound lies 0.05 to 0.19 mm below the true minimum and the
+  predicted margin at most 0.29 mm above it, in `"open_loop"` and `"track"`.
 
 ## Example
 

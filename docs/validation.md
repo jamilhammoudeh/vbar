@@ -395,6 +395,7 @@ ed., Nob Hill, 2017)
   matches SLSQP on the condensed problem to 1e-8 relative, with KKT residuals below 1e-7.
 - Sec. 11.4.1 with sec. 5.8.3: an unreachable terminal row is certified infeasible, and the
   certificate verifies by Farkas' lemma against the assembled matrices.
+
 ## Published examples behind the baselines
 
 The tests of the classical baselines ([lqr.md](lqr.md), [lqg.md](lqg.md),
@@ -481,6 +482,7 @@ and 7.3, later editions 7.4 and 7.5)
   law on the declared two-body model, with and without J2
   (`test_closed_loop_acceleration_is_the_linear_error_law_on_the_declared_model`).
 
+**Rawlings, Mayne and Diehl, *Model Predictive Control: Theory, Computation, and Design*** (2nd
 ed.), at 500 km with a 10 s step
 
 - Chapter 1 (sections 1.2.5 and 1.5.1, exercise 1.61), the hold point: an R-bar hold 100 m out

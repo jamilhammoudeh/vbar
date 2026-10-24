@@ -195,7 +195,10 @@ agents in the approach scenario).
   along-track part, ends within twice the 0.209 m that the one-step burns explain and slower than
   0.05 m/s within two steps of $T/2$, captures, and costs $n\Delta y / 2$ to 1%; in
   `impulse_coast` the predicted coast margin equals the margin the environment records to
-  $10^{-6}$ and its certified bound lies below both.
+  $10^{-6}$ and its certified bound lies below both. The coast's minimum falls at its end, where
+  the second-order bound of `vbar.constraints.segment_minimum` is the sampled margin itself: from
+  rest 400 to 700 m behind on the V-bar, over seeds 0 to 29, it meets a minimum from 0.5 s samples
+  refined by Brent's method to $2 \times 10^{-13}$ m, on either side by rounding.
 - `TorvaAgent` with $R$ = 100 m at 500 km: the start burn is along $+y$ and the chaser turns
   clockwise; the arc commands only the hover force at the observed $x$, to $10^{-9}$; the quarter
   turn reaches the $+$V-bar in $T/8$ = 709.6 s within a step, within 3 m of $(0, R, 0)$ and
