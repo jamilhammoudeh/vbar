@@ -25,9 +25,10 @@ A_MAX = 0.02  # m/s^2 per axis
 V_BAR_HOLD = (0.0, -100.0, 0.0)
 R_BAR_HOLD = (-100.0, 0.0, 0.0)
 STATE_NAMES = ("x", "y", "z", "vx", "vy", "vz")
-DISCRETE = LQRConfig(stage_cost="discrete")
-SAMPLED = LQRConfig(stage_cost="sampled")
-RATE = LQRConfig(rate_weight=0.1)
+# The recorded commands and the stage-cost values below are for scales of 10 m and 0.01 m/s.
+DISCRETE = LQRConfig(stage_cost="discrete", vel_scale_mps=0.01)
+SAMPLED = LQRConfig(stage_cost="sampled", vel_scale_mps=0.01)
+RATE = LQRConfig(rate_weight=0.1, vel_scale_mps=0.01)
 
 
 def pending_names(slots):

@@ -325,7 +325,7 @@ def test_sign_check_fails_flipped_axes_and_passes_the_other_kinds():
 
 
 def test_wrapper_breaks_an_lqr_agent_that_succeeds():
-    # The LQR at default weights captures from 50 m behind the hold point at 2310 s (an
+    # The LQR at default weights captures from 50 m behind the hold point at 780 s (an
     # independent computation). Two full episodes and their metrics take about 1.3 s, most of it
     # the flipped run's far trajectory.
     near = (0.0, -150.0, 0.0, 0.0, 0.0, 0.0)

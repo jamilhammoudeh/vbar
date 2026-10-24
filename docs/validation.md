@@ -486,7 +486,7 @@ ed.), at 500 km with a 10 s step
 - Chapter 1 (sections 1.2.5 and 1.5.1, exercise 1.61), the hold point: an R-bar hold 100 m out
   needs $3n^2 \cdot 100$ m = 3.6749087912e-4 m/s²
   (`test_r_bar_hold_needs_three_n_squared_times_the_offset`); regulating without the target input
-  settles (-3.702, 0.041, 0) m off
+  settles (-3.702, 0.041, 0) m off at scales (10 m, 0.01 m/s)
   (`test_regulating_to_the_hold_point_without_feedforward_leaves_an_offset`,
   `test_regulating_without_target_input_settles_at_the_known_offset`), and the target input
   removes the offset (`test_feedforward_removes_the_hold_point_offset`).

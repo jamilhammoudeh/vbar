@@ -109,6 +109,18 @@ baselines reuse it for their stage and terminal cost, so an MPC and `LQRAgent` w
 `LQRConfig` give the same command wherever no constraint binds. It refuses the same views as
 `reset`, with the same messages.
 
+## Parameters and defaults
+
+`LQRConfig` is a frozen, keyword-only dataclass.
+
+| Parameter | Default | Reason |
+|---|---|---|
+| `pos_scale_m` | 10 m | The position weight $10^{-2}$ m$^{-2}$ of the known-answer tests below |
+| `vel_scale_mps` | 0.03 m/s | Sets the slowest closed-loop mode: when $p/v$ is long next to the step it is that mode's time constant, 333 s here, so the R-bar hold of `approach-rbar` is reached and held within its 3600 s; at 0.01 m/s (1000 s) its validation seeds end 6 to 10 m out |
+| `accel_scale_mps2` | `None`: the view's `max_accel` | The weights follow the scenario's thrust |
+| `stage_cost` | `"sampled"` | The gain does not depend on `dt` beyond the sampling |
+| `rate_weight` | 0 | The plain design |
+
 ## Assumptions and limits
 
 - The design model is CW about a circular target. On the two-body rungs the unmodelled
@@ -144,7 +156,7 @@ WGS 84 Earth with a 10 s step and a 0.02 m/s^2 box limit unless stated:
   (`test_regulating_to_the_hold_point_without_feedforward_leaves_an_offset`,
   `test_feedforward_removes_the_hold_point_offset`). Flown in the environment, the agent holds
   the R-bar point to below 1e-6 m over 360 steps with either stage cost, and with $\mathbf u_s$
-  forced to zero it ends 3.702 m away after 1080 steps
+  forced to zero at scales (10 m, 0.01 m/s) it ends 3.702 m away after 1080 steps
   (`test_target_input_holds_the_r_bar_point_to_rounding`,
   `test_regulating_without_target_input_settles_at_the_known_offset`).
 - **Delay** (sec. 1.2.5, exercise 1.61): designing for no delay and flying with a one-step delay

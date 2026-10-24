@@ -459,7 +459,7 @@ def test_command_equals_the_lqr_agent_where_no_input_saturates(hold):
     lqr = LQRAgent(LQRConfig())
     lqr.reset(view)
     xs = np.concatenate([hold, np.zeros(3)])
-    # Offsets under a metre ask for corrections under 1e-4 m/s^2, far from every input limit.
+    # Offsets under a metre ask for corrections under 2e-4 m/s^2, far from every input limit.
     for dev in ([0.5, -0.5, 0.3, 0.0, 0.0, 0.0], [-0.2, 0.4, -0.1, 1e-4, -1e-4, 2e-4]):
         x = xs + np.array(dev)
         u = command(agent, view, x)
@@ -495,7 +495,7 @@ def test_outside_the_box_the_command_is_the_clipped_lqr_law_and_is_logged():
     lqr = LQRAgent(LQRConfig())
     lqr.reset(view)
     # 700 m along track from the hold point, past the 600 m of the box; the LQR law asks for
-    # 0.088 m/s^2 along track, so the clip is exercised.
+    # 0.251 m/s^2 along track, so the clip is exercised.
     x = np.array([0.0, 600.0, 0.0, 0.0, 0.0, 0.0])
     u = command(agent, view, x)
     assert np.max(np.abs(u - command(lqr, view, x))) <= 1e-12 * A_MAX
@@ -516,7 +516,7 @@ def test_cross_track_state_outside_the_box_alone_falls_back_to_the_clipped_lqr_l
     lqr = LQRAgent(LQRConfig())
     lqr.reset(view)
     # In plane half a metre from the hold point, inside the box; 400 m cross-track, past its
-    # 300 m. The LQR law asks for -0.050 m/s^2 cross-track, so the command is -a_max there.
+    # 300 m. The LQR law asks for -0.143 m/s^2 cross-track, so the command is -a_max there.
     x = np.array([0.5, -100.5, 400.0, 0.0, 0.0, 0.0])
     u = command(agent, view, x)
     assert np.max(np.abs(u - command(lqr, view, x))) <= 1e-12 * A_MAX
@@ -533,7 +533,7 @@ def test_in_plane_state_outside_the_box_falls_back_while_cross_track_saturates_i
     lqr = LQRAgent(LQRConfig())
     lqr.reset(view)
     # 650 m along track, past the 600 m of the box; 250 m cross-track, inside its 300 m, where
-    # the LQR law asks for -0.031 m/s^2 and both axes clip to a_max.
+    # the LQR law asks for -0.089 m/s^2 and both axes clip to a_max.
     x = np.array([0.0, 550.0, 250.0, 0.0, 0.0, 0.0])
     u = command(agent, view, x)
     assert np.max(np.abs(u - command(lqr, view, x))) <= 1e-12 * A_MAX

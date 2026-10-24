@@ -286,9 +286,11 @@ def hold_loop():
     """The approach-vbar view's LQR loop with the default weights, and its rows and bounds.
 
     The hold row keeps n_h . r >= R + b_h, written about the hold point as |n_h . dr| <=
-    |hold| - R - b_h. b_h = 2.25 m covers the chord-to-arc allowance A dt^2 / 8 = 2.2457 m between
+    |hold| - R - b_h. b_h = 2.25 m covers the chord-to-arc allowance A dt^2 / 8 = 1.4593 m between
     samples, A being the acceleration bound of `interval_bounds` at the set's largest range and
-    speed with sqrt(3) max_accel of thrust (from an independent computation).
+    speed with sqrt(3) max_accel of thrust; the range is |hold| plus the norm of the set's extent
+    along each position axis, the speed the norm of its extents along the velocity axes (from an
+    independent computation).
     """
     view = make("approach-vbar").agent_view()
     cfg = LQRConfig()

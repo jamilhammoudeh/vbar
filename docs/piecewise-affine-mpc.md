@@ -92,7 +92,7 @@ Both are the agent's own bookkeeping, which no metric reads as a score.
 | Parameter | Default | Reason |
 |---|---|---|
 | `regulator` | `LQRConfig()` | The weights `LQRAgent` uses, so the two agree wherever no limit binds; its `rate_weight` must be 0 |
-| `horizon` | 2 | Regions are rebuilt at every reset: two moves build in under a second in the cases measured below, three take 1.5 to 2.2 s |
+| `horizon` | 2 | Regions are rebuilt at every reset: two moves build in under a second in the cases measured below, three take 2.0 to 2.1 s |
 | `box` | `(600, 800, 700, 1, 1, 1)` m and m/s | Half widths around the hold point that hold the start dispersions of `approach-rbar` (500 m radially), `approach-vbar` (700 m along track) and `approach-hbar` (600 m cross track) with at least 100 m to spare, and ten times the 0.1 m/s per axis of their start velocities |
 
 Fixed in the module: the Chebyshev radius $10^{-9}$ of the scaled box, far below the smallest
@@ -126,21 +126,24 @@ allow on the command.
 
   | Horizon | In-plane regions | Cross-track regions | Build time per reset |
   |---|---|---|---|
-  | 1 | 9 | 3 | 0.04 to 0.12 s |
-  | 2 | 25 | 5 | 0.2 to 0.8 s |
-  | 3 | 49 | 7 | 1.5 to 2.2 s |
-  | 4 | 81 | 9 | 5.0 to 5.3 s |
-  | 5 | 121 | 11 | 9.3 to 10.5 s |
+  | 1 | 9 | 3 | 0.04 s |
+  | 2 | 25 | 5 | 0.2 to 0.5 s |
+  | 3 | 49 | 7 | 2.0 to 2.1 s |
+  | 4 | 81 | 9 | 4.8 to 5.2 s |
+  | 5 | 121 | 11 | 5.8 to 9.2 s |
 
   About two thirds of the build at three moves went to the Chebyshev LPs, one per candidate
   set with independent rows. With the heavier weights of the
   region-count tests below the tables are larger: at $2\times10^{-3}$ m/s$^2$ the cross-track
   axis has 33 regions at four moves and the in-plane axes 81 at two.
 - The lookup is sequential, so its cost grows with the region count. In nine default episodes
-  (seeds 0, 1 and 2 of `approach-vbar`, `approach-rbar` and `approach-hbar`, measured once) every
-  decision was at level 0, at most 18 regions were tested in one lookup (`approach-vbar`, seed 2;
-  at most 8 on `approach-rbar` and 6 on `approach-hbar`), and the median lookup took 0.1 to
-  0.2 ms.
+  (seeds 0, 1 and 2 of `approach-vbar`, `approach-rbar` and `approach-hbar`, measured once) a
+  lookup that found its regions tested at most 24 (`approach-vbar`, seed 2, and `approach-rbar`,
+  seed 1; at most 6 on `approach-hbar`), and the median lookup took 0.1 to 0.2 ms.
+- The default box does not hold the default approaches. The default weights fly them at up to
+  1.83 m/s on one axis, above the box's 1 m/s half width, so in seven of the nine episodes 4 to 24
+  decisions fell outside it and flew the clipped LQR law at level 2; only `approach-rbar` seeds 0
+  and 1 stayed at level 0 throughout.
 
 ## Validation
 

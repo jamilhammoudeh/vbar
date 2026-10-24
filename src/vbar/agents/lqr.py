@@ -320,7 +320,10 @@ class LQRConfig:
     pos_scale_m : float
         Position error that costs 1 (m).
     vel_scale_mps : float
-        Velocity error that costs 1 (m/s).
+        Velocity error that costs 1 (m/s). When pos_scale_m / vel_scale_mps is long next to
+        the step it is the time constant of the slowest closed-loop mode, 333 s at the
+        defaults, short enough to reach and hold the approach-rbar point within its 3600 s;
+        0.01 m/s gives 1000 s and leaves its starts 6 to 10 m out.
     accel_scale_mps2 : float or None
         Command that costs 1 (m/s^2); None uses the view's `max_accel`, so the weights follow
         the scenario's thrust.
@@ -339,7 +342,7 @@ class LQRConfig:
     """
 
     pos_scale_m: float = 10.0
-    vel_scale_mps: float = 0.01
+    vel_scale_mps: float = 0.03
     accel_scale_mps2: float | None = None
     stage_cost: str = "sampled"
     rate_weight: float = 0.0

@@ -72,7 +72,7 @@ def test_config_is_frozen_and_keyword_only():
     config = LQRConfig()
     with pytest.raises(dataclasses.FrozenInstanceError):
         config.pos_scale_m = 1.0
-    assert (config.pos_scale_m, config.vel_scale_mps, config.accel_scale_mps2) == (10.0, 0.01, None)
+    assert (config.pos_scale_m, config.vel_scale_mps, config.accel_scale_mps2) == (10.0, 0.03, None)
     assert (config.stage_cost, config.rate_weight) == ("sampled", 0.0)
 
 
@@ -98,7 +98,7 @@ def test_command_is_the_lqr_law_with_target_input(stage_cost, hold):
         x = xs + rng.uniform(-1.0, 1.0, 6) * np.array([1.0] * 3 + [1e-3] * 3)
         expected = (us - k @ (x - xs)) / A_MAX
         assert np.max(np.abs(expected)) < 1.0
-        command = acted(LQRAgent(LQRConfig(stage_cost=stage_cost)), view, x)
+        command = acted(LQRAgent(LQRConfig(stage_cost=stage_cost, vel_scale_mps=0.01)), view, x)
         # The same Riccati solution reached through the agent's own assembly of the matrices;
         # its residual is at 1e-14 of P.
         assert np.max(np.abs(command - expected)) <= 1e-9 * np.max(np.abs(expected))
@@ -173,10 +173,11 @@ def test_target_input_holds_the_r_bar_point_to_rounding(stage_cost):
 
 def test_regulating_without_target_input_settles_at_the_known_offset(monkeypatch):
     monkeypatch.setattr(lqr, "steady_state_input", lambda phi, gamma, xs: np.zeros(3))
-    ep = r_bar_hold_episode(LQRAgent(LQRConfig(stage_cost="discrete")), 1080)
-    # Fixed point of the closed loop: (-3.702, 0.041, 0) m from the hold point. Its slowest
-    # mode needs about three hours: an independent computation gives 3.601 m at 360 steps and
-    # 3.7026 m from 1080 steps on.
+    config = LQRConfig(stage_cost="discrete", vel_scale_mps=0.01)
+    ep = r_bar_hold_episode(LQRAgent(config), 1080)
+    # Fixed point of the closed loop at these scales: (-3.702, 0.041, 0) m from the hold point.
+    # Its slowest mode needs about three hours: an independent computation gives 3.601 m at 360
+    # steps and 3.7026 m from 1080 steps on.
     assert mission_metrics(ep)["terminal_pos_error"] == pytest.approx(3.702, abs=1e-2)
 
 
@@ -253,7 +254,7 @@ def test_one_step_delay_command_is_the_augmented_lqr_law_in_every_mode():
     in_effect = np.array([0.03, -0.02, 0.01])  # fractions of a full command
     expected = -k_a @ np.concatenate([x - xs, in_effect * A_MAX]) / A_MAX
     assert np.max(np.abs(expected)) < 1.0
-    config = LQRConfig(stage_cost="discrete")
+    config = LQRConfig(stage_cost="discrete", vel_scale_mps=0.01)
     for mode, scale in (("normalized", 1.0), ("accel", A_MAX), ("thrust", A_MAX * 500.0)):
         obs = np.concatenate([x, [0.0], in_effect * scale])
         command = acted(LQRAgent(config), hand_view(mode=mode, slots=1), obs)
