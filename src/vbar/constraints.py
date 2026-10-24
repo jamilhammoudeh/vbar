@@ -42,6 +42,14 @@ _INVPHI = 0.5 * (np.sqrt(5.0) - 1.0)
 # Safety factor on the CW gravity-gradient and Coriolis terms in the acceleration bound; it
 # covers the two-body nonlinearity and J2 at separations below 1% of the orbit radius.
 _NATURAL_MARGIN = 2.0
+# A certified bound that rests on a sample's margin is lowered by this many eps times the
+# magnitudes that margin was computed from (a constraint's `_rounding_scale`). Those, not the
+# margin, set its rounding: |r| - R with |r| near R, and a propagated position whose terms in
+# phi x0 + gamma a reach |r0| + t |v0| + t^2 |a| however small their sum. Against a 50-digit
+# Clohessy-Wiltshire reference, over 11631 samples of 983 coasting and thrusting segments, the
+# error stayed below 1.6 eps of that scale for the keep-out and speed margins
+# (benchmarks/rounding_bounds.py).
+_ROUNDING_ULPS = 2.0
 
 
 class Constraint(Protocol):
@@ -187,6 +195,12 @@ class KeepOut:
         bounds = np.sqrt(np.maximum(f_low, 0.0)) - self.radius
         return np.where(finite, bounds, -np.inf)
 
+    def _rounding_scale(
+        self, extent: np.ndarray, pace: np.ndarray, rho_min: np.ndarray
+    ) -> np.ndarray:
+        """Magnitudes (m) the margin's rounding scales with; see `_rounding_allowances`."""
+        return np.broadcast_to(extent + abs(self.radius), np.shape(rho_min))
+
 
 def closing_speed(state: np.ndarray) -> np.ndarray:
     """max(0, -rho_dot) (m/s), the speed at which the range falls; |v| at the origin."""
@@ -206,6 +220,15 @@ def _closing_rate_bound(speed: float, accel: float, rho_min: float) -> float:
     positive = rho > 0.0
     bound = np.where(positive, speed * speed / np.where(positive, rho, 1.0) + accel, np.inf)
     return cast(float, bound if bound.ndim else float(bound))
+
+
+def _closing_rounding_scale(
+    extent: np.ndarray, pace: np.ndarray, rho_min: np.ndarray
+) -> np.ndarray:
+    """Rounding scale (m/s) of the closing speed; infinite where `rho_min` is zero."""
+    # Errors dr and dv move rho_dot = r_hat . v by at most |dv| + |v| |dr| / rho.
+    positive = rho_min > 0.0
+    return np.where(positive, pace + pace * extent / np.where(positive, rho_min, 1.0), np.inf)
 
 
 def _range_curvature(
@@ -333,6 +356,12 @@ class SpeedLimit:
         curvature = _range_curvature(self.v1, speed, accel, rho_min) + jerk
         return _lowest_below_chord(margins[..., :-1], margins[..., 1:], h, curvature)
 
+    def _rounding_scale(
+        self, extent: np.ndarray, pace: np.ndarray, rho_min: np.ndarray
+    ) -> np.ndarray:
+        """Magnitudes (m/s) the margin's rounding scales with; see `_rounding_allowances`."""
+        return np.broadcast_to(abs(self.v0) + abs(self.v1) * extent + pace, np.shape(rho_min))
+
 
 @dataclass(frozen=True)
 class ClosingSpeedLimit:
@@ -382,6 +411,12 @@ class ClosingSpeedLimit:
         states = np.asarray(states)
         allowed = self.allowed_speed(np.linalg.norm(states[..., :3], axis=-1))
         return _closing_second_order(allowed, self.v1, states, h, speed, accel, jerk)
+
+    def _rounding_scale(
+        self, extent: np.ndarray, pace: np.ndarray, rho_min: np.ndarray
+    ) -> np.ndarray:
+        """Magnitudes (m/s) the margin's rounding scales with; see `_rounding_allowances`."""
+        return abs(self.v0) + abs(self.v1) * extent + _closing_rounding_scale(extent, pace, rho_min)
 
 
 @dataclass(frozen=True)
@@ -458,6 +493,15 @@ class GateTable:
             self.allowed_speed(rho), slopes[piece], states, h, speed, accel, jerk
         )
         return np.where(one_piece, bounds, -np.inf)
+
+    def _rounding_scale(
+        self, extent: np.ndarray, pace: np.ndarray, rho_min: np.ndarray
+    ) -> np.ndarray:
+        """Magnitudes (m/s) the margin's rounding scales with; see `_rounding_allowances`."""
+        ranges, speeds = self._table()
+        slope = float(np.max(np.abs(np.diff(speeds) / np.diff(ranges))))
+        allowed = float(speeds.max()) + slope * extent
+        return allowed + _closing_rounding_scale(extent, pace, rho_min)
 
 
 @dataclass(frozen=True)
@@ -696,6 +740,30 @@ def range_lower_bounds(states: np.ndarray, h: float, speed: np.ndarray) -> np.nd
     return np.maximum(np.nan_to_num(lower, nan=0.0, neginf=0.0), 0.0)
 
 
+def _rounding_allowances(
+    constraint: Constraint,
+    duration: float,
+    states: np.ndarray,
+    speed: np.ndarray,
+    accel: np.ndarray,
+    rho_min: np.ndarray,
+) -> np.ndarray:
+    """Allowance (margin units) for rounding in the margins on each sample interval.
+
+    `duration` (s) is the time from the segment's start to its last sample. Zero for a
+    constraint without `_rounding_scale`. The constraint scales its rounding by `extent` (m), at
+    least |r0| + t |v0| + t^2 |a| over the segment, and `pace` (m/s), at least |v0| + t |a|, from
+    the samples and the bounds `interval_bounds` gives.
+    """
+    rounding_scale = getattr(constraint, "_rounding_scale", None)
+    if rounding_scale is None:
+        return np.zeros(np.shape(rho_min))
+    rho = np.linalg.norm(states[..., :3], axis=-1).max(axis=-1, keepdims=True)
+    pace = speed.max(axis=-1, keepdims=True) + duration * accel.max(axis=-1, keepdims=True)
+    extent = rho + duration * pace
+    return _ROUNDING_ULPS * np.finfo(float).eps * rounding_scale(extent, pace, rho_min)
+
+
 def segment_minimum(
     constraint: Constraint,
     state_at: Callable[[float], np.ndarray],
@@ -717,7 +785,12 @@ def segment_minimum(
     k = int(np.argmin(margins))
     best_t, best = float(times[k]), float(margins[k])
     if len(times) < 2 or times[-1] <= times[0]:
-        return SegmentMinimum(t0 + best_t, best, best)
+        rho = np.linalg.norm(states[..., :3], axis=-1)
+        speed = np.linalg.norm(states[..., 3:6], axis=-1)
+        allowances = _rounding_allowances(
+            constraint, float(times[-1]), states, speed, np.zeros_like(speed), rho
+        )
+        return SegmentMinimum(t0 + best_t, best, best - float(allowances[k]))
     h = float(times[1] - times[0])
     speed, accel = interval_bounds(states, h, thrust, n)
     rho_min = range_lower_bounds(states, h, speed)
@@ -743,7 +816,10 @@ def segment_minimum(
         )
         if found.fun < best:
             best_t, best = float(found.x), float(found.fun)
-    return SegmentMinimum(t0 + best_t, best, min(float(bounds.min()), best))
+    allowances = _rounding_allowances(constraint, float(times[-1]), states, speed, accel, rho_min)
+    holding = min(int(np.searchsorted(times, best_t, side="right")) - 1, len(bounds) - 1)
+    lower = min(float(np.min(bounds - allowances)), best - float(allowances[holding]))
+    return SegmentMinimum(t0 + best_t, best, lower)
 
 
 def segment_minima(
@@ -803,7 +879,10 @@ def segment_minima(
             better = active & (found[rows, visit] < best)
             best = np.where(better, found[rows, visit], best)
             best_t = np.where(better, found_t[rows, visit], best_t)
-    return t0 + best_t, best, np.minimum(bounds.min(axis=1), best)
+    allowances = _rounding_allowances(constraint, float(times[-1]), states, speed, accel, rho_min)
+    holding = np.minimum(np.searchsorted(times, best_t, side="right") - 1, bounds.shape[1] - 1)
+    lower = np.minimum((bounds - allowances).min(axis=1), best - allowances[rows, holding])
+    return t0 + best_t, best, lower
 
 
 def _golden(

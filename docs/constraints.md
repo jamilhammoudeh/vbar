@@ -127,7 +127,16 @@ falls below the samples on either side.
 
 **What is guaranteed.** `lower_bound` is a valid lower bound on the margin of the simulated
 trajectory over the segment. The reported `margin` is the lowest value found: the true minimum
-whenever each refined interval holds a single dip. Refinement does not tighten the bound. The
+whenever each refined interval holds a single dip. Where the rule skips the refinement, the
+reported margin is the lowest sample and is accurate only to the constraint's `resolution`, 1 mm
+for the keep-out sphere. `KeepOut`, `SpeedLimit`, `ClosingSpeedLimit` and `GateTable` lower
+`lower_bound` by 2 eps times the magnitudes their margins are computed from (the range, the
+radius or allowed speed, and the start range and speed plus what the speed and acceleration bounds
+allow over the segment), since rounding in the propagated state and in $\rho - r_{\text{ko}}$
+with $\rho$ near $r_{\text{ko}}$ can put a sample's margin above the exact one even where the
+margin is near zero. Against a 50-digit reference on the seeded test segments
+(`benchmarks/rounding_bounds.py`), the worst sample error is 1.5 eps of that scale, so the factor
+of 2 leaves a margin of about a third. Refinement does not tighten the bound. The
 Lipschitz bound can stay up to $\tfrac12 L h$ below the reported minimum: over 200 coasting flybys
 at 0.5 to 20 m/s sampled 20 times per 10 s its gap to the exact minimum has a median of 1.76 m and
 a maximum of 5.02 m. The keep-out sphere therefore also carries the second-order bound below, and

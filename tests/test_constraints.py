@@ -1,3 +1,4 @@
+from decimal import Decimal, localcontext
 from functools import cache
 
 import numpy as np
@@ -599,3 +600,86 @@ def test_batched_minimum_reports_the_scalar_second_order_bound():
     accels = np.array([f[1] for f in flybys])
     _, _, bound = batched(states, accels, 10.0, 20)
     assert np.allclose(bound, lower_bounds("dense"), rtol=0.0, atol=1e-9)
+
+
+def decimal_sin_cos(x):
+    """sin x and cos x from their Taylor series, in the current decimal context."""
+    term, sin, cos, k = Decimal(1), Decimal(0), Decimal(1), 0
+    while abs(term) > Decimal(10) ** -60:
+        k += 1
+        term = term * x / k
+        if k % 4 == 1:
+            sin += term
+        elif k % 4 == 2:
+            cos -= term
+        elif k % 4 == 3:
+            sin -= term
+        else:
+            cos += term
+    return sin, cos
+
+
+def exact_coasting_range(state, t):
+    """Range (m) `t` s after `state` on the coasting CW trajectory, to 50 digits.
+
+    The closed-form solution, taking the floats in `state` and N as exact.
+    """
+    with localcontext() as ctx:
+        ctx.prec = 50
+        x, y, z, vx, vy, vz = (Decimal(float(c)) for c in state)
+        n, t = Decimal(float(N)), Decimal(t)
+        s, c = decimal_sin_cos(n * t)
+        rx = (4 - 3 * c) * x + s / n * vx + 2 * (1 - c) / n * vy
+        ry = 6 * (s - n * t) * x + y - 2 * (1 - c) / n * vx + (4 * s - 3 * n * t) / n * vy
+        rz = c * z + s / n * vz
+        return (rx * rx + ry * ry + rz * rz).sqrt()
+
+
+@cache
+def radial_hop():
+    """Start states of the 10 s steps of a radial hop and each step's exact minimum margin.
+
+    The hop goes from 300 m to 60 m on V-bar, 4 vx / n, in pi / n s. The range falls through the
+    whole hop, so each step's closest approach is at its last sample. The first step is left out:
+    the range is stationary where the hop starts, and the curvature term there puts the bound
+    2e-9 m below the end sample.
+    """
+    m = CWDynamics(N)
+    state = np.array([0.0, 300.0, 0.0, 60.0 * N, 0.0, 0.0])
+    starts = []
+    for _ in range(int(np.pi / N / 10.0) - 1):
+        m.reset(state)
+        state, _ = m.advance(np.zeros(3), 10.0)
+        starts.append(state)
+    exact = [exact_coasting_range(s, 10.0) - Decimal(KEEP_OUT.radius) for s in starts]
+    return np.array(starts), exact
+
+
+def excess_over_exact(bounds, exact):
+    return np.array([float(Decimal(float(b)) - e) for b, e in zip(bounds, exact, strict=True)])
+
+
+def test_certified_bound_at_a_sample_minimum_never_exceeds_the_exact_minimum():
+    # There the second-order bound is the sample's own margin, which rounding in the propagated
+    # state put up to about 1e-13 m above the exact range on half of these steps.
+    starts, exact = radial_hop()
+    times = np.linspace(0.0, 10.0, 11)
+    bounds = []
+    for state in starts:
+        m = CWDynamics(N)
+        m.reset(state)
+        _, sampled = m.advance(np.zeros(3), 10.0, n_samples=11)
+        found = segment_minimum(KEEP_OUT, m.state_in_last_segment, times, sampled, 0.0, N)
+        bounds.append(found.lower_bound)
+    excess = excess_over_exact(bounds, exact)
+    assert excess.max() <= 0.0
+    # An allowance of a few ulp is enough; 1e-9 m catches one far larger than rounding needs.
+    assert excess.min() >= -1e-9
+
+
+def test_batched_bound_at_a_sample_minimum_never_exceeds_the_exact_minimum():
+    starts, exact = radial_hop()
+    _, _, bounds = batched(starts, np.zeros((len(starts), 3)), 10.0, 11)
+    excess = excess_over_exact(bounds, exact)
+    assert excess.max() <= 0.0
+    assert excess.min() >= -1e-9

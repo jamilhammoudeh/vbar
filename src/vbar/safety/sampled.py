@@ -17,7 +17,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from ..constraints import KeepOut, interval_bounds
+from ..constraints import KeepOut, _rounding_allowances, interval_bounds, range_lower_bounds
 from ..dynamics.cw import CWDiscretizer
 from .tightening import ErrorSet, keep_out_margin
 
@@ -120,6 +120,8 @@ def held_segment_bound(
         0.5 * (margins[:-1] + margins[1:] - speed * h),
         keep_out.second_order_bounds(states, h, speed, accel),
     )
+    rho_min = range_lower_bounds(states, h, speed)
+    bounds = bounds - _rounding_allowances(keep_out, dt, states, speed, accel, rho_min)
     if error is None and da_max == 0.0:
         return float(bounds.min())
     return float((bounds - _tightening(n, dt, m, error, da_max)).min())
