@@ -28,6 +28,7 @@ from ..constraints import KeepOut
 from ..dynamics.cw import CWDiscretizer, cw_discrete
 from ..metrics.passive import cam_direction
 from ..metrics.settings import MetricSettings
+from ..reach import Zonotope, cw_loop, drift_clearance, loop_clearance
 from ..solvers.ipm import IPMSettings, solve_horizon
 from ..solvers.stage import StageQP
 from . import FilterResult
@@ -41,12 +42,13 @@ from .cbf import (
     _state,
 )
 from .sampled import held_segment_bound
+from .tightening import BallError, BoxError, EllipsoidError, ErrorSet, error_zonotope
 
 PREDICTIVE_MODES = ("terminal", "finite-horizon", "soft")
 PREDICTIVE_BACKUPS = ("passive", "cam")
 _NAME_TAGS = {"terminal": "", "finite-horizon": "fh-", "soft": "soft-"}
-# The drift grid of BackupFilter's free-drift barrier, so the two declare the same set.
-_GRID = 5.0
+# Largest distance of a delay from a whole number of steps, in steps, as `delay_margin` takes.
+_STEP_TOL = 1e-9
 # Margin of the far-part terminal rows (m): it keeps the plan's end state receding, where a
 # centre standing still on its threshold would let rounding decide membership.
 _FAR_MARGIN = KeepOut.resolution
@@ -111,6 +113,14 @@ class PredictiveFilter(_HeldCommandFilter):
         The largest speed of the braking region, m/s, positive.
     rho_cap : float
         The largest range of the braking region, m, above the keep-out radius.
+    navigation : BoxError, BallError or EllipsoidError, optional
+        Bound on the error of the observed state, m and m/s; none by default.
+    execution : float
+        Bound on the execution error of each held command, m/s^2, nonnegative, taken as the
+        box W of that half-width on each Hill axis, which holds the ball of that radius.
+    grid : float
+        Spacing of the free-drift samples, s, positive; shortened to dt / k for the smallest
+        whole k that reaches it, except under error sets.
     ignore : sequence of str
         Constraint types of the scenario not to enforce; any other type than keep_out makes
         reset raise, since the free drift may leave it.
@@ -118,8 +128,9 @@ class PredictiveFilter(_HeldCommandFilter):
     Raises
     ------
     ValueError
-        If a parameter is out of range, the mode or the backup is unknown, or a parameter is
-        given to a mode that does not use it.
+        If a parameter is out of range, the mode or the backup is unknown, a parameter is
+        given to a mode that does not use it, or error sets are given with the cam backup or
+        the finite-horizon mode.
 
     Notes
     -----
@@ -185,6 +196,25 @@ class PredictiveFilter(_HeldCommandFilter):
     observation is predicted through the echoed commands and the plan starts there. With
     delay_s > dt the latest echoed command waits delay_s - dt from the second decision on, which
     is checked; with delay_s <= dt every wait is zero and the value cannot be checked.
+
+    Error sets make the filter bounded. The navigation set E enters as the zonotope of
+    `tightening.error_zonotope`, exact for a box and an outer bound otherwise, and the
+    execution set W as the box of half-width `execution`. No feedback acts on the errors over a
+    plan (K = 0), so the error of the plan's state x_k lies in
+    Z_k = Phi^k Z_0 + sum_{j<k} Phi^j Gamma W, with Z_0 = Phi(delay_s) E plus the error the
+    pending commands build up, sum_{j<delay_s/dt} Phi^j Gamma W (Kochenderfer et al.,
+    *Algorithms for Validation*, eq. 8.20). Each keep-out row a_x . x_k + a_u . u_k >= b of
+    the program is raised by the support h_{Z_k}(a_x) + h_W(a_u), and each terminal row
+    a . x_N >= b by h_{Z_N}(a); the terminal rows linearize `PassiveBarrier` without
+    `terminal`, capped at t_cap = 4 pi / n. The check of a plan bounds each step up to the
+    last nonzero input by `vbar.reach.loop_clearance` of x_k + Z_k under u_k + W, and the free
+    drift after it by `vbar.reach.drift_clearance` of the end state's set over t_cap, on
+    ceil(t_cap / grid) + 1 samples; zero thrust is taken as exact. `contains(x)` is that drift
+    clearance of x + E, and a decision tests the predicted state with Z_0, which is x + E
+    without a delay. A certified decision has certificate "bounded-W", or "chance-epsilon" for
+    an ellipsoid with a positive exceedance, with horizon t_cap. Zero thrust at level 2 passes
+    the same check or is not certified; a decision at a state outside the set is recovering.
+    Free drift does not keep the set, so recursive feasibility is not claimed.
     """
 
     _pending_allowed = True
@@ -204,9 +234,21 @@ class PredictiveFilter(_HeldCommandFilter):
         backup: str = "passive",
         brake_v_cap: float = 1.0,
         rho_cap: float = 2000.0,
+        navigation: ErrorSet | None = None,
+        execution: float = 0.0,
+        grid: float = 5.0,
         ignore=(),
     ) -> None:
-        super().__init__(execution=0.0, model_error=None, ignore=ignore)
+        super().__init__(execution=execution, model_error=None, ignore=ignore)
+        if navigation is not None and not isinstance(
+            navigation, (BoxError, BallError, EllipsoidError)
+        ):
+            raise ValueError("navigation must be a BoxError, BallError or EllipsoidError")
+        self.navigation = navigation
+        if self.bounded and backup == "cam":
+            raise ValueError("the cam backup makes no claim under error sets")
+        if self.bounded and mode == "finite-horizon":
+            raise ValueError("error sets need the terminal or the soft mode")
         if isinstance(horizon, bool) or int(horizon) != horizon or horizon < 1:
             raise ValueError("horizon must be an integer of at least 1")
         if isinstance(row_samples, bool) or int(row_samples) != row_samples or row_samples < 2:
@@ -240,6 +282,7 @@ class PredictiveFilter(_HeldCommandFilter):
         self.backup = backup
         self.brake_v_cap = _positive(brake_v_cap, "brake_v_cap")
         self.rho_cap = _positive(rho_cap, "rho_cap")
+        self.grid = _positive(grid, "grid")
         cam = "cam-" if backup == "cam" else ""
         self.name = f"predictive-{_NAME_TAGS[mode]}{cam}n{self.horizon}"
 
@@ -252,7 +295,8 @@ class PredictiveFilter(_HeldCommandFilter):
             If the action mode, frame, observation, dynamics or constraints are unsupported, the
             scenario has no keep_out, the view does not echo ceil(delay_s / dt) pending
             commands, rho_cap does not exceed the keep-out radius, drift_horizon is shorter
-            than the drift grid, or the cam backup is asked for a goal with no CAM direction.
+            than the drift grid, the cam backup is asked for a goal with no CAM direction, or
+            an execution error comes with a delay that is not a whole number of steps.
         """
         self._view = None
         self._declaration = None
@@ -287,8 +331,18 @@ class PredictiveFilter(_HeldCommandFilter):
         self._phi, self._gamma_u = cw_discrete(n, dt)
         # The drift samples after a step must be samples of the drift before it, so the grid
         # divides dt and the terminal set is kept by a drift step.
-        grid = dt / math.ceil(dt / _GRID)
-        if self.mode == "finite-horizon":
+        grid = dt / math.ceil(dt / self.grid)
+        self._errors: list[np.ndarray] | None = None
+        if self.bounded:
+            t_cap = 4.0 * math.pi / n
+            self._drift = PassiveBarrier(radius=radius, n=n, grid=self.grid, t_cap=t_cap)
+            self._drift_samples = math.ceil(t_cap / self.grid) + 1
+            self._loop = cw_loop(n, dt)
+            self._navigation_set = np.zeros((6, 0))
+            if self.navigation is not None:
+                self._navigation_set = error_zonotope(self.navigation).generators
+            self._errors = self._error_sets()
+        elif self.mode == "finite-horizon":
             self._drift = PassiveBarrier(radius=radius, n=n, grid=grid, t_cap=self.drift_horizon)
         else:
             self._drift = PassiveBarrier(
@@ -331,6 +385,13 @@ class PredictiveFilter(_HeldCommandFilter):
                 "outside the keep-out for all time"
             )
             backup = "zero thrust, else the CAM"
+        elif self.bounded:
+            safe_set = (
+                "free drift of every state within the declared errors of the estimate, "
+                "propagated without feedback (K = 0), certified outside the keep-out up to "
+                "the drift horizon"
+            )
+            backup = "zero thrust"
         elif self.mode == "finite-horizon":
             safe_set = "free drift certified outside the keep-out up to the drift horizon"
             backup = "zero thrust"
@@ -349,12 +410,21 @@ class PredictiveFilter(_HeldCommandFilter):
             layout=layout,
             a_max=a_max,
             buffer_m=0.0,
-            tightening={"navigation": None, "execution": 0.0, "model_error": None},
+            tightening={
+                "navigation": self.navigation,
+                "execution": self.execution,
+                "model_error": None,
+            },
             backup=backup,
             certificate=self._kind,
             counts_toward_certification=self.mode == "terminal",
             ignored=self.ignore,
         )
+
+    @property
+    def bounded(self) -> bool:
+        """Whether error sets are declared, which tightens the program and every check."""
+        return self.navigation is not None or self.execution > 0.0
 
     @property
     def _declared(self) -> PassiveBarrier | CamBarrier:
@@ -364,7 +434,31 @@ class PredictiveFilter(_HeldCommandFilter):
     @property
     def _kind(self) -> str:
         """The kind of guarantee of a certified decision."""
+        if self.bounded:
+            # An ellipsoid left with a stated probability bounds the error only with that chance.
+            if isinstance(self.navigation, EllipsoidError) and self.navigation.exceedance > 0.0:
+                return "chance-epsilon"
+            return "bounded-W"
         return "finite-horizon" if self.mode == "finite-horizon" else "nominal"
+
+    def _error_sets(self) -> list[np.ndarray]:
+        """Generators of Z_0 to Z_N, the error of each plan state about its prediction."""
+        n, dt, da = self._n, self._dt, self.execution
+        ratio = self.delay_s / dt
+        steps = round(ratio)
+        if da > 0.0 and abs(ratio - steps) > _STEP_TOL:
+            raise ValueError("an execution error needs a delay of a whole number of steps dt")
+        pushed = [da * self._gamma_u] if da > 0.0 else []
+        window, power = [], np.eye(6)
+        for _ in range(steps):
+            window += [power @ g for g in pushed]
+            power = self._phi @ power
+        z = np.hstack([cw_discrete(n, self.delay_s)[0] @ self._navigation_set, *window])
+        sets = [z]
+        for _ in range(self.horizon):
+            z = np.hstack([self._phi @ z, *pushed])
+            sets.append(z)
+        return sets
 
     def _cam_barrier(self, view: AgentView, grid: float) -> CamBarrier:
         """The CAM-then-drift barrier that `BackupFilter(barrier="cam")` builds for the view."""
@@ -394,7 +488,21 @@ class PredictiveFilter(_HeldCommandFilter):
             Before the first `reset`.
         """
         self._started()
-        return self._declared.contains(np.asarray(x, dtype=float))
+        x = np.asarray(x, dtype=float)
+        if self._errors is not None:
+            return self._clearance(x, self._navigation_set) >= 0.0
+        return self._declared.contains(x)
+
+    def _clearance(self, x: np.ndarray, generators: np.ndarray) -> float:
+        """The certified free-drift clearance up to t_cap of every state in x + G beta, m."""
+        found = drift_clearance(
+            self._n,
+            Zonotope(x, generators),
+            self._radius,
+            float(self._drift.t_cap),  # type: ignore[arg-type]
+            self._drift_samples,
+        )
+        return found.certified
 
     def predict(self, obs) -> np.ndarray:
         """Return the Hill state delay_s after the observation, through the echoed commands.
@@ -465,8 +573,9 @@ class PredictiveFilter(_HeldCommandFilter):
             array at level 0 with `active` False. Otherwise `fallback_level` is 0 for the
             certified solution, 1 for the stored plan shifted, 2 for zero thrust, the CAM or
             braking, and `iterations` is the solver's count. A certified decision has
-            `certificate` "nominal" with horizon inf, or in the finite-horizon mode
-            "finite-horizon" with horizon drift_horizon. When nothing is certified, which
+            `certificate` "nominal" with horizon inf, in the finite-horizon mode
+            "finite-horizon" with horizon drift_horizon, and under error sets "bounded-W", or
+            "chance-epsilon", with horizon 4 pi / n. When nothing is certified, which
             happens only outside the declared set, braking in its region, else the converged
             solution, else the shifted plan, else zero thrust is returned as "feasible" with
             `recovering` True, its predicted shortfall (m) as `slack` and no certificate.
@@ -498,9 +607,14 @@ class PredictiveFilter(_HeldCommandFilter):
                 intervened=False,
                 compute_s=time.perf_counter() - t0,
             )
-        # Free drift does not keep the finite-horizon set, so a certified plan can start
-        # outside it.
-        outside = self.mode == "finite-horizon" and not self._drift.contains(x)
+        # Free drift does not keep the finite-horizon set or the set under error sets, so a
+        # certified plan can start outside them.
+        drift_kept: bool | None = None
+        if self._errors is not None:
+            drift_kept = self._end_value(x, 0) >= 0.0
+            outside = not drift_kept
+        else:
+            outside = self.mode == "finite-horizon" and not self._drift.contains(x)
         steps = self.horizon
         candidate = np.zeros((steps, 3))
         candidate[0] = u_c
@@ -511,11 +625,11 @@ class PredictiveFilter(_HeldCommandFilter):
             )
 
         drift = np.zeros((steps, 3))
-        drift_kept: bool | None = None
         if self._plan is None:
             shifted = None
             reference = drift
-            drift_kept = float(self._drift.value(x)) >= 0.0
+            if drift_kept is None:
+                drift_kept = self._end_value(x, 0) >= 0.0
             certified_reference = drift_kept
         else:
             shifted = np.vstack([self._plan[1:], np.zeros((1, 3))])
@@ -548,7 +662,7 @@ class PredictiveFilter(_HeldCommandFilter):
                     shifted, u_c, t0, level=1, iterations=iterations, recovering=outside
                 )
         if drift_kept is None:
-            drift_kept = float(self._drift.value(x)) >= 0.0
+            drift_kept = self._end_value(x, 0) >= 0.0
         if drift_kept:
             return self._result(drift, u_c, t0, level=2, iterations=iterations)
         if self._cam is not None and float(self._cam.value(x)) >= 0.0:
@@ -600,7 +714,7 @@ class PredictiveFilter(_HeldCommandFilter):
         return xs
 
     def _margins(self, x: np.ndarray, u: np.ndarray, stop: bool = True) -> tuple[float, float]:
-        """The lowest held-step bound up to the last thrust and h_p after it, m.
+        """The lowest held-step bound up to the last thrust and h_p after it, over the errors, m.
 
         With `stop`, a plan short by more than the keep-out resolution on a held step fails
         every check, so the rest is skipped and h_p is returned as -inf.
@@ -610,11 +724,30 @@ class PredictiveFilter(_HeldCommandFilter):
         last = int(thrusting[-1]) + 1 if thrusting.size else 0
         held = math.inf
         for k in range(last):
-            bound = held_segment_bound(xs[k], u[k], self._dt, _HELD_SAMPLES, self._radius, self._n)
-            held = min(held, bound)
+            held = min(held, self._held(xs[k], u[k], k))
             if stop and held < -KeepOut.resolution:
                 return held, -math.inf
-        return held, float(self._drift.value(xs[last]))
+        return held, self._end_value(xs[last], last)
+
+    def _held(self, x: np.ndarray, u: np.ndarray, k: int) -> float:
+        """A lower bound on the keep-out margin over step k of a plan, from `x` under `u`, m."""
+        if self._errors is None:
+            return held_segment_bound(x, u, self._dt, _HELD_SAMPLES, self._radius, self._n)
+        found = loop_clearance(
+            self._loop,
+            Zonotope(x, self._errors[k]),
+            Zonotope.box(u, np.full(3, self.execution)),
+            self._radius,
+            1,
+            _HELD_SAMPLES,
+        )
+        return found.certified
+
+    def _end_value(self, x: np.ndarray, k: int) -> float:
+        """h_p at the plan's state `x` after k steps, or with error sets its set clearance, m."""
+        if self._errors is None:
+            return float(self._drift.value(x))
+        return self._clearance(x, self._errors[k])
 
     def _problem(
         self, x: np.ndarray, u_c: np.ndarray, reference: np.ndarray, certified: bool = True
@@ -648,11 +781,18 @@ class PredictiveFilter(_HeldCommandFilter):
         keep_bound = np.where(
             through, -1.0, np.minimum(radius + buffer, rho) if certified else radius + buffer
         )
+        terminal, terminal_bound = self._terminal_rows(ref_x[-1])
+        if self._errors is not None:
+            # Each row is raised by the support of the error of its sample, h_Zk(a_x) + h_W(a_u).
+            keep_bound = keep_bound + np.array(
+                [np.abs(keep_out[k, :, :6] @ self._errors[k]).sum(axis=1) for k in range(steps)]
+            )
+            keep_bound += self.execution * np.abs(keep_out[..., 6:]).sum(axis=-1)
+            terminal_bound = terminal_bound + np.abs(terminal @ self._errors[-1]).sum(axis=1)
         rows = np.concatenate([np.broadcast_to(self._thrust_rows, (steps, 6, 9)), keep_out], axis=1)
         bounds = np.concatenate(
             [np.broadcast_to(self._thrust_bound, (steps, 6)), keep_bound], axis=1
         )
-        terminal, terminal_bound = self._terminal_rows(ref_x[-1])
         hessian = np.zeros((steps, 9, 9))
         hessian[:, :6, :6] = self._state_weight
         hessian[:, 6:, 6:] = self.eps * np.eye(3)

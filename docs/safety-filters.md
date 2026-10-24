@@ -1198,6 +1198,45 @@ print(result.fallback_level, result.recovering, result.certificate, result.actio
 # 2 True None [ 0.   -0.02  0.  ]
 ```
 
+### Bounded errors
+
+With `navigation` (a navigation error set $E$) or `execution` (an execution error set $W$), the
+errors are propagated open loop, with no ancillary feedback ($K = 0$), since the filter re-plans
+at every decision and its stored plan runs open loop. The set at plan step $k$ is
+$Z_k = \Phi^k Z_0 \oplus \bigoplus_{j<k} \Phi^j \Gamma W$, where $Z_0$ is $E$ carried over the
+actuation delay plus the commands already pending. Each keep-out row is raised by the support of
+$Z_k$ along the row's state normal plus the support of $W$ along its input normal. A plan is then
+certified by `vbar.reach.loop_clearance` on every thrusting step and by
+`vbar.reach.drift_clearance` of the error set after the last thrust, over two orbits ($4\pi/n$).
+The certificate is "bounded-W" with that horizon, or "chance-epsilon" when the declared set has a
+positive exceedance. This mode is not recursively feasible: the drift check covers a finite
+horizon, and a step whose plan fails it gets no certificate. Zero-thrust commands are taken as
+exact during the drift. The cost per decision rises to about 0.6 to 1.0 s at a 30 s drift grid
+and 1.5 to 2.9 s at a 5 s grid (medians on a shared machine), against 0.1 to 0.2 s without error
+sets. Error sets are refused in finite-horizon mode, and an execution error with a delay that is
+not a whole number of steps is refused at reset. The tests in
+`tests/test_safety_predictive_bounded.py` check the delay set against `delay_margin`, the row
+tightening against independent `vbar.reach.propagate` supports, the large and small navigation
+boxes at a V-bar hold, a loop of 3 decisions with errors drawn inside the declared box (the check
+also takes a longer loop), the chance-epsilon certificate, the refusals and recovering outside the
+set.
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.safety.predictive import PredictiveFilter
+from vbar.safety.tightening import BoxError
+
+hold = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])  # m and m/s, V-bar hold at rest
+view = ApproachEnv(ApproachConfig(action_mode="accel", start_state=tuple(hold))).agent_view()
+filt = PredictiveFilter(navigation=BoxError(r_pos=0.1, r_vel=1e-4), grid=30.0)
+filt.reset(view)
+print(filt.declaration.certificate, filt.contains(hold))  # bounded-W True
+result = filt.filter(hold, np.zeros(3))
+print(result.certificate, f"{result.certificate_horizon:.0f} s")  # bounded-W 11354 s
+```
+
 ### Relation to Wabersich and Zeilinger
 
 The filter follows the predictive safety filter of Wabersich and Zeilinger ("Linear model
