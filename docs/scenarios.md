@@ -271,6 +271,21 @@ capture speed no departure reaches (10 m/s), so the mission metrics score the ar
 clear zone; the drift verdict is the scenario's own
 and is in `info["drift_margin_m"]`.
 
+**Capture** (`CaptureEnv`, `tumbling-capture`). Reach a capture-ready state at an interface on a
+turning target and hold it. The state is defined at the capture interface, not at the centres of
+mass (Fehse 7.1.1, 8.1.2 to 8.1.3, 8.3.6): the chaser's capture point within `capture_radius` of
+the target's capture point $\mathbf c(t)$, fixed to the body at arm's reach beyond the grapple
+interface, with a velocity relative to it, $|\mathbf v - \boldsymbol\omega\times\mathbf c|$,
+below `capture_speed`, without a break for `dwell` s, checked on every sample. On a turning target
+a chaser at rest in the Hill frame is therefore not capture-ready; it must follow the point. The
+body is a capsule (a segment swept by a sphere) turning with the target, the hard keep-out
+(`RotatingCapsule`): its margin is the distance to the turned segment less the radius, and its
+rate bound is the chaser's speed plus the attitude rate times the farther end's distance from the
+centre. The capture ball must lie outside the body, so a capture-ready chaser is clear of it.
+The goal's task is `capture`; it gives the capture point in body axes, the limits and the dwell
+as `hold_time`, and the mission metrics treat it as a hold goal whose point moves with the
+target's true mode.
+
 ## The catalogue
 
 Shared defaults: Earth, a circular 500 km orbit at 51.6 deg (ISS-like; the J2 rung needs an
@@ -308,6 +323,10 @@ Shuttle values.
 | `vbar-final-shuttle` (v1) | the +V-bar final approach to contact | 320 ft ahead of the port, 0.2 ft/s closing | `apds` window; 8 deg then 5 deg corridors; fig. 25.22 gates (soft, ranges to the centre); optional 30 ft hold | 720 x 5 s | Goodman fig. 25.22, table 25.8 |
 | `hst-rbar-grapple` (v1) | +R-bar approach to an inertially pointing telescope and station keeping on its axis | 2000 ft below at rest | hold at 35 ft within 1 m and 0.01 m/s for 120 s inside a 10 deg cone on the turning axis (active within 50 ft); keep-out 8 m; STS-109/125 gates (soft); Low Z from 1500 ft; 180 min deadline; 560 km | 1080 x 10 s | Goodman table 24.3, p. 208, ch. 24 |
 | `separation-flyaround` (v1) | undock from the +V-bar port and reach 2000 ft on a non-returning path | at the port, 0.15 to 0.2 ft/s out | 10 deg departure corridor within 400 ft; body 30 m; the `:reboost` variant has the target burn 0.5 mm/s^2 along-track for 600 s from 900 s | 540 x 10 s | Goodman pp. 246 to 252 |
+| `tumbling-capture` (v1) | hold a capture-ready state at the aft ring of a tumbling upper stage | random direction, 40 to 100 m, velocities within 0.02 m/s | upper stage 6 m by 2.4 m, moments (1000, 4200, 4700) kg m^2 (ours); capsule keep-out of radius 1.5 m about the long axis (hard); capture point 2 m beyond the ring at (-5, 0, 0) m body; 0.2 m and 0.02 m/s relative to the moving point for 30 s (ours); flat spin about the major axis, D in [4600, 4690] kg m^2, w_l 0.5 to 2 deg/s, H direction and phases uniform, briefed at t = 0 | 1800 x 2 s | Fehse 7.1.1, 8.1.2 to 8.1.3, 8.3.6; Scheeres 3.2; Schaub and Junkins 4.2 |
+| `tumbling-capture:coning` | the same with a spin about the long axis | as the base | D in [1050, 1300] kg m^2 (long-axis mode, the long axis cones about H), 1 to 4 deg/s | 1800 x 2 s | Schaub and Junkins 4.2.2 |
+| `tumbling-capture:separatrix` | a tumble near the separatrix | as the base | D 0.2 to 2% above the intermediate moment, 0.5 to 1.5 deg/s | 1800 x 2 s | Scheeres 3.2.4 to 3.2.8 |
+| `tumbling-capture:intermediate` | a spin started next to the unstable intermediate axis | as the base | D 1e-5 to 1e-4 above the intermediate moment, polhode phase 0.22 to 0.25 (near the axis, before a flip), 0.5 to 1.5 deg/s | 1800 x 2 s | Scheeres 3.2.4; Schaub and Junkins 4.2.1 |
 
 Gate tables (`GATES` in the catalogue) are the flown range-rate gates in m and m/s:
 `shuttle-rbar-orbt` (HST +R-bar from ORBT, table 24.3), `shuttle-vbar-iss` (fig. 25.22),
@@ -367,7 +386,14 @@ metrics agree with the environment on the run (`tests/test_scenarios.py`). The d
 reference walks round the sphere of its standoff's radius about the port, so it never crosses a
 corridor's activation sphere off the axis; the inspection reference joins its circle along a
 path that keeps its range; the grapple reference starts its descent only just inside the lead
-angle, so it arrives as the telescope's axis comes round. The hold boxes
+angle, so it arrives as the telescope's axis comes round. The capture reference rebuilds the
+tumble from the briefing, flies to a station 30 m out along the inertially fixed angular
+momentum (through a point on its own side when the station is on the far side), down it to
+10 m, along the sphere of 10 m onto the ray through the capture point as it turns with the body,
+then down that ray in body axes to the capture point, feeding the point's acceleration forward;
+it succeeds on the first three validation seeds of every tumble preset in 1050 to 1370 s for 1.9
+to 4.4 m/s, and on six more drawn seeds each, 24 in all, in 1000 to 1390 s for 1.5 to 6.4 m/s,
+never closer than 0.50 m to the body. The hold boxes
 contain the dispersion a reference LQR reaches with raw `:nav1` noise fed back: a stationary
 1-sigma of 0.22 m and 8.2 mm/s per axis at 10 s steps, so 3 sigma per axis is 0.66 m and
 0.025 m/s against the 5 m and 0.05 m/s box, and the 3-sigma norm over three axes 1.13 m and

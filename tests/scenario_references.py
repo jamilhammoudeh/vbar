@@ -573,6 +573,107 @@ class Approach:
         return self.inner.act(obs, info)
 
 
+class Capture:
+    """Reach the capture point of a tumbling target from a station on its angular momentum.
+
+    The tumble is rebuilt from the briefing in the goal. The chaser flies to a station `far` m out
+    along the inertially fixed angular momentum (through a point on its own side when the station
+    is on the far side of the target), descends along it to `station` m, then moves on the sphere
+    of that radius onto the ray through the capture point, which turns with the body, and descends
+    along the ray in body axes to the capture point and follows it. Each stage tracks its point
+    with the point's own acceleration fed forward and a PD law on the error.
+    """
+
+    name = "capture"
+    KEYS = ("moments", "effective_inertia", "rate", "phase", "momentum_direction", "spin_angle")
+
+    def __init__(self, far=30.0, station=10.0, blend=300.0, descent=300.0, wn=0.15):
+        self.far, self.station, self.blend, self.descent, self.wn = far, station, blend, descent, wn
+
+    def reset(self, view, rng=None):
+        from vbar.scenarios.targets import TorqueFree
+
+        self.n = view.n
+        self.dt = view.dt
+        self.max_accel = view.max_accel
+        self.scale = action_scale(view)
+        goal = view.goal
+        self.mode = TorqueFree(*(goal["target"][key] for key in self.KEYS))
+        self.point = np.array(goal["capture_point"], dtype=float)
+        self.h = np.asarray(self.mode.motion.momentum) / self.mode.motion.h
+        self.stage = None
+        self.legs = []
+
+    def inertial(self, t, p):
+        """A point fixed in inertial space (inertial axes, equal to Hill axes at t = 0) in Hill."""
+        return rotation_z(-self.n * t) @ p
+
+    def on_body(self, t, p):
+        return self.mode.matrix(t, self.n) @ p
+
+    def target_point(self, t):
+        """The point to track at `t` for the current stage."""
+        stage, start = self.stage, self.since
+        if stage == "legs":
+            return self.inertial(t, self.legs[0])
+        if stage == "blend":
+            f = 0.5 * (1.0 - math.cos(math.pi * min((t - start) / self.blend, 1.0)))
+            a = self.inertial(t, self.side * self.h)
+            b = self.on_body(t, self.point / np.linalg.norm(self.point))
+            angle = math.acos(float(np.clip(a @ b, -1.0, 1.0)))
+            w = (math.sin((1 - f) * angle) * a + math.sin(f * angle) * b) / math.sin(angle)
+            return self.station * w
+        if stage == "descend":
+            f = 0.5 * (1.0 - math.cos(math.pi * min((t - start) / self.descent, 1.0)))
+            reach = np.linalg.norm(self.point)
+            radius = self.station + f * (reach - self.station)
+            return self.on_body(t, radius * self.point / reach)
+        return self.on_body(t, self.point)
+
+    def act(self, obs, info):
+        t = info["time_s"]
+        if self.stage is None:
+            # The station's side: the capture point's when the long axis keeps to one side of the
+            # momentum (a coning spin), else the chaser's own.
+            ray = self.on_body(0.0, self.point / np.linalg.norm(self.point))
+            lean = float(ray @ self.h)
+            mine = float(obs[:3] @ self.h)
+            self.side = math.copysign(1.0, lean if abs(lean) > 0.5 else (mine or 1.0))
+            legs = []
+            if mine * self.side < 0.0:
+                across = obs[:3] - mine * self.h
+                legs.append(self.far * across / np.linalg.norm(across))
+            legs += [self.far * self.side * self.h, self.station * self.side * self.h]
+            self.legs, self.stage, self.since = legs, "legs", t
+        h = 0.5
+        q = self.target_point(t)
+        qd = (self.target_point(t + h) - self.target_point(t - h)) / (2 * h)
+        mid = t + 0.5 * self.dt
+        qdd = (
+            self.target_point(mid + h) - 2 * self.target_point(mid) + self.target_point(mid - h)
+        ) / h**2
+        error, rate = obs[:3] - q, obs[3:6] - qd
+        if self.stage == "legs":
+            dist = float(np.linalg.norm(error))
+            last = len(self.legs) == 1
+            if dist < (0.3 if last else 2.0) and (not last or np.linalg.norm(rate) < 0.01):
+                self.legs.pop(0)
+                if not self.legs:
+                    self.stage, self.since = "blend", t
+                return self.act(obs, info)
+            v_des = qd - min(0.3, 0.01 * dist) * error / max(dist, 1e-9)
+            a = -cw_terms(obs, self.n) + 0.05 * (v_des - obs[3:6])
+            if last and dist < 5.0:
+                a = qdd - cw_terms(obs, self.n) - self.wn**2 * error - 2.0 * self.wn * rate
+            return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
+        if self.stage == "blend" and t - self.since >= self.blend:
+            self.stage, self.since = "descend", t
+        elif self.stage == "descend" and t - self.since >= self.descent:
+            self.stage = "hold"
+        a = qdd - cw_terms(obs, self.n) - self.wn**2 * error - 2.0 * self.wn * rate
+        return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
+
+
 def reference_for(name: str, n: float = 0.0011458864877737333):
     """The reference controller of a built-in scenario, by its name with variants.
 
@@ -622,6 +723,8 @@ def reference_for(name: str, n: float = 0.0011458864877737333):
         return Torva()
     if name == "hst-rbar-grapple":
         return Grapple()
+    if name == "tumbling-capture":
+        return Capture()
     if name == "separation-flyaround":
         return Glide([(0.0, 30.0 + 130.0, 0.0), (0.0, 700.0, 0.0)], v_max=0.5)
     raise KeyError(name)

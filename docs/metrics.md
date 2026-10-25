@@ -71,7 +71,7 @@ built for a metric (distance to the goal, the hold predicate, the contact plane)
 
 ## Mission (M1 to M10)
 
-The goal is the scenario's public goal, of one of two kinds.
+The goal is the scenario's public goal, of one of three kinds.
 
 - **Hold goal:** `hold_point` $\mathbf r_g$, `capture_radius` $R_{\text{cap}}$, `capture_speed`
   $v_{\text{cap}}$, optionally `goal_velocity` $\mathbf v_g$ (zero by default) and a dwell
@@ -82,21 +82,28 @@ The goal is the scenario's public goal, of one of two kinds.
 - **Docking goal:** `port` $\mathbf p$, `port_axis` $\hat{\mathbf a}$ (from the port toward the
   approach side), `lateral_limit`, `lateral_speed_limit` and `axial_speed_window`
   $[v_{\min}, v_{\max}]$, with `contact_range` $R_{\text{contact}}$. Contact is an event (Fehse
-  8.1.1, 8.3.6): the first pair of recorded samples between which the port-plane depth
-  $(\mathbf r - \mathbf p)\cdot\hat{\mathbf a}$ turns from positive to not positive, with either
-  crossing, refined by Brent's method on the trajectory between them, within $R_{\text{contact}}$
-  of the port. That is the environment's rule on the same samples (20 per step by
-  default), so a chaser cannot pass the port between two step boundaries and a crossing far beside
-  the target is no contact. The goal holds the port and axis as briefed at t = 0; on a recorded
-  episode they turn with the target's true attitude mode (`Episode.target`), and the speeds at
-  contact are those of $\mathbf u = \mathbf v - \boldsymbol\omega\times\mathbf p$, the velocity
-  relative to the port, which moves on a turning target.
+  8.1.1, 8.3.6): the first crossing between two recorded samples at which the port-plane depth
+  $(\mathbf r - \mathbf p)\cdot\hat{\mathbf a}$ turns from positive to not positive, refined by
+  Brent's method on the trajectory between them, at a point within $R_{\text{contact}}$ of the
+  port. That is the environment's rule on the same samples (20 per step by default), so a chaser
+  cannot pass the port between two step boundaries and a crossing far beside the target is no
+  contact. The goal holds the port and axis as briefed at t = 0; on a recorded episode they turn
+  with the target's true attitude mode (`Episode.target`), and the speeds at contact are those of
+  $\mathbf u = \mathbf v - \boldsymbol\omega\times\mathbf p$, the velocity relative to the port,
+  which moves on a turning target.
 - **Inspection goal** (`task` "inspect"): met when the coverage of the inspectable points reaches
   `coverage`. The metrics cannot rebuild the lighting and the target's true attitude from the
   trajectory, so they read the environment's verdict that `record_episode` stores in
   `Episode.outcome` (met, when, and the coverage, which is the progress M5); the terminal errors
   M2 and M3 are NaN, and a timeout is near when the coverage misses the goal by at most twice
   the shortfall it allows.
+- **Capture goal:** `capture_point` $\mathbf c$ in body axes, `capture_radius`, `capture_speed`
+  and the dwell `hold_time`: a hold goal whose point is fixed to the target (the capture-ready
+  state of a tumbling target, Fehse 8.3.6). The point and its velocity are
+  $R(t)\,\mathbf c$ and $\boldsymbol\omega\times R(t)\,\mathbf c$ under the true attitude mode,
+  so the predicate reads $|\mathbf r - R\mathbf c| < R_{\text{cap}}$ and
+  $|\mathbf v - \boldsymbol\omega\times R\mathbf c| < v_{\text{cap}}$, and the terminal errors and
+  progress are taken from the point where it stands.
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
@@ -114,7 +121,10 @@ The goal is the scenario's public goal, of one of two kinds.
 The hold predicate is the signal $\min\big((R_{\text{cap}} - |\mathbf r - \mathbf r_g|)/R_{\text{cap}},
 (v_{\text{cap}} - |\mathbf v - \mathbf v_g|)/v_{\text{cap}}\big)$ with rate bound
 $V/R_{\text{cap}} + A/v_{\text{cap}}$; the dwell intervals are the complement of its negative
-intervals. M6 to M8 and M10 are NaN when there is no port or no contact. The docking v2 defaults
+intervals. For a capture goal the point's own speed and acceleration are added,
+$(V + \omega_{\max}|\mathbf c|)/R_{\text{cap}} + (A + (\alpha_{\max} + \omega_{\max}^2)|\mathbf c|)/v_{\text{cap}}$,
+with $\omega_{\max}$ and $\alpha_{\max}$ the attitude mode's `rate_bound` and
+`angular_acceleration_bound`. M6 to M8 and M10 are NaN without a docking goal or a contact. The docking v2 defaults
 (port 2 m behind the target on the -V-bar face, lateral 0.1 m, lateral speed 0.03 m/s, probe-drogue
 window 0.05 to 0.10 m/s) are in the scenario specification.
 

@@ -46,6 +46,10 @@ AUDIT = [
     "hst-rbar-grapple",
     "separation-flyaround",
     "separation-flyaround:reboost",
+    "tumbling-capture",
+    "tumbling-capture:coning",
+    "tumbling-capture:separatrix",
+    "tumbling-capture:intermediate",
     *sorted(SCENARIOS),
     *(entry.scenario for entry in SUITES["core-v1"].entries),
 ]
@@ -453,7 +457,14 @@ def test_inspection_counts_lit_facing_points_within_range_and_outside_the_glare(
 
 @pytest.mark.parametrize(
     "name",
-    ["docking", "docking-offset", "vbar-final-shuttle", "inspection", "separation-flyaround"],
+    [
+        "docking",
+        "docking-offset",
+        "vbar-final-shuttle",
+        "inspection",
+        "separation-flyaround",
+        "tumbling-capture",
+    ],
 )
 def test_built_in_agents_refuse_a_goal_that_is_not_a_hold_at_reset(name):
     # The departure goal carries a hold point for the mission metrics; flying to it would take a

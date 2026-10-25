@@ -1,4 +1,5 @@
 from . import catalog as _catalog  # noqa: F401  (registers the built-in scenarios and suites)
+from . import flagship as _flagship  # noqa: F401  (registers the tumbling-capture scenario)
 from .approach import ApproachConfig, ApproachEnv
 from .base import BaseEnv, EnvConfig, SegmentTrace, StepRecord
 from .berthing import BerthingEnv, BerthingParams
@@ -45,6 +46,7 @@ from .targets import (
     TorqueFree,
     Tumbling,
 )
+from .tumbling import CaptureEnv, CaptureParams
 from .vector import ApproachVectorEnv
 
 __all__ = [
@@ -59,6 +61,8 @@ __all__ = [
     "BaseEnv",
     "BerthingEnv",
     "BerthingParams",
+    "CaptureEnv",
+    "CaptureParams",
     "Choice",
     "DepartureEnv",
     "DepartureParams",

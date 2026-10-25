@@ -39,7 +39,7 @@ CATALOGUE = (
     MetricInfo("M6", "contact_lateral_error", "m", version=2, summary="upper_tail"),
     MetricInfo("M7", "contact_axial_speed", "m/s", version=2),
     MetricInfo("M8", "contact_lateral_speed", "m/s", version=2, summary="upper_tail"),
-    MetricInfo("M9", "hold_dwell", "s"),
+    MetricInfo("M9", "hold_dwell", "s", version=2),
     MetricInfo("M10", "capture_margin", "ratio", version=2, summary="lower_tail"),
     MetricInfo("E1", "delta_v", "m/s"),
     MetricInfo("E1b", "delta_v_axes", "m/s"),

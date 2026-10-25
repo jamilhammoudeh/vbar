@@ -205,6 +205,15 @@ release may change the public API, and every such change is listed under Changed
 - `TorqueFree`, a target attitude mode for a rigid body tumbling free of torques, set by tumble
   parameters, its attitude stored inertially and seen from the turning Hill frame; its public
   description rebuilds the tumble.
+- The scenario kind `CaptureEnv` (`vbar.scenarios.tumbling`), with the turning capsule keep-out
+  `RotatingCapsule`: reach a capture-ready state at a capture point fixed to a turning target,
+  within a ball and a speed relative to the moving point, and hold it for a dwell.
+- The flagship scenario `tumbling-capture` (`vbar/TumblingCapture-v1`) and its tumble presets
+  `:coning`, `:separatrix` and `:intermediate`: a tumbling upper stage, its tumble drawn per
+  episode and briefed at t = 0.
+- Capture goals in the mission metrics: `goal_state`, `goal_errors`, `captured` and `hold_signal`
+  take the time, the target mode and the mean motion, `goal_bounds` gives the goal point's speed
+  and acceleration bounds, and M1 to M5 and M9 (M9 now v2) follow the moving capture point.
 
 ### Changed
 

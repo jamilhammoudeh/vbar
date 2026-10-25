@@ -10,6 +10,9 @@ plane from the approach side within `contact_range` (m) of the port (Fehse, Auto
 and Docking of Spacecraft, 2003, sections 7.1.1 and 8.3.5). The goal holds the port as briefed at
 t = 0; on a recorded episode the port and its axis then turn with the target's true attitude mode,
 and the speeds at contact are relative to the port's own velocity, as the environment judges them.
+A capture goal has `capture_point` (m, body axes), `capture_radius`, `capture_speed` and
+`hold_time`: a hold goal whose point is fixed to the target and moves with its true attitude mode,
+the capture predicate then measuring the speed relative to the point (Fehse, section 8.3.6).
 An inspection goal (`task` "inspect") is met when the coverage of the inspectable points reaches
 `coverage`; that needs the lighting and the target's true attitude, so it is read from the
 environment's verdict recorded in `Episode.outcome`.
@@ -30,26 +33,64 @@ from .episode import Episode
 from .stl import Signal, Trace, complement, negative_intervals
 
 
-def goal_state(goal: Mapping[str, Any]) -> tuple[np.ndarray, np.ndarray]:
-    """Goal position (m, the hold point or the port) and velocity (m/s) in Hill axes."""
+def goal_state(
+    goal: Mapping[str, Any], t: Any = 0.0, target: Any = None, n: float = 0.0
+) -> tuple[np.ndarray, np.ndarray]:
+    """Goal position (m) and velocity (m/s) in Hill axes at `t`.
+
+    The hold point or the port, at rest; or a capture point fixed to the target, carried by its
+    attitude mode `target` at mean motion `n`, with shape (*t.shape, 3).
+    """
+    if "capture_point" in goal:
+        if target is None:
+            raise ValueError("a capture goal moves with the target: record the target mode")
+        point = goal["capture_point"]
+        return body_point(target, point, t, n), body_point_velocity(target, point, t, n)
     r = np.asarray(goal["hold_point"] if "hold_point" in goal else goal["port"], dtype=float)
     v = np.asarray(goal.get("goal_velocity", (0.0, 0.0, 0.0)), dtype=float)
     return r, v
 
 
-def goal_errors(states: np.ndarray, goal: Mapping[str, Any]) -> tuple[np.ndarray, np.ndarray]:
-    """Position (m) and velocity (m/s) errors from the goal, for stacked states."""
-    r, v = goal_state(goal)
+def goal_bounds(goal: Mapping[str, Any], target: Any = None, n: float = 0.0) -> tuple[float, float]:
+    """Bounds on the goal point's speed (m/s) and acceleration (m/s^2) in the Hill frame.
+
+    A point p fixed to a turning target moves at w x p and accelerates at
+    dw/dt x p + w x (w x p), so the bounds are w_max |p| and (alpha_max + w_max^2) |p|; zero for
+    a goal at rest.
+    """
+    if "capture_point" not in goal:
+        return 0.0, 0.0
+    reach = float(np.linalg.norm(goal["capture_point"]))
+    rate = target.rate_bound(n)
+    return rate * reach, (target.angular_acceleration_bound(n) + rate**2) * reach
+
+
+def goal_errors(
+    states: np.ndarray,
+    goal: Mapping[str, Any],
+    t: Any = 0.0,
+    target: Any = None,
+    n: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Position (m) and velocity (m/s) errors from the goal at `t`, for stacked states."""
     states = np.asarray(states)
+    times = np.broadcast_to(np.asarray(t, dtype=float), states.shape[:-1])
+    r, v = goal_state(goal, times, target, n)
     return (
         np.linalg.norm(states[..., :3] - r, axis=-1),
         np.linalg.norm(states[..., 3:6] - v, axis=-1),
     )
 
 
-def captured(states: np.ndarray, goal: Mapping[str, Any]) -> np.ndarray:
-    """Whether each state satisfies the capture predicate."""
-    position, velocity = goal_errors(states, goal)
+def captured(
+    states: np.ndarray,
+    goal: Mapping[str, Any],
+    t: Any = 0.0,
+    target: Any = None,
+    n: float = 0.0,
+) -> np.ndarray:
+    """Whether each state satisfies the capture predicate at `t`."""
+    position, velocity = goal_errors(states, goal, t, target, n)
     return (position < goal["capture_radius"]) & (velocity < goal["capture_speed"])
 
 
@@ -76,20 +117,25 @@ def hard_violated(ep: Episode) -> bool:
 
 def capture_time(ep: Episode) -> float | None:
     """First step boundary (s) at which the capture predicate holds, or None."""
-    hits = np.flatnonzero(captured(ep.states[1:], ep.view.goal))
+    hits = np.flatnonzero(captured(ep.states[1:], ep.view.goal, ep.times[1:], ep.target, ep.view.n))
     return float(ep.times[1 + hits[0]]) if len(hits) else None
 
 
-def hold_signal(goal: Mapping[str, Any]) -> Signal:
-    """The capture predicate as a margin: min((R - |r - r_g|) / R, (v_c - |v - v_g|) / v_c)."""
+def hold_signal(goal: Mapping[str, Any], target: Any = None, n: float = 0.0) -> Signal:
+    """The capture predicate as a margin: min((R - |r - r_g|) / R, (v_c - |v - v_g|) / v_c).
+
+    Its rate is bounded by (V + V_g) / R + (A + A_g) / v_c, V and A the chaser's bounds and V_g
+    and A_g the goal point's (`goal_bounds`).
+    """
     radius, speed = goal["capture_radius"], goal["capture_speed"]
+    point_speed, point_accel = goal_bounds(goal, target, n)
 
     def margin(state, t=0.0):
-        position, velocity = goal_errors(state, goal)
+        position, velocity = goal_errors(state, goal, t, target, n)
         return np.minimum((radius - position) / radius, (speed - velocity) / speed)
 
     def rate(v, a, rho_min):
-        return v / radius + a / speed
+        return (v + point_speed) / radius + (a + point_accel) / speed
 
     return Signal("hold", margin, rate, 1e-9)
 
@@ -98,7 +144,8 @@ def hold_intervals(ep: Episode, trace: Trace | None = None) -> list[tuple[float,
     """Time intervals (s) during which the capture predicate holds, in continuous time."""
     if not ep.records:
         return []
-    outside = negative_intervals(hold_signal(ep.view.goal), trace or Trace(ep))
+    signal = hold_signal(ep.view.goal, ep.target, ep.view.n)
+    outside = negative_intervals(signal, trace or Trace(ep))
     return complement(outside, 0.0, ep.duration)
 
 
@@ -274,7 +321,7 @@ def mission_metrics(ep: Episode) -> dict[str, float | bool]:
         position = np.linalg.norm(ep.states[:, :3] - port, axis=-1)
         velocity = np.linalg.norm(ep.states[:, 3:6] - port_velocity, axis=-1)
     else:
-        position, velocity = goal_errors(ep.states, goal)
+        position, velocity = goal_errors(ep.states, goal, ep.times, ep.target, ep.view.n)
     done = completion_time(ep, trace)
     out: dict[str, float | bool] = {
         "success": done is not None and not hard_violated(ep),

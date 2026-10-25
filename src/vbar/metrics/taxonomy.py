@@ -7,7 +7,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from .episode import Episode
-from .mission import completion_time, docking, goal_errors, hard_violated, hold_intervals
+from .mission import (
+    completion_time,
+    docking,
+    goal_bounds,
+    goal_errors,
+    hard_violated,
+    hold_intervals,
+)
 from .settings import MetricSettings
 from .stl import Signal, Trace, minimum
 
@@ -39,9 +46,10 @@ def _closest_to_goal(ep: Episode, trace: Trace) -> float:
     goal = ep.view.goal
 
     def distance(state, t=0.0):
-        return goal_errors(state, goal)[0]
+        return goal_errors(state, goal, t, ep.target, ep.view.n)[0]
 
-    reach = Signal("goal_distance", distance, lambda v, a, r: v, 1e-6)
+    point_speed = goal_bounds(goal, ep.target, ep.view.n)[0]
+    reach = Signal("goal_distance", distance, lambda v, a, r: v + point_speed, 1e-6)
     return min(float(distance(ep.start)), minimum(reach, trace).margin)
 
 
