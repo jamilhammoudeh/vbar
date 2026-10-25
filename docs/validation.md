@@ -401,7 +401,8 @@ ed., Nob Hill, 2017)
 The tests of the classical baselines ([lqr.md](lqr.md), [lqg.md](lqg.md),
 [lyapunov.md](lyapunov.md), [two-impulse.md](two-impulse.md), [glideslope.md](glideslope.md),
 [trajectory-elements.md](trajectory-elements.md), [shuttle-baselines.md](shuttle-baselines.md),
-[lambert.md](lambert.md)) reproduce the examples below. Each item names its test.
+[lambert.md](lambert.md), [mpc.md](mpc.md)) reproduce the examples below. Each item names its
+test.
 
 **Alfriend, Vadali, Gurfil, How and Breger, *Spacecraft Formation Flying***
 
@@ -510,6 +511,43 @@ ed.), at 500 km with a 10 s step
   channel is (`test_constant_bias_on_one_channel_is_detectable_except_along_track_position`); all
   six together reach rank 11 of 12, and the five without the along-track position are detectable
   (`test_biases_on_all_six_channels_are_not_detectable_together`).
+- Section 2.5.1, the horizon QP with the DARE terminal cost: with no binding row the first move is
+  the LQR law for $N$ = 1, 2, 5, 20 and 60 over 50 states, to 1e-10 relative, for discrete
+  weights $Q = \operatorname{diag}(10^{-2} I_3, 10^4 I_3)$, $R = 2500 I$, the sampled cost, a
+  one-step delay and a rate weight of 0.1
+  (`test_unconstrained_first_move_is_the_lqr_law_for_every_horizon`); the two-step first-move loop
+  has spectral radius 0.99005 with the DARE terminal cost and 0.99995 with none
+  (`test_dare_terminal_cost_gives_the_lqr_loop_at_two_steps_and_none_does_not`).
+- Section 2.5.4, the thrust box and the terminal set: from rest 0.5 and 0.99 times the along-track
+  reach of the set (201.509569 m for a 0.02 m/s² box, 116.341604 m for the box inscribed in the
+  ball) the first move is the LQR law (`test_mpc_equals_the_lqr_inside_the_terminal_set`); at 3
+  and 20 times, $N$ = 30, the box cuts the LQR move by 0.040 and 0.380 m/s² (box) and 0.023 and
+  0.219 m/s² (ball), to 1e-6 relative of a bounded-variable least-squares solve
+  (`test_box_rows_cut_the_lqr_move_outside_the_terminal_set`).
+- Proposition 2.18: 604.528706 m along-track from the hold point at rest, the optimal cost is
+  1.855711116e5 for $N$ = 5, 10, 20 and 40 to 1e-8 relative, above the unconstrained value
+  1.845593979e5 (`test_constrained_cost_is_the_infinite_horizon_value_for_every_horizon`), and
+  does not rise with $N$ (`test_constrained_cost_does_not_rise_with_the_horizon`).
+- Section 8.5.2, the sampled-data cost in the horizon QP: $Q_c = \operatorname{diag}(10^{-4}
+  I_3, I_3)$, $R_c = 10^3 I$, five steps from (50, -80, 10) m, (0.02, -0.01, 0.005) m/s give twice
+  the cost 116.65796914 at 10 s and 122.99249126 at 60 s, to 1e-10 relative
+  (`test_sampled_cost_objective_is_the_van_loan_infinite_horizon_value`).
+- Section 8.5.1, path constraints between grid points: zero-thrust coasts with both ends on the
+  keep-out sphere dip inside it by 1.783e-2 m (0.2 m/s, 10 s, $R$ = 50 m), 2.806e-1 m (1 m/s) and
+  6.491e-2 m (0.2 m/s, 5 s, $R$ = 2 m), and the tightened keep-out rows reject each of them
+  (`test_rows_reject_a_coast_that_dips_inside_between_samples`).
+- Sections 2.4.2 and 2.7, recursive feasibility: for 20 converged plans with the terminal set on
+  `approach-vbar`, 55 to 120 m from the target, the shifted plan with the LQR move appended meets
+  every row of the next problem (`test_shifted_plan_meets_every_row_of_the_next_problem`).
+
+**Boyd and Vandenberghe, *Convex Optimization***
+
+- Exercise 5.16, the exact penalty: on `approach-vbar`, for ten approach starts and ten passes 55
+  to 90 m from the target, the softened keep-out rows give the hard solution with slack below
+  1e-9 m at the default price, 10 times the largest stage multiplier sum of 205.958 per m
+  (`test_default_penalty_gives_the_hard_solution`,
+  `test_default_penalty_is_ten_times_the_largest_keep_out_multiplier_sum`); at a hundredth of it a
+  pass takes slack (`test_penalty_below_the_keep_out_multipliers_leaves_slack`).
 
 **Goodman, *History of Space Shuttle Rendezvous*** (NASA JSC-63400, revision 3, 2011)
 
