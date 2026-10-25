@@ -198,6 +198,10 @@ release may change the public API, and every such change is listed under Changed
   detectability test for sensor bias states (a constant along-track position bias is not
   detectable).
 - `Episode.target`: the scenario's true target attitude mode, recorded for the metrics.
+- `vbar.dynamics.rigid_body`: `principal_axes` with a right-handed axis set, and
+  `TorqueFreeMotion`, the closed-form attitude and body rate of a rigid body free of torques
+  (Jacobi elliptic rates, the precession angle through Carlson's integrals), built from a rate or
+  from tumble parameters, with rate and acceleration bounds.
 
 ### Changed
 

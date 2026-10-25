@@ -363,6 +363,27 @@ per-draw truncation level for an episode-level exceedance probability (3 sigma p
 94.6% of 1080-draw episodes outside the bounded model; 1e-3 needs 4.91 and 5.04 sigma for 1080
 and 2160 draws).
 
+## Published examples behind the rigid-body attitude
+
+**Schaub and Junkins, *Analytical Mechanics of Space Systems*** (4th ed.):
+
+- Example 4.2: the principal inertias 2.30798, 2.64310 and 7.04892 kg m^2, with a right-handed
+  set of axes.
+- Eq. 4.42: the transverse rate of an axisymmetric body turns at (I3 / I_T - 1) w3 in the body.
+- Problem 4.9: I = diag(210, 200, 118) kg m^2 and w0 = (0.2, 0.15, -0.18) rad/s keep T = 8.3616 J
+  and |H| = 55.8134 N m s, the momentum fixed in inertial space.
+
+**Scheeres, *Orbital Motion in Strongly Perturbed Environments*** (2012), section 3.2:
+
+- The Toutatis long-axis tumble (table 8.1 ratios, I_D/Iz = 0.51983, w_l = 1.8548e-5 rad/s):
+  k^2 = 0.037658, a body-rate period of 5.4253 d and a mean precession rate of 2.3331e-5 rad/s.
+- Eqs. 3.84 to 3.87: near a spin about the major axis the period tends to
+  sqrt(Ix Iy / ((Iz - Iy)(Iz - Ix))) 2 pi / w_l.
+
+The closed form of Landau and Lifshitz (*Mechanics*, section 37) is checked against Euler's
+equations integrated numerically for every tumble mode, near the separatrix and on a random sweep
+([rigid-body.md](rigid-body.md)).
+
 ## Published examples behind the solvers
 
 The projection and the horizon solvers of [solvers.md](solvers.md) are checked against the cases
