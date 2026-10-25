@@ -260,8 +260,10 @@ print(agent.usage())  # decisions, model calls, tokens, cost and parse failures
 plain = LLMAgent(text_model(lambda prompt: '{"ax": 0.0, "ay": 0.0, "az": 0.0}'))
 ```
 
-Each step's prompt gives the frame, the goal, the keep-out radius, the mean motion, the current
-state and the thrust limit, and asks for a JSON reply such as `{"ax": 0.1, "ay": -0.5, "az": 0.0}`.
+Each step's prompt gives the frame, the mean motion, the task's goal and constraints in words, the
+current state measured against them (offsets from a docking port's axis, coverage of an
+inspection) and the thrust limit, and asks for a JSON reply such as
+`{"ax": 0.1, "ay": -0.5, "az": 0.0}`; the agent flies every task kind of the catalogue.
 A reply that cannot be parsed counts as a parse failure and the spacecraft coasts for that step.
 The prompt is configurable, the agent can offer tools (coast and transfer predictions from its
 own observation), every run can be recorded and replayed without the model, and an optional

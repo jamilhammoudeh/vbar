@@ -256,8 +256,8 @@ def test_llm_prompt_is_built_from_the_observation_not_the_truth():
     agent.reset(env.agent_view())
     agent.act(obs, env.agent_info())
     prompt = agent.log[0]["prompt"]
-    reported = float(re.search(r"distance to target = ([\d.]+) m", prompt).group(1))
-    assert reported == round(float(np.linalg.norm(obs[:3])), 1)
+    reported = float(re.search(r"distance to the target = ([\d.]+) m", prompt).group(1))
+    assert reported == round(float(np.linalg.norm(obs[:3])), 2)
     assert abs(reported - 400.0) > 0.05
 
 

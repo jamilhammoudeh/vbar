@@ -47,7 +47,7 @@ def test_model_gets_one_user_message_built_from_the_observation():
     run_episode(env(steps=2), LLMAgent(model))
     messages, tools = model.requests[0]
     assert tools == [] and [m["role"] for m in messages] == ["user"]
-    assert "position = [0.0, 400.0, 0.0] m" in messages[0]["content"]
+    assert "position = [0.00, 400.00, 0.00] m" in messages[0]["content"]
     assert "(t = 10 s)" in model.requests[1][0][0]["content"]
 
 

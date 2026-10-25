@@ -204,6 +204,12 @@ release may change the public API, and every such change is listed under Changed
   `FilterFalsification` records `errors`.
 - `vbar.spacecraft.ExecutionModel`, the protocol of a burn's execution error;
   `EnvConfig.execution` and `Spacecraft(execution=)` take any model that follows it.
+- `LLMAgent` flies every task kind: hold, berthing, docking, inspection and departure. The default
+  prompt describes the goal, the target's attitude mode and every public constraint in sentences
+  (`vbar.agents.briefing.briefing`) and measures the observation against them each step
+  (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
+  turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
+  `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
 
 ### Changed
 
@@ -226,6 +232,12 @@ release may change the public API, and every such change is listed under Changed
   were regenerated.
 - F3 `safety_dv_cost` and F4 `filter_dependence` are version 2: `paired_filter_metrics` raises
   `ValueError` for a pair whose agent seeds or scenarios differ, which version 1 accepted.
+- The default LLM prompt is new, so transcripts recorded with 0.3 do not replay under it; pass
+  0.3's `PROMPT_TEMPLATE` text as `prompt=` to replay them. Positions are printed to 1 cm and
+  velocities to 0.1 mm/s, as docking's 0.1 m lateral limit needs.
+- `LLMAgent.reset` no longer refuses goals that are not holds or that have no keep-out radius; it
+  refuses a goal without a key its task needs, and a template whose `hold`, `dist`, `cap_speed`
+  or `keep_out` field the goal cannot fill.
 
 ### Fixed
 
