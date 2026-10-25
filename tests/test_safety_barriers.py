@@ -1,5 +1,6 @@
 import functools
 import math
+from decimal import Decimal, localcontext
 
 import numpy as np
 import pytest
@@ -7,6 +8,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from scipy.linalg import expm
 from scipy.optimize import minimize_scalar
+from test_constraints import decimal_sin_cos
 
 from vbar.dynamics import EARTH, cw_discrete, cw_states, mean_motion
 from vbar.safety.barriers import (
@@ -785,3 +787,47 @@ def test_terminal_set_states_drift_clear_of_the_keep_out_for_three_cap_horizons(
     t = np.arange(0.0, 3.0 * T_CAP, 4.0)
     margin = np.linalg.norm(drift_positions(xs, t), axis=-1).min(axis=1) - R
     assert np.all(values <= margin + 1e-6)
+
+
+def exact_drift_margin(x, t):
+    """Range minus R (m) `t` s along the free drift from `x`, to 50 digits.
+
+    The closed-form CW solution, taking the floats in `x` and N as exact. The series for sin n t
+    has terms up to 6e22 at n t = 55 rad, so the sums carry 80 digits.
+    """
+    with localcontext() as ctx:
+        ctx.prec = 80
+        rx0, ry0, rz0, vx, vy, vz = (Decimal(float(c)) for c in x)
+        n, t = Decimal(float(N)), Decimal(float(t))
+        s, c = decimal_sin_cos(n * t)
+        rx = (4 - 3 * c) * rx0 + s / n * vx + 2 * (1 - c) / n * vy
+        ry = 6 * (s - n * t) * rx0 + ry0 - 2 * (1 - c) / n * vx + (4 * s - 3 * n * t) / n * vy
+        rz = c * rz0 + s / n * vz
+        return (rx * rx + ry * ry + rz * rz).sqrt() - Decimal(R)
+
+
+def test_drift_margin_at_a_sample_minimum_never_exceeds_the_exact_minimum():
+    # A horizon that is a whole number of 5 s samples puts the last sample at the horizon.
+    capped = PassiveBarrier(radius=R, n=N, t_cap=50000.0)
+    cases = []
+    # Secular drifts from 2.5 km along-track that reach the sphere at the horizon, closing at
+    # 1.5 n d, so their lowest range is at the last sample.
+    for d in np.linspace(20.0, 45.0, 6):
+        for k in range(5):
+            y_end = math.sqrt(R * R - d * d) + 1e-9 * k
+            x = np.array([d, y_end + 1.5 * N * d * capped.t_cap, 0.0, 0.0, -1.5 * N * d, 0.0])
+            cases.append((capped, x, capped.t_cap))
+    # Starts on the sphere moving radially out, lowest at the first sample; off the axes so the
+    # norm rounds.
+    rng = np.random.default_rng(1137)
+    for _ in range(20):
+        u = np.array([1.0, 0.05 * rng.standard_normal(), 0.05 * rng.standard_normal()])
+        u /= np.linalg.norm(u)
+        x = np.concatenate([u * (R + 1e-12 * rng.integers(0, 5)), 0.1 * u])
+        cases += [(capped_barrier(), x, 0.0), (terminal_barrier(), x, 0.0)]
+    excess = np.array(
+        [float(Decimal(float(b.value(x))) - exact_drift_margin(x, t)) for b, x, t in cases]
+    )
+    assert excess.max() <= 0.0
+    # Rounding over a 50000 s drift is near 1e-8 m; 1e-6 m catches an allowance far larger.
+    assert excess.min() >= -1e-6

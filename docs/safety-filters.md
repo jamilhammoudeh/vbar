@@ -340,9 +340,12 @@ horizon is capped, and the sign holds for $t_{\text{cap}}$ only.
 
 The drift is sampled every `grid` seconds with one product of the stored transition matrices, and
 each sample interval gets the larger of the first-order bound and the second-order bound on
-$|r|^2$ that `vbar.constraints.segment_minimum` uses, at zero thrust. `value(x)` is the lowest of
-these, so $h_p \ge 0$ certifies the drift up to the horizon; a negative value bounds the deepest
-incursion from below. `grid` must be short enough for the in-step bounds to exist (below about
+$|r|^2$ that `vbar.constraints.segment_minimum` uses, at zero thrust, lowered by the same rounding
+allowance, 2 eps times the range the drift can reach plus the radius. Without it, a drift whose
+minimum fell at a sample could report up to 1.3e-13 m above the exact minimum, and a state on the
+sphere drifting outward could report 0 while the exact drift dipped 1e-15 m inside. `value(x)` is
+the lowest of these, so $h_p \ge 0$ certifies the drift up to the horizon; a negative value
+bounds the deepest incursion from below. `grid` must be short enough for the in-step bounds to exist (below about
 350 s at 500 km; at 5 s their gain is 0.011). `value` also takes a stack of states, shape (k, 6).
 
 `gradient(x)` is the gradient of the exact drift minimum by the envelope theorem,

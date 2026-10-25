@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-from ..constraints import KeepOut, interval_bounds
+from ..constraints import KeepOut, _rounding_allowances, interval_bounds, range_lower_bounds
 from ..dynamics.cw import cw_discrete
 from ..solvers.qp import ACTUATOR_LAYOUTS, ActuatorSet
 from .sampled import held_segment_bound
@@ -655,7 +655,7 @@ class PassiveBarrier:
         return np.tensordot(x, self._phi[:, :m], axes=(0, 0))
 
     def _sampled_minimum(self, states: np.ndarray) -> float:
-        """The lowest certified bound over the sample intervals of `states` and at the first, m."""
+        """The lowest certified bound (m) over the sample intervals of `states`, at least two."""
         h = self.grid
         speed, accel = interval_bounds(states, h, 0.0, self.n)
         margins = self._keep_out.margin(states)
@@ -663,7 +663,11 @@ class PassiveBarrier:
             0.5 * (margins[:-1] + margins[1:] - speed * h),
             self._keep_out.second_order_bounds(states, h, speed, accel),
         )
-        return float(min(bounds.min(initial=np.inf), margins[0]))
+        rho_min = range_lower_bounds(states, h, speed)
+        allowance = _rounding_allowances(
+            self._keep_out, h * (len(states) - 1), states, speed, accel, rho_min
+        )
+        return float(min((bounds - allowance).min(), margins[0] - allowance[0]))
 
     def _far(self, states: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Far margins |y_c| - 2 b - R (m) of states (k, 6) and whether each y_c recedes."""
