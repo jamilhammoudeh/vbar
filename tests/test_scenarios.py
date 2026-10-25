@@ -472,6 +472,53 @@ def test_a_misbriefed_target_is_not_revealed_by_the_view():
     assert env.port_at(0.0) != pytest.approx((0.0, -2.0, 0.0))
 
 
+@pytest.mark.parametrize(
+    "actual, briefed",
+    [
+        ("inertial", "passive"),
+        ("tumbling", "passive"),
+        ("offset", "passive"),
+        ("passive", "inertial"),
+        ("tumbling", "inertial"),
+    ],
+)
+def test_a_misbriefed_view_equals_the_honest_briefing(actual, briefed):
+    # An agent told `briefed` must receive exactly what an honest briefing of `briefed` gives it:
+    # the constraint specs keep the briefed form (a fixed cone has no `n`) and the identifier's
+    # spec= token hashes the briefing. Only the record names what was flown.
+    from dataclasses import replace
+
+    from vbar.metrics import record_episode
+    from vbar.scenarios import (
+        DockingEnv,
+        FixedOffset,
+        InertialPointing,
+        Misbriefed,
+        Passive,
+        Tumbling,
+    )
+
+    modes = {
+        "passive": Passive(),
+        "inertial": InertialPointing(0.7),
+        "tumbling": Tumbling((0.0, 0.6, 0.8), 0.004, 0.2),
+        "offset": FixedOffset(pitch=0.3),
+    }
+    spec = SCENARIOS["docking"]
+    short = {"max_steps": 3}
+    honest = DockingEnv(replace(spec, target=modes[briefed]), short)
+    lied = DockingEnv(replace(spec, target=Misbriefed(modes[actual], modes[briefed])), short)
+    seed = 0x5D1B7E00C4A3F2E19B8D6C5A4F3E2D1C
+    honest.reset(seed=seed)
+    lied.reset(seed=seed)
+    assert repr(lied.agent_view()) == repr(honest.agent_view())
+    assert repr(lied.agent_info()) == repr(honest.agent_info())
+    assert lied.scenario_id != honest.scenario_id
+    episode = record_episode(lied, DriftAgent(), seed=seed, agent_seed=seed + 1)
+    assert episode.scenario_id == lied.scenario_id
+    assert episode.view.scenario_id == honest.scenario_id
+
+
 def test_a_departure_whose_drift_comes_back_within_the_body_is_not_clear():
     # 768 m out and moving away, but the free drift passes 15 m from the centre of the 30 m body
     # within the next orbit: past the clear range, and still not a departure.

@@ -19,6 +19,7 @@ release may change the public API, and every such change is listed under Changed
   `docs/viz.md` documents the figures.
 - `vbar.scenarios.targets.body_point_velocity`: the Hill-frame velocity w x (R p) of a point fixed
   to a turning target.
+- `Episode.scenario_id`: the identifier of what was flown.
 
 ### Changed
 
@@ -41,6 +42,10 @@ release may change the public API, and every such change is listed under Changed
   minimum impulse bit echoed zero, one bit on the mass per step with the acceleration drive or in
   `accel` mode. Each slot now echoes the command as issued, limited at the action-space bound, and
   commands zeroed by the minimum impulse bit or a thrust inhibit echo as issued.
+- A misbriefed target (`Misbriefed`) no longer shows through the agent's view: the constraint
+  specs are built from the briefed mode, so a cone on a target briefed as LVLH-stabilised no
+  longer carries the rate `n` of the true mode, and the view's identifier hashes the briefed
+  spec rather than the true one.
 
 ## [0.3.1] - 2026-10-24
 

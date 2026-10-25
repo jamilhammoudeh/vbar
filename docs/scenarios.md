@@ -130,6 +130,9 @@ on a turning target has (Fehse 8.3.6):
 - `Misbriefed(actual, briefed)`: the truth follows one mode while the goal tells agents another
   (Goodman, *History of Space Shuttle Rendezvous*, 2011: SPARTAN, STS-51G). In 3-DOF a wrong
   briefing cannot be detected from the relative state, so no catalogue scenario uses it yet.
+  Everything an agent receives is what an honest briefing of `briefed` gives: the constraint
+  specs are built from the briefed mode and the view's identifier hashes the briefed spec, while
+  the environment's `scenario_id` and the recorded episode's `scenario_id` name the true mode.
 
 The goal's `target` entry is the mode as agents are told it. Constraints fixed to the target
 follow the mode: `RotatingCone` is the approach cone of [constraints.md](constraints.md) with

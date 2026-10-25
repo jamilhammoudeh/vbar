@@ -30,7 +30,9 @@ class Episode:
     violation fails the run. `isp` (s) and the view's `mass_kg` and `thrust_limit` describe the
     actuator; `dynamics`, `body`, `altitude_m` and `inclination` (rad) the propagation model.
     `agent_log` holds the agent's own per-decision log when it keeps one (LLM agents), and
-    `first_obs` the observation the first decision was made on.
+    `first_obs` the observation the first decision was made on. `scenario_id` is the identifier
+    of what was flown, which can differ from the one in `view` where the briefing hides the
+    target's true mode.
     """
 
     view: AgentView
@@ -49,6 +51,7 @@ class Episode:
     first_obs: np.ndarray | None = None
     seed: int | None = None
     agent_seed: int | None = None
+    scenario_id: str | None = None
 
     @property
     def duration(self) -> float:
@@ -148,4 +151,5 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         first_obs=first_obs,
         seed=seed,
         agent_seed=agent_seed,
+        scenario_id=env.scenario_id,
     )

@@ -290,9 +290,17 @@ class BaseEnv(gym.Env):
         base = f"vbar:{self.scenario_name}:{self.cfg.dynamics}:{self.cfg.thrust_limit}:dv:v0"
         return base + (":disc27" if self.cfg.action_mode == "disc27" else "")
 
+    def _briefed_id(self) -> str:
+        """The identifier agents are given; it may hide what the briefing hides."""
+        return self.scenario_id
+
+    def _briefed_constraints(self) -> tuple[Constraint, ...]:
+        """The constraints as the briefing describes them, for their public specs."""
+        return tuple(self.constraints)
+
     def agent_view(self) -> AgentView:
         return AgentView(
-            scenario_id=self.scenario_id,
+            scenario_id=self._briefed_id(),
             dt=self.cfg.dt,
             max_steps=self.cfg.max_steps,
             n=self.n,
@@ -301,7 +309,7 @@ class BaseEnv(gym.Env):
             thrust_limit=self.cfg.thrust_limit,
             mass_kg=self.cfg.mass_kg,
             goal=self._goal(),
-            constraints=tuple(public_spec(c) for c in self.constraints),
+            constraints=tuple(public_spec(c) for c in self._briefed_constraints()),
             observation=self.observation_names,
         )
 

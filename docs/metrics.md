@@ -21,6 +21,7 @@ built with `training=True` is refused) and returns an `Episode`:
 | `isp`, `dynamics`, `body`, `altitude_m`, `inclination` | actuator and propagation settings |
 | `agent_log` | the agent's own per-decision `log`, when it keeps one (`LLMAgent.log`); a `log` whose length is not the number of decisions is left out with a warning |
 | `first_obs` | the observation the first decision was made on |
+| `seed`, `agent_seed`, `scenario_id` | the seeds flown and the identifier of what was flown; for a misbriefed target `scenario_id` names the true mode while `view.scenario_id` names the briefing |
 
 When the agent is a `FilteredAgent`, the record's `command` is the agent's raw command, `filtered`
 the filter's output, and the agent's latency excludes the filter's measured wall time. These

@@ -17,11 +17,12 @@ from typing import Any, ClassVar, cast
 
 import numpy as np
 
+from ..constraints import Constraint
 from ..dynamics import TwoBodyDynamics, get_body
 from ..spacecraft import Actuation, GaussianNav, GaussMarkovNav, PerfectNav, RangeScaledNav
 from .base import BaseEnv, EnvConfig
 from .spec import ScenarioSpec
-from .targets import ManeuveringDynamics, burn_boundaries, split_at
+from .targets import ManeuveringDynamics, briefed_mode, burn_boundaries, split_at
 
 _SKIPPED_FIELDS = ("reward", "training")
 # Tolerance on the inhibit window edges: the environment's clock is a sum of steps.
@@ -303,6 +304,27 @@ class ScenarioEnv(BaseEnv):
     def scenario_id(self) -> str:
         """The identifier of what this environment flies (`scenario_id`)."""
         return scenario_id(self.scenario, self.cfg)
+
+    def _briefed_id(self) -> str:
+        # The fingerprint of the briefed spec: the true mode would set the spec= token apart
+        # from an honest briefing's. Records keep `scenario_id`.
+        told = briefed_mode(self.scenario.target)
+        if told is self.scenario.target:
+            return self.scenario_id
+        return scenario_id(replace(self.scenario, target=told), self.cfg)
+
+    def _briefed_constraints(self) -> tuple[Constraint, ...]:
+        # Built from the briefed mode, so a public spec has the form and fields an honest
+        # briefing would give it (a moving target's cone carries n, a fixed one does not).
+        told = briefed_mode(self.target)
+        if told is self.target:
+            return tuple(self.constraints)
+        actual = self.target
+        self.target = told
+        try:
+            return tuple(self._constraints())
+        finally:
+            self.target = actual
 
     def _draw_episode(self, rng: np.random.Generator) -> None:
         self.draw = self.scenario.draw(rng)
