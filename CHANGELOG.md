@@ -275,6 +275,10 @@ release may change the public API, and every such change is listed under Changed
 - `PDAgent` clipped each axis to `max_accel` even on a ball thrust layout, so a diagonal command
   exceeded the limit in 2-norm and the actuator saturated it; it now scales such a command back
   to the ball with its direction kept, and refuses an unknown thrust layout at reset.
+- The mission metrics took a departure goal, which names the port it leaves from, for a docking
+  goal: M1 and M4 waited for a contact that never comes, and a crossing of the port plane raised
+  `KeyError`. A docking goal is now one with a contact window, so a departure goal is judged at
+  its clear point as a hold goal.
 
 ## [0.3.1] - 2026-10-24
 

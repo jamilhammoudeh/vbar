@@ -274,3 +274,22 @@ def test_contact_range_is_judged_at_the_crossing_in_both(beside):
         # 5e-8 s later at 0.02 m/s closing, 2e-8 m further sideways at 0.38 m/s.
         assert event.t == pytest.approx(info["contact_time_s"], abs=1e-6)
         assert event.lateral_error == pytest.approx(info["contact_lateral_error_m"], abs=1e-6)
+
+
+def test_a_departure_goal_is_judged_at_its_clear_point_not_at_its_port():
+    # A departure goal names its port and a clear point as a hold point; crossing the port plane
+    # on the way is no contact, and the terminal error is the distance to the clear point.
+    goal = {
+        "port": (0.0, -2.0, 0.0),
+        "port_axis": (0.0, -1.0, 0.0),
+        "hold_point": (0.0, -100.0, 0.0),
+        "capture_radius": 50.0,
+        "capture_speed": 10.0,
+    }
+    start = (0.0, -3.0, 0.0, 0.0, 0.08, 0.0)
+    ep = episode(goal=goal, start_state=start, max_steps=3, keep_out_radius=1.0)
+    m = mission_metrics(ep)
+    assert np.isnan(m["capture_margin"])
+    end = ep.records[-1].true_state
+    assert m["terminal_pos_error"] == pytest.approx(np.linalg.norm(end[:3] - (0, -100.0, 0)))
+    assert not m["success"]

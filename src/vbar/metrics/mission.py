@@ -53,6 +53,14 @@ def captured(states: np.ndarray, goal: Mapping[str, Any]) -> np.ndarray:
     return (position < goal["capture_radius"]) & (velocity < goal["capture_speed"])
 
 
+def docking(goal: Mapping[str, Any]) -> bool:
+    """Whether the goal is judged at a contact event, which a contact window marks.
+
+    A departure goal names the port it leaves from, so the port alone does not make a docking.
+    """
+    return "axial_speed_window" in goal
+
+
 def hard_violated(ep: Episode) -> bool:
     """Whether any hard constraint's margin went below zero, at the start or within a step."""
     for c in ep.constraints:
@@ -218,7 +226,7 @@ def completion_time(ep: Episode, trace: Trace | None = None) -> float | None:
     outcome = inspection_outcome(ep)
     if outcome is not None:
         return float(outcome["time_s"]) if outcome["met"] else None
-    if "port" in goal:
+    if docking(goal):
         event = contact(ep, trace)
         return event.t if event is not None and event.margin >= 0.0 else None
     hold_time = goal.get("hold_time", 0.0)
@@ -238,7 +246,7 @@ def success(ep: Episode) -> bool:
 def mission_metrics(ep: Episode) -> dict[str, float | bool]:
     """M1 to M10 for one episode.
 
-    Contact metrics are NaN without a port or a contact; the dwell is NaN without a capture
+    Contact metrics are NaN without a docking goal or a contact; the dwell is NaN without a capture
     predicate. An inspection has no goal position, so its terminal errors are NaN and its
     progress is the inspectable coverage.
     """
@@ -259,7 +267,7 @@ def mission_metrics(ep: Episode) -> dict[str, float | bool]:
             "hold_dwell": math.nan,
             "capture_margin": math.nan,
         }
-    if "port" in goal:
+    if docking(goal):
         # The port moves with the target, so the terminal errors and the progress are taken
         # from it where it stands.
         port, _, port_velocity = port_motion(ep)(ep.times)
@@ -282,7 +290,7 @@ def mission_metrics(ep: Episode) -> dict[str, float | bool]:
         "hold_dwell": math.nan,
         "capture_margin": math.nan,
     }
-    if "port" in goal:
+    if docking(goal):
         event = contact(ep, trace)
         if event is not None:
             out.update(

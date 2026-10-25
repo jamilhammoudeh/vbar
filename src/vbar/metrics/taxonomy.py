@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .episode import Episode
-from .mission import completion_time, goal_errors, hard_violated, hold_intervals
+from .mission import completion_time, docking, goal_errors, hard_violated, hold_intervals
 from .settings import MetricSettings
 from .stl import Signal, Trace, minimum
 
@@ -81,7 +81,7 @@ def failure_label(
         return "sign_error"
     if metrics["chatter"] > settings.oscillation_threshold:
         return "oscillation"
-    if "port" in goal and metrics["capture_margin"] < 0.0:
+    if docking(goal) and metrics["capture_margin"] < 0.0:
         return "contact_out_of_tolerance"
     if goal.get("task") == "inspect":
         # Near means short of the goal by at most twice the shortfall the goal allows.
