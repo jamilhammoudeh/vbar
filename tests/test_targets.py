@@ -338,8 +338,9 @@ def test_free_drift_identity_holds_for_the_wrapped_model():
     ids=lambda mode: mode.name,
 )
 def test_angular_velocity_is_the_rate_of_the_attitude_matrix(mode):
-    # dR/dt R^T is the skew matrix of the body rate in Hill axes; central differences at 1e-3 s
-    # are accurate to about (w h)^2, far below the 1e-9 rad/s tolerance at these rates.
+    # dR/dt R^T is the skew matrix of the body rate in Hill axes; the central difference at 1e-3 s
+    # is off by about w (w h)^2 / 6, about 6e-11 rad/s at the fastest rate here (0.07 rad/s),
+    # inside the 1e-9 rad/s tolerance.
     times = np.array([0.0, 137.0, 911.0])
     h = 1e-3
     skew = (mode.matrix(times + h, N) - mode.matrix(times - h, N)) / (2.0 * h)

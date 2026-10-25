@@ -349,7 +349,10 @@ Katz, Corso and Moss, *Algorithms for Validation*, section 8.1).
   turned by the attitude and its certified minimum through a segment never exceeds the true one,
   the body keep-out is zero at the port and negative inside, the eclipse fractions match
   Montenbruck and Gill, the lighting window opens only near the port inside the window on the day
-  side, and a target burn is the opposite acceleration on the relative state.
+  side, and a target burn is the opposite acceleration on the relative state. Each mode's
+  angular velocity equals the rate of its attitude matrix, a body point's velocity equals the
+  rate of its position, and the turning cone and body keep-out certificates fail a segment test
+  when their rotation term is removed.
 - The audit above; the v1 spec values of the approaches and the docking; contact is an event
   inside the step that ends it with the keep-out margin at zero and the delta-v of the cut step;
   a contact too fast or off axis is recorded and not a success; a far crossing of the port plane
