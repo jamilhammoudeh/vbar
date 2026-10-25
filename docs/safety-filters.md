@@ -1908,12 +1908,14 @@ on 100 of 100 seeds.
 ### Filter falsifier
 
 `vbar.safety.audit.falsify_filter(safety_filter, env, *, nominal=None, budget=1000, box=None,
-seed=None, max_steps=None, workers=1, population=50, chains=2)` searches a filter's declared safe
-set:
+seed=None, max_steps=None, workers=1, population=50, chains=2, errors="none")` searches a filter's
+declared safe set:
 
-- It refuses exactly what `audit_filter` refuses (dynamics other than CW, imperfect navigation,
-  execution error, delay, minimum impulse bit, the thrust drive, a filter that does not count
-  toward certification), and flies each start with the audit's own run, at the scenario's dt.
+- It refuses exactly what `audit_filter` refuses for the same `errors` (with "none": dynamics
+  other than CW, imperfect navigation, execution error, delay, minimum impulse bit, the thrust
+  drive, a filter that does not count toward certification), and "gaussian", since a falsifier
+  needs bounded sets to search. It flies each start with the audit's own run, at the scenario's
+  dt.
 - `accept` is the filter's `contains`, so every flown start lies in its declared set.
 - The score of a start is its run's certified robustness: the lowest certified in-step bound of
   any hard constraint, after the audit's re-flying, divided by the constraint's resolution. A
@@ -1921,16 +1923,39 @@ set:
 - Every run shares one episode seed and one different agent seed drawn from the root seed, so the
   score depends on the start alone.
 - The worst start is flown again and judged as the audit judges any run. The `verdict` comes from
-  that run, never from the score: "violation", "uncertified", "infeasible", "solver_failed" or
-  "none_found".
+  that run, never from the score: "violation", "uncertified", "infeasible", "solver_failed",
+  "uncovered" or "none_found". "uncovered" is given under bounded errors only, for a decision the
+  bounded audit counts as uncovered: one without a certificate, unless it coasts and its step
+  ends by the last certified decision's time plus that certificate's horizon.
 
 The result, a `FilterFalsification`, holds the verdict, the worst start and its re-flown true
 `states`, its `RunAudit`, the score, the evaluations and rejections, the dispersion, the box and
-the root seed, and the search's own record. No field claims safety.
+the root seed, the search's own record and `errors`. No field claims safety.
+
+With `errors="bounded"` the falsifier takes the truncated models `audit_filter` accepts for
+"bounded" and searches the errors with the start. A point has 33 numbers, laid out as
+`search.points` holds them:
+
+| Entries | Meaning | Range |
+|---|---|---|
+| 0 to 5 | start, m and m/s | `box`, and the filter's `contains_start` |
+| 6 to 29 | navigation offsets, a row of 6 per quarter episode | $[-1, 1]$, `ScriptedNav` on the declared navigation box |
+| 30 to 32 | execution direction | $[-1, 1]^3$, `ScriptedExecution` onto the declared execution ball |
+
+Each run replaces the scenario's sensor and execution model with the scripted ones (see
+Scripted errors below), scaled by the sets in the filter's declaration, so every error flown
+is one the declared sets allow, whatever the filter does with them. The scripted errors draw
+nothing, so the score depends on the point alone. Starts come from `contains_start`, which keeps
+every estimate of the start in the declared set. A declared navigation set other than a
+`BoxError` is refused. A filter with no declared navigation set keeps perfect navigation: entries
+6 to 29 are still drawn and searched but change nothing, so the layout is the same for every
+filter.
 
 ### Assumptions and limits
 
-- The search samples starts only; disturbances, navigation and execution errors are not searched.
+- With `errors="none"` the search samples starts only. With "bounded" it also searches the
+  navigation offset per quarter episode and one burn error; disturbances, errors that vary
+  within a quarter and burn errors that differ between burns are not searched.
 - Within its budget the search can miss a failure region smaller than its spread floor allows it
   to resolve, or one far from every elite. Report the budget and dispersion with every
   "none_found".
@@ -1960,6 +1985,51 @@ ecbf = CbfFilter(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1)
 report = falsify_filter(ecbf, ApproachEnv(), box=near, budget=30, seed=seed, max_steps=3)
 print(report.verdict, report.score >= -1.0, report.evaluations)  # none_found True 30
 print(np.asarray(report.states).shape)  # (4, 6)
+```
+
+### Scripted errors
+
+`vbar.stress.ScriptedNav` and `vbar.stress.ScriptedExecution` are navigation and execution
+errors fixed by a few numbers in the unit box and scaled into a declared error set, so that a
+search can steer them. They follow the interfaces of the sensor and the execution model the
+environment calls, and draw nothing from the streams it hands them.
+
+- `ScriptedNav(offsets, box=, duration=)` takes a (4, 6) array in $[-1, 1]$ and a `BoxError`.
+  At time $t$ the estimate is $x + o_k \circ r$, with $r = (r_{pos}, r_{pos}, r_{pos}, r_{vel},
+  r_{vel}, r_{vel})$ and $k = \min(3, \lfloor 4 t / T \rfloor)$ for the episode length $T$
+  (`duration`), so each row holds for a quarter of the episode and observations from $T$ on keep
+  the last. Every error lies in the box. The agent still sees only the sensor's output.
+- `ScriptedExecution(direction, da_max=, a_max=)` maps $d \in [-1, 1]^3$ radially onto the ball
+  of radius $\Delta a_{\max}$: $w = \Delta a_{\max} \lVert d \rVert_\infty \, d / \lVert d
+  \rVert_2$, which sends the cube's faces to the sphere and its centre to zero, so
+  $\lVert w \rVert \le \Delta a_{\max}$. Every burn delivers the command plus $w / a_{\max}$, a
+  fraction of a full command; a coast is delivered unchanged, as `ExecutionError` leaves it.
+
+Errors are parameterised this way because the other two choices do not suit a search. Searching
+the episode seed is random search: neighbouring seeds give unrelated draws, so the proposal has
+nothing to follow. A sequence with its own error per decision has nine numbers per step, 3240
+for `approach-vbar` (360 decisions of 10 s). Four blocks of navigation offsets and one constant
+burn error are 27 numbers, and with the start 33.
+
+Limits: an error that changes within a quarter episode, or a burn error that differs between
+burns, is outside what these models express, so a search over them can miss a failure that
+needs one. Neither model is a model of a real sensor or thruster.
+
+```python
+from vbar.safety.tightening import BoxError
+from vbar.stress import ScriptedExecution, ScriptedNav
+
+box = BoxError(r_pos=0.4, r_vel=4e-4)  # m, m/s
+offsets = np.vstack([np.ones(6), -np.ones(6), np.zeros(6), np.full(6, 0.5)])
+nav = ScriptedNav(offsets, box=box, duration=40.0)
+x = np.array([0.0, 100.0, 0.0, 0.0, -0.1, 0.0])
+error = nav.observe(x, 15.0) - x  # the second quarter's row
+print(error[:3], error[3:] * 1e3)  # [-0.4 -0.4 -0.4] [-0.4 -0.4 -0.4], m and mm/s
+
+burn = ScriptedExecution([1.0, 0.0, -0.5], da_max=1.3e-3, a_max=0.02)
+print(np.round(burn.apply(np.array([0.0, -1.0, 0.0]), np.random.default_rng()), 4))
+# [ 0.0581 -1.     -0.0291]
+print(burn.apply(np.zeros(3), np.random.default_rng()))  # [0. 0. 0.]
 ```
 
 ## Validation

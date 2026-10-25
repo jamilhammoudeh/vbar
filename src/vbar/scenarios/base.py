@@ -38,7 +38,7 @@ from ..constraints import (
 from ..dynamics import make_dynamics
 from ..faults import Fault
 from ..rewards import Reward, Transition
-from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
+from ..spacecraft import Actuation, ExecutionModel, PerfectNav, Sensor, Spacecraft
 
 ACTION_MODES = ("normalized", "accel", "thrust", "disc27", "impulse_coast")
 # An event time this far (s) past a segment's end still counts as the end: root searches land a
@@ -94,7 +94,7 @@ class EnvConfig:
     propellant_kg: float | None = None
     min_impulse: float = 0.0
     delay_s: float = 0.0
-    execution: ExecutionError | None = None
+    execution: ExecutionModel | None = None
     sensor: Sensor = field(default_factory=PerfectNav)
     violation_samples: int = 20
     observation_channels: tuple[str, ...] = ()

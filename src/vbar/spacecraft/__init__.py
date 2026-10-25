@@ -1,4 +1,4 @@
-from .propulsion import Actuation, ExecutionError, Spacecraft
+from .propulsion import Actuation, ExecutionError, ExecutionModel, Spacecraft
 from .sensors import (
     GaussianNav,
     GaussMarkovNav,
@@ -12,6 +12,7 @@ from .sensors import (
 __all__ = [
     "Actuation",
     "ExecutionError",
+    "ExecutionModel",
     "GaussMarkovNav",
     "GaussianNav",
     "PerfectNav",

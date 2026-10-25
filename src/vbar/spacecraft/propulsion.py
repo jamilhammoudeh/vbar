@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from itertools import pairwise
+from typing import Protocol
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -44,6 +45,13 @@ class Actuation:
     saturated: bool = False
     below_mib: bool = False
     empty: bool = False
+
+
+class ExecutionModel(Protocol):
+    """What the spacecraft calls to perturb a burn: `apply(command, rng)` returns the command as
+    delivered, in fractions of `max_accel` per Hill axis."""
+
+    def apply(self, command: np.ndarray, rng: np.random.Generator) -> np.ndarray: ...
 
 
 @dataclass(frozen=True)
@@ -114,7 +122,7 @@ class Spacecraft:
         min_impulse: float = 0.0,
         delay: float = 0.0,
         drive: str = "accel",
-        execution: ExecutionError | None = None,
+        execution: ExecutionModel | None = None,
     ):
         if layout not in LAYOUTS:
             raise ValueError(f"unknown thruster layout {layout!r}, expected box or ball")

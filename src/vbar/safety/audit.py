@@ -20,7 +20,8 @@ time until the true state is back in the set.
 
 `falsify_filter` flies the same runs from starts chosen by a cross-entropy search over the
 declared safe set (`vbar.stress.cross_entropy`) that minimizes the certified in-step bound, and
-judges the worst start found as the audit judges any run.
+judges the worst start found as the audit judges any run. Under bounded errors it searches the
+navigation and execution errors with the start, as scripted errors inside the declared sets.
 
 `cam_rates` measures how often a switching filter's collision avoidance manoeuvre (CAM) fires
 without need, fails to save a run that needed it, or causes a violation, from runs flown with the
@@ -53,6 +54,7 @@ from ..metrics.summary import clopper_pearson
 from ..scenarios.base import EnvConfig
 from ..scenarios.spec import per_draw_level
 from ..spacecraft import ExecutionError, GaussianNav, PerfectNav
+from ..stress.disturbances import NAV_BLOCKS, ScriptedExecution, ScriptedNav
 from ..stress.falsify import SearchResult, cross_entropy
 from . import FilteredAgent
 from .tightening import BallError, BoxError, EllipsoidError, declared_errors, episode_draws
@@ -67,7 +69,20 @@ _SEED_BITS = 128
 _MIN_SEED_BITS = 64
 # Spawn key of the falsifier's episode and agent seeds, apart from the search's own streams.
 _RUN_SEEDS_KEY = 1 << 32
-FALSIFY_VERDICTS = ("violation", "uncertified", "infeasible", "solver_failed", "none_found")
+FALSIFY_VERDICTS = (
+    "violation",
+    "uncertified",
+    "infeasible",
+    "solver_failed",
+    "uncovered",
+    "none_found",
+)
+FALSIFY_ERRORS = ("none", "bounded")
+# Layout of a bounded falsification point: the start, the navigation offsets per block of the
+# episode, then the execution direction.
+_START = slice(0, 6)
+_NAV = slice(6, 6 + 6 * NAV_BLOCKS)
+_BURN = slice(6 + 6 * NAV_BLOCKS, 9 + 6 * NAV_BLOCKS)
 
 
 @dataclass(frozen=True)
@@ -587,7 +602,7 @@ def _truncation(cfg: EnvConfig, declaration, errors: str, steps: int) -> int:
         raise ValueError(f"{errors} errors need a declared exceedance and per_draw_level")
     # `_error_models` has passed only these types; perfect navigation adds no set and no draw.
     sensor = cfg.sensor if isinstance(cfg.sensor, GaussianNav) else None
-    execution = cfg.execution
+    execution = cfg.execution if isinstance(cfg.execution, ExecutionError) else None
     if errors == "bounded":
         for label, model in (("navigation", sensor), ("execution", execution)):
             if isinstance(model, (GaussianNav, ExecutionError)) and model.bound != b:
@@ -811,15 +826,17 @@ class FilterFalsification:
 
     `verdict` comes from the run of that start, judged as the audit judges any run: "violation",
     "uncertified" (a step neither certified nor shown violated), "infeasible" (a decision with
-    status "infeasible_certified"), "solver_failed", or "none_found". "none_found" is the best
-    verdict there is: the search samples, and a run without a finding shows nothing about the
-    starts it did not fly. `score` is the run's certified robustness, the lowest in-step lower
-    bound of any hard constraint in units of its resolution (below -1 is a certified bound
-    deeper than the resolution); `start` the start (m, m/s, Hill) and `states` the true states of
-    its run, re-flown; `run` its `RunAudit`; `evaluations` the runs flown by the search;
-    `rejected` the draws outside the declared safe set, never flown; `dispersion` the search's
-    average dispersion over the box; `seed` the 128-bit root seed; `box` the (low, high) corners
-    searched; `search` the search's own record.
+    status "infeasible_certified"), "solver_failed", "uncovered" (under bounded errors only, a
+    decision without a certificate that the audit's coverage rule does not cover), or
+    "none_found". "none_found" is the best verdict there is: the search samples, and a run
+    without a finding shows nothing about the starts it did not fly. `score` is the run's
+    certified robustness, the lowest in-step lower bound of any hard constraint in units of its
+    resolution (below -1 is a certified bound deeper than the resolution); `start` the start
+    (m, m/s, Hill) and `states` the true states of its run, re-flown; `run` its `RunAudit`;
+    `evaluations` the runs flown by the search; `rejected` the draws outside the declared safe
+    set, never flown; `dispersion` the search's average dispersion over the box; `seed` the
+    128-bit root seed; `box` the (low, high) corners searched; `search` the search's own record;
+    `errors` the error mode, "none" or "bounded".
     """
 
     filter_name: str
@@ -836,6 +853,28 @@ class FilterFalsification:
     seed: int
     box: tuple[tuple[float, ...], tuple[float, ...]]
     search: SearchResult
+    errors: str = "none"
+
+
+def _scripted(cfg: EnvConfig, steps: int, navigation, da_max: float, z: np.ndarray) -> EnvConfig:
+    """The scenario with the scripted errors of the search point `z` in place of its models."""
+    sensor = cfg.sensor
+    if navigation is not None:
+        offsets = np.reshape(z[_NAV], (NAV_BLOCKS, 6))
+        sensor = ScriptedNav(offsets, box=navigation, duration=steps * cfg.dt)
+    execution = ScriptedExecution(z[_BURN], da_max=da_max, a_max=cfg.max_accel)
+    return dataclasses.replace(cfg, sensor=sensor, execution=execution)
+
+
+def _scripted_run(
+    safety_filter, nominal, env_type, cfg, steps: int, navigation, da_max: float, job
+) -> dict[str, Any]:
+    """Fly and judge the search point of `job` (point, episode seed, agent seed)."""
+    z, episode_seed, agent_seed = job
+    flown = _scripted(cfg, steps, navigation, da_max, z)
+    return _run(
+        safety_filter, nominal, env_type, flown, steps, True, (z[_START], episode_seed, agent_seed)
+    )
 
 
 def _robustness(fly, resolutions: Mapping[str, float], x0: np.ndarray, seeds) -> float:
@@ -846,7 +885,7 @@ def _robustness(fly, resolutions: Mapping[str, float], x0: np.ndarray, seeds) ->
     return min((bound / resolutions[name] for name, bound in bounds.items()), default=math.inf)
 
 
-def _verdict(run: RunAudit) -> str:
+def _verdict(run: RunAudit, errors: str) -> str:
     if run.violations:
         return "violation"
     if run.uncertified:
@@ -855,6 +894,9 @@ def _verdict(run: RunAudit) -> str:
         return "infeasible"
     if run.solver_failed:
         return "solver_failed"
+    # The bounded audit fails an uncovered decision, so the falsifier reports one the same way.
+    if errors == "bounded" and run.uncovered:
+        return "uncovered"
     return "none_found"
 
 
@@ -870,8 +912,9 @@ def falsify_filter(
     workers: int = 1,
     population: int = 50,
     chains: int = 2,
+    errors: str = "none",
 ) -> FilterFalsification:
-    """Search the declared safe set for the start whose run comes closest to failing.
+    """Search the declared safe set, and the declared errors, for the run closest to failing.
 
     Parameters
     ----------
@@ -896,28 +939,42 @@ def falsify_filter(
         Processes the runs are flown in; the result is the same for every value.
     population, chains : int
         Candidates per generation and independent chains of `vbar.stress.cross_entropy`.
+    errors : str
+        "none" searches starts under perfect navigation and no execution error. "bounded"
+        takes the truncated models `audit_filter` accepts for "bounded" and searches 33 numbers:
+        the start (6, in `box` and the filter's `contains_start`), navigation offsets in [-1, 1]
+        for each quarter of the episode (4 x 6, `vbar.stress.ScriptedNav` scaled by the declared
+        navigation box) and one execution direction in [-1, 1]^3 (`vbar.stress.ScriptedExecution`
+        mapped onto the declared execution ball, on every burn). The scripted errors replace the
+        scenario's models in each run. Without a declared navigation set the 24 navigation
+        numbers are still searched but change nothing, so the layout stays the same.
 
     Returns
     -------
     FilterFalsification
-        The worst start found, its re-flown run and verdict, the search's evaluations, rejections
-        and dispersion, and the seed.
+        The worst point found, its re-flown run and verdict, the search's evaluations, rejections
+        and dispersion, and the seed; `search.points` holds every point searched.
 
     Raises
     ------
     ValueError
-        As `audit_filter`, and if the box holds too few starts in the declared safe set.
+        As `audit_filter` for the `errors` given, if the box holds too few starts in the
+        declared safe set, or if bounded errors are asked of a filter whose declared navigation
+        set is not a `BoxError`.
     TypeError
-        If the filter declares no safe set.
+        If the filter declares no safe set, or no start set under bounded errors.
 
     Notes
     -----
     The search minimizes the certified robustness of each run (Kochenderfer, Katz, Corso and
     Moss, *Algorithms for Validation*, ch. 4), with every run sharing one episode seed and one
-    agent seed, so the score depends on the start alone. The verdict is taken from the run of the
-    worst start, never from the score.
+    agent seed, so the score depends on the start alone; the scripted errors draw nothing, so
+    under bounded errors it depends on the point alone. The verdict is taken from the run of the
+    worst point, never from the score.
     """
-    setup = _setup(safety_filter, env, box, seed, max_steps, workers)
+    if errors not in FALSIFY_ERRORS:
+        raise ValueError(f"unknown errors {errors!r}, expected {FALSIFY_ERRORS}")
+    setup = _setup(safety_filter, env, box, seed, max_steps, workers, errors)
     base, cfg, steps, root = setup.base, setup.cfg, setup.steps, setup.root
     seeds_rng = np.random.default_rng(np.random.SeedSequence(root, spawn_key=(_RUN_SEEDS_KEY,)))
     episode_seed = _draw_seed(seeds_rng)
@@ -925,29 +982,57 @@ def falsify_filter(
     while agent_seed == episode_seed:
         agent_seed = _draw_seed(seeds_rng)
     nominal = PDAgent() if nominal is None else nominal
-    fly = functools.partial(_run, setup.flown_filter, nominal, type(base), cfg, steps, True)
+    lo, hi = setup.lo, setup.hi
+    accept: Callable[[np.ndarray], bool] = safety_filter.contains
+    fly: Callable[..., dict[str, Any]] = functools.partial(
+        _run, setup.flown_filter, nominal, type(base), cfg, steps, True
+    )
+    navigation, da_max = None, 0.0
+    if errors == "bounded":
+        navigation = setup.declaration.tightening["navigation"]
+        if navigation is not None and not isinstance(navigation, BoxError):
+            raise ValueError("bounded falsification needs a BoxError navigation set")
+        da_max = float(setup.declaration.tightening["execution"])
+        fly = functools.partial(
+            _scripted_run, setup.flown_filter, nominal, type(base), cfg, steps, navigation, da_max
+        )
+        unit = np.ones(_BURN.stop - _NAV.start)
+        lo, hi = np.r_[lo, -unit], np.r_[hi, unit]
+
+        def accept(z: np.ndarray) -> bool:
+            return bool(safety_filter.contains_start(z[_START]))
+
     resolutions = {c.name: float(c.resolution) for c in base.constraints}
     score = functools.partial(_robustness, fly, resolutions, seeds=(episode_seed, agent_seed))
     search = cross_entropy(
         score,
-        setup.lo,
-        setup.hi,
-        accept=safety_filter.contains,
+        lo,
+        hi,
+        accept=accept,
         budget=budget,
         population=population,
         chains=chains,
         seed=root,
         workers=workers,
     )
+    flown_cfg = cfg
+    if errors == "bounded":
+        flown_cfg = _scripted(cfg, steps, navigation, da_max, search.x)
     episode, fields = _flown(
-        safety_filter, nominal, type(base), cfg, steps, True, (search.x, episode_seed, agent_seed)
+        safety_filter,
+        nominal,
+        type(base),
+        flown_cfg,
+        steps,
+        True,
+        (search.x[_START], episode_seed, agent_seed),
     )
     run = RunAudit(**fields)
     return FilterFalsification(
         filter_name=safety_filter.name,
         nominal_name=getattr(nominal, "name", type(nominal).__name__),
         declaration=setup.declaration,
-        verdict=_verdict(run),
+        verdict=_verdict(run, errors),
         start=episode.start,
         states=episode.states,
         run=run,
@@ -958,6 +1043,7 @@ def falsify_filter(
         seed=root,
         box=(tuple(setup.lo.tolist()), tuple(setup.hi.tolist())),
         search=search,
+        errors=errors,
     )
 
 
@@ -1046,6 +1132,7 @@ def cam_rates(pairs: Sequence[FilterPair]) -> CamRates:
 __all__ = [
     "AUDIT_MODES",
     "ERROR_MODES",
+    "FALSIFY_ERRORS",
     "FALSIFY_VERDICTS",
     "REFINEMENTS",
     "CamRate",
