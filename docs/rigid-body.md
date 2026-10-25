@@ -83,7 +83,8 @@ spin_angle)` builds a motion from the parameters that describe it rather than fr
 fraction of the body-rate period at $t = 0$, `direction` the inertial direction of $\mathbf H$ and
 `spin_angle` the turn of the body about it.
 
-**Bounds.** `rate_bound()` is the least of $\sqrt{2T/I_{\min}}$, $H/I_{\min}$ and
+**Bounds.** `rate_bound()` is $|\boldsymbol\omega|$ itself for a pure spin, whose rate is
+constant; otherwise the least of $\sqrt{2T/I_{\min}}$, $H/I_{\min}$ and
 $\sqrt{A_1^2 + A_2^2 + A_3^2}$; `acceleration_bound()` bounds $|\dot{\boldsymbol\omega}|$ from Euler's
 equations, $\dot\omega_i = (I_j - I_k)\omega_j\omega_k / I_i$, with each $|\omega_j| \le A_j$. Both
 hold for all time and are within a factor 2 of the extremes on the test cases.

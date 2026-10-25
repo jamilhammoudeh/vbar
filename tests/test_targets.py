@@ -16,10 +16,12 @@ from vbar.scenarios.targets import (
     Misbriefed,
     Passive,
     RotatingCone,
+    TorqueFree,
     Tumbling,
     body_point,
     body_point_velocity,
     burn_boundaries,
+    rotation_z,
     split_at,
     sun_at,
     sun_direction,
@@ -334,6 +336,10 @@ def test_free_drift_identity_holds_for_the_wrapped_model():
         Tumbling((0.3, -1.0, 0.5), 0.07, phase=0.2),
         Maneuvering(schedule=((10.0, 5.0, (0.0, 1e-4, 0.0)),), attitude=InertialPointing(1.0)),
         Misbriefed(actual=Tumbling((0.0, 1.0, 1.0), -0.02), briefed=Passive()),
+        TorqueFree((1000.0, 4200.0, 4700.0), 4300.0, 0.03, 0.2, (0.3, -0.5, 0.8), 1.0),
+        TorqueFree((1000.0, 4200.0, 4700.0), 1300.0, 0.05, 0.7, (0.0, 0.0, -1.0), 2.0),
+        # A pure spin about the major axis with H off z: only the Hill frame's turn moves its rate.
+        TorqueFree((1000.0, 4200.0, 4700.0), 4700.0, 0.03, 0.0, (1.0, 0.0, 0.0)),
     ],
     ids=lambda mode: mode.name,
 )
@@ -353,3 +359,31 @@ def test_angular_velocity_is_the_rate_of_the_attitude_matrix(mode):
         2 * h
     )
     assert body_point_velocity(mode, point, times, N) == pytest.approx(moved, abs=1e-9)
+    # The rate's derivative stays within its bound over a dense set of times.
+    dense = np.linspace(0.0, 2000.0, 4001)
+    spin_up = np.diff(mode.angular_velocity(dense, N), axis=0) / np.diff(dense)[:, None]
+    assert np.max(np.linalg.norm(spin_up, axis=-1)) <= mode.angular_acceleration_bound(N) + 1e-12
+
+
+def test_a_torque_free_tumble_keeps_its_momentum_fixed_inertially():
+    # Schaub and Junkins, section 4.2.1: H is constant in inertial space only, so in the Hill
+    # frame, which turns at n, it turns at -n about z.
+    mode = TorqueFree((1000.0, 4200.0, 4700.0), 4300.0, 0.03, 0.2, (0.3, -0.5, 0.8), 1.0)
+    times = np.linspace(0.0, 3000.0, 301)
+    moments = np.array(mode.moments)
+    h_hill = np.einsum("tij,tj->ti", mode.matrix(times, N), moments * mode.motion.omega(times))
+    expected = np.einsum("tij,j->ti", rotation_z(-N * times), mode.motion.momentum)
+    assert h_hill == pytest.approx(expected, abs=1e-10 * mode.motion.h)
+    assert mode.motion.h == pytest.approx(4300.0 * 0.03)
+    direction = np.array([0.3, -0.5, 0.8]) / math.sqrt(0.98)
+    assert mode.motion.momentum / mode.motion.h == pytest.approx(direction)
+    # The public description rebuilds the same tumble, so an agent can predict it.
+    public = mode.public(N)
+    keys = ("moments", "effective_inertia", "rate", "phase", "momentum_direction", "spin_angle")
+    rebuilt = TorqueFree(*(public[key] for key in keys))
+    assert rebuilt.matrix(times, N) == pytest.approx(mode.matrix(times, N), abs=1e-12)
+    assert public["omega"] == pytest.approx(mode.motion.omega(0.0))
+    with pytest.raises(ValueError):
+        TorqueFree((1000.0, 4200.0, 4700.0), 4200.0, 0.03)
+    with pytest.raises(ValueError):
+        TorqueFree((1000.0, 4200.0, 4700.0), 4300.0, 0.03, momentum_direction=(0.0, 0.0, 0.0))

@@ -202,6 +202,9 @@ release may change the public API, and every such change is listed under Changed
   `TorqueFreeMotion`, the closed-form attitude and body rate of a rigid body free of torques
   (Jacobi elliptic rates, the precession angle through Carlson's integrals), built from a rate or
   from tumble parameters, with rate and acceleration bounds.
+- `TorqueFree`, a target attitude mode for a rigid body tumbling free of torques, set by tumble
+  parameters, its attitude stored inertially and seen from the turning Hill frame; its public
+  description rebuilds the tumble.
 
 ### Changed
 
@@ -248,6 +251,8 @@ release may change the public API, and every such change is listed under Changed
   goal's port where it stands, with its velocity.
 - `DockingEnv` judges the contact range at the crossing point rather than at the samples either
   side of it, a difference only for crossings within a sample's travel of the range's edge.
+- The `TargetMode` protocol has `angular_acceleration_bound(n)`, a bound on the rate of change of
+  `angular_velocity` (rad/s^2) that certifies predicates on points moving with the target.
 
 ### Fixed
 

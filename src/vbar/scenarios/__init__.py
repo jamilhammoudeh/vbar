@@ -42,6 +42,7 @@ from .targets import (
     Misbriefed,
     Passive,
     TargetMode,
+    TorqueFree,
     Tumbling,
 )
 from .vector import ApproachVectorEnv
@@ -88,6 +89,7 @@ __all__ = [
     "Suite",
     "SuiteEntry",
     "TargetMode",
+    "TorqueFree",
     "Tumbling",
     "Uniform",
     "by_tag",

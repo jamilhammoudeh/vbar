@@ -313,14 +313,14 @@ class TorqueFreeMotion:
     def rate_bound(self) -> float:
         """Bound on the body rate's magnitude (rad/s).
 
-        The least of sqrt(2 T / I_min), H / I_min and, off a pure spin, the norm of the three
-        amplitudes, each of which bounds one component of the closed form.
+        The rate itself for a pure spin; otherwise the least of sqrt(2 T / I_min), H / I_min and
+        the norm of the three amplitudes, each of which bounds one component of the closed form.
         """
+        if self.spin:
+            return float(np.linalg.norm(self.omega0))
         least = float(self.moments.min())
         bound = min(math.sqrt(2.0 * self.energy / least), self.h / least)
-        if not self.spin:
-            bound = min(bound, float(np.linalg.norm(self.amplitudes)))
-        return bound
+        return min(bound, float(np.linalg.norm(self.amplitudes)))
 
     def acceleration_bound(self) -> float:
         """Bound on the body rate's derivative, |dw/dt| in body axes (rad/s^2).

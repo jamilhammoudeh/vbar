@@ -4,7 +4,8 @@ A target mode gives the rotation from the target's body axes to the Hill frame a
 (Fehse, Automated Rendezvous and Docking of Spacecraft, 2003, section 5.3.1): LVLH-stabilised
 (`Passive`), a fixed attitude offset such as a torque-equilibrium attitude with a limit cycle
 (`FixedOffset`), inertially pointing (`InertialPointing`, whose axes turn at -n in the Hill
-frame), tumbling about a body axis (`Tumbling`) and a target that burns on a schedule
+frame), spinning about a body axis fixed in the Hill frame (`Tumbling`), a rigid body tumbling
+free of torques (`TorqueFree`) and a target that burns on a schedule
 (`Maneuvering`). `Misbriefed` tells agents one mode while the truth follows another. Body axes
 coincide with the Hill axes at zero attitude: a port on the -V-bar face has body position
 (0, -R, 0) and axis (0, -1, 0).
@@ -14,14 +15,16 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Protocol
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.spatial.transform import Rotation
 
 from ..dynamics import Dynamics
 from ..dynamics.bodies import EARTH, Body
+from ..dynamics.rigid_body import TorqueFreeMotion
 
 
 def rotation_z(angle: ArrayLike) -> np.ndarray:
@@ -76,9 +79,10 @@ class TargetMode(Protocol):
     """The target's attitude and burn schedule as seen from the Hill frame.
 
     `matrix` returns the rotation from body to Hill axes at a time, `angular_velocity` the
-    rate of the body axes in the Hill frame, `rate_bound` an upper bound on its magnitude
-    (rad/s), `public` the description agents get in the goal, and `burns` the target's
-    scheduled burns, empty for a target that does not manoeuvre.
+    rate of the body axes in the Hill frame, `rate_bound` and `angular_acceleration_bound`
+    upper bounds on its magnitude (rad/s) and on that of its derivative (rad/s^2), `public` the
+    description agents get in the goal, and `burns` the target's scheduled burns, empty for a
+    target that does not manoeuvre.
     """
 
     @property
@@ -132,6 +136,21 @@ class TargetMode(Protocol):
         -------
         float
             Bound on the angular rate of the body axes in the Hill frame (rad/s).
+        """
+        ...
+
+    def angular_acceleration_bound(self, n: float) -> float:
+        """Upper bound on the rate of change of `angular_velocity` (rad/s^2).
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        float
+            Bound on |d w / dt| for the body rate in the Hill frame, in Hill axes (rad/s^2).
         """
         ...
 
@@ -214,6 +233,21 @@ class Passive:
         -------
         float
             0.0 rad/s.
+        """
+        return 0.0
+
+    def angular_acceleration_bound(self, n: float) -> float:
+        """Zero: the rate is constant.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s), unused.
+
+        Returns
+        -------
+        float
+            Bound on the derivative of `angular_velocity` (rad/s^2).
         """
         return 0.0
 
@@ -348,6 +382,21 @@ class FixedOffset:
         """
         return 0.0 if self.amplitude == 0.0 else 2.0 * np.pi * self.amplitude / self.period
 
+    def angular_acceleration_bound(self, n: float) -> float:
+        """The limit cycle's peak acceleration, amplitude (2 pi / period)^2.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s), unused.
+
+        Returns
+        -------
+        float
+            Bound on the derivative of `angular_velocity` (rad/s^2).
+        """
+        return 0.0 if self.amplitude == 0.0 else self.amplitude * (2.0 * np.pi / self.period) ** 2
+
     def public(self, n: float) -> dict[str, Any]:
         """The mode with its pitch and limit cycle.
 
@@ -443,6 +492,21 @@ class InertialPointing:
             |n| (rad/s).
         """
         return abs(n)
+
+    def angular_acceleration_bound(self, n: float) -> float:
+        """Zero: the rate -n is constant.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s), unused.
+
+        Returns
+        -------
+        float
+            Bound on the derivative of `angular_velocity` (rad/s^2).
+        """
+        return 0.0
 
     def public(self, n: float) -> dict[str, Any]:
         """The mode with its phase and rate.
@@ -554,6 +618,21 @@ class Tumbling:
         """
         return abs(self.rate)
 
+    def angular_acceleration_bound(self, n: float) -> float:
+        """Zero: the rate is constant.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s), unused.
+
+        Returns
+        -------
+        float
+            Bound on the derivative of `angular_velocity` (rad/s^2).
+        """
+        return 0.0
+
     def public(self, n: float) -> dict[str, Any]:
         """The mode with its axis, rate and phase.
 
@@ -568,6 +647,176 @@ class Tumbling:
             "mode", "axis" (body axes), "rate" (rad/s) and "phase" (rad).
         """
         return {"mode": self.name, "axis": self.axis, "rate": self.rate, "phase": self.phase}
+
+    def burns(self) -> tuple[tuple[float, float, tuple[float, float, float]], ...]:
+        """No burns.
+
+        Returns
+        -------
+        tuple
+            Empty.
+        """
+        return ()
+
+
+@dataclass(frozen=True)
+class TorqueFree:
+    """A rigid body tumbling free of torques, its attitude stored inertially.
+
+    The tumble is the closed form of `vbar.dynamics.rigid_body.TorqueFreeMotion`, set by tumble
+    parameters (`TorqueFreeMotion.from_tumble`): principal `moments` about the body axes, the
+    effective inertia `effective_inertia` D = H^2 / (2 T), the rate `rate` w_l = H / D, the polhode
+    `phase`, the inertial direction of H and the body's `spin_angle` about it. Only H is fixed,
+    and only in inertial space (Schaub and Junkins, Analytical Mechanics of Space Systems, section
+    4.2.1); the inertial frame coincides with the Hill frame at t = 0 and the Hill frame turns at
+    n about z, so the body-to-Hill rotation is R_z(-n t) R_nb(t) and the rate relative to the
+    Hill frame is R_z(-n t) R_nb w - n z.
+
+    Parameters
+    ----------
+    moments : tuple of float
+        Principal moments about the body x, y and z axes (kg m^2), positive.
+    effective_inertia : float
+        D (kg m^2), between the least and greatest moment and not the intermediate one.
+    rate : float
+        w_l = H / D (rad/s), positive.
+    phase : float
+        Fraction of the body-rate period at t = 0, in [0, 1).
+    momentum_direction : tuple of float
+        Direction of H at t = 0 in Hill axes (fixed inertially), nonzero; normalised here.
+    spin_angle : float
+        Rotation of the body about H at t = 0 (rad).
+
+    Raises
+    ------
+    ValueError
+        If the tumble parameters are refused by `TorqueFreeMotion.from_tumble` or the momentum
+        direction is zero.
+    """
+
+    moments: tuple[float, float, float]
+    effective_inertia: float
+    rate: float
+    phase: float = 0.0
+    momentum_direction: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    spin_angle: float = 0.0
+    name: ClassVar[str] = "torque_free"
+    motion: TorqueFreeMotion = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "moments", tuple(float(c) for c in self.moments))
+        direction = np.asarray(self.momentum_direction, dtype=float).reshape(3)
+        if not np.linalg.norm(direction) > 0.0:
+            raise ValueError("momentum_direction must be nonzero")
+        direction = tuple(float(c) for c in direction / np.linalg.norm(direction))
+        object.__setattr__(self, "momentum_direction", direction)
+        motion = TorqueFreeMotion.from_tumble(
+            self.moments,
+            float(self.effective_inertia),
+            float(self.rate),
+            float(self.phase),
+            direction,
+            float(self.spin_angle),
+        )
+        object.__setattr__(self, "motion", motion)
+
+    def matrix(self, t: ArrayLike, n: float) -> np.ndarray:
+        """R_z(-n t) R_nb(t), the inertial attitude seen from the turning Hill frame.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape.
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Body-to-Hill rotations, shape (*t.shape, 3, 3).
+        """
+        t = np.asarray(t, dtype=float)
+        return rotation_z(-n * t) @ self.motion.matrix(t)
+
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """R_z(-n t) R_nb w - n z, the body rate relative to the Hill frame.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape.
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), Hill axes, shape (*t.shape, 3).
+        """
+        t = np.asarray(t, dtype=float)
+        inertial = np.einsum(
+            "...ij,...j->...i", rotation_z(-n * t), self.motion.angular_velocity(t)
+        )
+        return inertial - _about_z(np.full(t.shape, n))
+
+    def rate_bound(self, n: float) -> float:
+        """The body rate's bound plus |n|.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        float
+            Bound on the rate relative to the Hill frame (rad/s).
+        """
+        return self.motion.rate_bound() + abs(n)
+
+    def angular_acceleration_bound(self, n: float) -> float:
+        """|n| times the body rate's bound plus the bound on its derivative.
+
+        The derivative of R_z(-n t) w_n is -n z x (R_z(-n t) w_n) + R_z(-n t) dw_n/dt, and the
+        inertial rate changes as fast as the body rate, dw_n/dt = R_nb dw/dt.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        float
+            Bound on |d w / dt| in the Hill frame (rad/s^2).
+        """
+        return abs(n) * self.motion.rate_bound() + self.motion.acceleration_bound()
+
+    def public(self, n: float) -> dict[str, Any]:
+        """The tumble parameters and the state they give at t = 0.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s), unused.
+
+        Returns
+        -------
+        dict
+            "mode", the tumble parameters (kg m^2, rad/s, rad, Hill axes at t = 0), "omega" the
+            body rate at t = 0 (rad/s, body axes) and "attitude" q_h_b at t = 0 (scalar last).
+        """
+        return {
+            "mode": self.name,
+            "moments": self.moments,
+            "effective_inertia": float(self.effective_inertia),
+            "rate": float(self.rate),
+            "phase": float(self.phase),
+            "momentum_direction": self.momentum_direction,
+            "spin_angle": float(self.spin_angle),
+            "omega": tuple(float(c) for c in self.motion.omega0),
+            "attitude": tuple(float(c) for c in Rotation.from_matrix(self.motion.r0).as_quat()),
+        }
 
     def burns(self) -> tuple[tuple[float, float, tuple[float, float, float]], ...]:
         """No burns.
@@ -668,6 +917,21 @@ class Maneuvering:
         """
         return self.attitude.rate_bound(n)
 
+    def angular_acceleration_bound(self, n: float) -> float:
+        """The bound of `attitude`.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        float
+            Bound on the derivative of `angular_velocity` (rad/s^2).
+        """
+        return self.attitude.angular_acceleration_bound(n)
+
     def public(self, n: float) -> dict[str, Any]:
         """The attitude's description with this mode's name and the burns.
 
@@ -761,6 +1025,21 @@ class Misbriefed:
             Bound on the attitude rate (rad/s).
         """
         return self.actual.rate_bound(n)
+
+    def angular_acceleration_bound(self, n: float) -> float:
+        """The bound of `actual`.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        float
+            Bound on the derivative of `angular_velocity` (rad/s^2).
+        """
+        return self.actual.angular_acceleration_bound(n)
 
     def public(self, n: float) -> dict[str, Any]:
         """The description of `briefed`.
@@ -1490,6 +1769,7 @@ __all__ = [
     "Passive",
     "RotatingCone",
     "TargetMode",
+    "TorqueFree",
     "Tumbling",
     "body_point",
     "body_point_velocity",

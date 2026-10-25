@@ -133,9 +133,19 @@ on a turning target has (Fehse 8.3.6):
 - `InertialPointing(phase)`: body axes fixed in inertial space, so they turn at $-n$ about z in
   the Hill frame; on the docking axis of such a target the chaser needs a lateral speed $rn$,
   0.113 m/s at 100 m (Fehse 5.3.1).
-- `Tumbling(axis, rate, phase)`: rotation at a constant rate about a body axis, an interface for
-  the tumbling-capture scenarios; a free tumble about a non-principal axis nutates and needs the
-  6-DOF target.
+- `Tumbling(axis, rate, phase)`: rotation at a constant rate about a body axis fixed in the Hill
+  frame; a free tumble about a non-principal axis nutates instead, as `TorqueFree` models.
+- `TorqueFree(moments, effective_inertia, rate, phase, momentum_direction, spin_angle)`: a rigid
+  body tumbling free of torques, in closed form ([rigid-body.md](rigid-body.md)). The tumble is
+  set by its parameters rather than a rate vector (Scheeres, *Orbital Motion in Strongly Perturbed
+  Environments*, section 3.2.8): the principal moments, $D = H^2/(2T)$, $\omega_l = H/D$, the
+  polhode phase, the inertial direction of $\mathbf H$ and the body's angle about it. The
+  attitude is stored inertially and seen from the Hill frame as $R_z(-nt)\,R_{nb}(t)$, the
+  inertial frame coinciding with the Hill frame at $t = 0$, since only $\mathbf H$ is fixed and
+  only in inertial space (Schaub and Junkins, section 4.2.1). Its public description gives the
+  parameters and the body rate and attitude at $t = 0$, from which an agent can rebuild the whole
+  tumble. Every mode also gives `angular_acceleration_bound(n)`, which certifies predicates on
+  points that move with the target.
 - `Maneuvering(schedule, attitude)`: a target that burns on a schedule of (start, duration, Hill
   acceleration). The chaser's relative state feels the opposite acceleration, exact in the
   Clohessy-Wiltshire model and first order in the target's orbit change otherwise; the
