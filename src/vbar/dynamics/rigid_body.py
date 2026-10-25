@@ -84,9 +84,10 @@ def _carlson_pi(n: float, phi: np.ndarray, m: float) -> np.ndarray:
 
 def _about_z(angle: np.ndarray) -> np.ndarray:
     c, s = np.cos(angle), np.sin(angle)
-    zero, one = np.zeros_like(c), np.ones_like(c)
-    rows = [[c, -s, zero], [s, c, zero], [zero, zero, one]]
-    return np.stack([np.stack(r, axis=-1) for r in rows], axis=-2)
+    out = np.zeros((*np.shape(c), 3, 3))
+    out[..., 0, 0], out[..., 0, 1], out[..., 1, 0], out[..., 1, 1] = c, -s, s, c
+    out[..., 2, 2] = 1.0
+    return out
 
 
 class TorqueFreeMotion:
@@ -222,13 +223,11 @@ class TorqueFreeMotion:
         h = w * self.i_core / self.h
         s = np.hypot(h[..., 0], h[..., 1])
         sp, cp = h[..., 0] / s, h[..., 1] / s
-        zero = np.zeros_like(s)
-        rows = [
-            [cp, -sp, zero],
-            [h[..., 2] * sp, h[..., 2] * cp, -s],
-            [h[..., 0], h[..., 1], h[..., 2]],
-        ]
-        return np.stack([np.stack(r, axis=-1) for r in rows], axis=-2)
+        out = np.zeros((*np.shape(s), 3, 3))
+        out[..., 0, 0], out[..., 0, 1] = cp, -sp
+        out[..., 1, 0], out[..., 1, 1], out[..., 1, 2] = h[..., 2] * sp, h[..., 2] * cp, -s
+        out[..., 2, :] = h
+        return out
 
     def omega(self, t: ArrayLike) -> np.ndarray:
         """Body rate at `t`.

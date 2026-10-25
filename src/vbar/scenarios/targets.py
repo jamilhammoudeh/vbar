@@ -42,9 +42,10 @@ def rotation_z(angle: ArrayLike) -> np.ndarray:
     """
     a = np.asarray(angle, dtype=float)
     c, s = np.cos(a), np.sin(a)
-    zero, one = np.zeros_like(c), np.ones_like(c)
-    rows = [[c, -s, zero], [s, c, zero], [zero, zero, one]]
-    return np.stack([np.stack(r, axis=-1) for r in rows], axis=-2)
+    out = np.zeros((*a.shape, 3, 3))
+    out[..., 0, 0], out[..., 0, 1], out[..., 1, 0], out[..., 1, 1] = c, -s, s, c
+    out[..., 2, 2] = 1.0
+    return out
 
 
 def rotation_about(axis: ArrayLike, angle: ArrayLike) -> np.ndarray:

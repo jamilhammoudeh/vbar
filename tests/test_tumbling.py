@@ -206,7 +206,9 @@ def test_the_capture_signal_rate_bound_covers_the_moving_point():
         "hold_time": 30.0,
     }
     signal = hold_signal(goal, SPIN, N)
-    times = np.linspace(0.0, 2000.0, 200001)
+    # 10 ms apart over 1.8 body-rate periods: the body-frame rate, and with it the extremes of the
+    # point's speed and acceleration, repeats every period.
+    times = np.linspace(0.0, 500.0, 50001)
     for point in (body_point(SPIN, (-5.0, 0.0, 0.0), 37.0, N), np.array([0.0, 5.0, 0.0])):
         state = np.r_[point, 0.0, 0.0, 0.0]
         values = signal.margin(np.broadcast_to(state, (len(times), 6)), times)
@@ -291,3 +293,14 @@ def test_a_capture_dwell_after_entering_the_body_is_not_a_success():
     assert ep.terminated and info["dwell_s"] >= 30.0 - 1e-9
     assert info["keep_out_violated"] and not info["success"]
     assert not mission_metrics(ep)["success"]
+
+
+def test_a_second_reset_reports_the_new_episodes_capture_point():
+    # The capture point at a time is kept for the step; a reset draws a new tumble and must not
+    # reuse the last episode's.
+    env = make("tumbling-capture")
+    env.reset(seed=1)
+    _, again = env.reset(seed=2)
+    _, fresh = make("tumbling-capture").reset(seed=2)
+    assert again["dist_to_hold_m"] == fresh["dist_to_hold_m"]
+    assert again["speed_to_capture_mps"] == fresh["speed_to_capture_mps"]

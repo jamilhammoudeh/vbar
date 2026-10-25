@@ -21,7 +21,7 @@ from ..constraints import Constraint
 from ..metrics.settings import MetricSettings
 from .base import StepRecord
 from .scenario import ScenarioEnv, ScenarioParams
-from .targets import Passive, TargetMode, body_point, body_point_velocity
+from .targets import Passive, TargetMode, body_point
 
 
 @dataclass(frozen=True)
@@ -219,11 +219,19 @@ class CaptureEnv(ScenarioEnv):
         tuple of numpy.ndarray
             Position (m) and velocity (m/s), each shape (*t.shape, 3).
         """
-        point = self.params.capture_point
-        return (
-            body_point(self.target, point, t, self.n),
-            body_point_velocity(self.target, point, t, self.n),
-        )
+        # The predicate, the info and the goal distance all ask for the point at the step's end;
+        # the attitude is computed once for it.
+        cached = getattr(self, "_capture_cache", None)
+        if np.ndim(t) == 0 and cached is not None and cached[0] == float(t):
+            return cached[1], cached[2]
+        point = body_point(self.target, self.params.capture_point, t, self.n)
+        velocity = np.cross(self.target.angular_velocity(t, self.n), point)
+        if np.ndim(t) == 0:
+            # Handed out on every later call for this time, so not to be changed in place.
+            point.setflags(write=False)
+            velocity.setflags(write=False)
+            self._capture_cache = (float(t), point, velocity)
+        return point, velocity
 
     def _constraints(self) -> tuple[Constraint, ...]:
         p = self.params
@@ -292,6 +300,8 @@ class CaptureEnv(ScenarioEnv):
         self.held_since: float | None = None
         self.dwell = 0.0
         self.success = False
+        # A new episode may draw a new tumble.
+        self._capture_cache: tuple[float, np.ndarray, np.ndarray] | None = None
         obs, info = super().reset(seed=seed, options=options)
         self.violated = any(self.min_margins[name] < 0.0 for name in self._hard())
         self.violation_steps = int(self.violated)

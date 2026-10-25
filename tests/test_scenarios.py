@@ -201,7 +201,7 @@ def test_the_same_seed_repeats_the_episode_and_other_seeds_differ(name):
         view = env.agent_view()
         return np.array(states), dict(env.draw, constraints=view.constraints, goal=view.goal)
 
-    steps = 5 if name == "docking:lit" else 15
+    steps = 5 if name in ("docking:lit", "tumbling-capture:separatrix") else 15
     first, draw_a = fly(7, steps)
     second, draw_b = fly(7, steps)
     other, draw_c = fly(8, steps)
