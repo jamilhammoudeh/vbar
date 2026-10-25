@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 import pytest
+from scipy.optimize import minimize_scalar
 
 from vbar.constraints import ApproachCone, KeepOut, segment_minimum
 from vbar.dynamics import EARTH, CWDynamics, cw_discrete, cw_stm, mean_motion
@@ -110,6 +111,88 @@ def test_rotating_cone_margin_is_certified_through_a_segment():
     truth = float(np.min(cone.margin(states, 1000.0 + fine)))
     assert found.lower_bound <= truth + 1e-9
     assert found.margin == pytest.approx(truth, abs=1e-3)
+
+
+class _WithoutRotation:
+    """A turning constraint whose rate bound leaves out the target's rotation."""
+
+    def __init__(self, constraint):
+        self.constraint = constraint
+        self.name = constraint.name
+        self.resolution = constraint.resolution
+
+    def margin(self, state, t=0.0):
+        return self.constraint.margin(state, t)
+
+    def rate_bound(self, speed, accel, rho_min=0.0):
+        return speed
+
+
+def _certified_minimum(constraint, start, duration, samples, t0):
+    """The certified minimum of a free-drift segment from `samples` samples."""
+    model = CWDynamics(N)
+    model.reset(start)
+    _, states = model.advance(np.zeros(3), duration, n_samples=samples)
+    tau = np.linspace(0.0, duration, samples)
+    return segment_minimum(constraint, model.state_in_last_segment, tau, states, 0.0, N, t0)
+
+
+def _true_minimum(constraint, start, duration, t0):
+    """The minimum over a free-drift segment: a fine grid, then each of its lowest dips refined."""
+    fine = np.linspace(0.0, duration, 20001)
+    path = np.einsum("tij,j->ti", cw_discrete(N, fine)[0], start)
+    values = constraint.margin(path, t0 + fine)
+    dips = [k for k in range(1, len(fine) - 1) if values[k] <= min(values[k - 1], values[k + 1])]
+    best = float(values.min())
+    for k in sorted(dips, key=lambda k: values[k])[:5]:
+        found = minimize_scalar(
+            lambda tau: float(constraint.margin(cw_stm(N, tau) @ start, t0 + tau)),
+            bounds=(fine[k - 1], fine[k + 1]),
+            method="bounded",
+            options={"xatol": 1e-9},
+        )
+        best = min(best, float(found.fun))
+    return best
+
+
+@pytest.mark.parametrize(
+    "target", [InertialPointing(0.3), Tumbling((0.0, 0.0, 1.0), 0.05)], ids=["inertial", "tumble"]
+)
+def test_turning_cone_certificate_holds_for_a_chaser_crossing_it_at_speed(target):
+    # The docking corridor (apex set back 0.567 m, 50 m active) crossed at 5 cm/s while the
+    # target turns at n or at 0.05 rad/s; 30 s between samples.
+    cone = RotatingCone(math.radians(10.0), (0.0, -1.0, 0.0), (0.0, -2.567, 0.0), 50.567, target, N)
+    start = np.array([-15.0, -30.0, 0.0, 0.05, 0.0, 0.0])
+    truth = _true_minimum(cone, start, 600.0, 1000.0)
+    found = _certified_minimum(cone, start, 600.0, 21, 1000.0)
+    assert found.lower_bound <= truth
+    assert found.margin == pytest.approx(truth, abs=1e-6)
+    if isinstance(target, Tumbling):
+        # Without the rotation term the bound sits above the true minimum: the term is needed.
+        loose = _certified_minimum(_WithoutRotation(cone), start, 600.0, 21, 1000.0)
+        assert loose.lower_bound > truth + 0.5
+
+
+def test_turning_port_keep_out_certificate_needs_the_rotation_term():
+    # A chaser drifting through the reception volume at the port while the body spins at
+    # 0.16 rad/s about a skew axis; the open port turns away and back between the 15 s samples.
+    target = Tumbling((0.07, 0.1, -0.39), 0.16)
+    body = BodyKeepOut(2.0, (0.0, -2.0, 0.0), (0.0, -1.0, 0.0), target, N, 0.1)
+    start = np.array([-0.027, -1.957, -0.146, 0.0011, -0.0025, 0.001])
+    truth = _true_minimum(body, start, 60.0, 0.0)
+    found = _certified_minimum(body, start, 60.0, 5, 0.0)
+    assert truth < 0.0
+    assert found.lower_bound <= truth
+    assert found.margin == pytest.approx(truth, abs=1e-6)
+    loose = _certified_minimum(_WithoutRotation(body), start, 60.0, 5, 0.0)
+    assert loose.lower_bound > truth + 0.02
+    # The same port on an inertially pointing target, crossed at 2 mm/s inside the depth.
+    slow = BodyKeepOut(2.0, (0.0, -2.0, 0.0), (0.0, -1.0, 0.0), InertialPointing(), N, 0.1)
+    crossing = np.array([-0.5, -1.97, 0.0, 0.002, 0.0, 0.0])
+    truth = _true_minimum(slow, crossing, 600.0, 0.0)
+    found = _certified_minimum(slow, crossing, 600.0, 21, 0.0)
+    assert found.lower_bound <= truth
+    assert found.margin == pytest.approx(truth, abs=1e-6)
 
 
 def test_body_keep_out_is_open_at_the_port_and_closed_elsewhere():
