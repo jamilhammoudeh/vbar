@@ -97,6 +97,15 @@ in `x0`, the convex avoid set of eq. 8.29, at `samples` evenly spaced times. It 
 - `clear`: whether `certified` is at least zero. A result says "clear"; the printed alg. 8.4
   returns the opposite flag (true when the set meets the avoid set).
 
+A sample whose search bounds are loose is solved by bounded least squares only while it can still
+set `found` or `certified`: while its search lower bound, less a rounding allowance of
+$4(m + 8)\varepsilon(|c| + \sum_j |g_j|)$ for $m$ generators, is at or below the lowest upper
+bound, or an interval it ends has a lower two-line bound than every interval whose two samples are
+solved or tight. A solve only raises a lower bound and lowers an upper one, so a skipped sample
+can neither take the lowest upper bound, which it exceeds strictly (a tie could move `t` to an
+earlier sample), nor lower `certified`. The results equal those with every loose sample solved,
+bit for bit. `loop_clearance` and `drift_cover` share this rule.
+
 `loop_clearance(loop, x0, w, radius, steps, samples_per_step, actuator=None, order=None)` does the
 same for a `CwLoop` over `steps` held steps, sampling each step from its start to its end. With a
 gain the command is checked on every step's set: if $|K(\hat x - x_{\text{hold}})|$ can exceed the

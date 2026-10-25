@@ -494,10 +494,18 @@ def _nearest(c: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     sets at once, and sets whose bounds still differ by more than 1e-6 of the distance are
     solved again by bounded least squares.
     """
+    lower, upper = _searched(c, g)
+    for i in np.flatnonzero(_loose(lower, upper)):
+        _refine(c, g, lower, upper, i)
+    return lower, upper
+
+
+def _searched(c: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The bounds of `_nearest` from the gradient search alone."""
     count, _, m = g.shape
     if m == 0:
         norm = np.linalg.norm(c, axis=1)
-        return norm, norm
+        return norm, norm.copy()
     step = 1.0 / np.maximum(np.linalg.norm(g, ord=2, axis=(1, 2)) ** 2, 1e-300)
     beta = np.zeros((count, m))
     ahead = beta
@@ -508,14 +516,19 @@ def _nearest(c: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         t_next = 0.5 * (1.0 + math.sqrt(1.0 + 4.0 * t * t))
         ahead = moved + (t - 1.0) / t_next * (moved - beta)
         beta, t = moved, t_next
-    lower, upper = _bounds_at(c, g, beta)
-    loose = upper - lower > _NEAREST_TOL * np.maximum(upper, 1.0)
-    for i in np.flatnonzero(loose):
-        exact = np.clip(lsq_linear(g[i], -c[i], bounds=(-1.0, 1.0), method="bvls").x, -1.0, 1.0)
-        low, up = _bounds_at(c[i : i + 1], g[i : i + 1], exact[None])
-        lower[i] = max(lower[i], low[0])
-        upper[i] = min(upper[i], up[0])
-    return lower, upper
+    return _bounds_at(c, g, beta)
+
+
+def _loose(lower: np.ndarray, upper: np.ndarray) -> np.ndarray:
+    return upper - lower > _NEAREST_TOL * np.maximum(upper, 1.0)
+
+
+def _refine(c: np.ndarray, g: np.ndarray, lower: np.ndarray, upper: np.ndarray, i: int) -> None:
+    """Tighten the bounds of set `i` in place by bounded least squares."""
+    exact = np.clip(lsq_linear(g[i], -c[i], bounds=(-1.0, 1.0), method="bvls").x, -1.0, 1.0)
+    low, up = _bounds_at(c[i : i + 1], g[i : i + 1], exact[None])
+    lower[i] = max(lower[i], low[0])
+    upper[i] = min(upper[i], up[0])
 
 
 def _bounds_at(c: np.ndarray, g: np.ndarray, beta: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -584,13 +597,45 @@ def _sample_bounds(
 
     The sets are states c_i + G_i beta at consecutive samples `h` s apart, `c` (s, 6) and `g`
     (s, 6, m); `thrust` bounds the thrust (m/s^2) over every interval, or over each, (s - 1,).
+
+    The lowest upper margin, its first index and the certified margin equal those of `_nearest`
+    on every sample. A loose sample is solved by bounded least squares only while it can still
+    set one of them: while its search lower bound, less the rounding of both bounds, is at or
+    below the lowest upper margin, or an interval it ends has a lower two-line bound than every
+    interval between solved or tight samples. A solve only raises a lower bound and lowers an
+    upper one, so a skipped sample can neither take the lowest upper margin, which it exceeds
+    strictly, nor lower the certified one. Skipped samples keep their search bounds, which hold.
     """
-    lower, upper = _nearest(np.ascontiguousarray(c[:, :3]), np.ascontiguousarray(g[:, :3]))
+    position, spread = np.ascontiguousarray(c[:, :3]), np.ascontiguousarray(g[:, :3])
+    lower, upper = _searched(position, spread)
     largest = np.zeros((c.shape[0], 6))
     largest[:, 0] = _largest_norms(c[:, :3], g[:, :3])
     largest[:, 3] = _largest_norms(c[:, 3:], g[:, 3:])
     # interval_bounds reads only the norms of the sample states, here the largest of each set.
     speed, _ = interval_bounds(largest, h, thrust, n)
+    pending = _loose(lower, upper)
+    # lam . c - sum_j |lam . g_j| and the norm of a point of the set are each computed within
+    # (m + 5) eps of |c| + sum_j |g_j| (Higham, Accuracy and Stability of Numerical Algorithms,
+    # sec. 3.1), so a solve cannot bring an upper bound below the search lower bound less this.
+    rounding = 4.0 * (g.shape[2] + 8) * np.finfo(float).eps * largest[:, 0]
+    floor = (lower - rounding) - radius
+    while np.any(pending):
+        low = lower - radius
+        lines = 0.5 * (low[:-1] + low[1:] - speed * h)
+        unsolved = pending[:-1] | pending[1:]
+        settled = np.min(lines[~unsolved], initial=math.inf)
+        # A tie with the lowest upper margin could move its first index, so a sample is skipped
+        # only when strictly above it; the certified margin is a value, and a tie leaves it.
+        needed = pending & (floor <= np.min(upper - radius))
+        below = unsolved & (lines < settled)
+        needed[:-1] |= below & pending[:-1]
+        needed[1:] |= below & pending[1:]
+        if not np.any(needed):
+            break
+        candidates = np.flatnonzero(needed)
+        i = int(candidates[np.argmin(lower[candidates])])
+        _refine(position, spread, lower, upper, i)
+        pending[i] = False
     lower, upper = lower - radius, upper - radius
     # The nearest distance to the ball changes no faster than the fastest trajectory.
     certified = float(np.min(0.5 * (lower[:-1] + lower[1:] - speed * h)))
