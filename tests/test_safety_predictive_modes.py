@@ -31,6 +31,7 @@ and one drift step later it is -0.0727 m (first estimated as a 0.068 m shortfall
 terminal margin at x is -1 mm, the value for a drift that reaches no terminal state.
 """
 
+import copy
 import dataclasses
 import math
 
@@ -373,3 +374,32 @@ def test_soft_mode_never_reports_a_solver_status(monkeypatch, status, start):
     result = filt.filter(start.copy(), toward_target(start))
     assert result.status == "feasible" and result.proof is None
     assert result.recovering is (not filt.contains(start))
+
+
+@pytest.mark.parametrize("trials", [1, pytest.param(64, marks=pytest.mark.slow)])
+def test_predictive_solve_converges_when_the_reference_touches_a_keep_out_row(monkeypatch, trials):
+    # At the sixth flyby decision the shifted certified plan brakes at a corner of the input box
+    # that a keep-out row passes through, and that corner is the stage's only plan; a 1-ulp
+    # change of the state must not decide whether the program is feasible.
+    terminal = ready(PredictiveFilter())
+    x = X0.copy()
+    for _ in range(FLYBY_DECISIONS - 1):
+        hard = terminal.filter(x.copy(), toward_target(x).copy())
+        x = PHI @ x + GAMMA @ (np.asarray(hard.action, dtype=float) * A_MAX)
+    action = toward_target(x)
+    statuses = []
+    solve = predictive_module.solve_horizon
+
+    def record(qp, *args, **kwargs):
+        solution = solve(qp, *args, **kwargs)
+        statuses.append(solution.status)
+        return solution
+
+    monkeypatch.setattr(predictive_module, "solve_horizon", record)
+    rng = np.random.default_rng(2)
+    for _ in range(trials):
+        x_ulp = x + rng.integers(-1, 2, 6) * np.spacing(x)
+        # A shallow copy holds the plan certified at the fifth decision, which the filter
+        # rebinds rather than edits.
+        copy.copy(terminal).filter(x_ulp, action.copy())
+    assert statuses == ["converged"] * trials

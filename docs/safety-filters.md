@@ -1029,16 +1029,19 @@ most intervening solves end without a plan.
   each step ($m$ = `row_samples`; sample 0 is the previous step's last), with $r'$ the reference
   position there and $\hat n = r'/|r'|$:
   $$
-  \hat n \cdot r(t_j) \ge \min(R + b,\ |r'|), \qquad
+  \hat n \cdot r(t_j) \ge \min\bigl(R + b,\ (1 - 10^{-9})\,|r'|\bigr), \qquad
   b = \frac{(v h)^2}{8R} + \frac{a_r h^2}{8},
   $$
   with $v = |v'| + a_{\text{reach}} \Delta t$, $a_r = a_{\text{reach}} + 3 n^2 |r'| + 2 n v$ and
   $a_{\text{reach}} = \sqrt3\,a_{\max}$ (box) or $a_{\max}$ (ball). $b$ covers the dip of the path
   below the chord between samples whose range is at least $R + b$. When the reference is a
   certified plan (the shifted plan after a certified decision, or zero thrust with
-  $h_p(x) \ge 0$) and closer than $R + b$, the row passes through it, so the reference meets its
-  rows. Any other reference, from a state outside the set, gets $R + b$: a row through a reference
-  that drifts into the keep-out would admit plans that follow it.
+  $h_p(x) \ge 0$) and closer than $R + b$, the row passes $10^{-9}|r'|$ below it, so the reference
+  meets its rows whatever the rounding. A row through it would not do: where the reference brakes
+  at the corner of the box that the row favours, that corner is the stage's only plan, and
+  rounding decides whether the program is feasible. Any other reference, from a state outside the
+  set, gets $R + b$: a row through a reference that drifts into the keep-out would admit plans
+  that follow it.
 - **Terminal rows** on $x_N$. When the reference ends in the far part of the terminal set
   ($x_c y_c \le 0$ and $|y_c| - 2b - R \ge 0$, notation of the free-drift section), five rows keep
   it there: $-s\,x_c \ge 1$ mm and $s\,y_c - 2(\pm p \pm q) \ge R + 1$ mm, with $s$ the sign of the

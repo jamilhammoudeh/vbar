@@ -52,6 +52,11 @@ _STEP_TOL = 1e-9
 # Margin of the far-part terminal rows (m): it keeps the plan's end state receding, where a
 # centre standing still on its threshold would let rounding decide membership.
 _FAR_MARGIN = KeepOut.resolution
+# A keep-out row through a certified reference sits this fraction of its range below it. On the
+# row itself the reference meets it only to rounding, and where the reference brakes at the
+# corner of the box the row favours, that corner is the stage's only plan: rounding then decides
+# whether the program is feasible at all, and the solver's convergence with it.
+_BELOW_REFERENCE = 1e-9
 # Fraction of the input box's half-width the warm start is held within.
 _WARM_INSIDE = 0.99
 # Weights of the soft program's keep-out and terminal slacks, per metre of enlargement. An exact
@@ -142,11 +147,12 @@ class PredictiveFilter(_HeldCommandFilter):
     negligible amount; without it, rows on states that no cost reaches never settle as inactive
     in the solver's complementarity test. The reference is the previous plan shifted by one
     step, or zero thrust without one. The keep-out rows are its tangent planes
-    n . r >= min(R + b, |r'|) at `row_samples` times in each step; b covers the dip of the path
-    between samples, (v h)^2 / (8 R) + a h^2 / 8 with v and a bounds on the speed and
-    acceleration near the reference. The minimum with |r'|, which keeps the reference feasible,
-    is taken only for a certified reference: the shifted plan after a certified decision, or
-    zero thrust with h_p >= 0; any other reference gets R + b. A reference that ends in the far
+    n . r >= min(R + b, (1 - 1e-9) |r'|) at `row_samples` times in each step; b covers the dip of
+    the path between samples, (v h)^2 / (8 R) + a h^2 / 8 with v and a bounds on the speed and
+    acceleration near the reference. The minimum with (1 - 1e-9) |r'|, which keeps the reference
+    strictly feasible whatever the rounding, is taken only for a certified reference: the
+    shifted plan after a certified decision, or zero thrust with h_p >= 0; any other reference
+    gets R + b. A reference that ends in the far
     part of the terminal set is kept there by its polyhedral inner bound: y_c receding by 1 mm
     and |y_c| - 2 (|p| + |q|) >= R + 1 mm, with x_c, y_c and the in-plane ellipse vector (p, q) of
     `PassiveBarrier`. Any other end state gets h_p linearized by the envelope gradient of
@@ -754,8 +760,8 @@ class PredictiveFilter(_HeldCommandFilter):
     ) -> StageQP:
         """The horizon program from `x`, linearized around the plan `reference` (N, 3).
 
-        The keep-out rows pass through a reference closer than R + b only when `certified`
-        says the reference is a certified plan, which they then keep feasible.
+        The keep-out rows pass just below a reference closer than R + b only when `certified`
+        says the reference is a certified plan, which they then keep strictly feasible.
         """
         steps, n, radius = self.horizon, self._n, self._radius
         ref_x = self._rollout(x, reference)
@@ -779,7 +785,11 @@ class PredictiveFilter(_HeldCommandFilter):
             axis=-1,
         )
         keep_bound = np.where(
-            through, -1.0, np.minimum(radius + buffer, rho) if certified else radius + buffer
+            through,
+            -1.0,
+            np.minimum(radius + buffer, (1.0 - _BELOW_REFERENCE) * rho)
+            if certified
+            else radius + buffer,
         )
         terminal, terminal_bound = self._terminal_rows(ref_x[-1])
         if self._errors is not None:
