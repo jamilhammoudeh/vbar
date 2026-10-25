@@ -4,7 +4,8 @@ Code: `vbar.safety.projections` (`halfspace`, `box`, `ball`, `second_order_cone`
 `keep_out_projection`, `KeepOutProjection`) and `vbar.safety.tightening` (`BoxError`, `BallError`,
 `EllipsoidError`, `halfspace_margin`, `chance_margin`, `keep_out_margin`, `error_zonotope`,
 `ecbf_bias`, `first_order_bias`, `box_hull`, `tube_margin`, `delay_margin`, `per_draw_sigma`,
-`scenario_sample_count`, `scenario_margin`), `vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`,
+`scenario_sample_count`, `scenario_margin`, `declared_errors`, `episode_draws`),
+`vbar.safety.barriers` (`KeepOutEcbf`, `SpeedCbf`,
 `ClosingSpeedCbf`, `ConeEcbf`, `PassiveBarrier`, `CamBarrier`, `BrakingBarrier`,
 `braking_deceleration`),
 `vbar.safety.sampled` (`held_segment_bound`, `line_search`, `LineSearch`), `vbar.safety.cbf`
@@ -1321,6 +1322,146 @@ for _ in range(4):
 # 0 nominal [0.02   0.0197 0.    ]
 print(round(float(np.linalg.norm(x[:3])), 1))  # 58.5
 ```
+
+## Declared error sets
+
+`vbar.safety.tightening.declared_errors(sensor, execution, a_max=..., layout=..., level=b)` returns
+the navigation set and the execution bound a filter declares for error models truncated at $b$
+sigma, and `episode_draws(sensor, execution, steps=T)` counts the Gaussian draws $D$ that $b$ has
+to cover. Both read the parameters of the models only (the noise and bias sigmas, the scale,
+noise and misalignment parameters and $b$), never a draw or the true state, so the sets are the
+same for every episode seed.
+
+### Truncation level
+
+A model built with `bound=b` draws every standard normal again while it lies outside $\pm b$
+(`vbar.spacecraft.bounded_normal`), so its errors are bounded. An episode with $D$ independent
+draws leaves the truncation with probability $1 - (1 - q)^D$, $q = 2\Phi(-b)$ the tail of one
+draw, and `vbar.scenarios.per_draw_level(p, D)` returns the $b$ that makes this the episode-level
+exceedance $p$ (Kochenderfer, Katz, Corso and Moss, *Algorithms for Validation*, sec. 8.1). The
+count is
+
+$$
+D = T\,\bigl(3[\sigma_{\text{pos}} \ne 0] + 3[\sigma_{\text{vel}} \ne 0]
++ 3[\sigma_w \ne 0] + [\sigma_s \ne 0]\bigr)
++ 3[\beta_{\text{pos}} \ne 0] + 3[\beta_{\text{vel}} \ne 0]
+$$
+
+for $T$ decisions: three noise draws per sensor sigma and decision, the three components of the
+burn noise $w$ and the scale draw per burn, and the sensor bias once per episode. The `:nav1`
+sensor over 360 decisions makes 2160 draws and the burn noise alone 1080, which at
+$p = 10^{-3}$ need $b$ = 5.04 and 4.91. A coast draws no execution error, so for an episode that
+coasts $D$ is an upper bound and $b$ errs on the large side.
+
+### Navigation box
+
+`GaussianNav` truncates each noise draw and each bias draw per Hill axis, so the error on an axis
+never exceeds $b(\sigma + \beta)$, $\beta$ the bias sigma:
+
+$$
+E = \texttt{BoxError}\bigl(r_{\text{pos}} = b(\sigma_{\text{pos}} + \beta_{\text{pos}}),\;
+r_{\text{vel}} = b(\sigma_{\text{vel}} + \beta_{\text{vel}})\bigr).
+$$
+
+The box is the smallest set that holds every truncated error: noise and bias near their bounds
+come arbitrarily close to its corners. `PerfectNav` and no sensor give None. `RangeScaledNav`, which truncates the
+norm of each draw in a frame that turns with the line of sight, and `GaussMarkovNav`, which has no
+truncation, have no declared set here and raise `TypeError`.
+
+### Execution ball
+
+A burn delivers $R\,(c(1 + \delta) + w)$ for the command $c$, in fractions of $a_{\max}$
+(`ExecutionError`). Its error $(R - I)c + R c\,\delta + R w$ is bounded term by term: a rotation
+by $\theta = |\text{misalignment}|$ moves $c$ by $2 \sin(\theta/2)\,|c|$, the truncated scale draw
+gives $|\delta| \le |\delta_0| + b\sigma_s$, and the three noise components, each truncated at
+$b\sigma_w$, give $|w| \le \sqrt3\, b\sigma_w$. The spacecraft limits $c$ to its layout before
+the error acts, so $|c| \le s$ with $s = \sqrt3$ for the box and 1 for the ball, and
+
+$$
+\delta a_{\max} = a_{\max}\Bigl[s\bigl(|\delta_0| + b\sigma_s + 2\sin(\theta/2)\bigr)
++ \sqrt3\, b\sigma_w\Bigr],
+$$
+
+the radius of a ball of accelerations (m/s$^2$) that holds every delivered error. It is the value
+the filters take as `execution`. Without an execution model it is 0.
+
+### What each filter claims
+
+The filters take the sets as `navigation` and `execution`, and the truncation they come from as
+`exceedance=p` and `per_draw_level=b`, which `FilterDeclaration` reports under the same names (None
+by default). A value of $p$ outside $(0, 1)$ or a $b$ that is not finite and positive raises
+`ValueError`. The two values change no check: each filter decides on its sets alone.
+
+| Filter | Under navigation error | Under execution error |
+|---|---|---|
+| `BackupFilter(barrier="passive")`, free drift | "bounded-W" up to `t_cap` | "bounded-W" up to `t_cap` |
+| `BackupFilter(barrier="braking")` | "bounded-W", horizon inf | "bounded-W", horizon inf |
+| `PredictiveFilter(mode="terminal")` | "bounded-W" up to $4\pi/n$, open loop ($K = 0$) | "bounded-W" up to $4\pi/n$, open loop ($K = 0$) |
+| `CbfFilter` | no claim under navigation error: a set raises `ValueError` | buffer raised and speed rows lowered for $\delta a_{\max}$; no certificate, judged by the audit |
+| `BackupFilter(barrier="cam")` | no claim under errors: error sets raise `ValueError` | no claim under errors |
+
+The sets hold for models truncated at $b$. With the untruncated models every draw of an episode
+stays within $b$ with probability $1 - p$, so a filter given these sets is judged there by its
+rate of violating episodes against $p$, never by a claim of zero.
+
+### Start set
+
+The audit draws the true start $x$, and the filter first sees an estimate $\hat x = x + e$ with
+$e \in E$. `contains_start(x)` is True when every such estimate lies in the declared set. For the
+free-drift and predictive filters the set of an estimate, $\hat x + Z_E$, lies in $x + 2Z_E$, so
+`contains_start(x)` is the drift clearance of $x + 2Z_E$. For the braking filter, with $g_r$ and
+$g_v$ the largest position and velocity errors in $E$, it needs $\rho + g_r \le \rho_{\text{cap}}$,
+$|v| + g_v \le v_{\text{cap}}$ and the lower bound on $h_b$ over states within $g_r$ and $g_v$ of
+$x$ that the end-of-step check uses, $\rho - g_r - R - c^2 / (2a_b)$ with the closing speed $c$
+raised by $g_v + 2 g_r (|v| + g_v) / \rho$, to be nonnegative. Without a navigation set it is
+`contains(x)`. Before `reset` it raises `RuntimeError`.
+
+```python
+import numpy as np
+
+from vbar import ApproachConfig, ApproachEnv
+from vbar.safety.cbf import BackupFilter
+from vbar.safety.tightening import declared_errors, episode_draws
+from vbar.scenarios import per_draw_level
+from vbar.spacecraft import ExecutionError, GaussianNav
+
+p, steps = 1e-3, 360  # episode-level exceedance, decisions per episode
+burn = {"scale_sigma": 0.01, "noise_sigma": 0.005}  # a test setting, not a thruster model
+b = per_draw_level(p, episode_draws(GaussianNav(), ExecutionError(**burn), steps=steps))
+sensor = GaussianNav(bound=b)  # :nav1 truncated at b sigma
+execution = ExecutionError(bound=b, **burn)
+start = np.array([0.0, -300.0, 0.0, 0.0, 0.0, 0.0])  # m and m/s
+config = ApproachConfig(
+    action_mode="accel", sensor=sensor, execution=execution, start_state=tuple(start)
+)
+view = ApproachEnv(config).agent_view()
+navigation, da_max = declared_errors(
+    sensor, execution, a_max=view.max_accel, layout=view.thrust_limit, level=b
+)
+print(round(b, 3), round(navigation.r_pos, 3), f"{da_max:.3g}")  # 5.138 5.138 0.00267
+braking = BackupFilter(
+    barrier="braking", navigation=navigation, execution=da_max, exceedance=p, per_draw_level=b
+)
+braking.reset(view)
+declaration = braking.declaration
+print(declaration.exceedance, round(declaration.per_draw_level, 3))  # 0.001 5.138
+print(declaration.certificate, braking.contains_start(start))  # bounded-W True
+```
+
+### Assumptions and limits
+
+- The execution ball holds for the "accel" drive. Under the "thrust" drive the delivered
+  acceleration grows as the mass falls, which the ball does not cover, and a command dropped by
+  the minimum impulse bit is an error of the whole command.
+- `episode_draws` counts one burn per decision, as the spacecraft draws one execution error per
+  issued command; a delay moves the burns but does not add any.
+- The clearance of each estimate's own set is computed separately from that of $x + 2Z_E$, and
+  both are certified lower bounds, so the two agree to the tolerance of the nearest-point search
+  of `vbar.reach.drift_clearance` (1e-6 of the range); a start whose clearance lies within it of 0
+  may pass `contains_start` while an estimate fails `contains`.
+- The sets bound one decision's errors; how a filter carries them over its horizon is its own
+  (free drift and the predictive plan open loop, the braking check by range and closing speed
+  bounds).
 
 ## Corridor monitor and CAM rates
 

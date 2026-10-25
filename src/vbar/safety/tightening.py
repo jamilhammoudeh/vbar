@@ -21,6 +21,7 @@ import numpy as np
 from scipy.stats import chi2, norm
 
 from ..reach import LinearLoop, Zonotope, cw_loop, support
+from ..spacecraft import ExecutionError, GaussianNav, PerfectNav
 
 # A covariance may be asymmetric or have negative eigenvalues by this fraction of its largest
 # entry, the rounding of a propagated covariance; beyond it the matrix is refused.
@@ -578,6 +579,128 @@ def per_draw_sigma(eps: float, draws: int) -> float:
     eps = _probability(eps, "eps")
     draws = _count(draws, "draws")
     return float(norm.isf(eps / (2 * draws)))
+
+
+def declared_errors(
+    sensor: GaussianNav | PerfectNav | None,
+    execution: ExecutionError | None,
+    *,
+    a_max: float,
+    layout: str,
+    level: float,
+) -> tuple[BoxError | None, float]:
+    """Return the navigation box and the execution bound of error models truncated at `level`.
+
+    Parameters
+    ----------
+    sensor : GaussianNav, PerfectNav or None
+        The navigation model; its noise and bias sigmas set the box.
+    execution : ExecutionError or None
+        The thrust execution model; its scale, noise and misalignment parameters set the bound.
+    a_max : float
+        The thrust limit per axis (box) or in norm (ball), m/s^2, positive.
+    layout : str
+        The thruster layout, "box" or "ball".
+    level : float
+        The truncation level b of every Gaussian draw of both models, in sigma, finite and
+        positive; `vbar.scenarios.per_draw_level` gives it for an episode-level exceedance.
+
+    Returns
+    -------
+    navigation : BoxError or None
+        BoxError(r_pos=b (sigma_pos + bias_pos), r_vel=b (sigma_vel + bias_vel)), m and m/s.
+        `GaussianNav` truncates each noise and each bias draw per axis at b, so the error on an
+        axis never exceeds this. None for no sensor or `PerfectNav`.
+    da_max : float
+        The largest norm of the delivered minus the commanded acceleration of a burn, m/s^2:
+        a_max [s (|scale_bias| + b scale_sigma + 2 sin(theta / 2)) + sqrt(3) b noise_sigma],
+        theta the angle of `misalignment` and s the longest command, sqrt(3) for the box and 1
+        for the ball. 0 without an execution model.
+
+    Raises
+    ------
+    ValueError
+        If `a_max` or `level` is not finite and positive or `layout` is unknown.
+    TypeError
+        If `sensor` or `execution` is not one of the models above.
+
+    Notes
+    -----
+    A burn delivers R (c (1 + delta) + w) for the command c (`ExecutionError`), so its error is
+    (R - I) c + R c delta + R w. A rotation by theta moves c by 2 sin(theta / 2) |c|, the scale
+    draw is truncated to |delta| <= |scale_bias| + b scale_sigma, and the three noise
+    components each to b noise_sigma, so |w| <= sqrt(3) b noise_sigma; the spacecraft limits c
+    to the layout before the error acts, so |c| <= s. The sets come from the model parameters
+    and `level` alone, never from a draw. They bound the errors of models truncated at
+    `level`; an untruncated model leaves them with the probability that a draw exceeds it.
+    """
+    a_max = _positive(a_max, "a_max")
+    level = _positive(level, "level")
+    if layout not in ("box", "ball"):
+        raise ValueError(f"unknown layout {layout!r}, expected box or ball")
+    navigation = None
+    if isinstance(sensor, GaussianNav):
+        r_pos, r_vel = level * (sensor.sigma[[0, 3]] + sensor.bias_sigma[[0, 3]])
+        navigation = BoxError(r_pos=float(r_pos), r_vel=float(r_vel))
+    elif sensor is not None and not isinstance(sensor, PerfectNav):
+        raise TypeError(f"no declared error set for sensor {type(sensor).__name__}")
+    if execution is None:
+        return navigation, 0.0
+    if not isinstance(execution, ExecutionError):
+        raise TypeError(f"no declared error set for {type(execution).__name__}")
+    longest = math.sqrt(3.0) if layout == "box" else 1.0
+    theta = float(np.linalg.norm(execution.misalignment))
+    # A negative sigma draws the same law as its magnitude.
+    scale = abs(execution.scale_bias) + level * abs(execution.scale_sigma)
+    da_max = a_max * (
+        longest * (scale + 2.0 * math.sin(0.5 * theta))
+        + math.sqrt(3.0) * level * abs(execution.noise_sigma)
+    )
+    return navigation, da_max
+
+
+def episode_draws(
+    sensor: GaussianNav | PerfectNav | None, execution: ExecutionError | None, *, steps: int
+) -> int:
+    """Return the number of Gaussian draws with a nonzero sigma in an episode.
+
+    Parameters
+    ----------
+    sensor : GaussianNav, PerfectNav or None
+        The navigation model.
+    execution : ExecutionError or None
+        The thrust execution model.
+    steps : int
+        The number of decisions of the episode, at least 1.
+
+    Returns
+    -------
+    int
+        The count D that `vbar.scenarios.per_draw_level` takes: per decision three for each
+        nonzero noise sigma of the sensor, three for a nonzero `noise_sigma` and one for a
+        nonzero `scale_sigma`; once per episode three for each nonzero bias sigma. A coast draws
+        no execution error, so for an episode that coasts the count is an upper bound, and the
+        level it gives is conservative.
+
+    Raises
+    ------
+    ValueError
+        If `steps` is less than 1.
+    TypeError
+        If `steps` is not an integer, or `sensor` or `execution` is not one of the models above.
+    """
+    steps = _count(steps, "steps")
+    per_step, once = 0, 0
+    if isinstance(sensor, GaussianNav):
+        per_step += 3 * int(np.count_nonzero(sensor.sigma[[0, 3]]))
+        once += 3 * int(np.count_nonzero(sensor.bias_sigma[[0, 3]]))
+    elif sensor is not None and not isinstance(sensor, PerfectNav):
+        raise TypeError(f"no draw count for sensor {type(sensor).__name__}")
+    if execution is not None:
+        if not isinstance(execution, ExecutionError):
+            raise TypeError(f"no draw count for {type(execution).__name__}")
+        per_step += 3 * (execution.noise_sigma != 0.0) + (execution.scale_sigma != 0.0)
+    return steps * per_step + once
 
 
 def scenario_sample_count(*, eps: float, beta: float, n_theta: int = 1) -> int:

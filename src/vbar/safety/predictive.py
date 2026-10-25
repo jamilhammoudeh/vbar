@@ -126,6 +126,12 @@ class PredictiveFilter(_HeldCommandFilter):
     grid : float
         Spacing of the free-drift samples, s, positive; shortened to dt / k for the smallest
         whole k that reaches it, except under error sets.
+    exceedance : float, optional
+        The episode-level probability, in (0, 1), that the untruncated error models leave the
+        truncation the error sets were derived from; reported in the declaration only.
+    per_draw_level : float, optional
+        The truncation level of each Gaussian draw of those models, in sigma, finite and
+        positive; reported in the declaration only.
     ignore : sequence of str
         Constraint types of the scenario not to enforce; any other type than keep_out makes
         reset raise, since the free drift may leave it.
@@ -243,9 +249,17 @@ class PredictiveFilter(_HeldCommandFilter):
         navigation: ErrorSet | None = None,
         execution: float = 0.0,
         grid: float = 5.0,
+        exceedance: float | None = None,
+        per_draw_level: float | None = None,
         ignore=(),
     ) -> None:
-        super().__init__(execution=execution, model_error=None, ignore=ignore)
+        super().__init__(
+            execution=execution,
+            model_error=None,
+            ignore=ignore,
+            exceedance=exceedance,
+            per_draw_level=per_draw_level,
+        )
         if navigation is not None and not isinstance(
             navigation, (BoxError, BallError, EllipsoidError)
         ):
@@ -425,6 +439,8 @@ class PredictiveFilter(_HeldCommandFilter):
             certificate=self._kind,
             counts_toward_certification=self.mode == "terminal",
             ignored=self.ignore,
+            exceedance=self.exceedance,
+            per_draw_level=self.per_draw_level,
         )
 
     @property
@@ -498,6 +514,25 @@ class PredictiveFilter(_HeldCommandFilter):
         if self._errors is not None:
             return self._clearance(x, self._navigation_set) >= 0.0
         return self._declared.contains(x)
+
+    def contains_start(self, x) -> bool:
+        """Return whether every estimate x + e, e in the navigation set, lies in the set.
+
+        A start the audit draws for the true state `x` (m, m/s) passes when the filter's first
+        estimate is in its declared set whatever the navigation error. Every estimate's set
+        x + e + Z_E lies in x + 2 Z_E, so this is the drift clearance of x + 2 Z_E; without a
+        navigation set it is `contains(x)`.
+
+        Raises
+        ------
+        RuntimeError
+            Before the first `reset`.
+        """
+        self._started()
+        x = np.asarray(x, dtype=float)
+        if self.navigation is None:
+            return self.contains(x)
+        return self._clearance(x, 2.0 * self._navigation_set) >= 0.0
 
     def _clearance(self, x: np.ndarray, generators: np.ndarray) -> float:
         """The certified free-drift clearance up to t_cap of every state in x + G beta, m."""

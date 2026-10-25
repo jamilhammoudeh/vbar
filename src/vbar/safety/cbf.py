@@ -100,6 +100,19 @@ def _nonnegative(value: float, name: str) -> float:
     return value
 
 
+def _exceedance(value: float | None) -> float | None:
+    if value is None:
+        return None
+    value = float(value)
+    if not 0.0 < value < 1.0:
+        raise ValueError("exceedance must be in (0, 1)")
+    return value
+
+
+def _draw_level(value: float | None) -> float | None:
+    return None if value is None else _positive(value, "per_draw_level")
+
+
 def _pole_pair(poles) -> tuple[float, float]:
     values = tuple(poles)
     if len(values) != 2 or any(np.iscomplexobj(p) for p in values):
@@ -173,11 +186,19 @@ class FilterDeclaration:
         Whether the filter's runs may be counted as certified results.
     ignored : tuple of str
         Constraint types of the scenario the filter was told not to enforce.
+    exceedance : float or None
+        The episode-level probability p, in (0, 1), that the untruncated error models leave
+        the truncation the declared sets were derived from; None when no truncation is
+        declared.
+    per_draw_level : float or None
+        The truncation level b of each Gaussian draw of those models, in sigma, finite and
+        positive; None when no truncation is declared.
 
     Raises
     ------
     ValueError
-        If `certificate` is neither None nor one of `CERTIFICATE_KINDS`.
+        If `certificate` is neither None nor one of `CERTIFICATE_KINDS`, `exceedance` is
+        outside (0, 1) or `per_draw_level` is not finite and positive.
     """
 
     name: str
@@ -194,6 +215,8 @@ class FilterDeclaration:
     certificate: str | None
     counts_toward_certification: bool
     ignored: tuple[str, ...] = ()
+    exceedance: float | None = None
+    per_draw_level: float | None = None
 
     def __post_init__(self):
         if self.certificate is not None and (
@@ -203,6 +226,8 @@ class FilterDeclaration:
                 f"unknown certificate {self.certificate!r}, expected {CERTIFICATE_KINDS}"
             )
         object.__setattr__(self, "tightening", MappingProxyType(dict(self.tightening)))
+        object.__setattr__(self, "exceedance", _exceedance(self.exceedance))
+        object.__setattr__(self, "per_draw_level", _draw_level(self.per_draw_level))
 
 
 class _HeldCommandFilter:
@@ -213,9 +238,19 @@ class _HeldCommandFilter:
     # A filter that predicts the state through the echoed commands checks the slots itself.
     _pending_allowed = False
 
-    def __init__(self, *, execution: float, model_error: float | None, ignore) -> None:
+    def __init__(
+        self,
+        *,
+        execution: float,
+        model_error: float | None,
+        ignore,
+        exceedance: float | None = None,
+        per_draw_level: float | None = None,
+    ) -> None:
         self.execution = _nonnegative(execution, "execution")
         self.model_error = None if model_error is None else _nonnegative(model_error, "model_error")
+        self.exceedance = _exceedance(exceedance)
+        self.per_draw_level = _draw_level(per_draw_level)
         ignored = tuple(ignore)
         if not all(isinstance(kind, str) for kind in ignored):
             raise ValueError("ignore must list constraint type names")
@@ -336,6 +371,12 @@ class CbfFilter(_HeldCommandFilter):
     navigation : None
         Navigation error sets are not supported by this filter (its rows are nonlinear in the
         state); anything but None raises.
+    exceedance : float, optional
+        The episode-level probability, in (0, 1), that the untruncated error models leave the
+        truncation `execution` was derived from; reported in the declaration only.
+    per_draw_level : float, optional
+        The truncation level of each Gaussian draw of those models, in sigma, finite and
+        positive; reported in the declaration only.
     ignore : sequence of str
         Constraint types of the scenario not to enforce; every other type except keep_out,
         speed_limit, closing_speed_limit and approach_cone makes reset raise.
@@ -395,11 +436,19 @@ class CbfFilter(_HeldCommandFilter):
         execution: float = 0.0,
         model_error: float | None = None,
         navigation: ErrorSet | None = None,
+        exceedance: float | None = None,
+        per_draw_level: float | None = None,
         ignore=(),
     ) -> None:
         if navigation is not None:
             raise ValueError("CbfFilter does not tighten for navigation error; use BackupFilter")
-        super().__init__(execution=execution, model_error=model_error, ignore=ignore)
+        super().__init__(
+            execution=execution,
+            model_error=model_error,
+            ignore=ignore,
+            exceedance=exceedance,
+            per_draw_level=per_draw_level,
+        )
         self.poles = _pole_pair(poles)
         self.gamma = _positive(gamma, "gamma")
         self.v_cap = _positive(v_cap, "v_cap")
@@ -488,6 +537,8 @@ class CbfFilter(_HeldCommandFilter):
             certificate=None,
             counts_toward_certification=self._counts and not cone_rows,
             ignored=self.ignore,
+            exceedance=self.exceedance,
+            per_draw_level=self.per_draw_level,
         )
 
     def _lowered(
@@ -531,6 +582,18 @@ class CbfFilter(_HeldCommandFilter):
                 return False
         budget = (2.0 * max(self.poles) + self._v1) * _SPEED_OVERSHOOT * self.v_cap + self.da_max
         return float(np.linalg.norm(_a_cw(x, self._n))) + budget <= self._actuator.a_max
+
+    def contains_start(self, x) -> bool:
+        """Return whether every estimate of the true Hill-frame state `x` lies in the safe set.
+
+        The filter declares no navigation set, so the estimate is `x` and this is `contains`.
+
+        Raises
+        ------
+        RuntimeError
+            Before the first `reset`.
+        """
+        return self.contains(x)
 
     def _rows(self, x: np.ndarray) -> Rows:
         a_cw = _a_cw(x, self._n)
@@ -836,7 +899,7 @@ class SoftCbfFilter(CbfFilter):
     alpha : float
         The penalty weight on each row's violation, m/s^2, positive. Above the sum of the hard
         projection's multipliers the filter returns the hard projection whenever it exists.
-    poles, gamma, v_cap, execution, model_error, navigation, ignore
+    poles, gamma, v_cap, execution, model_error, navigation, exceedance, per_draw_level, ignore
         As for `CbfFilter`.
 
     Raises
@@ -869,6 +932,8 @@ class SoftCbfFilter(CbfFilter):
         execution: float = 0.0,
         model_error: float | None = None,
         navigation: ErrorSet | None = None,
+        exceedance: float | None = None,
+        per_draw_level: float | None = None,
         ignore=(),
     ) -> None:
         super().__init__(
@@ -878,6 +943,8 @@ class SoftCbfFilter(CbfFilter):
             execution=execution,
             model_error=model_error,
             navigation=navigation,
+            exceedance=exceedance,
+            per_draw_level=per_draw_level,
             ignore=ignore,
         )
         self.alpha = _positive(alpha, "alpha")
@@ -962,6 +1029,12 @@ class BackupFilter(_HeldCommandFilter):
         Bound on the execution error of a held command, m/s^2, nonnegative.
     model_error : float, optional
         Bound on the acceleration the CW model misses, m/s^2; required on other dynamics.
+    exceedance : float, optional
+        The episode-level probability, in (0, 1), that the untruncated error models leave the
+        truncation the error sets were derived from; reported in the declaration only.
+    per_draw_level : float, optional
+        The truncation level of each Gaussian draw of those models, in sigma, finite and
+        positive; reported in the declaration only.
     ignore : sequence of str
         Constraint types of the scenario not to enforce; any other type than keep_out makes
         reset raise, since the backup may leave it.
@@ -1023,6 +1096,8 @@ class BackupFilter(_HeldCommandFilter):
         navigation: ErrorSet | None = None,
         execution: float = 0.0,
         model_error: float | None = None,
+        exceedance: float | None = None,
+        per_draw_level: float | None = None,
         ignore=(),
     ) -> None:
         if barrier not in BACKUP_BARRIERS:
@@ -1031,7 +1106,13 @@ class BackupFilter(_HeldCommandFilter):
             raise ValueError(f"unknown candidate {candidate!r}, expected {BACKUP_CANDIDATES}")
         if candidate == "projection" and barrier != "passive":
             raise ValueError("the projection candidate needs the passive barrier")
-        super().__init__(execution=execution, model_error=model_error, ignore=ignore)
+        super().__init__(
+            execution=execution,
+            model_error=model_error,
+            ignore=ignore,
+            exceedance=exceedance,
+            per_draw_level=per_draw_level,
+        )
         if isinstance(samples, bool) or int(samples) != samples or samples < 2:
             raise ValueError("samples must be an integer of at least 2")
         if isinstance(iterations, bool) or int(iterations) != iterations or iterations < 0:
@@ -1177,6 +1258,8 @@ class BackupFilter(_HeldCommandFilter):
             certificate=self._certificate,
             counts_toward_certification=True,
             ignored=self.ignore,
+            exceedance=self.exceedance,
+            per_draw_level=self.per_draw_level,
         )
 
     def _cam_barrier(self, view: AgentView) -> CamBarrier:
@@ -1245,6 +1328,39 @@ class BackupFilter(_HeldCommandFilter):
             return self._set_value(x, self._start_set) >= 0.0
         return self._barrier.contains(x)
 
+    def contains_start(self, x) -> bool:
+        """Return whether every estimate x + e, e in the navigation set, lies in the set.
+
+        A start the audit draws for the true state `x` (m, m/s) passes when the filter's first
+        estimate is in its declared set whatever the navigation error. With the free-drift
+        barrier every estimate's set x + e + Z_E lies in x + 2 Z_E, so this is the clearance of
+        x + 2 Z_E. With the braking barrier every x + e is in the region and has h_b >= 0 when
+        rho + g_r <= rho_cap, |v| + g_v <= v_cap and the lower bound on h_b of states within
+        g_r and g_v of x is nonnegative, g_r and g_v the largest position and velocity errors
+        in the set. Without a navigation set this is `contains(x)`.
+
+        Raises
+        ------
+        RuntimeError
+            Before the first `reset`.
+        """
+        self._started()
+        x = np.asarray(x, dtype=float)
+        if self.navigation is None:
+            return self.contains(x)
+        if self._start_set is not None:
+            return self._set_value(x, 2.0 * self._start_set) >= 0.0
+        barrier = self._barrier
+        assert isinstance(barrier, BrakingBarrier)
+        axes = np.eye(6)
+        g_r = keep_out_margin(axes[:3], self.navigation)
+        g_v = keep_out_margin(axes[3:], self.navigation)
+        if float(np.linalg.norm(x[:3])) + g_r > barrier.rho_cap:
+            return False
+        if float(np.linalg.norm(x[3:])) + g_v > barrier.v_cap:
+            return False
+        return self._braking_bound(x, g_r, g_v) >= 0.0
+
     def _set_value(self, center: np.ndarray, generators: np.ndarray) -> float:
         """The certified free-drift clearance of every state in the zonotope, m."""
         barrier = self._barrier
@@ -1261,15 +1377,20 @@ class BackupFilter(_HeldCommandFilter):
             return self._set_value(x1, self._end_set)
         if isinstance(barrier, (PassiveBarrier, CamBarrier)):
             return float(barrier.value(x1)) - self._end_tightening
-        g_r, g_v = self._end_deviation
+        return self._braking_bound(x1, *self._end_deviation)
+
+    def _braking_bound(self, x: np.ndarray, g_r: float, g_v: float) -> float:
+        """A lower bound on h_b over the states within g_r (m) and g_v (m/s) of `x`, m."""
+        barrier = self._barrier
+        assert isinstance(barrier, BrakingBarrier)
         if g_r == 0.0 and g_v == 0.0:
-            return barrier.value(x1)
-        rho = float(np.linalg.norm(x1[:3]))
+            return barrier.value(x)
+        rho = float(np.linalg.norm(x[:3]))
         if rho <= g_r:
             return -math.inf
-        speed = float(np.linalg.norm(x1[3:]))
+        speed = float(np.linalg.norm(x[3:]))
         # rhat moves by at most 2 |dr| / rho, so rho_dot moves by at most this much.
-        closing = max(0.0, -float(x1[:3] @ x1[3:]) / rho) + g_v + 2.0 * g_r * (speed + g_v) / rho
+        closing = max(0.0, -float(x[:3] @ x[3:]) / rho) + g_v + 2.0 * g_r * (speed + g_v) / rho
         return rho - g_r - barrier.radius - closing * closing / (2.0 * barrier.a_b)
 
     def _margins(
