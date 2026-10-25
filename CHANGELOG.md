@@ -286,6 +286,15 @@ release may change the public API, and every such change is listed under Changed
   exact value is 0, the plan 1.2e-4 off); it is now judged against the cost terms. A violated
   row started with slack 1 in its own units, so the solve depended on the rows' units; it now
   starts with its violation.
+- The default LLM prompt is new, so transcripts recorded with 0.3 do not replay under it; pass
+  0.3's `PROMPT_TEMPLATE` text as `prompt=` to replay them. Positions are printed to 1 cm and
+  velocities to 0.1 mm/s, as docking's 0.1 m lateral limit needs.
+- `LLMAgent.reset` no longer refuses goals that are not holds or that have no keep-out radius; it
+  refuses a goal without a key its task needs, and a template whose `hold`, `dist`, `cap_speed`
+  or `keep_out` field the goal cannot fill.
+- The coast and transfer tools refuse arguments that are not numbers: a quoted number or a boolean
+  (`"seconds": "300"`, `"seconds": true`) comes back to the model as an error instead of being
+  read as a number.
 
 ## [0.4.0] - 2026-10-30
 
@@ -607,6 +616,9 @@ release may change the public API, and every such change is listed under Changed
   any result was written; both now refuse it with a usage error. The remote host also refuses a
   timeout that is not a positive number of seconds and a port outside 0 to 65535, and the MCP
   server a step limit below 1.
+- The agent server and the MCP `command` tool flew quoted numbers and booleans as action numbers
+  (`["0.5", "0", "0"]`, `true`), though the protocol and the tool schema ask for numbers; both now
+  refuse them.
 
 ## [0.3.1] - 2026-10-24
 

@@ -7,6 +7,7 @@ model can use, which also keeps transcripts short.
 
 from __future__ import annotations
 
+import numbers
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -44,7 +45,11 @@ class Tool:
 
 
 def _number(arguments: Mapping[str, Any], key: str) -> float:
-    value = float(arguments[key])
+    given = arguments[key]
+    # The schema asks for numbers; float() would also take quoted numbers and booleans.
+    if isinstance(given, bool) or not isinstance(given, numbers.Real):
+        raise ValueError(f"{key} must be a number, got {given!r}")
+    value = float(given)
     if not np.isfinite(value):
         raise ValueError(f"{key} must be finite")
     return value

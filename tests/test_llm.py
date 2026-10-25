@@ -136,6 +136,9 @@ def test_tool_rounds_are_capped_and_the_last_call_offers_no_tools():
         (call("predict_coast"), "bad arguments"),
         (call("predict_coast", seconds=-5.0), "seconds must be in"),
         (call("transfer_burn", x=0.0, y=-100.0, z=0.0, seconds=float("nan")), "finite"),
+        (call("predict_coast", seconds="300"), "seconds must be a number, got '300'"),
+        (call("predict_coast", seconds=True), "seconds must be a number, got True"),
+        (call("transfer_burn", x=0.0, y="-100", z=0.0, seconds=900.0), "y must be a number"),
     ],
 )
 def test_bad_tool_calls_come_back_as_errors(reply, error):

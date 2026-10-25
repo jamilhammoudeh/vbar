@@ -410,3 +410,24 @@ def test_the_command_line_refuses_bad_options_before_it_serves(argv, message, ca
     with pytest.raises(SystemExit):
         main(argv)
     assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"ax": "0.5", "ay": 0, "az": 0},
+        {"ax": True, "ay": False, "az": True},
+        {"ax": 0, "ay": 0},
+        {"ax": 0, "ay": None, "az": 0},
+    ],
+)
+def test_a_command_takes_only_json_numbers_and_flies_nothing_otherwise(arguments):
+    server = ToolServer(ApproachEnv(ApproachConfig(max_steps=2)), [0])
+    call(server, "start_episode")
+    result, _ = call(server, "command", **arguments)
+    assert (
+        result["isError"] and "command needs numbers ax, ay and az" in result["content"][0]["text"]
+    )
+    assert len(server.episode.actions) == 0
+    result, _ = call(server, "predict_coast", seconds=True)
+    assert result["isError"] and "seconds must be a number" in result["content"][0]["text"]

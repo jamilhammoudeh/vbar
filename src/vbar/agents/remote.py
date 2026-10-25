@@ -45,6 +45,11 @@ class RemoteAgentError(RuntimeError):
     """The remote agent broke the protocol, reported an error or did not answer in time."""
 
 
+def is_number(value: Any) -> bool:
+    """Whether a decoded JSON value is a number; booleans are not."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
 def view_to_dict(view: AgentView) -> dict[str, Any]:
     """The view as JSON-ready data; tuples become lists."""
 
@@ -172,9 +177,12 @@ class RemoteAgent:
                 raise RemoteAgentError(f"expected an integer action from 0 to 26, got {action!r}")
             return int(action)
         size = 4 if self.mode == "impulse_coast" else 3
+        # The protocol carries numbers; numpy would also read quoted numbers and booleans.
+        if not isinstance(action, list) or not all(is_number(v) for v in action):
+            raise RemoteAgentError(f"expected {size} numbers, got {action!r}")
         try:
             command = np.array(action, dtype=float)
-        except (TypeError, ValueError, OverflowError) as error:
+        except OverflowError as error:
             raise RemoteAgentError(f"expected {size} numbers, got {action!r}") from error
         if command.shape != (size,) or not np.all(np.isfinite(command)):
             raise RemoteAgentError(f"expected {size} finite numbers, got {action!r}")

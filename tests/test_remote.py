@@ -284,6 +284,8 @@ def host_with(client, tmp_path, timeout=HANG, episodes=("--seeds", "1", "2")):
         b'{"type": "action", "action": "abc"}',
         b'{"type": "action"}',
         b'{"type": "action", "action": [NaN, 0.0, 0.0]}',
+        b'{"type": "action", "action": ["0.5", "0", "0"]}',
+        b'{"type": "action", "action": [true, false, true]}',
     ],
 )
 def test_a_malformed_action_ends_the_session_with_every_episode_recorded(line, tmp_path):

@@ -109,8 +109,9 @@ the discrete and burn-and-coast action modes.
 runs each tool, appends one `"tool"` message per call with the result as JSON (paired by
 `tool_call_id`), and calls the model again. After `max_tool_rounds` (4) rounds of calls it asks
 once more offering no tools, so every decision ends in an answer. Unknown tools, invalid
-arguments, and calls whose name is not a string or whose arguments are not an object come back
-to the model as `{"error": ...}`.
+arguments (a missing or non-finite one, or one that is not a number: a quoted number or a boolean
+is refused, as the schema asks for numbers), and calls whose name is not a string or whose
+arguments are not an object come back to the model as `{"error": ...}`.
 
 A tool's `run(obs, view, arguments)` sees only the observation the agent received and its
 `AgentView`: tools do arithmetic for the model and cannot reveal the truth. The built-in ones
@@ -184,7 +185,8 @@ In real time the model's latency changes the trajectory; replay it with the reco
   carries the assistant's call and the paired tool result; both tools are offered.
 - A model that calls tools forever is cut off after `max_tool_rounds` rounds and asked once more
   without tools.
-- Unknown tools, missing or non-finite arguments and out-of-range durations return errors.
+- Unknown tools, missing or non-finite arguments, quoted numbers, booleans and out-of-range
+  durations return errors.
 - Applying `transfer_burn`'s first impulse to the observed state arrives at the target within the
   rounding (0.3 m over 1500 s) and the second impulse stops it; a half-orbit transfer is refused as
   singular; arguments of 1e308 give an error, not infinity, and so does a 400-digit integer; a reply

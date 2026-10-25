@@ -29,7 +29,7 @@ from .. import __version__
 from ..runner import ScoredRun
 from .base import action_scale
 from .briefing import briefing, situation
-from .remote import seed_argument, view_to_dict
+from .remote import is_number, seed_argument, view_to_dict
 from .tools import CW_TOOLS, call_tool
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -152,9 +152,12 @@ class ToolServer:
 
     def _command(self, args: dict) -> dict:
         episode = self._running()
+        values = [args.get(k) for k in ("ax", "ay", "az")]
+        if not all(is_number(v) for v in values):
+            raise ToolError(f"command needs numbers ax, ay and az, got {values!r}")
         try:
-            fraction = np.array([float(args[k]) for k in ("ax", "ay", "az")])
-        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            fraction = np.array(values, dtype=float)
+        except OverflowError as error:
             raise ToolError(f"command needs numbers ax, ay and az: {error}") from error
         if not np.all(np.isfinite(fraction)):
             raise ToolError("command values must be finite")
