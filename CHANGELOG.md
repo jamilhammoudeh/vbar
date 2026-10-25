@@ -6,6 +6,10 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+### Changed
+
+- The README and `CITATION.cff` give the Zenodo DOI, which resolves to the latest release.
+
 ## [0.3.1] - 2026-10-24
 
 ### Changed

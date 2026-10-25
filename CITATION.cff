@@ -11,6 +11,7 @@ authors:
     given-names: Jamil
     email: j.hammoudeh@outlook.com
     orcid: "https://orcid.org/0009-0007-6742-5299"
+doi: 10.5281/zenodo.23632751
 repository-code: "https://github.com/jamilhammoudeh/vbar"
 license: MIT
 version: 0.3.1

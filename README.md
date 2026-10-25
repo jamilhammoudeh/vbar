@@ -3,6 +3,7 @@
 [![ci](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml/badge.svg)](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/vbar)](https://pypi.org/project/vbar/)
 [![Python](https://img.shields.io/pypi/pyversions/vbar)](https://pypi.org/project/vbar/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23632751.svg)](https://doi.org/10.5281/zenodo.23632751)
 
 V-BAR is a headless Python benchmark for spacecraft rendezvous and proximity-operations
 controllers. Classical guidance laws, reinforcement learning agents and LLM agents fly the same
@@ -338,7 +339,9 @@ See [CONTRIBUTING.md](https://github.com/jamilhammoudeh/vbar/blob/main/CONTRIBUT
 
 If you use V-BAR in your work, please cite it using the metadata in
 [CITATION.cff](https://github.com/jamilhammoudeh/vbar/blob/main/CITATION.cff) (GitHub's "Cite
-this repository" button gives BibTeX and APA).
+this repository" button gives BibTeX and APA). Each release is archived on Zenodo; the DOI
+[10.5281/zenodo.23632751](https://doi.org/10.5281/zenodo.23632751) always resolves to the latest
+version, and each version has its own DOI on that page.
 
 ## License
 
