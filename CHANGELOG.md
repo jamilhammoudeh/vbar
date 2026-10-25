@@ -6,6 +6,8 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-24
+
 ### Changed
 
 - `CITATION.cff` gives the author's ORCID iD.
@@ -283,7 +285,8 @@ release may change the public API, and every such change is listed under Changed
 First release with the validated dynamics layer: exact Clohessy-Wiltshire, nonlinear two-body
 relative motion with J2, Kepler propagation and J2 mean elements.
 
-[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jamilhammoudeh/vbar/releases/tag/v0.1.0
