@@ -550,7 +550,7 @@ def small_stage_problems(draw):
     )
 
 
-@settings(max_examples=25, deadline=None)
+@settings(max_examples=25)
 @given(small_stage_problems())
 # Converged with absolute complementarity 1.1e-6: the multipliers of these inactive rows are
 # judged per row against the row's force, not as products lam_i s_i.

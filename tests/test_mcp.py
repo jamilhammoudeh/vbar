@@ -18,6 +18,9 @@ from vbar.agents.mcp import (
 )
 from vbar.agents.tools import predict_coast
 
+# Only a hang should reach this; a loaded machine took 143 s for what takes 3 s idle.
+HANG = 600.0
+
 
 def request(server, method, ident=1, **params):
     return server.handle({"jsonrpc": "2.0", "id": ident, "method": method, "params": params})
@@ -134,7 +137,7 @@ def test_command_line_server_speaks_json_rpc_on_stdio(tmp_path):
         input="\n".join(json.dumps(m) for m in lines) + "\n",
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG,
     )
     responses = [json.loads(line) for line in done.stdout.splitlines()]
     assert [r["id"] for r in responses] == [1, 2, 3, 4, 5]
@@ -155,7 +158,7 @@ def test_the_command_line_draws_unguessable_seeds_unless_given_some(tmp_path):
     out = tmp_path / "results.jsonl"
     argv = ["--episodes", "2", "--max-steps", "1", "--out", str(out)]
     command = [sys.executable, "-m", "vbar.agents.mcp", *argv]
-    subprocess.run(command, input="", capture_output=True, text=True, timeout=120, check=True)
+    subprocess.run(command, input="", capture_output=True, text=True, timeout=HANG, check=True)
     seeds = [json.loads(line)["seed"] for line in out.read_text().splitlines()]
     # Both episodes are recorded unfinished; 128-bit draws fall below 2**64 with probability 2**-64.
     assert len(set(seeds)) == 2 and min(seeds) >= 2**64

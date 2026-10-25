@@ -134,7 +134,7 @@ def test_lagrange_coefficients_satisfy_f_gdot_minus_g_fdot_equals_one(a, e, angl
     assert abs(f * g_dot - g * f_dot - 1.0) < 64 * EPS * scale
 
 
-@settings(max_examples=15, deadline=None)
+@settings(max_examples=15)
 @given(positions, velocities, st.floats(0.0, np.pi), st.floats(100.0, PERIOD))
 def test_twobody_conserves_energy_and_angular_momentum(r0, v0, inclination, t):
     m = TwoBodyDynamics(inclination=inclination)
@@ -148,7 +148,7 @@ def test_twobody_conserves_energy_and_angular_momentum(r0, v0, inclination, t):
         assert np.max(np.abs(h1 - h0)) < 1e-10 * np.linalg.norm(h0)
 
 
-@settings(max_examples=15, deadline=None)
+@settings(max_examples=15)
 @given(positions, velocities, st.floats(0.0, np.pi), st.floats(100.0, PERIOD))
 def test_twobody_j2_conserves_energy_and_polar_angular_momentum(r0, v0, inclination, t):
     m = TwoBodyDynamics(inclination=inclination, j2=True)
@@ -183,7 +183,7 @@ def rotating_frame_jacobi(state, a, n):
     )
 
 
-@settings(max_examples=15, deadline=None)
+@settings(max_examples=15)
 @given(positions, velocities, accels, st.floats(0.0, np.pi), st.floats(100.0, PERIOD))
 @example([1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0.0, 100.0)
 @example([0.0, 0.0, 0.0], [0.0, -0.5, 0.0], [0.0, 6.103515625e-05, 0.015625], 0.5, 5617.0)

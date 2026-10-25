@@ -1,3 +1,4 @@
+import contextlib
 import dataclasses
 import json
 import os
@@ -20,6 +21,8 @@ from vbar.spacecraft import GaussianNav
 
 CLEAR = (-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)
 THROUGH = (0.0, 400.0, 0.0, 0.0, 0.0, 0.0)
+# Waits that only catch a hang; a loaded machine must not reach them, so they are generous.
+HANG = 600.0
 
 
 class Wander:
@@ -48,9 +51,9 @@ class Bang:
 
 
 def remote_run(agent, cfg, seed=0, agent_seed=7):
-    server = AgentServer(timeout=20.0)
+    server = AgentServer(timeout=HANG)
     host, port = server.address
-    client = threading.Thread(target=serve_agent, args=(agent, host, port), daemon=True)
+    client = threading.Thread(target=serve_agent, args=(agent, host, port, HANG), daemon=True)
     client.start()
     remote = server.accept()
     try:
@@ -81,13 +84,16 @@ def test_remote_runs_match_in_process_runs_exactly(make, fields):
     assert local["captured"] == served["captured"]
 
 
-def raw_session(handle, timeout=20.0, config=None):
-    """Run `handle(file)` as a hand-written client against a one-step episode."""
-    server = AgentServer(timeout=timeout)
+def raw_session(handle, timeout=HANG, config=None):
+    """Run `handle(file)` as a hand-written client against a one-step episode.
+
+    `timeout` (s) bounds each answer the client gives after its hello.
+    """
+    server = AgentServer(timeout=HANG)
     seen = {}
 
     def client():
-        with socket.create_connection(server.address) as sock:
+        with socket.create_connection(server.address, timeout=HANG) as sock:
             stream = sock.makefile("rwb")
             handle(stream, seen)
 
@@ -95,6 +101,8 @@ def raw_session(handle, timeout=20.0, config=None):
     thread.start()
     try:
         remote = server.accept()
+        # Set after the accept, so a slow client start is not taken for silence.
+        remote.line.timeout = timeout
         try:
             env = ApproachEnv(config or ApproachConfig(max_steps=1))
             run_episode(env, remote, seed=0, agent_seed=5)
@@ -102,7 +110,7 @@ def raw_session(handle, timeout=20.0, config=None):
             remote.close()
     finally:
         server.close()
-        thread.join(5.0)
+        thread.join(HANG)
     return seen
 
 
@@ -158,22 +166,36 @@ def test_protocol_errors_and_silence_are_reported():
         raw_session(silent, timeout=0.3)
 
 
+def connect(port):
+    return socket.create_connection(("127.0.0.1", port), timeout=HANG)
+
+
+def when_listening(host, attempt):
+    """Retry `attempt` until the `host` thread listens; a host that has stopped fails it."""
+    deadline = time.monotonic() + HANG
+    while True:
+        try:
+            return attempt()
+        except ConnectionRefusedError:
+            if not host.is_alive() or time.monotonic() > deadline:
+                raise
+            time.sleep(0.05)
+
+
 def test_command_line_host_writes_one_result_per_seed(tmp_path):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
     host = threading.Thread(
-        target=main, args=(["--port", str(port), "--seeds", "1", "2", "--out", str(out)],)
+        target=main,
+        args=(
+            ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)],
+        ),
     )
     host.start()
-    for _ in range(100):
-        try:
-            serve_agent(PDAgent(), "127.0.0.1", port)
-            break
-        except ConnectionRefusedError:
-            threading.Event().wait(0.05)
-    host.join(30.0)
+    when_listening(host, lambda: serve_agent(PDAgent(), "127.0.0.1", port, HANG))
+    host.join(HANG)
     results = [json.loads(line) for line in out.read_text().splitlines()]
     assert [r["seed"] for r in results] == [1, 2] and all(r["agent"] == "pd" for r in results)
 
@@ -183,7 +205,7 @@ def test_command_line_host_writes_one_result_per_seed(tmp_path):
     reason="needs MATLAB and VBAR_TEST_MATLAB=1 (about a minute to start MATLAB)",
 )
 def test_matlab_pd_client_flies_the_python_pd_trajectories(tmp_path):
-    server = AgentServer(timeout=300.0)
+    server = AgentServer(timeout=HANG)
     port = server.address[1]
     clients = Path(__file__).parents[1] / "clients" / "matlab"
     command = f"addpath('{clients.as_posix()}'); vbar_agent_client('127.0.0.1', {port}, pd_agent())"
@@ -197,7 +219,7 @@ def test_matlab_pd_client_flies_the_python_pd_trajectories(tmp_path):
     finally:
         remote.close()
         server.close()
-        matlab.wait(120)
+        matlab.wait(HANG)
 
 
 def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
@@ -206,15 +228,13 @@ def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
     host = threading.Thread(
-        target=main, args=(["--port", str(port), "--seeds", "1", "2", "--out", str(out)],)
+        target=main,
+        args=(
+            ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)],
+        ),
     )
     host.start()
-    for _ in range(100):
-        try:
-            sock = socket.create_connection(("127.0.0.1", port))
-            break
-        except ConnectionRefusedError:
-            threading.Event().wait(0.05)
+    sock = when_listening(host, lambda: connect(port))
     with sock:
         stream = sock.makefile("rwb")
         send(stream, {"type": "hello", "name": "quitter", "protocol": 1})
@@ -226,7 +246,7 @@ def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
         receive(stream)
         stream.write(b"this is not json\n")
         stream.flush()
-    host.join(30.0)
+    host.join(HANG)
     results = [json.loads(line) for line in out.read_text().splitlines()]
     assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
         (1, False, 2),
@@ -235,7 +255,7 @@ def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
     assert "error" in results[0]
 
 
-def host_with(client, tmp_path, timeout=10.0, episodes=("--seeds", "1", "2")):
+def host_with(client, tmp_path, timeout=HANG, episodes=("--seeds", "1", "2")):
     """Run the command-line host for seeds 1 and 2 against `client(stream, sock)`."""
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -244,12 +264,7 @@ def host_with(client, tmp_path, timeout=10.0, episodes=("--seeds", "1", "2")):
     argv = ["--port", str(port), *episodes, "--out", str(out), "--timeout", str(timeout)]
     host = threading.Thread(target=main, args=(argv,))
     host.start()
-    for _ in range(100):
-        try:
-            sock = socket.create_connection(("127.0.0.1", port))
-            break
-        except ConnectionRefusedError:
-            threading.Event().wait(0.05)
+    sock = when_listening(host, lambda: connect(port))
     stream = sock.makefile("rwb")
     send(stream, {"type": "hello", "name": "faulty", "protocol": 1})
     receive(stream)
@@ -258,7 +273,7 @@ def host_with(client, tmp_path, timeout=10.0, episodes=("--seeds", "1", "2")):
     send(stream, {"type": "action", "action": [0.0, 0.0, 0.0]})
     receive(stream)
     client(stream, sock)
-    host.join(30.0)
+    host.join(HANG)
     return [json.loads(line) for line in out.read_text().splitlines()]
 
 
@@ -410,20 +425,15 @@ def test_a_failed_hello_records_every_seed_unflown(tmp_path):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
-    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", "10"]
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)]
     host = threading.Thread(target=main, args=(argv,))
     host.start()
-    for _ in range(100):
-        try:
-            sock = socket.create_connection(("127.0.0.1", port))
-            break
-        except ConnectionRefusedError:
-            threading.Event().wait(0.05)
+    sock = when_listening(host, lambda: connect(port))
     with sock:
         stream = sock.makefile("rwb")
         send(stream, {"type": "hello", "name": "old", "protocol": 0})
         stream.close()
-    host.join(30.0)
+    host.join(HANG)
     results = [json.loads(line) for line in out.read_text().splitlines()]
     assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
         (1, False, 0),
@@ -456,7 +466,8 @@ def test_a_message_sent_byte_by_byte_still_times_out_as_one_message(tmp_path):
         stream.close()
         sock.close()
 
-    results = host_with(client, tmp_path, timeout=1.0)
+    # The handshake runs under the same limit, so it gets room; the trickle still takes 12 s.
+    results = host_with(client, tmp_path, timeout=5.0)
     assert [(r["seed"], r["completed"]) for r in results] == [(1, False), (2, False)]
     assert "in time" in results[0]["error"]
 
@@ -502,18 +513,12 @@ def test_an_interrupt_mid_episode_still_leaves_every_episode_recorded(tmp_path, 
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
-    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out)]
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)]
     host = threading.Thread(target=run_main, args=(argv,))
     host.start()
-    for _ in range(100):
-        try:
-            serve_agent(PDAgent(), "127.0.0.1", port)
-            break
-        except ConnectionRefusedError:
-            threading.Event().wait(0.05)
-        except RemoteAgentError:
-            break
-    host.join(30.0)
+    with contextlib.suppress(RemoteAgentError):
+        when_listening(host, lambda: serve_agent(PDAgent(), "127.0.0.1", port, HANG))
+    host.join(HANG)
     results = [json.loads(line) for line in out.read_text().splitlines()]
     assert raised == [True]
     assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
@@ -532,13 +537,13 @@ def test_one_number_actions_cross_the_server_in_any_shape():
         remote_run(Wrong(np.array([np.nan, 0.0, 0.0])), ApproachConfig(max_steps=2))
 
 
-def raw_host_session(lines_after_hello, timeout=5.0):
+def raw_host_session(lines_after_hello):
     """Send raw bytes to `AgentServer.accept` and return the agent or the error."""
-    server = AgentServer(timeout=timeout)
+    server = AgentServer(timeout=HANG)
     outcome = {}
 
     def client():
-        with socket.create_connection(server.address) as sock:
+        with socket.create_connection(server.address, timeout=HANG) as sock:
             sock.sendall(lines_after_hello)
             outcome["closed"] = sock.recv(1) == b""
 
@@ -552,17 +557,17 @@ def raw_host_session(lines_after_hello, timeout=5.0):
         server.close()
     if "agent" in outcome:
         outcome["agent"].close()
-    thread.join(5.0)
+    thread.join(HANG)
     return outcome
 
 
 def test_messages_sent_together_are_read_one_at_a_time():
     # The hello and an early "ready" in one packet: the second stays buffered for the reset.
-    server = AgentServer(timeout=5.0)
+    server = AgentServer(timeout=HANG)
     received = {}
 
     def client():
-        with socket.create_connection(server.address) as sock:
+        with socket.create_connection(server.address, timeout=HANG) as sock:
             hello = {"type": "hello", "name": "eager", "protocol": 1}
             sock.sendall((json.dumps(hello) + "\n" + json.dumps({"type": "ready"}) + "\n").encode())
             stream = sock.makefile("rwb")
@@ -579,7 +584,7 @@ def test_messages_sent_together_are_read_one_at_a_time():
     finally:
         agent.close()
         server.close()
-    thread.join(5.0)
+    thread.join(HANG)
     assert received["reset"]["type"] == "reset"
 
 
