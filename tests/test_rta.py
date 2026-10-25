@@ -208,7 +208,8 @@ def test_nmt_grid_is_the_papers_ellipse_on_lemma_3_points(setup, count):
     for t1 in theta1:
         for t2 in theta2:
             c2 = (np.tan(t2) ** 2 + 4.0 * np.cos(t1) ** 2) / np.sin(t1) ** 2
-            if c2 > min((setup.nu1 / N) ** 2 - 4.0, 4.0):
+            # theta1 = pi/4, theta2 = 0 is exactly on c2 = 4 and the next point is 0.3 % off it.
+            if c2 > min((setup.nu1 / N) ** 2 - 4.0, 4.0) * (1.0 + 1e-12):
                 continue
             c = np.sqrt(c2)
             beta = np.pi / 2 if t2 == 0.0 else np.arctan(2.0 * np.cos(t1) / np.tan(t2))

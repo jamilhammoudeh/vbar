@@ -86,7 +86,10 @@ $$
 - **Grid.** $\theta_1$ takes the upper ends and $\theta_2$ the lower ends of 20 equal intervals of
   $[0, \pi/2]$, and $\psi$ 20 equal steps of $[0, 2\pi)$; the ranges are ours. A point is kept
   when $(c/b)^2 \le \min((\nu_1/n)^2 - 4,\; 4)$: Lemma 3, with $c \le v_{\max}/n$ required for
-  every $b$ up to $v_{\max}/(2n)$. That keeps 780 points at $2.15n$ and 2640 at $4n$.
+  every $b$ up to $v_{\max}/(2n)$. That keeps 780 points at $2.15n$ and 2640 at $4n$. At $4n$,
+  $\theta_1 = \pi/4$ with $\theta_2 = 0$ gives $(c/b)^2 = 4$ exactly, which sine and cosine round
+  to either side depending on the platform, so a point within $10^{-12}$ of the bound counts as
+  on it and is kept with $c/b$ set onto the bound.
 - **Every phase.** The proof of Lemma 3 evaluates the speed limit at $\nu = \pi/2$, $\psi = 0$
   only, but Lemma 3 gives it at every phase. On the unit orbit, with $q = (\nu_1/n)^2$ and
   $Z = \tfrac32 e^{2i\nu} - \tfrac{c^2}{2} e^{2i\psi}$,

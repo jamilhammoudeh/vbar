@@ -48,6 +48,10 @@ _MOVED = 1e-6
 _MATCH = 1e-12
 # Lemma 3 asks c <= v_max / n; with b up to v_max / (2 n) that is c / b <= 2.
 _C_OVER_B = 2.0
+# Grid points within this fraction of the Lemma 3 bound on (c / b)^2 lie on it in exact
+# arithmetic: theta1 = pi/4 at theta2 = 0 gives exactly 4, which sin and cos round to either
+# side of it depending on the platform's math library.
+_ON_BOUND = 1e-12
 # Leak (1/s) on the integrators of the backup's augmented LQR design. The authors' augmented
 # system is not stabilizable, since the velocity integral repeats the position, and the Riccati
 # equation has no solution without it. An assumption: K_1 moves by under 2e-4 of its largest
@@ -307,8 +311,10 @@ def _unit_orbits(n: float, nu1: float, grid: tuple[int, int, int]) -> np.ndarray
     psi = 2.0 * np.pi * np.arange(n3) / n3
     t1, t2, ps = (a.ravel() for a in np.meshgrid(theta1, theta2, psi, indexing="ij"))
     c2 = (np.tan(t2) ** 2 + 4.0 * np.cos(t1) ** 2) / np.sin(t1) ** 2
-    keep = c2 <= min((nu1 / n) ** 2 - 4.0, _C_OVER_B**2)
-    t1, t2, ps, c = t1[keep], t2[keep], ps[keep], np.sqrt(c2[keep])
+    bound = min((nu1 / n) ** 2 - 4.0, _C_OVER_B**2)
+    keep = c2 <= bound * (1.0 + _ON_BOUND)
+    # A point kept on the bound is moved onto it, so every kept point meets Lemma 3.
+    t1, t2, ps, c = t1[keep], t2[keep], ps[keep], np.sqrt(np.minimum(c2[keep], bound))
     # The paper's sign of the phase; the arctangent of two arguments gives pi/2 at theta2 = 0.
     nu = np.arctan2(2.0 * np.cos(t1), np.tan(t2)) - ps
     points = np.stack(
