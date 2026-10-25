@@ -6,6 +6,10 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+### Changed
+
+- `CITATION.cff` gives the author's ORCID iD.
+
 ## [0.3.0] - 2026-10-24
 
 ### Changed

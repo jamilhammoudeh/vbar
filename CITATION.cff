@@ -10,6 +10,7 @@ authors:
   - family-names: Hammoudeh
     given-names: Jamil
     email: j.hammoudeh@outlook.com
+    orcid: "https://orcid.org/0009-0007-6742-5299"
 repository-code: "https://github.com/jamilhammoudeh/vbar"
 license: MIT
 version: 0.3.0
