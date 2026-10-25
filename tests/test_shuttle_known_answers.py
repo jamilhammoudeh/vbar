@@ -11,6 +11,7 @@ import math
 import numpy as np
 import pytest
 from scipy.integrate import quad, solve_ivp
+from scipy.optimize import minimize_scalar
 
 from vbar.constraints import ClosingSpeedLimit, GateTable, PassiveSpeed
 from vbar.dynamics import EARTH, cw_rhs, cw_stm, mean_motion
@@ -153,9 +154,19 @@ def test_rbar_free_drift_through_the_pitch_manoeuvre():
     t_free = (360.0 - 160.0) / 0.75
     assert t_free == pytest.approx(266.67, abs=0.01)
     start = np.array([-600.0 * FT, 0.0, 0.0, 0.3 * FT, 0.0, 0.0])
-    times = np.linspace(0.0, t_free, 400)
-    ranges = np.array([np.linalg.norm((cw_stm(n, t) @ start)[:3]) for t in times]) / FT
-    assert 581.0 <= ranges.min() and ranges.max() <= 605.0 + 1.0
+
+    def range_ft(t):
+        return float(np.linalg.norm((cw_stm(n, t) @ start)[:3])) / FT
+
+    # The range falls to one minimum and then rises to the end of the arc, so the extremes are a
+    # bounded minimisation and the end point; the samples confirm the end is the largest.
+    closest = minimize_scalar(range_ft, bounds=(0.0, t_free), method="bounded")
+    farthest = range_ft(t_free)
+    sampled = [range_ft(t) for t in np.linspace(0.0, t_free, 400)]
+    assert max(sampled) <= farthest
+    assert 581.0 <= closest.fun and farthest <= 605.0
+    assert closest.fun == pytest.approx(581.07, abs=0.01)
+    assert farthest == pytest.approx(604.67, abs=0.01)
     end = cw_stm(n, t_free) @ start
     assert -end[3] / FT == pytest.approx(0.33, abs=0.01)
     c, s = math.cos(n * t_free), math.sin(n * t_free)
