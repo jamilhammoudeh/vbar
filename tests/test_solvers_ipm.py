@@ -164,15 +164,28 @@ def relative_kkt_residuals(qp, sol):
     smaller of that relative slack and its force,
     lam_i max_j G_ij^2 / (|G_ij| sigma_j + H_jj sum_l |G_il w_l|), with sigma_j the cost and
     dynamics terms of component j and x_0 excluded (docs/solvers.md). The fallbacks for unused
-    axes and rounding-only rows are left out. The dynamics multipliers are the least-squares
-    ones, as in `kkt_residuals`.
+    axes and rounding-only rows are left out. Also returns `spread`, the factor by which the
+    estimated dynamics multipliers may raise stationarity above the solver's own value.
     """
     h_mat, g, e_mat, f, g_mat, h_vec = assemble(qp)
     nx = qp.A.shape[1]
     w = stack(qp, sol.x, sol.u)
     lam = row_multipliers(sol, qp)
     grad = h_mat @ w + g - g_mat.T @ lam
+    fixed = np.abs(h_mat) @ np.abs(w) + np.abs(g) + np.abs(g_mat.T) @ np.abs(lam)
+    # The solver bounds each scaled component |grad + E^T y| / scale at its own multipliers y,
+    # which are not reported. Unweighted least squares spreads the residual of the large
+    # components onto small ones (x_N with terms near 0.03 read 6e-8 against tol_feas = 1e-8).
+    # Weighted by D = 1 / scale, the fitted residual is (I - P) D (grad + E^T y) for every y,
+    # with P the projection onto the columns of D E^T, so no component exceeds ||I - P||_inf
+    # times the solver's largest. The scale holds |E^T| |nu|, so the weights are refit from the
+    # previous estimate; three refits settle it.
     nu, *_ = np.linalg.lstsq(e_mat.T, -grad, rcond=None)
+    for _ in range(3):
+        d = 1.0 / (fixed + np.abs(e_mat.T) @ np.abs(nu))
+        nu, *_ = np.linalg.lstsq(d[:, None] * e_mat.T, -d * grad, rcond=None)
+    basis, _ = np.linalg.qr(d[:, None] * e_mat.T)
+    spread = np.max(np.sum(np.abs(np.eye(len(d)) - basis @ basis.T), axis=1))
     sigma = np.abs(h_mat) @ np.abs(w) + np.abs(g) + np.abs(e_mat.T) @ np.abs(nu)
     stationarity = np.max(np.abs(grad + e_mat.T @ nu) / (sigma + np.abs(g_mat.T) @ np.abs(lam)))
     equality = np.abs(e_mat @ w - f) / (np.abs(e_mat) @ np.abs(w) + np.abs(f))
@@ -187,7 +200,7 @@ def relative_kkt_residuals(qp, sol):
     complementarity = np.max(
         np.minimum(np.abs(slack) / row_scale, lam * np.max(force, axis=1)), initial=0.0
     )
-    return float(stationarity), float(primal), float(complementarity), lam
+    return float(stationarity), float(primal), float(complementarity), lam, float(spread)
 
 
 def objective(qp, x, u):
@@ -555,16 +568,25 @@ def small_stage_problems(draw):
 # Converged with absolute complementarity 1.1e-6: the multipliers of these inactive rows are
 # judged per row against the row's force, not as products lam_i s_i.
 @example(small_stage_problem(seed=286, n=4, nx=4, nu=2, m=1, margin=0.71875))
+# Converged with every scaled stationarity component within tol_feas, but unweighted least-squares
+# dynamics multipliers read 6.2e-8 to 7.0e-8 on x_N, whose terms are near 0.03.
+@example(small_stage_problem(seed=3, n=3, nx=1, nu=3, m=1, margin=0.765625))
+@example(small_stage_problem(seed=3314182779, n=2, nx=1, nu=2, m=1, margin=0.8576))
+@example(small_stage_problem(seed=3645523454, n=5, nx=2, nu=2, m=3, margin=0.7748))
 def test_random_small_problems_converge_to_kkt_points(case):
     qp, u_free = case
     sol = solve_horizon(qp)
     assert sol.status == "converged"
-    stationarity, primal, complementarity, lam = relative_kkt_residuals(qp, sol)
-    # The default tol_feas and tol_gap. Stationarity is measured with the least-squares dynamics
-    # multipliers, not the solver's, which moves it up to 2.2 tol_feas; complementarity uses the
-    # slack C z - e, not the solver's s. A solver stopping at 10 tol_gap exceeds 6 tol_gap here.
+    stationarity, primal, complementarity, lam, spread = relative_kkt_residuals(qp, sol)
+    # The default tol_feas = tol_gap. Stationarity uses estimated dynamics multipliers, which
+    # allow at most `spread` times the solver's value (3.1 at most over 6000 draws). The
+    # dynamics and row violations are the solver's own measures, a row's over |G_i| |w| + |h_i|
+    # where the solver adds s >= 0, which moves them by a factor 1 + tol. Complementarity uses
+    # the slack G w - h, which differs from the solver's s by up to tol_feas of the row's size.
+    # The 1e-6 allows for the scale mismatch and rounding.
     tol = 1e-8
-    assert max(stationarity, primal) <= 4 * tol
+    assert stationarity <= spread * tol * (1 + 1e-6)
+    assert primal <= tol * (1 + 1e-6)
     assert complementarity <= 2 * tol
     assert np.all(lam >= 0.0)
     # The rows hold with slack at the unconstrained optimum, so it is also the constrained one.
