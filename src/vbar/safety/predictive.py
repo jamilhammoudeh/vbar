@@ -128,10 +128,11 @@ class PredictiveFilter(_HeldCommandFilter):
         whole k that reaches it, except under error sets.
     exceedance : float, optional
         The episode-level probability, in (0, 1), that the untruncated error models leave the
-        truncation the error sets were derived from; reported in the declaration only.
+        truncation the error sets were derived from; given with `per_draw_level` and an error
+        set, and reported in the declaration only.
     per_draw_level : float, optional
         The truncation level of each Gaussian draw of those models, in sigma, finite and
-        positive; reported in the declaration only.
+        positive; given with `exceedance`, and reported in the declaration only.
     ignore : sequence of str
         Constraint types of the scenario not to enforce; any other type than keep_out makes
         reset raise, since the free drift may leave it.
@@ -140,8 +141,9 @@ class PredictiveFilter(_HeldCommandFilter):
     ------
     ValueError
         If a parameter is out of range, the mode or the backup is unknown, a parameter is
-        given to a mode that does not use it, or error sets are given with the cam backup or
-        the finite-horizon mode.
+        given to a mode that does not use it, error sets are given with the cam backup or
+        the finite-horizon mode, or `exceedance` and `per_draw_level` are not given together
+        with an error set.
 
     Notes
     -----
@@ -257,6 +259,7 @@ class PredictiveFilter(_HeldCommandFilter):
             execution=execution,
             model_error=None,
             ignore=ignore,
+            navigation=navigation,
             exceedance=exceedance,
             per_draw_level=per_draw_level,
         )

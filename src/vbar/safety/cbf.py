@@ -113,6 +113,19 @@ def _draw_level(value: float | None) -> float | None:
     return None if value is None else _positive(value, "per_draw_level")
 
 
+def _truncation(
+    exceedance: float | None, per_draw_level: float | None, navigation, execution: float
+) -> tuple[float | None, float | None]:
+    """Check p and b of a declared truncation: both or neither, and only with an error set."""
+    p, b = _exceedance(exceedance), _draw_level(per_draw_level)
+    if (p is None) != (b is None):
+        raise ValueError("exceedance and per_draw_level are given together")
+    # They state how the error sets were derived, so without a set they claim nothing.
+    if p is not None and navigation is None and not execution > 0.0:
+        raise ValueError("exceedance and per_draw_level need a declared error set")
+    return p, b
+
+
 def _pole_pair(poles) -> tuple[float, float]:
     values = tuple(poles)
     if len(values) != 2 or any(np.iscomplexobj(p) for p in values):
@@ -198,7 +211,8 @@ class FilterDeclaration:
     ------
     ValueError
         If `certificate` is neither None nor one of `CERTIFICATE_KINDS`, `exceedance` is
-        outside (0, 1) or `per_draw_level` is not finite and positive.
+        outside (0, 1), `per_draw_level` is not finite and positive, or the two are not given
+        together with a navigation set or an execution bound above 0 in `tightening`.
     """
 
     name: str
@@ -226,8 +240,14 @@ class FilterDeclaration:
                 f"unknown certificate {self.certificate!r}, expected {CERTIFICATE_KINDS}"
             )
         object.__setattr__(self, "tightening", MappingProxyType(dict(self.tightening)))
-        object.__setattr__(self, "exceedance", _exceedance(self.exceedance))
-        object.__setattr__(self, "per_draw_level", _draw_level(self.per_draw_level))
+        p, b = _truncation(
+            self.exceedance,
+            self.per_draw_level,
+            self.tightening.get("navigation"),
+            self.tightening.get("execution") or 0.0,
+        )
+        object.__setattr__(self, "exceedance", p)
+        object.__setattr__(self, "per_draw_level", b)
 
 
 class _HeldCommandFilter:
@@ -244,13 +264,15 @@ class _HeldCommandFilter:
         execution: float,
         model_error: float | None,
         ignore,
+        navigation: ErrorSet | None = None,
         exceedance: float | None = None,
         per_draw_level: float | None = None,
     ) -> None:
         self.execution = _nonnegative(execution, "execution")
         self.model_error = None if model_error is None else _nonnegative(model_error, "model_error")
-        self.exceedance = _exceedance(exceedance)
-        self.per_draw_level = _draw_level(per_draw_level)
+        self.exceedance, self.per_draw_level = _truncation(
+            exceedance, per_draw_level, navigation, self.execution
+        )
         ignored = tuple(ignore)
         if not all(isinstance(kind, str) for kind in ignored):
             raise ValueError("ignore must list constraint type names")
@@ -373,10 +395,11 @@ class CbfFilter(_HeldCommandFilter):
         state); anything but None raises.
     exceedance : float, optional
         The episode-level probability, in (0, 1), that the untruncated error models leave the
-        truncation `execution` was derived from; reported in the declaration only.
+        truncation `execution` was derived from; given with `per_draw_level` and an `execution`
+        above 0, and reported in the declaration only.
     per_draw_level : float, optional
         The truncation level of each Gaussian draw of those models, in sigma, finite and
-        positive; reported in the declaration only.
+        positive; given with `exceedance`, and reported in the declaration only.
     ignore : sequence of str
         Constraint types of the scenario not to enforce; every other type except keep_out,
         speed_limit, closing_speed_limit and approach_cone makes reset raise.
@@ -384,8 +407,9 @@ class CbfFilter(_HeldCommandFilter):
     Raises
     ------
     ValueError
-        If a parameter is out of range or `navigation` is given; at reset, if the declared
-        errors leave a speed row with v0 at or below zero.
+        If a parameter is out of range, `navigation` is given, or `exceedance` and
+        `per_draw_level` are not given together with an `execution` above 0; at reset, if the
+        declared errors leave a speed row with v0 at or below zero.
 
     Notes
     -----
@@ -1031,10 +1055,11 @@ class BackupFilter(_HeldCommandFilter):
         Bound on the acceleration the CW model misses, m/s^2; required on other dynamics.
     exceedance : float, optional
         The episode-level probability, in (0, 1), that the untruncated error models leave the
-        truncation the error sets were derived from; reported in the declaration only.
+        truncation the error sets were derived from; given with `per_draw_level` and an error
+        set, and reported in the declaration only.
     per_draw_level : float, optional
         The truncation level of each Gaussian draw of those models, in sigma, finite and
-        positive; reported in the declaration only.
+        positive; given with `exceedance`, and reported in the declaration only.
     ignore : sequence of str
         Constraint types of the scenario not to enforce; any other type than keep_out makes
         reset raise, since the backup may leave it.
@@ -1043,7 +1068,8 @@ class BackupFilter(_HeldCommandFilter):
     ------
     ValueError
         If a parameter is out of range, the projection candidate is asked for a barrier other
-        than the passive one, or the cam barrier is asked for with error sets.
+        than the passive one, the cam barrier is asked for with error sets, or `exceedance`
+        and `per_draw_level` are not given together with an error set.
 
     Notes
     -----
@@ -1110,6 +1136,7 @@ class BackupFilter(_HeldCommandFilter):
             execution=execution,
             model_error=model_error,
             ignore=ignore,
+            navigation=navigation,
             exceedance=exceedance,
             per_draw_level=per_draw_level,
         )

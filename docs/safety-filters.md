@@ -1390,7 +1390,9 @@ the filters take as `execution`. Without an execution model it is 0.
 The filters take the sets as `navigation` and `execution`, and the truncation they come from as
 `exceedance=p` and `per_draw_level=b`, which `FilterDeclaration` reports under the same names (None
 by default). A value of $p$ outside $(0, 1)$ or a $b$ that is not finite and positive raises
-`ValueError`. The two values change no check: each filter decides on its sets alone.
+`ValueError`, and so do one given without the other and the two given without an error set (a
+navigation set or an execution bound above 0), in a filter and in a `FilterDeclaration`. The two
+values change no check: each filter decides on its sets alone.
 
 | Filter | Under navigation error | Under execution error |
 |---|---|---|
@@ -1630,9 +1632,9 @@ for name in ("false_cam", "missed_cam", "cam_induced"):
 ## Audit
 
 `audit_filter(safety_filter, env, *, nominal=None, starts=1000, mode="inside", box=None,
-seed=None, max_steps=None, workers=1)` flies a filter around a nominal agent from seeded starts
-and judges every step on the true trajectory. It returns a `FilterAudit` with one `RunAudit`
-per start and the totals.
+seed=None, max_steps=None, workers=1, errors="none")` flies a filter around a nominal agent from
+seeded starts and judges every step on the true trajectory. It returns a `FilterAudit` with one
+`RunAudit` per start and the totals.
 
 ### How the starts are drawn
 
@@ -1640,8 +1642,9 @@ per start and the totals.
   m/s), by default the scenario's start position and velocity ranges, and kept when the filter's
   own `contains(x)` method says they lie on the asked side of its declared safe set (the
   `FilterDeclaration` has no membership test; the same method judges flagged decisions and
-  re-entry): inside for `mode="inside"`, outside for `mode="outside"`. `drawn` and `rejected`
-  count the draws. After
+  re-entry): inside for `mode="inside"`, outside for `mode="outside"`. Under "bounded" and
+  "gaussian" errors the filter's `contains_start(x)` decides instead, so every estimate of a
+  start lies in the set (see "Start set" above). `drawn` and `rejected` count the draws. After
   1000 draws per start asked for, the audit stops with `ValueError`.
 - `seed` is a root seed in $[2^{64}, 2^{128})$, drawn from the operating system (128 bits) when
   not given and recorded in the report. The starts come from one stream of it; each start's episode
@@ -1662,7 +1665,8 @@ compared with minus the constraint's `resolution` (1 mm for the keep-out):
 - **Violation**: the bound is below it and so is the refined minimum, a point on the
   trajectory.
 - Otherwise the bound alone cannot decide, and the step is **re-flown**: every segment of the
-  step is rebuilt from its recorded start state and acceleration with the closed-form CW
+  step is rebuilt from its recorded start state and the acceleration the spacecraft delivered,
+  execution error included, with the closed-form CW
   solution (`cw_states`) on a grid with 4, 16 and then 64 times the environment's sample
   intervals, nesting the original samples, and `segment_minimum` is run again. The first grid
   whose bound reaches $-\text{resolution}$ certifies the step; a refined minimum below it makes
@@ -1674,10 +1678,52 @@ conflicting rows, the filter's `recovering`, and whether the true state was insi
 set. For "infeasible_certified" decisions the result's `proof` is checked with its own
 `verify()`; `proof_verified` is None when the result carries no proof.
 
+### Coverage
+
+A decision is certified when its `FilterResult` carries a certificate. An uncertified decision is
+**covered** when it commands zero thrust and its step ends no later than $t_j + h_j$, $t_j$ the
+time of the last certified decision before it and $h_j$ that decision's
+`certificate_horizon`, measured from $t_j$. A coast draws no execution error and the CW drift is
+exact, so the last certificate still holds over it. Any other uncertified decision is
+**uncovered**: a burn without a certificate, or a coast past the horizon. Each run reports
+`uncovered`, and `FilterAudit.uncovered` sums them. With decisions every 10 s, a certificate at
+0 s with a 35 s horizon covers coasts at 10 and 20 s; after one at 50 s with a 5 s horizon, a coast
+at 60 s is uncovered, since only the last certificate counts.
+
+### Error modes
+
+`errors` sets the navigation and execution error models the runs fly with.
+
+- **"none"** (the default): a `PerfectNav` sensor and no execution error, as above.
+- **"bounded"**: a `GaussianNav` or `PerfectNav` sensor and an `ExecutionError` or none, every
+  `GaussianNav` and `ExecutionError` truncated (`bound`) at the filter's declared
+  `per_draw_level` $b$. The filter must declare `exceedance` $p$ and $b$, $b$ may not lie below
+  `per_draw_level(p, D)` for the $D$ of `tightening.episode_draws` over the episode's steps, and
+  its declared sets must hold those `tightening.declared_errors` derives from the models at $b$:
+  its navigation set holds the derived box (checked at the box's corners, for a box, ball or
+  ellipsoid) and its `execution` is at least the derived $\delta a_{\max}$. Every error the runs
+  draw then lies in the declared sets, so the filter's claim is zero violations.
+- **"gaussian"**: the same models and checks with the models untruncated (`bound=None`). An
+  episode now leaves the truncation with probability $p$, so the audit reports rates rather than
+  a pass.
+
+Both error modes draw starts with `contains_start` and need `mode="inside"`. `FilterAudit` reports
+`errors`, `exceedance` ($p$), `per_draw_level` ($b$) and `draws` ($D$), all None under "none", and
+`covered`, the hard constraints the filter enforces.
+
+Under "gaussian", `exceedance_rates` maps each covered constraint and "any" to an
+`ExceedanceRate`: `count` of `trials` runs violate it, `rate` = count / trials, `interval` its
+95% Clopper-Pearson interval (`vbar.metrics.clopper_pearson`) and `level` the value it is read
+against, $p$ for a constraint and $\min(1, \sum_c p)$, the union bound over the covered
+constraints, for "any". A rate is reported against its level, never passed or failed; a lower
+interval end above the level is evidence against the filter's claim, and a rate of zero is not a
+claim of zero.
+
 ### Pass rules
 
 - Inside the set (`mode="inside"`): `passed` needs no violation, no uncertified step, no
-  infeasible and no "solver_failed" decision in any run.
+  infeasible and no "solver_failed" decision in any run, and under "bounded" errors no uncovered
+  decision. Under "gaussian" errors `passed` is None.
 - Outside it (`mode="outside"`): `passed` needs no "solver_failed" decision and a proof that
   verifies on every "infeasible_certified" one (`proofless` and `proofs_rejected` both 0). Each
   run reports `reentry_s`, the first decision time at which the true state is back in the set,
@@ -1685,13 +1731,18 @@ set. For "infeasible_certified" decisions the result's `proof` is checked with i
 
 ### Refusals
 
-`ValueError` for dynamics other than "cw", a sensor other than `PerfectNav`, a configured
-execution error, actuation delay, a nonzero minimum impulse bit or the "thrust" drive (each
-changes the delivered command without the filter knowing), a scenario config without
-`start_state`, a filter whose declaration does not count toward certification
+`ValueError` for dynamics other than "cw", actuation delay, a nonzero minimum impulse bit or the
+"thrust" drive (each changes the delivered command without the filter knowing), a scenario
+config without `start_state`, a filter whose declaration does not count toward certification
 (`SoftCbfFilter`), a root seed outside $[2^{64}, 2^{128})$, a non-positive `starts`, `max_steps`
-or `workers`, and an unknown mode; `TypeError` for a filter without `declaration` and
-`contains`.
+or `workers`, and an unknown mode or error mode. Under "none", a sensor other than `PerfectNav`
+or a configured execution error. Under "bounded" and "gaussian", `mode="outside"`, a sensor
+other than `GaussianNav` and `PerfectNav` (`RangeScaledNav`, `GaussMarkovNav`), an execution
+model other than `ExecutionError`, a model truncated under "gaussian" or untruncated under
+"bounded", a truncation other than the declared $b$, a filter without `exceedance` and
+`per_draw_level`, a $b$ below `per_draw_level(p, D)`, and declared sets that do not hold the
+derived ones. `TypeError` for a filter without `declaration` and `contains`, and under errors
+without `contains_start`.
 
 ### Parallel runs
 
@@ -1709,6 +1760,13 @@ been reset yet: a reset filter holds its view, which does not pickle.
   the set between decisions is not counted.
 - Inside the set, an infeasible or "solver_failed" decision fails the audit wherever it
   happens, also after the state has left the set.
+- Coverage takes the last certificate's horizon as given. For a free-drift certificate a coast
+  is the certified motion; for the braking and predictive filters the certified motion
+  thrusts, so a covered coast rests on the coverage rule, not on the certificate.
+- $D$ counts a burn's draws at every decision, so for runs that coast it is an upper bound and
+  the checked $b$ errs on the large side.
+- With no violating run of $N$ the 95% upper end is $1 - 0.025^{1/N}$, about $3.7/N$: 0.0037
+  at $N$ = 1000, above $p = 10^{-3}$, so such a rate is consistent with $p$ without showing it.
 
 ```python
 from vbar import ApproachEnv
@@ -1726,6 +1784,51 @@ found = audit_filter(
 )
 print(found.violations, found.uncertified, found.infeasible, found.passed)  # 0 0 0 True
 print(found.drawn, found.rejected, found.runs[0].seed != found.runs[0].agent_seed)  # 5 0 True
+```
+
+Under errors the same filter declares the sets of truncated models, and the audit reads its
+claim of zero violations under "bounded" and its rate against $p$ under "gaussian":
+
+```python
+from vbar import ApproachConfig, ApproachEnv
+from vbar.safety.audit import audit_filter
+from vbar.safety.cbf import BackupFilter
+from vbar.safety.tightening import declared_errors, episode_draws
+from vbar.scenarios import per_draw_level
+from vbar.spacecraft import ExecutionError, GaussianNav
+
+p, steps = 1e-3, 3  # episode-level exceedance, decisions per episode
+nav = {"sigma_pos": 0.1, "sigma_vel": 1e-4}  # test settings, not a sensor or thruster model
+burn = {"scale_sigma": 0.01, "noise_sigma": 0.005}
+b = per_draw_level(p, episode_draws(GaussianNav(**nav), ExecutionError(**burn), steps=steps))
+truncated = {"sensor": GaussianNav(bound=b, **nav), "execution": ExecutionError(bound=b, **burn)}
+navigation, da_max = declared_errors(**truncated, a_max=0.02, layout="box", level=b)
+
+
+def braking():
+    return BackupFilter(
+        barrier="braking", navigation=navigation, execution=da_max, exceedance=p, per_draw_level=b
+    )
+
+
+near = ((-80.0, 52.0, -30.0, -0.1, -0.1, -0.1), (80.0, 150.0, 30.0, 0.1, 0.1, 0.1))  # m, m/s
+seed = 0xC3A5C85C97CB3127B4A3E1A53C1F2D0B
+bounded = ApproachEnv(ApproachConfig(**truncated, max_steps=steps))
+found = audit_filter(braking(), bounded, errors="bounded", starts=4, box=near, seed=seed)
+print(found.errors, found.exceedance, round(found.per_draw_level, 3), found.draws)
+# bounded 0.001 4.149 30
+# Two runs pass the 0.3 m/s speed cap, leave the braking region and thrust uncertified.
+print(found.violations, found.uncertified, found.uncovered, found.passed)  # 0 0 2 False
+
+untruncated = {"sensor": GaussianNav(**nav), "execution": ExecutionError(**burn)}
+gaussian = ApproachEnv(ApproachConfig(**untruncated, max_steps=steps))
+found = audit_filter(braking(), gaussian, errors="gaussian", starts=10, box=near, seed=seed)
+for name, rate in found.exceedance_rates.items():
+    low, high = rate.interval
+    print(f"{name} {rate.count}/{rate.trials} CP [{low:.3f}, {high:.3f}] p {rate.level:g}")
+# keep_out 0/10 CP [0.000, 0.308] p 0.001
+# any 0/10 CP [0.000, 0.308] p 0.001
+print(found.passed)  # None
 ```
 
 `benchmarks/filter_audit.py --parts cover` checks the declared sets of the free-drift, cam and
