@@ -395,3 +395,18 @@ def test_the_command_line_refuses_an_unknown_scenario(capsys):
     with pytest.raises(SystemExit):
         main(["--scenario", "docking-sideways"])
     assert "unknown scenario 'docking-sideways'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["--seeds", "-1", "5"], "seeds must not be negative, got -1"),
+        (["--seeds", "5", "-1"], "seeds must not be negative, got -1"),
+        (["--max-steps", "0"], "--max-steps must be at least 1"),
+        (["--max-steps", "-3"], "--max-steps must be at least 1"),
+    ],
+)
+def test_the_command_line_refuses_bad_options_before_it_serves(argv, message, capsys):
+    with pytest.raises(SystemExit):
+        main(argv)
+    assert message in capsys.readouterr().err

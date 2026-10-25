@@ -603,6 +603,10 @@ release may change the public API, and every such change is listed under Changed
   attitude, the Sun direction) a client was told another episode's goal. They now use the view of
   the episode running, as `run_episode` does; before the first episode `describe_task` gives the
   environment's view as built.
+- A negative seed crashed `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` before
+  any result was written; both now refuse it with a usage error. The remote host also refuses a
+  timeout that is not a positive number of seconds and a port outside 0 to 65535, and the MCP
+  server a step limit below 1.
 
 ## [0.3.1] - 2026-10-24
 

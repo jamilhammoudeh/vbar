@@ -29,7 +29,7 @@ from .. import __version__
 from ..runner import ScoredRun
 from .base import action_scale
 from .briefing import briefing, situation
-from .remote import view_to_dict
+from .remote import seed_argument, view_to_dict
 from .tools import CW_TOOLS, call_tool
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -313,7 +313,10 @@ def main(argv: list[str] | None = None) -> None:
         "--scenario", help="catalogue name, name:variant or identifier; the approach by default"
     )
     parser.add_argument(
-        "--seeds", type=int, nargs="+", help="seeds to repeat; by default drawn and recorded"
+        "--seeds",
+        type=seed_argument,
+        nargs="+",
+        help="seeds to repeat; by default drawn and recorded",
     )
     parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
     parser.add_argument("--max-steps", type=int, help="step limit; the scenario's by default")
@@ -322,6 +325,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.episodes < 1:
         parser.error("--episodes must be at least 1")
+    if args.max_steps is not None and args.max_steps < 1:
+        parser.error("--max-steps must be at least 1")
     # A small seed can be found by matching the first observation, so seeds are drawn.
     seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
     limit = {} if args.max_steps is None else {"max_steps": args.max_steps}

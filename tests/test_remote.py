@@ -637,3 +637,23 @@ def test_the_host_refuses_an_unknown_scenario(capsys):
     with pytest.raises(SystemExit):
         main(["--scenario", "docking-sideways"])
     assert "unknown scenario 'docking-sideways'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["--seeds", "-1", "3"], "seeds must not be negative, got -1"),
+        (["--seeds", "5", "-1"], "seeds must not be negative, got -1"),
+        (["--seeds", "1.5"], "invalid seed '1.5'"),
+        (["--timeout", "0"], "--timeout must be a positive number of seconds"),
+        (["--timeout", "-1"], "--timeout must be a positive number of seconds"),
+        (["--timeout", "nan"], "--timeout must be a positive number of seconds"),
+        (["--timeout", "inf"], "--timeout must be a positive number of seconds"),
+        (["--port", "70000"], "--port must be from 0 to 65535"),
+        (["--port", "-1"], "--port must be from 0 to 65535"),
+    ],
+)
+def test_the_host_refuses_bad_options_before_it_listens(argv, message, capsys):
+    with pytest.raises(SystemExit):
+        main(argv)
+    assert message in capsys.readouterr().err

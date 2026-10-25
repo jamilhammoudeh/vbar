@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import secrets
 import socket
 import time
@@ -263,6 +264,17 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
                 return
 
 
+def seed_argument(text: str) -> int:
+    """A seed given on a command line: a whole number, not negative (an `argparse` type)."""
+    try:
+        seed = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid seed {text!r}") from None
+    if seed < 0:
+        raise argparse.ArgumentTypeError(f"seeds must not be negative, got {seed}")
+    return seed
+
+
 def main(argv: list[str] | None = None) -> None:
     """Host a scenario, the approach scenario by default, for one remote agent and write its
     results.
@@ -282,14 +294,21 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument(
-        "--seeds", type=int, nargs="+", help="seeds to repeat; by default drawn and recorded"
+        "--seeds",
+        type=seed_argument,
+        nargs="+",
+        help="seeds to repeat; by default drawn and recorded",
     )
     parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
     parser.add_argument("--out", default="results.jsonl", help="JSON lines, one per episode")
-    parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--timeout", type=float, default=60.0, help="s; bounds every wait")
     args = parser.parse_args(argv)
     if args.episodes < 1:
         parser.error("--episodes must be at least 1")
+    if not 0 <= args.port <= 65535:
+        parser.error("--port must be from 0 to 65535")
+    if not 0.0 < args.timeout < math.inf:
+        parser.error("--timeout must be a positive number of seconds")
     # A small seed can be found by matching the first observation, so seeds are drawn.
     seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
     try:

@@ -130,8 +130,9 @@ says a little about the true path ([environment.md](environment.md)).
 - A hand-written client sees only the view, its seed (the hashed one behind an in-process
   agent's generator) and spawn key, the observation and the time, then the close.
 - Without `--seeds` the host draws a different 128-bit seed for each episode and records it;
-  `--episodes 0` is refused; `--scenario inspection` hosts the inspection scenario and records its
-  identifier, and an unknown name is refused.
+  `--episodes 0` is refused, and so are a negative or fractional seed (also after a valid one), a
+  timeout of 0, -1, NaN or infinity and a port outside 0 to 65535; `--scenario inspection` hosts
+  the inspection scenario and records its identifier, and an unknown name is refused.
 - An error message from the client, a wrong protocol version and a silent client are reported.
 - The command-line host writes one result per seed; a client that answers two steps and then
   sends a line that is not JSON leaves an unfinished record of two steps, with the error, and an
@@ -173,7 +174,8 @@ says a little about the true path ([environment.md](environment.md)).
 - `python -m vbar.agents.mcp` in a subprocess answers five requests on stdio and writes the
   episode's result; without `--seeds` it records two episodes under two different drawn 128-bit
   seeds; `--scenario docking-afrl --max-steps 2` serves two steps of that scenario and records its
-  identifier; an unknown scenario is refused.
+  identifier; an unknown scenario, a negative seed (also after a valid one) and a step limit of 0
+  or -3 are refused.
 
 ## Example
 
