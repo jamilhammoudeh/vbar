@@ -9,6 +9,10 @@ V-BAR is a headless Python benchmark for spacecraft rendezvous and proximity-ope
 controllers. Classical guidance laws, reinforcement learning agents and LLM agents fly the same
 scenarios and are scored with the same metrics.
 
+![The PD baseline in the target's Hill frame. From 400 m behind the target it flies straight to the hold point 100 m behind. From a seeded start 523 m ahead it flies through the 50 m keep-out zone, 14.4 m from the target at closest, before stopping at the hold point. Range and speed against time are shown below.](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/images/pd_approach.png)
+
+The PD baseline from two starts: a clear path to the hold point, and a seeded start with the target in the way.
+
 **Status: early development (0.3).** The dynamics, spacecraft, sensor and constraint layers are
 validated (see [Tests](#tests)). Version 0.3 adds the metrics, agent tools (remote and ONNX
 policy agents, the sign check, reward and training interfaces), a catalogue of seventeen scenarios
@@ -65,6 +69,11 @@ The PD baseline reaches the hold point in every run and flies through the keep-o
 run, because it ignores the target. That gap is what safety filters and better controllers are
 measured against. In a clone of the repository, `python examples/v0_demo.py` shows both cases
 and saves a plot to `outputs/` (needs the `plot` extra).
+
+![Animation of the PD baseline from seed 5 in the Hill frame. A marker leaves its start 523 m ahead of the target, crosses the 50 m keep-out zone with a readout showing time, range and speed, passes 14.4 m from the target, and stops at the hold point 100 m behind it.](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/images/pd_approach.gif)
+
+`python examples/readme_figures.py` regenerates this animation and the figure above
+([docs/viz.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/viz.md)).
 
 ## Frame and units
 

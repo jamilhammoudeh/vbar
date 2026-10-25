@@ -6,8 +6,7 @@ the published examples below. Each test names its source in a comment next to th
 
 ## How good the tests are
 
-- Coverage: the suite executes 97% of the package's statements; CI fails below 95%. The only
-  module without tests is the plotting helper `vbar.viz`.
+- Coverage: the suite executes 97% of the package's statements; CI fails below 95%.
 - Every python example in README.md and these pages runs as part of the suite
   (`tests/test_docs.py`).
 - Mutation testing (`mutmut`) plants small changes in the code (a flipped sign, a changed

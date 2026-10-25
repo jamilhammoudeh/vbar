@@ -16,7 +16,6 @@ except ModuleNotFoundError as err:
     raise ModuleNotFoundError(f'the demo needs {err.name}: pip install "vbar[plot]"') from err
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 
 from vbar import ApproachConfig, ApproachEnv, run_episode, run_many
@@ -54,13 +53,10 @@ print(
 r_clear["agent"] = "PD, clear path"
 r_blocked["agent"] = "PD, target in the way"
 r_drift["agent"] = "drift (no thrust)"
-fig, ax = plt.subplots(figsize=(8, 5))
-plot_trajectories(
+ax = plot_trajectories(
     [r_clear, r_blocked, r_drift],
     blocked,
-    ax=ax,
     title="Approach to hold point: a naive controller flies through the keep-out zone",
 )
-fig.tight_layout()
-fig.savefig(out / "v0_trajectories.png", dpi=150)
+ax.figure.savefig(out / "v0_trajectories.png", dpi=170)
 print(f"\nSaved {out / 'v0_trajectories.png'}")

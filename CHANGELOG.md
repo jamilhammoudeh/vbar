@@ -6,9 +6,26 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+### Added
+
+- `vbar.viz.screen_style`, a context manager that applies the screen style (`SCREEN_STYLE`) for
+  README, documentation and report figures, and `SERIES_COLORS`, the three run colours in order.
+- `vbar.viz.trajectory_figure`: the Hill-frame view over range and speed panels sharing the time
+  axis, with the keep-out radius and capture speed as reference lines.
+- `vbar.viz.approach_animation`: a GIF of one run in the Hill frame with a moving marker, a fading
+  trail and a readout of time, range and speed.
+- `examples/readme_figures.py` regenerates the README figure and animation from fixed seeds;
+  `docs/viz.md` documents the figures.
+
 ### Changed
 
 - The README and `CITATION.cff` give the Zenodo DOI, which resolves to the latest release.
+- `vbar.viz.plot_trajectories` draws in the screen style: the keep-out disk with its radius, the
+  hold point as a dashed ring, time dots every `tick_s` (60 s), open start circles, a direct label
+  per run, the closest approach of a run that entered the keep-out zone, and a direction-of-flight
+  arrow. Legend entries are the run names (`labels`, or each record's `agent`) without the status
+  and delta-v. It raises `ValueError` for more than three runs; draw more runs over several
+  figures.
 
 ## [0.3.1] - 2026-10-24
 
