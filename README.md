@@ -15,7 +15,7 @@ The PD baseline reaches the hold point from behind the target (blue) but flies t
 
 **Status: early development (0.3).** The dynamics, spacecraft, sensor and constraint layers are
 validated (see [Tests](#tests)). Version 0.3 adds the metrics, agent tools (remote and ONNX
-policy agents, the sign check, reward and training interfaces), a catalogue of seventeen scenarios
+policy agents, the sign check, reward and training interfaces), a scenario catalogue
 and `vbar.solvers` (command projection and horizon quadratic programs). Safety filters beyond the pass-through ("filter off")
 are not in yet, and interfaces may change before 1.0.
 
@@ -366,14 +366,18 @@ The scenarios are also Gymnasium environments (`vbar/PursuitEvasionE3I3-v1`); se
 
 ## Scenario catalogue
 
-Beyond the approach above, `vbar.scenarios` holds seventeen scenarios built from specs: the
+Beyond the approach above, `vbar.scenarios` holds twenty-three scenarios built from specs: the
 V-bar, R-bar and orbit-normal approaches with a dwell at the hold point, docking as a contact
 event with mechanism windows and corridors (with on-axis, Shuttle-corridor and Sun-window
 variants), an offset port, an inertially pointing target, the run time assurance docking task,
 inspection under lighting and shadow, the ISS-class closing and R-bar acquisition, a berthing
 box, and the Shuttle's flown profiles (ORBT, the pitch-manoeuvre hold, the twice-orbital-rate
-transition, the V-bar final approach, the HST grapple approach and the separation fly-around).
-Each has `:nav1` and `:nav2` variants and a Gymnasium ID:
+transition, the V-bar final approach, the HST grapple approach and the separation fly-around),
+four comparison tasks rebuilt from their papers (the AFRL docking and illuminated inspection, the
+SpaceGym docking and rendezvous), a departure from an aft port, and the capture of a tumbling
+upper stage with four tumble presets (flat spin, coning, near the separatrix, next to the
+intermediate axis). Each has a Gymnasium ID, and all but the comparison tasks, the departure and
+the capture have `:nav1` and `:nav2` variants:
 
 ```python
 import gymnasium as gym
