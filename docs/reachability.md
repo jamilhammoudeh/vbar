@@ -167,8 +167,9 @@ from vbar.safety.barriers import PassiveBarrier
 n = mean_motion(6378137.0 + 500e3)  # rad/s, 500 km circular
 hold = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])  # V-bar hold point, m and m/s
 half = np.array([0.0, 0.0, 0.0] + [1.4140e-3] * 3)  # velocity box, m/s
-cover = drift_cover(n, hold - half, hold + half, 50.0, 4.0 * math.pi / n, 4001,
-                    lambda x: True, 8, 4)
+cover = drift_cover(
+    n, hold - half, hold + half, 50.0, 4.0 * math.pi / n, 4001, lambda x: True, 8, 4
+)
 print(cover.boxes, cover.certified)  # 1 1.0
 
 # A declared set built for a 45 m keep-out accepts a drift that passes the 50 m one at 47 m.
@@ -218,8 +219,19 @@ from vbar.reach import drift_cover
 n = mean_motion(6378137.0 + 500e3)  # rad/s, 500 km circular
 hold = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])  # m and m/s
 cam = np.array([-5e-4, 0.0, 0.0])  # m/s^2, Hill frame
-cover = drift_cover(n, hold, hold, 50.0, 2.0 * math.pi / n + 30.0, 801, lambda x: True, 4, 4,
-                    accel=cam, burn_time=30.0)
+cover = drift_cover(
+    n,
+    hold,
+    hold,
+    50.0,
+    2.0 * math.pi / n + 30.0,
+    801,
+    lambda x: True,
+    4,
+    4,
+    accel=cam,
+    burn_time=30.0,
+)
 state, margin, t = cover.counterexamples[0]
 print(cover.excluded, round(50.0 + margin, 3), round(t - math.pi / n, 3))  # 1.0 45.79 15.0
 ```

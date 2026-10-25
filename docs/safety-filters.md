@@ -2231,7 +2231,8 @@ print(round(ecbf.declaration.buffer_m, 4), ecbf.declaration.certificate)  # 0.00
 braking = BackupFilter(barrier="braking", rho_cap=2000.0, v_cap=0.3)
 braking.reset(view)
 result = braking.filter(x, push)
-print(result.action.round(4), result.iterations, result.certificate)  # [ 0.   -0.02  0.  ] 1 nominal
+action = result.action.round(4)
+print(action, result.iterations, result.certificate)  # [ 0.   -0.02  0.  ] 1 nominal
 
 soft = SoftCbfFilter(alpha=1e-4, poles=(0.05, 0.05), v_cap=0.1, gamma=0.02)
 soft.reset(view)
