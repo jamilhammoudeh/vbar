@@ -619,3 +619,21 @@ def test_a_huge_discrete_index_is_a_protocol_error():
 
     with pytest.raises(RemoteAgentError, match="expected an integer action"):
         raw_session(handle, config=ApproachConfig(max_steps=1, action_mode="disc27"))
+
+
+def test_the_host_flies_a_catalogue_scenario_named_on_the_command_line(tmp_path):
+    def client(stream, sock):
+        stream.close()
+        sock.close()
+
+    results = host_with(
+        client, tmp_path, episodes=("--seeds", "1", "2", "--scenario", "inspection")
+    )
+    assert [r["seed"] for r in results] == [1, 2]
+    assert all(r["scenario_id"].startswith("vbar:inspection:") for r in results)
+
+
+def test_the_host_refuses_an_unknown_scenario(capsys):
+    with pytest.raises(SystemExit):
+        main(["--scenario", "docking-sideways"])
+    assert "unknown scenario 'docking-sideways'" in capsys.readouterr().err

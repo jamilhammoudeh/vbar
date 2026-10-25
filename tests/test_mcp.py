@@ -68,7 +68,8 @@ def test_an_episode_flown_through_tool_calls_is_the_in_process_episode():
         _, snapshot = call(server, "command", ax=ax, ay=ay, az=az)
         if snapshot["episode_over"]:
             break
-        assert set(snapshot) == {"episode_over", "observation", "time_s", "steps_left", "episode"}
+        expected = {"episode_over", "observation", "time_s", "situation", "steps_left", "episode"}
+        assert set(snapshot) == expected
     local = run_episode(ApproachEnv(env.cfg), PDAgent(), seed=3)
     (served,) = server.results
     assert served["agent"] == "pd-over-mcp" and served["captured"]
@@ -339,3 +340,58 @@ def test_the_task_described_is_the_episode_being_flown(name):
     _, task = call(server, "describe_task")
     assert task["view"]["goal"] == view_to_dict(env.agent_view())["goal"]
     assert task["view"]["goal"] != view_to_dict(built)["goal"]
+
+
+def test_the_task_and_each_observation_come_with_the_episode_s_briefing_and_situation():
+    # docking-offset draws its target's pitch, and so its port, at each reset.
+    from vbar.agents.briefing import briefing, situation
+    from vbar.scenarios import make
+
+    env = make("docking-offset")
+    server = ToolServer(env, [5])
+    _, snapshot = call(server, "start_episode")
+    _, task = call(server, "describe_task")
+    assert task["briefing"] == briefing(env.agent_view())
+    assert task["briefing"].startswith("Task: dock at the target's port")
+    obs = np.array(list(snapshot["observation"].values()))
+    assert snapshot["situation"] == situation(env.agent_view(), obs, env.agent_info())
+    assert "lateral offset from the axis" in snapshot["situation"]
+    _, snapshot = call(server, "command", ax=0.0, ay=0.0, az=0.0)
+    obs = np.array(list(snapshot["observation"].values()))
+    assert snapshot["situation"] == situation(env.agent_view(), obs, env.agent_info())
+
+
+def test_the_command_line_serves_a_catalogue_scenario_by_name(tmp_path):
+    # A real subprocess, about 3 s, nearly all of it importing numpy and scipy.
+    out = tmp_path / "results.jsonl"
+    lines = [
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "describe_task"}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_episode"}},
+        *[
+            {
+                "jsonrpc": "2.0",
+                "id": 3 + k,
+                "method": "tools/call",
+                "params": {"name": "command", "arguments": {"ax": 0, "ay": 0, "az": 0}},
+            }
+            for k in range(2)
+        ],
+    ]
+    argv = ["--scenario", "docking-afrl", "--seeds", "9", "--max-steps", "2", "--out", str(out)]
+    done = subprocess.run(
+        [sys.executable, "-m", "vbar.agents.mcp", *argv],
+        input="\n".join(json.dumps(m) for m in lines) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    task = json.loads(done.stdout.splitlines()[0])["result"]["structuredContent"]
+    assert task["view"]["scenario_id"].startswith("vbar:docking-afrl:")
+    (result,) = [json.loads(line) for line in out.read_text().splitlines()]
+    assert result["scenario_id"] == task["view"]["scenario_id"] and len(result["actions"]) == 2
+
+
+def test_the_command_line_refuses_an_unknown_scenario(capsys):
+    with pytest.raises(SystemExit):
+        main(["--scenario", "docking-sideways"])
+    assert "unknown scenario 'docking-sideways'" in capsys.readouterr().err

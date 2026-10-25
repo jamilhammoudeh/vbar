@@ -3,7 +3,9 @@
 JSON-RPC 2.0 messages, one per line on stdin and stdout, with the methods `initialize`, `ping`,
 `tools/list` and `tools/call`. The tools describe the task, start the next episode from a fixed
 list of seeds, return the observation, apply a command, and offer the coast and transfer
-predictions of `vbar.agents.tools`. Like any scored agent, the client sees only the public
+predictions of `vbar.agents.tools`; the task description and each observation come with the
+briefing and situation lines of `vbar.agents.briefing`, as an in-process LLM agent's prompt has
+them. Like any scored agent, the client sees only the public
 view, the observations and the time: never the true state, the reward or the result, which the
 server keeps (`ToolServer.results`, or a JSON-lines file from the command line). When the
 input ends, an episode still running and every seed not yet flown are recorded as unfinished,
@@ -26,6 +28,7 @@ import numpy as np
 from .. import __version__
 from ..runner import ScoredRun
 from .base import action_scale
+from .briefing import briefing, situation
 from .remote import view_to_dict
 from .tools import CW_TOOLS, call_tool
 
@@ -72,7 +75,8 @@ class ToolServer:
         self.since = time.perf_counter()
         self.tools: dict[str, tuple[str, dict[str, Any], Callable[[dict], dict]]] = {
             "describe_task": (
-                "The task: frame, goal, constraints, step length and limits.",
+                "The task: frame, goal, constraints, step length and limits, and the briefing, "
+                "the goal and constraints in words.",
                 NO_ARGUMENTS,
                 self._describe,
             ),
@@ -81,7 +85,12 @@ class ToolServer:
                 NO_ARGUMENTS,
                 self._start,
             ),
-            "observe": ("The current observation and time.", NO_ARGUMENTS, self._observe),
+            "observe": (
+                "The current observation and time, and the situation: the observed state "
+                "measured against the goal.",
+                NO_ARGUMENTS,
+                self._observe,
+            ),
             "command": (
                 "Hold a command for one step and return the next observation. Arguments are "
                 "fractions of the maximum acceleration along x, y and z, between -1 and 1.",
@@ -101,7 +110,12 @@ class ToolServer:
             )
 
     def _describe(self, args: dict) -> dict:
-        return {"frame": FRAME, "view": view_to_dict(self.view), "episodes": len(self.seeds)}
+        return {
+            "frame": FRAME,
+            "briefing": briefing(self.view),
+            "view": view_to_dict(self.view),
+            "episodes": len(self.seeds),
+        }
 
     def _snapshot(self) -> dict:
         episode = self._running()
@@ -111,6 +125,7 @@ class ToolServer:
                 zip(names, np.asarray(episode.obs, dtype=float).tolist(), strict=True)
             ),
             "time_s": float(episode.info["time_s"]),
+            "situation": situation(self.view, episode.obs, self.env.agent_info()),
             "steps_left": self.view.max_steps - len(episode.actions),
             "episode": self.next_seed,
         }
@@ -289,15 +304,19 @@ def _error(ident, code: int, message: str) -> dict:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Serve the approach scenario over stdio; results go to a JSON-lines file."""
-    from ..scenarios import ApproachConfig, ApproachEnv
+    """Serve a scenario over stdio, the approach scenario by default; results go to a JSON-lines
+    file."""
+    from ..scenarios import ApproachConfig, ApproachEnv, make
 
     parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument(
+        "--scenario", help="catalogue name, name:variant or identifier; the approach by default"
+    )
     parser.add_argument(
         "--seeds", type=int, nargs="+", help="seeds to repeat; by default drawn and recorded"
     )
     parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
-    parser.add_argument("--max-steps", type=int, default=ApproachConfig().max_steps)
+    parser.add_argument("--max-steps", type=int, help="step limit; the scenario's by default")
     parser.add_argument("--out", default="results.jsonl", help="JSON lines, one per episode")
     parser.add_argument("--name", default="mcp-client", help="agent name in the results")
     args = parser.parse_args(argv)
@@ -305,11 +324,18 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--episodes must be at least 1")
     # A small seed can be found by matching the first observation, so seeds are drawn.
     seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
-    env = ApproachEnv(ApproachConfig(max_steps=args.max_steps))
+    limit = {} if args.max_steps is None else {"max_steps": args.max_steps}
+    try:
+        env = (
+            make(args.scenario, **limit) if args.scenario else ApproachEnv(ApproachConfig(**limit))
+        )
+    except (KeyError, ValueError) as error:
+        parser.error(str(error.args[0]))
     with open(args.out, "w", encoding="utf-8") as out:
 
         def write(result: dict) -> None:
             plain = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in result.items()}
+            plain["scenario_id"] = env.scenario_id
             out.write(json.dumps(plain) + "\n")
             out.flush()
 

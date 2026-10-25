@@ -264,7 +264,8 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Host the default approach scenario for one remote agent and write its results.
+    """Host a scenario, the approach scenario by default, for one remote agent and write its
+    results.
 
     However the session fails (at hello, during an episode, by a disconnect or a message the
     server cannot use), the episode being flown is written unfinished with the error, and so is
@@ -272,9 +273,12 @@ def main(argv: list[str] | None = None) -> None:
     """
 
     from ..runner import ScoredRun
-    from ..scenarios import ApproachConfig, ApproachEnv
+    from ..scenarios import ApproachConfig, ApproachEnv, make
 
     parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument(
+        "--scenario", help="catalogue name, name:variant or identifier; the approach by default"
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument(
@@ -288,12 +292,16 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--episodes must be at least 1")
     # A small seed can be found by matching the first observation, so seeds are drawn.
     seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
+    try:
+        env = make(args.scenario) if args.scenario else ApproachEnv(ApproachConfig())
+    except (KeyError, ValueError) as error:
+        parser.error(str(error.args[0]))
     server = AgentServer(args.host, args.port, args.timeout)
     print(f"waiting for an agent on {args.host}:{server.address[1]}", flush=True)
-    env = ApproachEnv(ApproachConfig())
 
     def write(out, result: dict) -> None:
         plain = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in result.items()}
+        plain["scenario_id"] = env.scenario_id
         out.write(json.dumps(plain) + "\n")
         out.flush()
 

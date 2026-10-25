@@ -210,6 +210,15 @@ release may change the public API, and every such change is listed under Changed
   (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
   turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
   `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
+- `LLMAgent` flies every task kind: hold, berthing, docking, inspection and departure. The default
+  prompt describes the goal, the target's attitude mode and every public constraint in sentences
+  (`vbar.agents.briefing.briefing`) and measures the observation against them each step
+  (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
+  turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
+  `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
+- `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` take `--scenario` (a catalogue
+  name, variant or identifier) and write the scenario identifier into each result; the MCP
+  `describe_task` tool returns the briefing and each observation the situation lines.
 
 ### Changed
 
