@@ -16,7 +16,7 @@ import numpy as np
 
 from .agents.base import CONTINUOUS_MODES
 from .safety import run_filter
-from .scenarios.base import BaseEnv
+from .scenarios.base import BaseEnv, continuous_command
 
 
 class FilteredEnv(gym.Wrapper):
@@ -45,7 +45,7 @@ class FilteredEnv(gym.Wrapper):
         return obs, info
 
     def step(self, action):
-        command = np.array(action, dtype=float)
+        command = continuous_command(action, self.base.cfg.action_mode)
         result, _ = run_filter(self.safety_filter, self.last_obs, command, self.tol)
         executed = np.array(result.action, dtype=float)
         obs, reward, terminated, truncated, info = self.env.step(executed)

@@ -35,6 +35,11 @@ release may change the public API, and every such change is listed under Changed
 - The `TargetMode` protocol has `angular_velocity(t, n)`, the rate of the body axes relative to
   the Hill frame in Hill axes (rad/s); every built-in mode implements it, and a mode without it
   fails where a port's velocity is needed.
+- `BaseEnv.step`, `ApproachVectorEnv.step` and `FilteredEnv.step` raise `ValueError` for an
+  action of the wrong shape or with a non-finite entry before anything is flown. Zeros of the
+  wrong shape were flown as a coast, and a nonzero action of the wrong length had already been
+  queued and paid for when it failed. The vector environment no longer takes the actions as one
+  flat array.
 
 ### Fixed
 

@@ -162,6 +162,38 @@ def _cut(
     )
 
 
+def continuous_command(action: Any, mode: str) -> np.ndarray:
+    """A copy of a continuous-mode action, checked before anything is flown.
+
+    Parameters
+    ----------
+    action : array_like
+        The action: three numbers, or four (with the coast in s) for "impulse_coast".
+    mode : str
+        The action mode.
+
+    Returns
+    -------
+    numpy.ndarray
+        The action as floats.
+
+    Raises
+    ------
+    ValueError
+        If the action has another shape or a non-finite entry.
+    """
+    command = np.array(action, dtype=float)
+    if mode == "impulse_coast":
+        if command.shape != (4,) or not np.all(np.isfinite(command)):
+            raise ValueError("impulse_coast actions are four finite numbers (fx, fy, fz, coast s)")
+        return command
+    if command.shape != (3,):
+        raise ValueError(f"{mode} actions have shape (3,), not {command.shape}")
+    if not np.all(np.isfinite(command)):
+        raise ValueError(f"{mode} actions must be finite")
+    return command
+
+
 def public_spec(constraint: Constraint) -> dict[str, Any]:
     """A constraint's type and parameters, as agents may see them.
 
@@ -368,12 +400,16 @@ class BaseEnv(gym.Env):
         return self.obs.copy(), self._info()
 
     def step(self, action, *, latency_s: float = 0.0):
-        """Fly one decision; `latency_s` delays this command's effect (real-time runs)."""
+        """Fly one decision; `latency_s` delays this command's effect (real-time runs).
+
+        An action of the wrong shape or with a non-finite entry raises `ValueError` before any
+        state changes.
+        """
         coast_steps = 0
         if self.cfg.action_mode == "disc27":
             command = DISC27[self._index(action)].copy()
         else:
-            command = np.array(action, dtype=float)
+            command = continuous_command(action, self.cfg.action_mode)
         if self.cfg.action_mode == "impulse_coast":
             coast_steps = self._coast_steps(command)
             fraction = burn = command[:3]
@@ -577,8 +613,6 @@ class BaseEnv(gym.Env):
 
     def _coast_steps(self, command: np.ndarray) -> int:
         """Whole steps of coast an impulse_coast action asks for, cut at the time limit."""
-        if command.shape != (4,) or not np.all(np.isfinite(command)):
-            raise ValueError("impulse_coast actions are four finite numbers (fx, fy, fz, coast s)")
         left = max(self.cfg.max_steps - self.steps - 1, 0)
         return int(np.clip(round(float(command[3]) / self.cfg.dt), 0, left))
 

@@ -191,7 +191,11 @@ class ApproachVectorEnv(vector.VectorEnv):
             if np.any((values != np.round(values)) | (values < 0) | (values >= len(DISC27))):
                 raise ValueError("disc27 actions are the integers 0 to 26")
             return DISC27[values.astype(int)]
-        commands = np.array(actions, dtype=float).reshape(self.num_envs, 3)
+        commands = np.array(actions, dtype=float)
+        if commands.shape != (self.num_envs, 3):
+            raise ValueError(f"actions have shape ({self.num_envs}, 3), not {commands.shape}")
+        if not np.all(np.isfinite(commands)):
+            raise ValueError("actions must be finite")
         max_force = self.cfg.max_accel * self.mass
         if self.cfg.action_mode == "accel":
             return commands / (max_force / self.mass)[:, None]
