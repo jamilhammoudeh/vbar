@@ -18,6 +18,7 @@ from vbar.scenarios.targets import (
     RotatingCone,
     Tumbling,
     body_point,
+    body_point_velocity,
     burn_boundaries,
     split_at,
     sun_at,
@@ -322,3 +323,32 @@ def test_free_drift_identity_holds_for_the_wrapped_model():
     moving.reset(start)
     end, _ = moving.advance(np.zeros(3), 600.0)
     assert np.allclose(end, cw_stm(N, 600.0) @ start, atol=1e-9)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        Passive(),
+        FixedOffset(0.3, amplitude=math.radians(2.0), period=500.0),
+        InertialPointing(0.4),
+        Tumbling((0.3, -1.0, 0.5), 0.07, phase=0.2),
+        Maneuvering(schedule=((10.0, 5.0, (0.0, 1e-4, 0.0)),), attitude=InertialPointing(1.0)),
+        Misbriefed(actual=Tumbling((0.0, 1.0, 1.0), -0.02), briefed=Passive()),
+    ],
+    ids=lambda mode: mode.name,
+)
+def test_angular_velocity_is_the_rate_of_the_attitude_matrix(mode):
+    # dR/dt R^T is the skew matrix of the body rate in Hill axes; central differences at 1e-3 s
+    # are accurate to about (w h)^2, far below the 1e-9 rad/s tolerance at these rates.
+    times = np.array([0.0, 137.0, 911.0])
+    h = 1e-3
+    skew = (mode.matrix(times + h, N) - mode.matrix(times - h, N)) / (2.0 * h)
+    skew = skew @ np.swapaxes(mode.matrix(times, N), -1, -2)
+    w = np.stack([skew[:, 2, 1], skew[:, 0, 2], skew[:, 1, 0]], axis=-1)
+    assert mode.angular_velocity(times, N) == pytest.approx(w, abs=1e-9)
+    assert np.all(np.linalg.norm(w, axis=-1) <= mode.rate_bound(N) * (1.0 + 1e-6))
+    point = (0.5, -2.0, 1.0)
+    moved = (body_point(mode, point, times + h, N) - body_point(mode, point, times - h, N)) / (
+        2 * h
+    )
+    assert body_point_velocity(mode, point, times, N) == pytest.approx(moved, abs=1e-9)

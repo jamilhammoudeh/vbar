@@ -66,12 +66,19 @@ def rotation_about(axis: ArrayLike, angle: ArrayLike) -> np.ndarray:
     return np.eye(3) + np.sin(a) * cross + (1.0 - np.cos(a)) * (cross @ cross)
 
 
+def _about_z(rate: np.ndarray) -> np.ndarray:
+    """Angular velocities `rate` (rad/s) about the Hill z axis, shape (*rate.shape, 3)."""
+    zero = np.zeros_like(rate)
+    return np.stack([zero, zero, rate], axis=-1)
+
+
 class TargetMode(Protocol):
     """The target's attitude and burn schedule as seen from the Hill frame.
 
-    `matrix` returns the rotation from body to Hill axes at a time, `rate_bound` an upper
-    bound on the attitude rate (rad/s), `public` the description agents get in the goal, and
-    `burns` the target's scheduled burns, empty for a target that does not manoeuvre.
+    `matrix` returns the rotation from body to Hill axes at a time, `angular_velocity` the
+    rate of the body axes in the Hill frame, `rate_bound` an upper bound on its magnitude
+    (rad/s), `public` the description agents get in the goal, and `burns` the target's
+    scheduled burns, empty for a target that does not manoeuvre.
     """
 
     @property
@@ -93,6 +100,23 @@ class TargetMode(Protocol):
         -------
         numpy.ndarray
             Rotation matrices, shape (*t.shape, 3, 3).
+        """
+        ...
+
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """Angular velocity of the body axes relative to the Hill frame, in Hill axes.
+
+        Parameters
+        ----------
+        t : array_like
+            Time since the episode start (s), any shape.
+        n : float
+            Mean motion of the target's orbit (rad/s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), shape (*t.shape, 3).
         """
         ...
 
@@ -160,6 +184,23 @@ class Passive:
         """
         shape = np.shape(np.asarray(t, dtype=float))
         return np.broadcast_to(np.eye(3), (*shape, 3, 3)).copy()
+
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """Zero at every time.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape.
+        n : float
+            Mean motion (rad/s), unused.
+
+        Returns
+        -------
+        numpy.ndarray
+            Zeros (rad/s), shape (*t.shape, 3).
+        """
+        return np.zeros((*np.shape(np.asarray(t, dtype=float)), 3))
 
     def rate_bound(self, n: float) -> float:
         """Zero: the body axes do not turn in the Hill frame.
@@ -271,6 +312,27 @@ class FixedOffset:
         """
         return rotation_z(self.angle(t))
 
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """The limit cycle's rate about z, 2 pi amplitude / period cos(2 pi t / period).
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape.
+        n : float
+            Mean motion (rad/s), unused.
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), Hill axes, shape (*t.shape, 3).
+        """
+        t = np.asarray(t, dtype=float)
+        if self.amplitude == 0.0:
+            return _about_z(np.zeros(t.shape))
+        omega = 2.0 * np.pi / self.period
+        return _about_z(self.amplitude * omega * np.cos(omega * t))
+
     def rate_bound(self, n: float) -> float:
         """The limit cycle's peak rate, 2 pi amplitude / period.
 
@@ -349,6 +411,23 @@ class InertialPointing:
             Body-to-Hill rotations, shape (*t.shape, 3, 3).
         """
         return rotation_z(self.phase - n * np.asarray(t, dtype=float))
+
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """-n about z: the Hill frame turns at n about the inertially fixed body.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape.
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), Hill axes, shape (*t.shape, 3).
+        """
+        return _about_z(np.full(np.shape(np.asarray(t, dtype=float)), -n))
 
     def rate_bound(self, n: float) -> float:
         """The orbital rate |n|.
@@ -440,6 +519,25 @@ class Tumbling:
             Body-to-Hill rotations, shape (*t.shape, 3, 3).
         """
         return rotation_about(self.axis, self.phase + self.rate * np.asarray(t, dtype=float))
+
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """`rate` about the unit `axis`, which the rotation leaves fixed in the Hill frame.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape.
+        n : float
+            Mean motion (rad/s), unused.
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), Hill axes, shape (*t.shape, 3).
+        """
+        axis = np.asarray(self.axis) / np.linalg.norm(self.axis)
+        shape = np.shape(np.asarray(t, dtype=float))
+        return np.broadcast_to(self.rate * axis, (*shape, 3)).copy()
 
     def rate_bound(self, n: float) -> float:
         """The tumble rate |rate|.
@@ -538,6 +636,23 @@ class Maneuvering:
         """
         return self.attitude.matrix(t, n)
 
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """The angular velocity of `attitude`.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape.
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), Hill axes, shape (*t.shape, 3).
+        """
+        return self.attitude.angular_velocity(t, n)
+
     def rate_bound(self, n: float) -> float:
         """The rate bound of `attitude`.
 
@@ -614,6 +729,23 @@ class Misbriefed:
             Body-to-Hill rotations, shape (*t.shape, 3, 3).
         """
         return self.actual.matrix(t, n)
+
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """The angular velocity of `actual`.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape.
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), Hill axes, shape (*t.shape, 3).
+        """
+        return self.actual.angular_velocity(t, n)
 
     def rate_bound(self, n: float) -> float:
         """The rate bound of `actual`.
@@ -692,6 +824,32 @@ def body_point(mode: TargetMode, point: ArrayLike, t: ArrayLike, n: float) -> np
         The point or direction in Hill axes, shape (*t.shape, 3).
     """
     return np.einsum("...ij,j->...i", mode.matrix(t, n), np.asarray(point, dtype=float))
+
+
+def body_point_velocity(mode: TargetMode, point: ArrayLike, t: ArrayLike, n: float) -> np.ndarray:
+    """Hill-frame velocity of a body-fixed point, w x (R p), with the target's centre at rest.
+
+    A capture interface on a turning target moves at this velocity (Fehse, Automated Rendezvous
+    and Docking of Spacecraft, 2003, section 8.3.6), so a chaser's speeds at the interface are
+    measured against it.
+
+    Parameters
+    ----------
+    mode : TargetMode
+        The target's attitude mode.
+    point : array_like
+        Point in body axes (m), shape (3,).
+    t : array_like
+        Time (s), any shape.
+    n : float
+        Mean motion (rad/s).
+
+    Returns
+    -------
+    numpy.ndarray
+        Velocity (m/s), Hill axes, shape (*t.shape, 3).
+    """
+    return np.cross(mode.angular_velocity(t, n), body_point(mode, point, t, n))
 
 
 @dataclass(frozen=True)
@@ -1334,6 +1492,7 @@ __all__ = [
     "TargetMode",
     "Tumbling",
     "body_point",
+    "body_point_velocity",
     "briefed_mode",
     "burn_boundaries",
     "rotation_about",

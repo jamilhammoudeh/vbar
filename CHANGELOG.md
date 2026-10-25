@@ -16,6 +16,8 @@ release may change the public API, and every such change is listed under Changed
   trail and a readout of time, range and speed.
 - `examples/readme_figures.py` regenerates the README figure and animation from fixed seeds;
   `docs/viz.md` documents the figures.
+- `vbar.scenarios.targets.body_point_velocity`: the Hill-frame velocity w x (R p) of a point fixed
+  to a turning target.
 
 ### Changed
 
@@ -26,6 +28,9 @@ release may change the public API, and every such change is listed under Changed
   arrow. Legend entries are the run names (`labels`, or each record's `agent`) without the status
   and delta-v. It raises `ValueError` for more than three runs; draw more runs over several
   figures.
+- The `TargetMode` protocol has `angular_velocity(t, n)`, the rate of the body axes relative to
+  the Hill frame in Hill axes (rad/s); every built-in mode implements it, and a mode without it
+  fails where a port's velocity is needed.
 
 ## [0.3.1] - 2026-10-24
 

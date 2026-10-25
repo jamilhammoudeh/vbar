@@ -106,7 +106,11 @@ the objects of a group by name. A plugin that fails to import is logged and skip
 
 The target's body axes coincide with the Hill axes at zero attitude; a port on the -V-bar face
 has body position $(0, -R, 0)$ and axis $(0, -1, 0)$. A mode gives the rotation from body to Hill
-axes at any time (Fehse, *Automated Rendezvous and Docking of Spacecraft*, 2003, section 5.3.1):
+axes at any time (Fehse, *Automated Rendezvous and Docking of Spacecraft*, 2003, section 5.3.1),
+and `angular_velocity(t, n)`, the rate of the body axes relative to the Hill frame in Hill axes,
+which a mode written for a plugin must provide as well. A point fixed to the target moves at
+$\boldsymbol\omega \times R\,\mathbf p$ (`body_point_velocity`), the velocity a capture interface
+on a turning target has (Fehse 8.3.6):
 
 - `Passive`: LVLH-stabilised, the identity.
 - `FixedOffset(pitch, amplitude, period)`: a constant pitch about the orbit normal, such as a
