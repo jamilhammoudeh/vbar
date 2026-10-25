@@ -1860,6 +1860,31 @@ certified boxes, the run time and the seed.
 "cam", "predictive"; all by default) for every part, so `--filters cam predictive` runs only
 those two.
 
+`benchmarks/filter_audit_errors.py` runs the same audits under errors on approach-vbar: the
+`:nav1` navigation (`GaussianNav`, 1 m and 1 mm/s per axis) and an `ExecutionError` with scale
+sigma 0.01 and noise sigma 0.005, a test setting rather than a thruster model, at $p = 10^{-3}$
+and $b$ = `per_draw_level(p, D)`, D = 3600 under both errors and 1440 under execution error
+alone. The free-drift, braking and predictive (terminal mode) filters fly both errors; the two
+exponential-barrier filters, which take no navigation set, fly execution error only and make no
+claim under navigation error; the cam filter makes no claim under errors and is only listed.
+Each filter declares the sets `declared_errors` derives at its $b$. `--parts audit` flies
+`--starts` starts (1000) under "bounded" errors from the scenario's start box with the PD
+nominal and near the keep-out with the inward nominal, and asserts each passes; `--parts
+falsify` searches the start and the scripted errors near the keep-out with both nominals,
+`--budget` runs each (1000), and asserts "none_found" with a score of at least -1; `--parts
+gaussian` flies `--runs` starts (1000) near the keep-out with the inward nominal under
+"gaussian" errors and reports each rate with its Clopper-Pearson interval against $p$.
+`CbfFilter` issues no certificate, so every decision of an exponential-barrier run is uncovered:
+those lines are labelled "uncertified", pass on no violation past 1 mm and no infeasible or
+"solver_failed" decision, report the uncovered count without gating it, and never count as a
+certified pass; the other filters' lines are "certified" and fail on any uncovered decision.
+`--grid` sets the free-drift sample spacing the free-drift and predictive filters declare (their
+5 s by default), and every line prints the declared grid. Each
+finished audit prints one flushed line with the filter, the part, $p$, $b$, $D$, the counts of
+violations past 1 mm, uncertified steps and infeasible, "solver_failed" and uncovered
+decisions, the verdict and the root seed, so the full run is meant to be started as one
+process per filter and part, each over `--workers` processes.
+
 ## Falsification
 
 The audit flies starts drawn uniformly from the declared safe set. A falsification search
