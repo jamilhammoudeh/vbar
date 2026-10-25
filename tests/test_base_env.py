@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from gymnasium.utils.env_checker import check_env
 
+from vbar.agents import DISC27
 from vbar.constraints import KeepOut
 from vbar.conventions import G0
 from vbar.dynamics import cw_discrete
@@ -295,7 +296,7 @@ def test_violation_across_a_segment_boundary_is_one_interval_per_step():
     assert ts[inside[-1]] <= exit_ <= ts[inside[-1] + 1]
 
 
-def mixed_units_env(action_mode, drive, delay):
+def mixed_units_env(action_mode, drive, delay, layout="box", min_impulse=0.0):
     """Approach with execution error, a delay and a mass that falls fast enough to see."""
     cfg = ApproachConfig(
         max_steps=14,
@@ -305,12 +306,30 @@ def mixed_units_env(action_mode, drive, delay):
         isp=220.0,
         mass_kg=500.0,
         propellant_kg=100.0,
-        thrust_limit="box",
+        thrust_limit=layout,
+        min_impulse=min_impulse,
         execution=ExecutionError(scale_sigma=0.2, noise_sigma=0.05),
         sensor=GaussianNav(5.0, 0.05),
         observation_channels=("pending_commands",),
     )
     return ApproachEnv(cfg)
+
+
+def action_bound(view):
+    """Action-space bound from the agent's view: the action scale at the initial mass."""
+    return {"normalized": 1.0, "accel": view.max_accel}.get(
+        view.action_mode, view.max_accel * view.mass_kg
+    )
+
+
+def public_echo(command, bound, layout):
+    """The command limited by the thruster layout at the action-space bound."""
+    u = np.asarray(command, dtype=float) / bound
+    if layout == "box":
+        u = np.clip(u, -1.0, 1.0)
+    elif np.linalg.norm(u) > 1.0:
+        u = u / np.linalg.norm(u)
+    return bound * u
 
 
 @pytest.mark.parametrize("drive", ["accel", "thrust"])
@@ -350,9 +369,21 @@ class PendingMassCheat:
     """Reads the mass history, and so each burn's delivered delta-v, from the echoed commands."""
 
     def __init__(self, mass, exponent, exhaust_speed):
-        self.mass = mass
+        self.initial_mass = self.mass = mass
         self.exponent = exponent
         self.exhaust_speed = exhaust_speed
+
+    def saturated_dv(self, echoed, bound):
+        """Delivered delta-v (m/s) since the last call, from a saturated command's echo.
+
+        A clipped command echoes the action scale at issue; over the bound, the scale at the
+        initial mass, it gives the mass at issue.
+        """
+        ratio = float(np.max(np.abs(echoed))) / bound
+        mass = self.initial_mass * ratio**self.exponent
+        dv = self.exhaust_speed * np.log(self.mass / mass)
+        self.mass = mass
+        return dv
 
     def delivered_dv(self, issued, echoed):
         """Delivered delta-v 1-norm (m/s) over the last step, from the echo/issue ratio."""
@@ -382,3 +413,131 @@ def test_pending_commands_reveal_no_delivered_delta_v(action_mode, drive, expone
     # Taking the commanded delta-v as delivered is off by the 20 % scale error; 0.01 is an
     # order of magnitude below that and far above the rounding a working cheat reaches.
     assert np.median(errors) > 0.01
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+@pytest.mark.parametrize("drive", ["accel", "thrust"])
+@pytest.mark.parametrize("action_mode", ["normalized", "accel", "thrust"])
+def test_pending_commands_echo_saturated_commands_without_the_mass(action_mode, drive, layout):
+    """Each slot echoes the issued command limited by the layout at the action-space bound.
+
+    The bound is the action scale at the initial mass (1, max_accel or max_accel * mass_kg),
+    so the agent computes the echo from its own command and its view. Where the true scale is
+    fixed this is the command as limited; where it moves with the mass, the true clip is the
+    scale at issue and would give the mass away.
+    """
+    env = mixed_units_env(action_mode, drive, delay=25.0, layout=layout)
+    env.reset(seed=3)
+    bound = action_bound(env.agent_view())
+    rng = np.random.default_rng(1)
+    # Axes from half the bound to a thousand times it, so most commands clip and some do not.
+    commands = bound * rng.choice([-1.0, 1.0], (12, 3)) * 10.0 ** rng.uniform(-0.3, 3.0, (12, 3))
+    for k, command in enumerate(commands):
+        obs, _, _, _, _ = env.step(command)
+        slots = obs[6:].reshape(3, 4)
+        for m in range(min(k + 1, 3)):
+            expected = public_echo(commands[k - m], bound, layout)
+            assert np.allclose(slots[-1 - m, 1:], expected, rtol=1e-12, atol=0.0)
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+@pytest.mark.parametrize(
+    ("action_mode", "drive", "exponent"), [("accel", "thrust", -1), ("thrust", "accel", 1)]
+)
+def test_saturated_pending_commands_reveal_no_delivered_delta_v(
+    action_mode, drive, exponent, layout
+):
+    env = mixed_units_env(action_mode, drive, delay=10.0, layout=layout)
+    _, info = env.reset(seed=3)
+    cheat = PendingMassCheat(500.0, exponent, 220.0 * G0)
+    bound = action_bound(env.agent_view())
+    # The rocket equation gives the delta-v on the norm the layout spends propellant on.
+    key = {"box": "dv_axes_mps", "ball": "dv_used_mps"}[layout]
+    guesses, dv_true, dv_before = [], [], info[key]
+    for sign in np.random.default_rng(1).choice([-1.0, 1.0], 12):
+        obs, _, _, _, info = env.step([1e3 * sign * bound, 0.0, 0.0])
+        dv_true.append(info[key] - dv_before)
+        dv_before = info[key]
+        guesses.append(cheat.saturated_dv(obs[7:10], bound))
+    # The echo after step k gives the mass at its start, so the guess after step k + 1 is the
+    # delta-v delivered in step k.
+    pairs = zip(guesses[1:], dv_true[:-1], strict=True)
+    errors = [abs(guess - dv) / dv for guess, dv in pairs if dv > 0.0]
+    assert len(errors) >= 9
+    # The 0.01 margin is set as in the unsaturated cheat test above.
+    assert np.median(errors) > 0.01
+
+
+def thrust_per_command(view, drive, mass):
+    """Thrust (N) of a command of one action unit, from the action mode's units."""
+    if view.action_mode == "accel":
+        return mass
+    if view.action_mode == "thrust":
+        return 1.0
+    return view.max_accel * (mass if drive == "accel" else view.mass_kg)
+
+
+@pytest.mark.parametrize("drive", ["accel", "thrust"])
+@pytest.mark.parametrize("action_mode", ["normalized", "accel", "thrust"])
+def test_impulse_bit_probe_reveals_nothing_in_pending_commands(action_mode, drive):
+    # Two episodes take the same commands; their execution draws differ, and so do their
+    # masses. Each probe asks for the 1 N s impulse bit at the geometric mean of the two masses'
+    # thrusts, so a drop decided on the true mass keeps it in one episode and drops it in the
+    # other. Echoes that depend only on the commands and the public limits agree.
+    envs = [mixed_units_env(action_mode, drive, delay=10.0, min_impulse=1.0) for _ in range(2)]
+    infos = [env.reset(seed=seed)[1] for env, seed in zip(envs, (3, 4), strict=True)]
+    view = envs[0].agent_view()
+    burn = 0.9 * action_bound(view) * np.ones(3)
+    for k in range(12):
+        if k < 5:
+            command = burn
+        else:
+            thrusts = [thrust_per_command(view, drive, info["mass_kg"]) for info in infos]
+            command = np.array([1.0 / (view.dt * np.sqrt(np.prod(thrusts))), 0.0, 0.0])
+        steps = [env.step(command) for env in envs]
+        infos = [info for *_, info in steps]
+        echoes = [obs[7:10] for obs, *_ in steps]
+        assert np.allclose(echoes[0], echoes[1], rtol=1e-12, atol=0.0)
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+@pytest.mark.parametrize("drive", ["accel", "thrust"])
+def test_disc27_pending_commands_echo_the_command_of_the_issued_index(drive, layout):
+    # A full command held for a step is at most a 100 N s impulse, so a 1000 N s impulse bit
+    # drops every burn; the echo still names the command the agent picked.
+    env = mixed_units_env("disc27", drive, delay=25.0, layout=layout, min_impulse=1e3)
+    env.reset(seed=3)
+    indices = np.random.default_rng(2).integers(0, len(DISC27), 12)
+    for k, index in enumerate(indices):
+        obs, _, _, _, _ = env.step(index)
+        slots = obs[6:].reshape(3, 4)
+        for m in range(min(k + 1, 3)):
+            expected = public_echo(DISC27[indices[k - m]], 1.0, layout)
+            assert np.allclose(slots[-1 - m, 1:], expected, rtol=1e-12, atol=0.0)
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+@pytest.mark.parametrize("drive", ["accel", "thrust"])
+def test_impulse_coast_pending_commands_echo_the_clipped_impulse_and_zero_coasts(drive, layout):
+    # Every other impulse is 0.05 of a full command per axis, at most 9 N s, which the 10 N s
+    # impulse bit drops; the others are over the bound on every axis and are clipped.
+    env = mixed_units_env("impulse_coast", drive, delay=25.0, layout=layout, min_impulse=10.0)
+    env.reset(seed=3)
+    rng = np.random.default_rng(4)
+    # The zero in effect before the first command, then each echo in the order issued.
+    acting = [np.zeros(3)]
+    done, k = False, 0
+    while not done:
+        size = 0.05 if k % 2 else 10.0 ** rng.uniform(0.0, 2.0, 3)
+        impulse = size * rng.choice([-1.0, 1.0], 3)
+        coast = (0.0, 10.0, 20.0)[k % 3]
+        obs, _, terminated, truncated, _ = env.step(np.append(impulse, coast))
+        done, k = terminated or truncated, k + 1
+        acting.append(public_echo(impulse, 1.0, layout))
+        if coast and not done:
+            acting.append(np.zeros(3))
+        slots = obs[6:].reshape(3, 4)
+        shown = min(int(np.sum(slots[:, 0] > 0.0)) + 1, 3)
+        expected = np.array(acting[-shown:])
+        assert np.allclose(slots[-shown:, 1:], expected, rtol=1e-12, atol=0.0)
+    assert k >= 5

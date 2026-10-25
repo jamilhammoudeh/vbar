@@ -35,10 +35,16 @@ and it passes `gymnasium.utils.env_checker.check_env` (tested in `tests/test_reg
     it off when that error is meant to stay hidden from the agent;
   - `pending_commands`: $\lceil \text{delay} / \Delta t\rceil$ slots of (s until the command takes
     effect, command in action units): the command in effect first, then those not yet in effect,
-    zero-filled at the front. Each command is echoed as issued, after the thrust limits and
-    minimum impulse bit, in action units at the time it was issued, so the mass change since then
-    does not show in it. With these the next state follows from the observation and the new
-    action alone.
+    zero-filled at the front. Each slot echoes the command as the agent issued it, in action
+    units, limited at the action-space bound the agent sees (1, `max_accel` or `max_accel` times
+    `mass_kg`): per axis for the box layout and by length for the ball. A `disc27` index echoes
+    its command and an `impulse_coast` coast echoes zero. The echo is a function of the action and
+    the agent's view alone, so it says nothing about the mass, whether the minimum impulse bit
+    dropped the command, or whether a thrust inhibit zeroed it. With these the agent need not
+    remember its own commands to know which are still to act. The thrust flown can differ from
+    the echo through the limit at the current mass, the minimum impulse bit, a thrust inhibit,
+    propellant running out, the mass change within the step (when the action mode and the drive
+    differ) and the execution error.
 
   `AgentView.observation` names every entry.
 - **Episode:** at most `max_steps` = 360 steps (one hour). It ends early on capture, or on entering
@@ -236,8 +242,11 @@ sign-convention check every agent passes before scoring is on [agents.md](agents
 - The same seed gives the same episode, sensor noise included; noise never changes the true
   trajectory, and execution errors draw from their own stream.
 - A delayed command splits the step, and the state matches the Clohessy-Wiltshire transition
-  matrices applied piece by piece to 1e-9 m; with the pending-command channel the next state
-  follows from the observation and the action alone, for delays of 3.7 and 25 s.
+  matrices applied piece by piece to 1e-9 m. With the pending-command channel the next state
+  follows from the observation and the action alone, for delays of 3.7 and 25 s, in the tested
+  setting: CW dynamics, exact navigation, no execution error, normalized actions on the
+  acceleration drive, no minimum impulse bit, no thrust inhibit and propellant that does not run
+  out.
 - Under the two-body model with J2, every thrust change (delay, run-out) starts a new
   integration.
 - With noise on, observation minus truth has the sensor's mean and covariance and no correlation

@@ -56,8 +56,9 @@ class EnvConfig:
     `observation_channels` appends, in this order, any of: "t_remaining" (s), "propellant_fraction"
     (propellant left over propellant at start) and "pending_commands", which lists the commands
     that will still act after this step, the one in effect first and then those not yet in effect,
-    each as (seconds until it takes effect, command in the action mode's units); it has
-    ceil(delay_s / dt) slots, zero-filled at the front before the first commands.
+    each as (seconds until it takes effect, command as issued in the action mode's units, limited
+    by the thruster layout at the action-space bound); it has ceil(delay_s / dt) slots,
+    zero-filled at the front before the first commands.
 
     `reward` replaces the scenario's legacy reward with a `vbar.rewards.Reward`; `info` then
     holds each step's `discount`. `training` allows the training-only options of `reset`
@@ -223,6 +224,11 @@ class BaseEnv(gym.Env):
             raise ValueError(f"unknown observation channels {sorted(unknown)}, expected {CHANNELS}")
         self.pending_slots = int(np.ceil(config.delay_s / config.dt - 1e-9))
         self.observation_names = self._observation_names()
+        # Action units of a full command at the initial mass, the bound the agent's view gives.
+        self.action_bound = {
+            "accel": config.max_accel,
+            "thrust": config.max_accel * config.mass_kg,
+        }.get(config.action_mode, 1.0)
         self.action_space: spaces.Space
         if config.action_mode == "disc27":
             self.action_space = spaces.Discrete(len(DISC27))
@@ -231,15 +237,13 @@ class BaseEnv(gym.Env):
             top = np.array([1.0, 1.0, 1.0, config.max_steps * config.dt], dtype=np.float32)
             self.action_space = spaces.Box(low, top, dtype=np.float32)
         else:
-            high = {"normalized": 1.0, "accel": config.max_accel}.get(
-                config.action_mode, config.max_accel * config.mass_kg
-            )
+            high = self.action_bound
             self.action_space = spaces.Box(-high, high, shape=(3,), dtype=np.float32)
         shape = (len(self.observation_names),)
         self.observation_space = spaces.Box(-1e7, 1e7, shape=shape, dtype=np.float64)
         self.state = np.zeros(6)
         self.t = 0.0
-        self.issue_scales: list[float] = []
+        self.issued: list[np.ndarray] = []
 
     def _sample_start(self, rng: np.random.Generator) -> np.ndarray:
         raise NotImplementedError
@@ -332,7 +336,7 @@ class BaseEnv(gym.Env):
             self.state = np.asarray(self._sample_start(self.np_random), dtype=float)
         self.dynamics.reset(self.state)
         self.spacecraft.reset(self.rngs["actuator"])
-        self.issue_scales = []
+        self.issued = []
         self.sensor.reset(self.rngs["sensor"])
         self.t = 0.0
         self.steps = 0
@@ -353,21 +357,19 @@ class BaseEnv(gym.Env):
             command = np.array(action, dtype=float)
         if self.cfg.action_mode == "impulse_coast":
             coast_steps = self._coast_steps(command)
-            fraction = command[:3]
+            fraction = burn = command[:3]
         else:
+            burn = command
             fraction = command / self._action_scale()
         fraction = self._limit_command(fraction)
         mass_before = self.spacecraft.mass
-        # The scale moves with the mass in some modes, so the echo uses the one at issue: an
-        # echo at the current mass would reveal the mass drop and so the delivered delta-v. The
-        # scale is recorded only once `apply` has accepted the command, so a rejected step leaves
-        # the record aligned with the queue.
-        scale = self._action_scale()
         actuation = self.spacecraft.apply(fraction, self.cfg.dt, latency_s)
-        self.issue_scales.append(scale)
+        # The echo is recorded only once `apply` has accepted the command, so a rejected step
+        # leaves the record aligned with the queue.
+        self.issued.append(self._echo(burn))
         if coast_steps:
             coast = self.spacecraft.apply(np.zeros(3), coast_steps * self.cfg.dt, latency_s)
-            self.issue_scales.append(1.0)
+            self.issued.append(np.zeros(3))
             actuation = _joined(actuation, coast)
         actuation = self._split_actuation(actuation)
         trace, flown = self._fly(actuation)
@@ -524,19 +526,35 @@ class BaseEnv(gym.Env):
             craft = self.spacecraft
             parts.append(np.array([craft.propellant / (craft.initial_mass - craft.dry_mass)]))
         if "pending_commands" in channels:
-            acting = [(0.0, self.spacecraft.in_effect()), *self.spacecraft.pending()]
-            # Commands enter the spacecraft's queue in issue order, so the last scales match the
+            waits = [0.0] + [wait for wait, _ in self.spacecraft.pending()]
+            # Commands enter the spacecraft's queue in issue order, so the last echoes match the
             # queued entries; the zero in effect before the first command has none.
-            del self.issue_scales[: -len(acting)]
-            scales = [1.0] * (len(acting) - len(self.issue_scales)) + self.issue_scales
+            del self.issued[: -len(waits)]
+            echoes = [np.zeros(3)] * (len(waits) - len(self.issued)) + self.issued
             slots = np.zeros((self.pending_slots, 4))
             # Padding goes first, so the entries stay in order of the time they take effect.
-            start = max(len(acting) - self.pending_slots, 0)
-            recent = list(zip(acting[start:], scales[start:], strict=True))
-            for k, ((wait, u), scale) in enumerate(recent[::-1]):
-                slots[-1 - k] = [wait, *(u * scale)]
+            start = max(len(waits) - self.pending_slots, 0)
+            recent = list(zip(waits[start:], echoes[start:], strict=True))
+            for k, (wait, echo) in enumerate(recent[::-1]):
+                slots[-1 - k] = [wait, *echo]
             parts.append(slots.ravel())
         return np.concatenate(parts)
+
+    def _echo(self, command: np.ndarray) -> np.ndarray:
+        """The issued command limited by the thruster layout at the action-space bound.
+
+        The true limit sits at the action scale now, which in some modes moves with the mass, and
+        the minimum impulse bit is decided on the mass too; limiting at the public bound instead
+        keeps the echo a function of the command and the agent's view alone.
+        """
+        u = command / self.action_bound
+        if self.cfg.thrust_limit == "box":
+            u = np.clip(u, -1.0, 1.0)
+        else:
+            length = float(np.linalg.norm(u))
+            if length > 1.0:
+                u = u / length
+        return u * self.action_bound
 
     def _coast_steps(self, command: np.ndarray) -> int:
         """Whole steps of coast an impulse_coast action asks for, cut at the time limit."""

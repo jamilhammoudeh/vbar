@@ -310,6 +310,34 @@ def test_berthing_inhibits_thrust_in_the_capture_window_and_needs_the_drift_to_s
     assert not info["success"] and not info["armed"]
 
 
+@pytest.mark.parametrize("action_mode", ["normalized", "thrust", "disc27"])
+def test_berthing_capture_window_does_not_show_in_pending_commands(action_mode):
+    # The same commands flown from inside the capture ball, where the hidden window zeroes them,
+    # and from 45 m outside it; the echoes are a function of the commands alone.
+    config = dict(
+        training=True,
+        action_mode=action_mode,
+        delay_s=20.0,
+        observation_channels=("pending_commands",),
+    )
+    probe = make("berthing-box", **config)
+    rng = np.random.default_rng(9)
+    if action_mode == "disc27":
+        actions = [0, 5, 26, 7, 20]
+    else:
+        actions = list(probe.action_space.high * rng.uniform(-1.0, 1.0, (5, 3)))
+    echoes, inhibited = [], []
+    for x in (-15.0, -60.0):
+        env = make("berthing-box", **config)
+        env.reset(seed=0, options={"start_state": (x, 0.0, 0.0, 0.0, 0.0, 0.0)})
+        start = env.observation_names.index("pending_0_t")
+        steps = [env.step(a) for a in actions]
+        echoes.append(np.array([obs[start:] for obs, *_ in steps]))
+        inhibited.append([info["inhibited"] for *_, info in steps])
+    assert all(inhibited[0]) and not any(inhibited[1])
+    assert np.array_equal(echoes[0], echoes[1])
+
+
 def test_the_closing_zone_opens_at_the_drawn_go_time():
     env = make("closing")
     env.reset(seed=4)

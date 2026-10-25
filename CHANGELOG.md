@@ -32,6 +32,15 @@ release may change the public API, and every such change is listed under Changed
   the Hill frame in Hill axes (rad/s); every built-in mode implements it, and a mode without it
   fails where a port's velocity is needed.
 
+### Fixed
+
+- The `pending_commands` channel echoed a command clipped at the true action scale, which in `accel`
+  mode with the thrust drive, or `thrust` mode with the acceleration drive, moves with the mass, so
+  a saturated command gave away the mass and each burn's delivered delta-v; a command dropped by the
+  minimum impulse bit echoed zero, one bit on the mass per step with the acceleration drive or in
+  `accel` mode. Each slot now echoes the command as issued, limited at the action-space bound, and
+  commands zeroed by the minimum impulse bit or a thrust inhibit echo as issued.
+
 ## [0.3.1] - 2026-10-24
 
 ### Changed
