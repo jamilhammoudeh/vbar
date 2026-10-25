@@ -40,18 +40,22 @@ def test_the_capsule_margin_is_the_distance_to_the_turned_segment():
     assert capsule.margin(beyond, t) == pytest.approx(0.5, abs=1e-12)
 
 
-def test_the_capsule_rate_bound_covers_its_own_turning():
+@pytest.mark.parametrize(
+    "ends", [((-3.0, 0.0, 0.0), (3.0, 0.0, 0.0)), ((-1.0, 0.0, 0.0), (5.0, 0.0, 0.0))]
+)
+def test_the_capsule_rate_bound_covers_its_own_turning(ends):
     # A chaser at rest next to the turning body sees the margin change only because the body
-    # turns, at up to the rate times the farther end's distance (3 m) from the centre.
-    capsule = RotatingCapsule(((-3.0, 0.0, 0.0), (3.0, 0.0, 0.0)), 1.5, SPIN, N)
+    # turns, at up to the rate times the farther end's distance from the centre (3 m, or 5 m for
+    # the capsule off the centre, whose nearer end would give too small a bound).
+    capsule = RotatingCapsule(ends, 1.5, SPIN, N)
     rng = np.random.default_rng(5)
-    points = rng.uniform(-6.0, 6.0, (400, 3))
-    states = np.concatenate([points, np.zeros((400, 3))], axis=1)
+    points = rng.uniform(-8.0, 8.0, (800, 3))
+    states = np.concatenate([points, np.zeros((800, 3))], axis=1)
     h = 1e-3
     for t in (0.0, 300.0, 1700.0):
         rates = np.abs(capsule.margin(states, t + h) - capsule.margin(states, t)) / h
         assert np.max(rates) <= capsule.rate_bound(0.0, 0.0)
-        # Tight to a factor 1.5: points beside the ends move almost as fast as the ends.
+        # Tight to a factor 1.5: points beside the far end move almost as fast as the end.
         assert np.max(rates) > capsule.rate_bound(0.0, 0.0) / 1.5
 
 
@@ -109,13 +113,13 @@ class Follower:
         return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
 
 
-def capture_spec(velocity):
-    """The flagship with the tumble SPIN and a start at its capture point, at `velocity`."""
+def capture_spec(velocity, start=None, steps=20):
+    """The flagship with the tumble SPIN and a start at `start` (its capture point by default)."""
     spec = SCENARIOS["tumbling-capture"]
-    start = body_point(SPIN, (-5.0, 0.0, 0.0), 0.0, N)
+    start = body_point(SPIN, (-5.0, 0.0, 0.0), 0.0, N) if start is None else start
     return replace(
         spec,
-        config={**spec.config, "max_steps": 20},
+        config={**spec.config, "max_steps": steps},
         target=SPIN,
         dispersions={"start_pos": Fixed(tuple(start)), "start_vel": Fixed(tuple(velocity))},
     )
@@ -251,20 +255,39 @@ def test_the_keep_out_turns_with_the_drawn_target():
 
 
 def test_a_capture_dwell_broken_between_samples_restarts_the_clock():
-    # Starting 0.195 m out from the capture point and moving out at 0.015 m/s relative to it, a
-    # constant 0.015 m/s^2 back toward it for one 2 s step peaks at 0.2025 m (outside the
-    # 0.2 m ball) at 1 s and ends at 0.195 m moving in at 0.015 m/s: inside at both ends, broken
-    # between them, so the dwell starts again at the step's end.
+    # From 0.18 m out from the capture point, at rest relative to it: one step holding there, one
+    # pushing out at 0.0075 m/s^2 (ending 0.195 m out, moving out at 0.015 m/s), one braking at
+    # 0.015 m/s^2 (peaking at 0.2025 m, outside the 0.2 m ball, at mid-step and ending at
+    # 0.195 m moving in), one pushing out again (ending at rest 0.18 m out). Every step ends
+    # inside the ball; the third is broken between its ends, so the clock restarts there.
     point = body_point(SPIN, (-5.0, 0.0, 0.0), 0.0, N)
     out = point / np.linalg.norm(point)
     velocity = body_point_velocity(SPIN, (-5.0, 0.0, 0.0), 0.0, N)
     spec = capture_spec(velocity)
     env = entry_class(spec)(spec, {"training": True})
-    env.reset(seed=1, options={"start_state": np.r_[point + 0.195 * out, velocity + 0.015 * out]})
+    env.reset(seed=1, options={"start_state": np.r_[point + 0.18 * out, velocity]})
     follower = Follower()
     follower.reset(env.agent_view())
-    braking = follower.feedforward(env.obs, 0.0) - 0.015 * out
-    _, _, _, _, info = env.step(braking / env.cfg.max_accel)
-    assert info["captured"] and info["dwell_s"] == 0.0
-    _, _, _, _, info = env.step(follower.act(env.obs, env.agent_info()))
-    assert info["captured"] and info["dwell_s"] == pytest.approx(2.0)
+    dwells = []
+    for push in (0.0, 0.0075, -0.015, 0.0075):
+        relative = follower.feedforward(env.obs, env.t) + push * out
+        _, _, _, _, info = env.step(relative / env.cfg.max_accel)
+        assert info["captured"]
+        dwells.append(info["dwell_s"])
+    assert dwells == pytest.approx([2.0, 4.0, 0.0, 2.0])
+
+
+def test_a_capture_dwell_after_entering_the_body_is_not_a_success():
+    # Starting 5 cm inside the body's capsule on the ray to the capture point, the follower climbs
+    # out to the point and holds it for the dwell: the episode ends held, but the keep-out was
+    # entered, so neither the environment nor the metrics call it a success.
+    point = body_point(SPIN, (-5.0, 0.0, 0.0), 0.0, N)
+    inside = point * 4.45 / 5.0
+    velocity = body_point_velocity(SPIN, (-4.45, 0.0, 0.0), 0.0, N)
+    spec = capture_spec(velocity, start=inside, steps=60)
+    env = entry_class(spec)(spec)
+    ep = record_episode(env, Follower(), seed=3, agent_seed=4)
+    info = env._info()
+    assert ep.terminated and info["dwell_s"] >= 30.0 - 1e-9
+    assert info["keep_out_violated"] and not info["success"]
+    assert not mission_metrics(ep)["success"]
