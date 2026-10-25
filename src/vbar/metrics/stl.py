@@ -113,6 +113,8 @@ class Trace:
     """The true trajectory of an episode in continuous time."""
 
     def __init__(self, episode: Episode):
+        if episode.dynamics == "euler1":
+            raise ValueError("an euler1 episode has no trajectory between its nodes")
         self.n = episode.view.n
         self.segments: list[Segment] = []
         for rec in episode.records:

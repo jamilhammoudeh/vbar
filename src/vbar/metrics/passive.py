@@ -424,6 +424,8 @@ def passive_metrics(ep: Episode, settings: MetricSettings | None = None) -> dict
     boundary beyond `commit_radius`. Unprotected time counts each step whose starting state is
     beyond `commit_radius` with neither a safe drift nor a safe abort.
     """
+    if ep.dynamics == "euler1":
+        raise ValueError("passive metrics need continuous drift arcs; euler1 has only nodes")
     settings = settings or MetricSettings()
     radius = _collision_radius(ep, settings)
     horizon = _drift_horizon(ep, settings)

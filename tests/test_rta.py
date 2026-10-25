@@ -9,6 +9,7 @@ from vbar.dynamics.cw import cw_states, cw_system
 from vbar.safety import InfeasibilityProof, PassThroughFilter
 from vbar.safety.audit import audit_filter
 from vbar.safety.rta import (
+    SCENARIO_ID,
     AfrlConstraints,
     AfrlSetup,
     ExplicitOptimizationFilter,
@@ -117,17 +118,21 @@ def draw_inside(filt, count, seed):
 def test_presets_hold_the_paper_values_and_the_code_slope():
     assert PAPER.nu1 == pytest.approx(4.0 * N, rel=1e-15)
     assert CODE.nu1 == pytest.approx(2.15 * N, rel=1e-15)
-    for setup in (PAPER, CODE):
+    paper_id = "vbar:docking-afrl-paper:euler1:box:dv:v1"
+    for setup, scenario_id in ((PAPER, paper_id), (CODE, paper_id + ":code")):
         assert setup.a_max == pytest.approx(A_MAX, rel=1e-15)
         assert setup.horizon_steps == 5
         view = setup.view()
-        assert view.scenario_id == "dunlap2021-euler"
+        assert view.scenario_id == scenario_id
         assert (view.action_mode, view.thrust_limit, view.dt, view.n) == ("accel", "box", 1.0, N)
         assert view.max_accel == pytest.approx(A_MAX, rel=1e-15)
         assert view.max_steps == 5000
         assert [dict(c) for c in view.constraints] == [
             {"type": "speed_limit", "v0": 0.2, "v1": setup.nu1}
         ]
+    # A setup that differs from both presets flies no registered scenario.
+    for change in ({"dt": 0.5}, {"nu1": 3.0 * N}):
+        assert dataclasses.replace(CODE, **change).view().scenario_id == SCENARIO_ID
 
 
 @pytest.mark.parametrize(

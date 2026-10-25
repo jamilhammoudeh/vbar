@@ -30,6 +30,8 @@ def evaluate(
     for the episode's start state (E3), `report` the facts about the agent from outside the
     episode (A6 to A8, token prices) and `posterior` the reference navigation posterior (A5b).
     """
+    if ep.dynamics == "euler1":
+        raise ValueError("the metrics need a continuous trajectory, not an euler1 episode")
     settings = settings or MetricSettings()
     mission = mission_metrics(ep)
     out = {

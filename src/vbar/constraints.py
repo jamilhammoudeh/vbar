@@ -16,6 +16,9 @@ Refinement does not tighten the bound, which can stay up to L h / 2 below the re
 A constraint may also give a second-order bound per interval (`KeepOut` does, from a curvature
 bound on |r|^2, and the speed limits do, from bounds on the acceleration and the jerk); the
 certificate is then the larger of the two on each interval.
+
+A discrete plant has no state between its nodes, so its margins are judged at the nodes alone
+(`node_minimum`, `node_violations`).
 """
 
 from __future__ import annotations
@@ -989,6 +992,79 @@ def violation_intervals(
     for lo, hi in sampled_negative_intervals(margin_at, t0 + times, margins, rates):
         if joined and lo <= joined[-1][1] + _ROOT_TOL:
             joined[-1] = (joined[-1][0], max(joined[-1][1], hi))
+        else:
+            joined.append((lo, hi))
+    return tuple(joined)
+
+
+def node_minimum(
+    constraint: Constraint, times: np.ndarray, states: np.ndarray, t0: float = 0.0
+) -> SegmentMinimum:
+    """Minimum margin of `constraint` over the nodes of a plant defined only at them.
+
+    A discrete plant (`vbar.dynamics.models.EulerCWDynamics`) has no trajectory between its
+    nodes, so the minimum is the lowest node margin, and the bound is exact up to the margin's
+    own rounding.
+
+    Parameters
+    ----------
+    constraint : Constraint
+        The constraint.
+    times : ndarray, shape (m,)
+        Node times (s from the segment start).
+    states : ndarray, shape (m, 6)
+        Hill states at the nodes (m, m/s).
+    t0 : float
+        The segment's start time (s from the episode start).
+
+    Returns
+    -------
+    SegmentMinimum
+        The lowest node margin, its time (s from the episode start) and the lowest node margin
+        less its rounding allowance.
+    """
+    margins = np.asarray(constraint.margin(states, t0 + times), dtype=float)
+    k = int(np.argmin(margins))
+    rho = np.linalg.norm(states[..., :3], axis=-1)
+    speed = np.linalg.norm(states[..., 3:6], axis=-1)
+    # A node is the plant's state itself, not a propagation of the segment start, so only the
+    # margin's evaluation rounds: no time or acceleration enters the scale.
+    allowances = _rounding_allowances(constraint, 0.0, states, speed, np.zeros_like(speed), rho)
+    lower = float(np.min(margins - allowances))
+    return SegmentMinimum(float(t0 + times[k]), float(margins[k]), lower)
+
+
+def node_violations(
+    constraint: Constraint, times: np.ndarray, states: np.ndarray, t0: float = 0.0
+) -> tuple[tuple[float, float], ...]:
+    """Intervals (s from the episode start) a discrete plant's nodes put in violation.
+
+    A negative margin at node j counts for the step that reached it, (t_{j-1}, t_j]; the first
+    node is the previous segment's last, so it adds nothing. Touching intervals are joined.
+
+    Parameters
+    ----------
+    constraint : Constraint
+        The constraint.
+    times : ndarray, shape (m,)
+        Node times (s from the segment start).
+    states : ndarray, shape (m, 6)
+        Hill states at the nodes (m, m/s).
+    t0 : float
+        The segment's start time (s from the episode start).
+
+    Returns
+    -------
+    tuple of tuple of float
+        The (start, end) intervals, in time order.
+    """
+    t = t0 + np.asarray(times, dtype=float)
+    margins = np.asarray(constraint.margin(states, t), dtype=float)
+    joined: list[tuple[float, float]] = []
+    for j in np.flatnonzero(margins[1:] < 0.0) + 1:
+        lo, hi = float(t[j - 1]), float(t[j])
+        if joined and lo <= joined[-1][1] + _ROOT_TOL:
+            joined[-1] = (joined[-1][0], hi)
         else:
             joined.append((lo, hi))
     return tuple(joined)

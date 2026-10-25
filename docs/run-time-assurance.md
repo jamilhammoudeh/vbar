@@ -20,7 +20,9 @@ The deputy moves on the Clohessy-Wiltshire equations in the Hill frame (x radial
 z orbit normal), $\dot x = A x + B u$ with $A, B$ from `cw_system` and $u$ an acceleration in
 m/s^2. The paper integrates them by Euler steps, $x_{k+1} = x_k + (A x_k + B u_k)\,\Delta t$
 (sec. IV), and the filters predict with the same step. An Euler step drops the term
-$a\,\Delta t^2/2$ from the position that the exact step of the environments keeps.
+$a\,\Delta t^2/2$ from the position that the exact step of the "cw" environments keeps. The plant
+is `vbar.dynamics.EulerCWDynamics`, the `euler1` dynamics rung of [dynamics.md](dynamics.md), and
+the scenario `docking-afrl-paper` flies it ([scenarios.md](scenarios.md)).
 
 `AfrlSetup` holds the problem; `AfrlSetup.paper()` and `AfrlSetup.authors_code()` differ only in
 $\nu_1$.
@@ -40,9 +42,12 @@ $\nu_1$.
 | `primary_q`, `primary_r` | $Q = 0.05 I_6$, $R = 1000 I_3$ on the force in N | code |
 | `stop_radius`, `stop_time` | 1 m, 5000 s | code |
 
-`setup.view()` is the `AgentView` the filters reset from: scenario "dunlap2021-euler", commands
-in m/s^2 under a box of $a_{\max}$, one `speed_limit` constraint with $v_0 = \nu_0$,
-$v_1 = \nu_1$, and `stop_time / dt` steps.
+`setup.view()` is the `AgentView` the filters reset from: commands in m/s^2 under a box of
+$a_{\max}$, one `speed_limit` constraint with $v_0 = \nu_0$, $v_1 = \nu_1$, and `stop_time / dt`
+steps. Its scenario is the registered one that flies the setup,
+"vbar:docking-afrl-paper:euler1:box:dv:v1" (Gymnasium `vbar/DockingAfrlPaper-v1`) for
+`AfrlSetup.paper()` and the same ID with ":code" (`vbar/DockingAfrlPaperCode-v1`) for
+`AfrlSetup.authors_code()`. Any other setup keeps "dunlap2021-euler", which no environment flies.
 
 ### Allowable set
 
@@ -128,10 +133,13 @@ Every filter takes `setup=` (keyword only) and has `reset(view)`, `filter(obs, a
   by more than $10^{-6} a_{\max}$.
 - **Refusals at reset** (`ValueError`): an action mode that is not continuous, a ball thrust limit,
   a frame other than "hill" or an observation that does not start with the state, a
-  pending-commands channel, a dynamics part of the scenario ID other than "cw" (an ID without
-  one, such as "dunlap2021-euler", is accepted), any constraint but one `speed_limit`, a keep-out
-  included, and a view whose $n$, dt, `max_accel` or speed limit differs from the setup's by more
-  than $10^{-12}$ relative.
+  pending-commands channel, a dynamics part of the scenario ID other than "cw" or "euler1" (an ID
+  without one, such as "dunlap2021-euler", is accepted), "euler1" with a setup dt other than the
+  rung's 1 s step, any constraint but one `speed_limit`, a keep-out included, and a view whose
+  $n$, dt, `max_accel` or speed limit differs from the setup's by more than $10^{-12}$ relative.
+  A filter of `AfrlSetup.paper()` therefore accepts the views of `docking-afrl-paper` and refuses
+  those of its `:code` variant, whose $v_1$ differs, and the other way round for
+  `AfrlSetup.authors_code()`.
 - **Declaration.** Certificate None and `counts_toward_certification` False for all four; the
   safe set in words, with the class-K gains for the optimization filters; `barriers` holds the
   `AfrlConstraints`; buffer 0, no declared error sets. `vbar.safety.audit.audit_filter` refuses
@@ -204,12 +212,22 @@ controller, not a V-BAR baseline. `vbar.safety.PassThroughFilter` flies it alone
 holds the states, the primary and applied commands, a backup flag per step (`fallback_level` 2),
 the `FilterResult`s and the filter's total wall time.
 
+The plant is `EulerCWDynamics(setup.n, step_s=setup.dt)`, with $n = 0.001027$ rad/s exactly, and
+the run is not flown through an environment: the environment's $n$ comes from the catalogue's
+altitude and differs from 0.001027 by a few parts in $10^{15}$, its starts are drawn by its own
+dispersions, and a scored reset refuses a given start, so the published numbers would move.
+Replaying a run's applied commands in `docking-afrl-paper` from the run's start (training mode,
+"accel" actions) gives its states within $10^{-6}$ m and $10^{-9}$ m/s. The environment ends an
+episode within 1 m of the target at under 0.2 m/s; `reproduce` stops at $|r| \le 1$ m on
+position alone.
+
 The paper starts every run at $|r| = 9.85$ km and $|v| = 0.866$ m/s without giving directions.
 `start_state(setup, seed)` puts the position uniformly on that sphere and the velocity in an
 independent uniform direction, from a seed in $[0, 2^{128})$.
 
 `benchmarks/afrl_reproduction.py` flies 100 starts, each from a 128-bit seed spawned from a
-printed root seed, with the primary alone and inside each filter, at $2.15n$ and $4n$. A sample
+printed root seed, with the primary alone and inside each filter, at $2.15n$ and $4n$, and prints
+the scenario ID of each slope. A sample
 violates when $\varphi_1 < -10^{-5}$ m/s or some $|v_i| > v_{\max} + 10^{-5}$ m/s. At $2.15n$ it
 prints thirteen criteria, each with its threshold and whether it is met. The paper's safety claim
 (sec. III) becomes no violating sample for any filter, an intervention in at least 95 runs for each filter
@@ -380,6 +398,15 @@ The tests in `tests/test_rta.py` check:
   reset refusals above for every filter; `audit_filter` refuses all four; a horizon of 8 s is
   refused by the implicit optimization filter (36 rows).
 
+`tests/test_rta_euler_scenario.py` checks that `reproduce` equals an Euler loop written out in the
+test, bit for bit, at both slopes, and equals `EulerCWDynamics` stepped with the applied commands;
+and that `docking-afrl-paper`, replaying the applied commands from the run's start, matches the
+run within $10^{-6}$ m and $10^{-9}$ m/s over 600 steps of the primary alone at $4n$, and over
+whole explicit switching runs at both slopes (marked slow). `tests/test_scenario_afrl_paper.py`
+checks that the presets' views name the registered IDs and another setup keeps
+"dunlap2021-euler", and that each filter accepts the environment's view with its own preset and
+refuses the other slope's.
+
 ## Example
 
 ```python
@@ -395,6 +422,7 @@ from vbar.safety.rta import (
 
 setup = AfrlSetup.authors_code()  # the paper's values with nu1 = 2.15 n
 view = setup.view()
+print(view.scenario_id)  # vbar:docking-afrl-paper:euler1:box:dv:v1:code
 print(round(setup.code_lemma_accel, 5), round(setup.a_max, 5))  # 0.08332 0.08333
 
 x = np.array([5000.0, 0.0, 0.0, 9.99, 0.0, 0.0])  # m and m/s, 10 mm/s below v_max on x

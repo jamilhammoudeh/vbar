@@ -323,6 +323,8 @@ Shuttle values.
 | `docking-offset` (v1) | dock at a port 20 m from the centre of a pitched target | on the V-bar 150 to 300 m behind | pitch in [15, 30] deg; body keep-out 20 m; the approach line is off the V-bar and drifts 3 pi h per orbit | 1200 x 5 s | Fehse 5.3.1, 5.7.3 |
 | `inertial-target` (v2) | dock at the port of an inertially pointing target | random direction, 150 to 300 m | the axis turns at -n from a random phase; on it the chaser needs lateral speed r n; contact speeds relative to the moving port (v1 measured them in the Hill frame) | 1200 x 5 s | Fehse 5.3.1, 8.3.6 |
 | `docking-afrl` (v1) | the run time assurance docking task | as docking | reach the origin within 0.5 m at under 0.2 m/s; the whole relative speed under 0.2 + 4n rho (hard); n = 0.001027 rad/s (851.8 km) | 1200 x 5 s | Dunlap et al. 2021, eq. 14 |
+| `docking-afrl-paper` (v1) | the same task as published, on the forward-Euler plant (`euler1`, [dynamics.md](dynamics.md)) | 9850 m and 0.866 m/s, each in a uniform direction | as `docking-afrl`, capture within 1 m (the authors' code); 12 kg with 1 N per axis; in no suite | 5000 x 1 s | Dunlap et al. 2021, sec. IV |
+| `docking-afrl-paper:code` | the authors' code's speed limit | as above | slope 2.15 n instead of 4 n | 5000 x 1 s | the authors' code |
 | `inspection` (v2) | image 95% of the lit points | random direction, 50 to 150 m, drifting at least 25 m of 2 x0 + vy0 / n; beta in [-75, 75] deg | keep-out 10 m; range 200 m; Sun exclusion 30 deg (ours) | 1140 x 10 s (about two orbits) | Fehse 5.4.1; Montenbruck and Gill 3.4 |
 | `closing` (v1) | from the S2 hold to the S3 hold of an ISS-class target | 3000 m behind within 20 m, 0.01 m/s | hold 400 m behind, dwell 600 s; keep-out 200 m; the approach ellipsoid (1000 x 2000 x 1000 m) may be entered only after the GO drawn between 600 and 2400 s; plume range 300 m | 1140 x 10 s | Fehse 5.6, 5.7.1, eqs 3.29 to 3.32 and 3.44 to 3.48 |
 | `rbar-acquisition` (v1) | from a V-bar hold to a hold 500 m below | 1 to 5 km behind | dwell 300 s (ours; the hold costs 0.59 m/s); keep-out 200 m | 1140 x 10 s | Fehse eqs 3.33, 3.38 to 3.39 (2 n dz and 3 n dz) |
@@ -434,7 +436,10 @@ Katz, Corso and Moss, *Algorithms for Validation*, section 8.1).
 - The GO time of `closing` is public in the zone constraint; a GO revealed at the event needs the
   supervisory channel.
 - `docking-afrl` keeps this benchmark's exact propagation; the published benchmark integrates
-  with Euler steps of 1 s, which the safety-filter reproduction adds as its own dynamics rung.
+  with Euler steps of 1 s, which `docking-afrl-paper` flies on the `euler1` rung. Its episodes
+  end within 1 m of the target at under 0.2 m/s, where the safety-filter reproduction stops at
+  1 m on position alone, and the metrics refuse them, since they rebuild a continuous trajectory
+  the Euler plant does not have.
 - A target burn changes the relative state only; the reference orbit stays the target's unburned
   one, exact in the Clohessy-Wiltshire model.
 - The inspection's inspectable set is sampled every minute of the episode; a point lit for less

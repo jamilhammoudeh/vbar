@@ -1755,6 +1755,9 @@ class ManeuveringDynamics:
         self.name = inner.name
         self.n = inner.n
         self.t = 0.0
+        # The environment judges a discrete plant at its nodes and finds one by its `step_s`.
+        if hasattr(inner, "step_s"):
+            self.step_s = inner.step_s
 
     def reset(self, rel_state: ArrayLike) -> None:
         """Restart at `rel_state` and t = 0.

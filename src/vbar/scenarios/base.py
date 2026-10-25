@@ -27,7 +27,14 @@ import numpy as np
 from gymnasium import spaces
 
 from ..agents.base import DISC27, AgentView
-from ..constraints import Constraint, SegmentMinimum, segment_minimum, violation_intervals
+from ..constraints import (
+    Constraint,
+    SegmentMinimum,
+    node_minimum,
+    node_violations,
+    segment_minimum,
+    violation_intervals,
+)
 from ..dynamics import make_dynamics
 from ..faults import Fault
 from ..rewards import Reward, Transition
@@ -331,6 +338,9 @@ class BaseEnv(gym.Env):
             config.dynamics, config.body, config.altitude_m, config.inclination
         )
         self.n = self.dynamics.n
+        step_s = getattr(self.dynamics, "step_s", None)
+        if step_s is not None and abs(config.dt / step_s - round(config.dt / step_s)) > 1e-9:
+            raise ValueError(f"dt must be a whole number of {step_s} s steps on {config.dynamics}")
         self.spacecraft = Spacecraft(
             max_accel=config.max_accel,
             layout=config.thrust_limit,
@@ -612,10 +622,12 @@ class BaseEnv(gym.Env):
 
         Each segment is its own `advance` call, so no integrator steps across a thrust change.
         Discontinuities inside a dynamics model's own forces (shadow entry and exit) are the
-        model's to split. Returns the trace and, when `_event_time` ended the step early, the
-        time flown (s); None otherwise.
+        model's to split. A discrete plant (one with `step_s`) is checked at its nodes only.
+        Returns the trace and, when `_event_time` ended the step early, the time flown (s); None
+        otherwise.
         """
         t0 = self.t
+        discrete = getattr(self.dynamics, "step_s", None) is not None
         segments, times, states = [], [], []
         minima: dict[str, SegmentMinimum] = {}
         violations: dict[str, list[tuple[float, float]]] = {c.name: [] for c in self.constraints}
@@ -628,7 +640,8 @@ class BaseEnv(gym.Env):
             count = max(2, round(self.cfg.violation_samples * duration / self.cfg.dt))
             self.state, sampled = self.dynamics.advance(accel, duration, n_samples=count)
             samples = cast(np.ndarray, sampled)
-            tau = np.linspace(0.0, duration, count)
+            # A discrete plant returns its nodes, however many samples were asked for.
+            tau = np.linspace(0.0, duration, len(samples))
             stop = self._event_time(tau, samples, t0)
             if stop is not None:
                 if not 0.0 < stop <= duration + _EVENT_TOL:
@@ -644,9 +657,15 @@ class BaseEnv(gym.Env):
                 flown = t0 - self.t + duration
             thrust = float(np.linalg.norm(accel))
             for c in self.constraints:
-                state_at = self.dynamics.state_in_last_segment
-                found = segment_minimum(c, state_at, tau, samples, thrust, self.n, t0)
-                spans = violation_intervals(c, state_at, tau, samples, found, t0, thrust, self.n)
+                if discrete:
+                    found = node_minimum(c, tau, samples, t0)
+                    spans = node_violations(c, tau, samples, t0)
+                else:
+                    state_at = self.dynamics.state_in_last_segment
+                    found = segment_minimum(c, state_at, tau, samples, thrust, self.n, t0)
+                    spans = violation_intervals(
+                        c, state_at, tau, samples, found, t0, thrust, self.n
+                    )
                 for start, end in spans:
                     merged = violations[c.name]
                     # An interval that runs across a segment boundary is one interval.

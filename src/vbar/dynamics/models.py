@@ -16,7 +16,7 @@ from scipy.integrate import solve_ivp
 
 from ..conventions import hill_frame, hill_to_inertial, inertial_to_hill
 from .bodies import Body, get_body
-from .cw import CWDiscretizer, mean_motion
+from .cw import CWDiscretizer, cw_system, mean_motion
 from .kepler import state_from_elements
 from .mean_elements import mean_to_osculating
 
@@ -91,6 +91,110 @@ class CWDynamics:
         x0, accel = self._segment
         phi, gamma = self.disc.matrices(tau)
         return phi @ x0 + gamma @ accel
+
+
+# A duration or time this far (s) from a whole number of steps still counts as one; segment
+# times built by summing steps land a rounding step either side.
+_NODE_TOL = 1e-9
+
+
+class EulerCWDynamics:
+    """Clohessy-Wiltshire equations stepped by forward Euler, a plant defined only at its nodes.
+
+    Each step is x + h (A x + B a) with A, B from `cw_system(n)`, the discrete model of the run
+    time assurance docking benchmark (Dunlap et al., 2021). The plant has no state between
+    nodes, so every duration must be a whole number of steps.
+
+    Parameters
+    ----------
+    n : float
+        Mean motion of the target's circular orbit (rad/s).
+    step_s : float
+        Euler step h (s), positive.
+
+    Raises
+    ------
+    ValueError
+        If `step_s` is not positive and finite.
+    """
+
+    name = "euler1"
+    step_s = 1.0
+
+    def __init__(self, n: float, step_s: float = 1.0):
+        if not (np.isfinite(step_s) and step_s > 0.0):
+            raise ValueError("step_s must be positive and finite")
+        self.n = n
+        self.step_s = step_s
+        self._a, self._b = cw_system(n)
+        self._state = np.zeros(6)
+        self._nodes: np.ndarray | None = None
+
+    def reset(self, rel_state: ArrayLike) -> None:
+        self._state = np.array(rel_state, dtype=float)
+        self._nodes = None
+
+    def _steps(self, duration: float) -> int:
+        k = round(duration / self.step_s)
+        if k < 0 or abs(duration - k * self.step_s) > _NODE_TOL:
+            raise ValueError(f"duration {duration!r} s is not a whole number of steps")
+        return k
+
+    def advance(
+        self, accel_hill: ArrayLike, duration: float, n_samples: int = 0
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """Hold `accel_hill` (m/s^2, Hill frame) for `duration` s of Euler steps.
+
+        Parameters
+        ----------
+        accel_hill : array_like, shape (3,)
+            Acceleration held over every step (m/s^2, Hill frame).
+        duration : float
+            Whole number of steps times `step_s` (s).
+        n_samples : int
+            When positive, the nodes are returned; their count is the number of steps plus
+            one whatever `n_samples` asks for, since the plant has no state between them.
+
+        Returns
+        -------
+        state : ndarray, shape (6,)
+            Hill state after the last step (m, m/s).
+        nodes : ndarray, shape (k + 1, 6) or None
+            The state at every node, the start included, or None when `n_samples` is 0.
+
+        Raises
+        ------
+        ValueError
+            If `duration` is not a whole number of steps.
+        """
+        accel = np.array(accel_hill, dtype=float)
+        k = self._steps(duration)
+        h = self.step_s
+        nodes = np.empty((k + 1, 6))
+        nodes[0] = x = self._state
+        for j in range(1, k + 1):
+            x = x + h * (self._a @ x + self._b @ accel)
+            nodes[j] = x
+        self._nodes = nodes
+        self._state = nodes[-1].copy()
+        return self._state.copy(), (nodes.copy() if n_samples > 0 else None)
+
+    def state_in_last_segment(self, tau: float) -> np.ndarray:
+        """State at the node `tau` s into the most recent segment.
+
+        Raises
+        ------
+        RuntimeError
+            If no segment has been advanced since reset.
+        ValueError
+            If `tau` is not a node of that segment.
+        """
+        if self._nodes is None:
+            raise RuntimeError("no segment has been advanced since reset")
+        k = round(tau / self.step_s)
+        if not 0 <= k < len(self._nodes) or abs(tau - k * self.step_s) > _NODE_TOL:
+            raise ValueError(f"an Euler plant has no state at {tau!r} s, only at its nodes")
+        return self._nodes[k].copy()
 
 
 def _dot(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -520,10 +624,15 @@ class TwoBodyDynamics:
 def make_dynamics(
     kind: str, body: str | Body = "earth", altitude: float = 500e3, inclination: float = 0.0
 ) -> Dynamics:
-    """Build a model by name: "cw", "twobody" or "twobody_j2"."""
+    """Build a model by name: "cw", "euler1", "twobody" or "twobody_j2".
+
+    "euler1" is `EulerCWDynamics` with 1 s steps at the Keplerian mean motion of `altitude`.
+    """
     b = get_body(body)
     if kind == "cw":
         return CWDynamics(mean_motion(b.radius + altitude, b.mu))
+    if kind == "euler1":
+        return EulerCWDynamics(mean_motion(b.radius + altitude, b.mu), step_s=1.0)
     if kind in ("twobody", "twobody_j2"):
         return TwoBodyDynamics(b, altitude, inclination, j2=kind == "twobody_j2")
-    raise ValueError(f"unknown dynamics {kind!r}, expected cw, twobody or twobody_j2")
+    raise ValueError(f"unknown dynamics {kind!r}, expected cw, euler1, twobody or twobody_j2")

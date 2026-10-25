@@ -4,10 +4,10 @@ Run with `python benchmarks/afrl_reproduction.py [--starts 100] [--workers N] [-
 Dunlap, Hibbard, Mote and Hobbs, "Comparing Run Time Assurance Approaches for Safe Spacecraft
 Docking" (IEEE Control Systems Letters 6, 2022, arXiv:2110.00447v1). Every start is flown by
 `vbar.safety.rta.reproduce` with the paper's LQR primary alone and inside each of the four
-filters, for nu1 = 2.15 n (the authors' code) and nu1 = 4 n (the paper). Starts follow
-`start_state`: 9.85 km in a uniform direction and 0.866 m/s in an independent uniform direction,
-each from its own 128-bit seed spawned from the printed root seed. The same starts are used for
-every filter and both slopes.
+filters, for nu1 = 2.15 n (the authors' code) and nu1 = 4 n (the paper), whose scenario IDs are
+printed. Starts follow `start_state`: 9.85 km in a uniform direction and 0.866 m/s in an
+independent uniform direction, each from its own 128-bit seed spawned from the printed root seed.
+The same starts are used for every filter and both slopes.
 
 A sample violates when phi1 < -1e-5 m/s or some |v_i| > v_max + 1e-5 m/s, the resolution of the
 speed limit; samples are the Euler steps. At 2.15 n the script prints each criterion below with
@@ -212,6 +212,8 @@ def main():
     if not 2**64 <= root < 2**128:
         raise SystemExit("--seed must lie in [2**64, 2**128)")
     print(f"root seed {root}")
+    for variant, setup in SETUPS.items():
+        print(f"nu1 = {variant}: {setup().view().scenario_id}")
     seeds = run_seeds(root, args.starts)
     names = (*FILTERS, PRIMARY)
     cases = [(PAPER_RULE, variant, seeds) for variant in SETUPS]

@@ -622,6 +622,37 @@ SPACEGYM_RENDEZVOUS = register(
         oracle={"sac_success": (0.62, 0.05), "ppo_success": (0.55, 0.06)},
     )
 )
+# Dunlap et al. (2021) as published: the Euler plant, a 12 kg chaser with 1 N per axis, starts
+# on the 9850 m and 0.866 m/s shells; the 1 m capture radius is the authors' code's.
+DOCKING_AFRL_PAPER = register(
+    ScenarioSpec(
+        name="docking-afrl-paper",
+        version=1,
+        entry_point="vbar.scenarios.hold:HoldPointEnv",
+        summary="The run time assurance docking benchmark as published, on its Euler plant.",
+        config={
+            **DOCKING_AFRL.config,
+            "dynamics": "euler1",
+            "dt": 1.0,
+            "max_steps": 5000,
+            "mass_kg": 12.0,
+            "max_accel": 1.0 / 12.0,
+            "drive": "accel",
+        },
+        parameters={**DOCKING_AFRL.parameters, "capture_radius": 1.0},
+        dispersions={
+            **DOCKING_AFRL.dispersions,
+            "start_pos": Shell(9850.0, 9850.0),
+            "start_vel": Shell(0.866, 0.866),
+        },
+        tags=("docking", "afrl", "speed-limit", "reproduction"),
+        observation=DOCKING_AFRL.observation,
+        variants={
+            # The authors' code uses v1 = 2.15 n where the paper prints 4 n.
+            "code": {"parameters": {"full_speed_limit": (0.2, 2.15 * AFRL_N)}},
+        },
+    )
+)
 
 INSPECTION = register(
     ScenarioSpec(

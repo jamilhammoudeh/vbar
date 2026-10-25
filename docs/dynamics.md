@@ -23,6 +23,7 @@ axes of its orbit. Every model accepts these arguments by name as well as by pos
 | `name` | Class | Frame | `n` | Page |
 |---|---|---|---|---|
 | `cw` | `CWDynamics(n)` | Hill | the given mean motion | this page |
+| `euler1` | `EulerCWDynamics(n, step_s=1.0)` | Hill, at its 1 s nodes only | the given mean motion | this page |
 | `twobody`, `twobody_j2` | `TwoBodyDynamics` | Hill, exact rotation | Keplerian mean motion of the (mean) semi-major axis | this page |
 | `twobody_drag`, `twobody_j2_drag_srp`, ... | `TwoBodyDynamics(perturbations=...)` | Hill, exact rotation | as above | [perturbations.md](perturbations.md) |
 | `ya` | `YamanakaAnkersenDynamics` | Hill of an elliptic Keplerian target | mean motion | [relative-motion.md](relative-motion.md) |
@@ -35,7 +36,8 @@ axes of its orbit. Every model accepts these arguments by name as well as by pos
 
 A perturbed two-body model's name is `twobody` or `twobody_j2` followed by `_` and each force's
 name (`drag`, `srp`, `srp_plate`) in the order given. `make_dynamics(kind, body="earth",
-altitude=500e3, inclination=0.0)` builds `"cw"`, `"twobody"` or `"twobody_j2"` by name; the other
+altitude=500e3, inclination=0.0)` builds `"cw"`, `"euler1"`, `"twobody"` or `"twobody_j2"` by
+name, with the Keplerian mean motion of the altitude for the first two; the other
 models take parameters it cannot carry and are built from their classes. Transition matrices of
 the models and the metrics that compare them are in
 [transition-matrices.md](transition-matrices.md).
@@ -81,6 +83,84 @@ refinement needs; it agrees with the matrix product to 1e-13 of the largest term
 separation. For a chaser held at along-track offset $D$ from a target with semi-major axis $a$,
 the true motion drifts by $-6\pi D^2/a$ per orbit, which CW does not see: about 2.7 m per orbit at
 1 km and 500 km altitude, and 2.5 mm at 30 m.
+
+## Forward-Euler Clohessy-Wiltshire (`"euler1"`)
+
+The discrete plant of the run time assurance docking benchmark (Dunlap et al., "Comparing Run
+Time Assurance Approaches for Safe Spacecraft Docking", 2021), kept so that its published
+results can be flown as a scenario. Each step of length $h$ is one forward-Euler step of the
+CW equations above, with $A$ and $B$ from `cw_system(n)`:
+
+$$
+\mathbf x_{j+1} = \mathbf x_j + h\,(A\mathbf x_j + B\mathbf a)
+$$
+
+The rung is $h$ = 1 s; `EulerCWDynamics(n, step_s=h)` takes another step for comparisons, and
+`step_s` is a class attribute (1.0) that the continuous models do not have. The plant is the
+sequence of nodes $\mathbf x_j$ and has no state between them: interpolating with CW would give
+a curve whose derivative is not the velocity. So `advance` refuses a duration that is not a
+whole number of steps and returns the $k + 1$ nodes of a $k$-step segment whatever `n_samples`
+asks for, and `state_in_last_segment(tau)` raises `ValueError` unless `tau` is a node.
+
+**Environment.** The environment keeps its own `dt` and flies it as `dt` / 1 s Euler substeps,
+so `dt`, an actuation delay and a coast must be whole seconds. Building an environment whose
+`dt` is not a whole number of steps raises `ValueError`; a delay or coast off the nodes raises
+in `advance`. When
+the dynamics model has `step_s`, `_fly` checks each constraint at the nodes only and ignores
+`violation_samples`: `node_minimum` gives the lowest node margin, and its certified bound is that
+margin less the allowance for rounding in the margin itself (no propagation enters, since a node
+is the plant's state), and `node_violations` counts a negative margin at node $j$ as the interval
+$(t_j - h, t_j]$.
+
+**Limits.** A scenario with a contact event inside the step, and a step in which the propellant
+runs out between nodes, raise `ValueError` on this rung, since the event or the run-out falls
+between nodes.
+
+**Accuracy.** Forward Euler's local error is $\tfrac12 h^2 \ddot{\mathbf x}$, so halving $h$
+cuts the one-step error by four. Out of plane the step maps $(z, v_z)$ to
+$(z + h v_z,\ v_z - h n^2 z)$, which multiplies the invariant $z^2 + (v_z/n)^2$ of the exact
+motion by $1 + n^2h^2$ every step: about 1e-6 per step at $n$ = 0.001027 rad/s and 1 s, a factor
+of 1.0053 over 5000 s. A point at rest on the V-bar stays exactly where it is.
+
+**What refuses it.** The metrics rebuild a continuous trajectory between samples with the CW
+solution, which this plant does not have, so `Trace`, `passive_metrics` and `evaluate` raise
+`ValueError` for an `euler1` episode. `CbfFilter` refuses any non-CW rung unless given a
+`model_error`; the predictive filter, the filter audit and the vector environment need `cw`.
+
+**Scenario.** `docking-afrl-paper` (v1, `vbar/DockingAfrlPaper-v1`) is `docking-afrl` on this
+plant with the paper's numbers: `dt` 1 s, 5000 steps, a 12 kg chaser with 1 N per axis
+(1/12 m/s^2), starts at 9850 m and 0.866 m/s in uniform directions, and the authors' code's
+1 m capture radius. Its `:code` variant (`vbar/DockingAfrlPaperCode-v1`) takes the code's
+speed-limit slope 2.15 n instead of the paper's 4 n. `docking-afrl` itself keeps the exact CW
+propagation and can be flown on this rung as `vbar:docking-afrl:euler1:box:dv:v1`. The mean
+motion is the Keplerian one of the catalogue altitude, about 1e-15 relative from 0.001027 rad/s.
+The environment ends an episode when the chaser is within 1 m of the target at under 0.2 m/s;
+`vbar.safety.rta.reproduce` stops at $|\mathbf r| \le$ 1 m on position alone, as the authors'
+code does.
+
+Tested in `tests/test_dynamics_euler.py`: one step is $\mathbf x + h(A\mathbf x + B\mathbf a)$
+exactly; five 1 s steps equal one 5 s advance; unforced, $k$ steps equal $(I + hA)^k\mathbf x_0$
+to 1e-12 relative; the V-bar point holds for 5000 steps; the out-of-plane invariant grows by
+$(1 + n^2h^2)^k$ to 1e-10; the one-step error falls by 3.9 to 4.1 when the step halves; partial
+steps and times between nodes raise; and in the environment the state after a 5 s step is the
+fifth node, and a speed-limit violation first reached at the 5 s node is the interval (4, 5] s
+with the bound within 1e-9 of the node margin. `tests/test_scenario_afrl_paper.py` checks the
+scenario's values, its starts, `check_env` on both IDs, and the metric refusals.
+
+```python
+import numpy as np
+
+from vbar.dynamics.models import CWDynamics, EulerCWDynamics
+
+n = 0.001027
+x0 = np.array([0.0, 0.0, 120.0, 0.0, 0.0, -0.08])
+euler, exact = EulerCWDynamics(n), CWDynamics(n)
+euler.reset(x0)
+exact.reset(x0)
+state, nodes = euler.advance(np.zeros(3), 600.0, n_samples=1)
+print(nodes.shape)  # (601, 6)
+print(np.linalg.norm(state[:3] - exact.advance(np.zeros(3), 600.0)[0][:3]))  # Euler's drift, m
+```
 
 ## Nonlinear two-body (`"twobody"`, `"twobody_j2"`)
 

@@ -32,11 +32,15 @@ from scipy.linalg import solve_continuous_are
 
 from ..agents.base import CONTINUOUS_MODES, AgentView, action_scale, command_fraction
 from ..dynamics.cw import cw_system
+from ..dynamics.models import EulerCWDynamics
 from ..solvers.qp import MAX_ROWS, ActuatorSet, Projection, Rows, project
 from . import FilterResult, InfeasibilityProof, run_filter
 from .cbf import FilterDeclaration
 
 SCENARIO_ID = "dunlap2021-euler"
+# The registered scenarios that fly `AfrlSetup.paper()` and `AfrlSetup.authors_code()`.
+_PAPER_ID = "vbar:docking-afrl-paper:euler1:box:dv:v1"
+_CODE_ID = _PAPER_ID + ":code"
 CONSTRAINT_NAMES = ("speed_limit", "vx_limit", "vy_limit", "vz_limit")
 _N = 0.001027
 _STATE_NAMES = ("x", "y", "z", "vx", "vy", "vz")
@@ -231,12 +235,19 @@ class AfrlSetup:
         Returns
         -------
         AgentView
-            Scenario "dunlap2021-euler" (no dynamics part), commands in m/s^2 under a box of
-            u_max / m, one "speed_limit" constraint with v0 = nu0 and v1 = nu1, and
-            stop_time / dt steps.
+            Scenario "vbar:docking-afrl-paper:euler1:box:dv:v1" for `paper()`, the same with
+            ":code" for `authors_code()`, and "dunlap2021-euler" (no dynamics part) for any other
+            setup; commands in m/s^2 under a box of u_max / m, one "speed_limit" constraint with
+            v0 = nu0 and v1 = nu1, and stop_time / dt steps.
         """
+        if self == AfrlSetup.paper():
+            scenario_id = _PAPER_ID
+        elif self == AfrlSetup.authors_code():
+            scenario_id = _CODE_ID
+        else:
+            scenario_id = SCENARIO_ID
         return AgentView(
-            scenario_id=SCENARIO_ID,
+            scenario_id=scenario_id,
             dt=self.dt,
             max_steps=math.ceil(self.stop_time / self.dt - 1e-9),
             n=self.n,
@@ -513,8 +524,13 @@ def _check_view(view: AgentView, setup: AfrlSetup) -> None:
         raise ValueError("pending commands are not supported: the filter cannot predict delay")
     parts = view.scenario_id.split(":")
     dynamics = parts[2] if len(parts) > 2 else None
-    if dynamics not in (None, "cw"):
-        raise ValueError(f"dynamics {dynamics!r} is not cw")
+    if dynamics not in (None, "cw", "euler1"):
+        raise ValueError(f"dynamics {dynamics!r} is neither cw nor euler1")
+    # The euler1 plant takes 1 s steps; the filters predict with Euler steps of the setup's dt.
+    if dynamics == "euler1" and not _matches(setup.dt, EulerCWDynamics.step_s):
+        raise ValueError(
+            f"the euler1 plant steps {EulerCWDynamics.step_s!r} s, not the setup's dt {setup.dt!r}"
+        )
     limits = []
     for spec in view.constraints:
         if spec["type"] != "speed_limit":
@@ -1180,11 +1196,11 @@ class Reproduction:
 def reproduce(safety_filter, setup: AfrlSetup, x0) -> Reproduction:
     """Fly the paper's docking run with a filter around the paper's controller.
 
-    The plant is the Euler step x + (A x + B u) dt of the Clohessy-Wiltshire equations with
-    perfect state knowledge. Each step the paper's LQR primary (sec. IV; weights and clipping
-    from the authors' code, not a V-BAR baseline) gives a command, `run_filter` passes it to the
-    filter and times it, and the returned command, clipped to the box, is applied. The run stops
-    once |r| <= `stop_radius` or after `stop_time`.
+    The plant is `EulerCWDynamics` with step dt, x + (A x + B u) dt on the Clohessy-Wiltshire
+    equations, with perfect state knowledge. Each step the paper's LQR primary (sec. IV; weights
+    and clipping from the authors' code, not a V-BAR baseline) gives a command, `run_filter`
+    passes it to the filter and times it, and the returned command, clipped to the box, is
+    applied. The run stops once |r| <= `stop_radius` or after `stop_time`.
 
     Parameters
     ----------
@@ -1211,7 +1227,8 @@ def reproduce(safety_filter, setup: AfrlSetup, x0) -> Reproduction:
     view = setup.view()
     safety_filter.reset(view)
     primary = _PaperLqr(setup)
-    a, b = cw_system(setup.n)
+    plant = EulerCWDynamics(setup.n, step_s=setup.dt)
+    plant.reset(x)
     states, commands, applied, backup, results = [x], [], [], [], []
     filter_s = 0.0
     for _ in range(view.max_steps):
@@ -1220,7 +1237,7 @@ def reproduce(safety_filter, setup: AfrlSetup, x0) -> Reproduction:
         u_des = primary.command(x)
         result, elapsed = run_filter(safety_filter, x, u_des)
         u = np.clip(np.asarray(result.action, dtype=float), -setup.a_max, setup.a_max)
-        x = x + setup.dt * (a @ x + b @ u)
+        x, _ = plant.advance(u, setup.dt)
         filter_s += elapsed
         states.append(x)
         commands.append(u_des)

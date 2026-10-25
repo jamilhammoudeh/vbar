@@ -11,7 +11,14 @@ from .cw import (
     mean_motion,
     propagate,
 )
-from .models import CWDynamics, Dynamics, TwoBodyDynamics, make_dynamics, relative_acceleration
+from .models import (
+    CWDynamics,
+    Dynamics,
+    EulerCWDynamics,
+    TwoBodyDynamics,
+    make_dynamics,
+    relative_acceleration,
+)
 
 __all__ = [
     "EARTH",
@@ -22,6 +29,7 @@ __all__ = [
     "CWDiscretizer",
     "CWDynamics",
     "Dynamics",
+    "EulerCWDynamics",
     "TwoBodyDynamics",
     "cw_discrete",
     "cw_rhs",
