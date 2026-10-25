@@ -495,7 +495,7 @@ def _nearest(c: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     solved again by bounded least squares.
     """
     lower, upper = _searched(c, g)
-    for i in np.flatnonzero(_loose(lower, upper)):
+    for i in np.flatnonzero(_loose(lower, upper)).tolist():
         _refine(c, g, lower, upper, i)
     return lower, upper
 
