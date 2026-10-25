@@ -163,6 +163,9 @@ def test_identifiers_parse_back_to_their_scenario():
         assert type(rebuilt.cfg.sensor) is type(env.cfg.sensor)
     with pytest.raises(ValueError):
         parse_id("vbar:docking:cw:box:dv:v9")
+    # v2 is docking's own version, so only the cost field can be refused here.
+    with pytest.raises(ValueError):
+        parse_id("vbar:docking:cw:box:time:v2")
     with pytest.raises(ValueError):
         make("vbar:docking:cw:box:dv:v2:sensor=nav1")
     with pytest.raises(ValueError):
