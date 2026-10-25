@@ -1,11 +1,16 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 from metric_cases import DOCKING_GOAL, episode, pd_episode
 from scipy.optimize import brentq
 
-from vbar.agents import PDAgent
+from vbar.agents import DriftAgent, PDAgent
 from vbar.dynamics import EARTH, cw_stm, mean_motion
-from vbar.metrics import METRICS, contact, evaluate, mission_metrics
+from vbar.metrics import METRICS, contact, evaluate, mission_metrics, record_episode
+from vbar.scenarios import SCENARIOS, Fixed, InertialPointing, Misbriefed, Passive, make
+from vbar.scenarios.registry import entry_class
+from vbar.scenarios.targets import body_point, body_point_velocity
 
 N = mean_motion(EARTH.radius + 500e3)
 
@@ -183,3 +188,89 @@ def test_a_start_behind_the_port_plane_is_not_a_contact():
     start = (0.0, -1.5, 0.0, 0.0, -0.1, 0.0)
     ep = episode(goal=DOCKING_GOAL, start_state=start, max_steps=2, keep_out_radius=1.0)
     assert contact(ep) is None
+
+
+def test_a_plane_crossing_far_from_the_port_is_not_a_contact():
+    # Passing the port plane 60 m beside the target is no contact when contact counts only
+    # within 50 m of the port; without a range the same crossing reads as a 60 m miss.
+    start = (60.0, -6.0, 0.0, 0.0, 0.2, 0.0)
+    far = episode(goal=DOCKING_GOAL, start_state=start, max_steps=8, keep_out_radius=1.0)
+    event = contact(far)
+    assert event is not None and event.lateral_error > 55.0
+    ranged = {**DOCKING_GOAL, "contact_range": 50.0}
+    near = episode(goal=ranged, start_state=start, max_steps=8, keep_out_radius=1.0)
+    assert contact(near) is None
+    assert np.isnan(mission_metrics(near)["capture_margin"])
+
+
+@pytest.mark.parametrize("briefed", [None, Passive()], ids=["told", "misbriefed"])
+def test_contact_at_a_turning_port_is_judged_as_the_environment_judges_it(briefed):
+    # An inertially pointing target turns its port at -n; the chaser starts 3 m out on the axis
+    # moving with the port and closing at 0.07 m/s. The metrics follow the true mode, even when
+    # agents were told the target is LVLH-stabilised, and measure speeds against the port.
+    truth = InertialPointing(0.7)
+    spec = SCENARIOS["inertial-target"]
+    n = make("inertial-target").n
+    port = body_point(truth, (0.0, -2.0, 0.0), 0.0, n)
+    axis = body_point(truth, (0.0, -1.0, 0.0), 0.0, n)
+    v_port = body_point_velocity(truth, (0.0, -2.0, 0.0), 0.0, n)
+    flown = replace(
+        spec,
+        target=truth if briefed is None else Misbriefed(actual=truth, briefed=briefed),
+        dispersions={
+            "start_pos": Fixed(tuple(port + 3.0 * axis)),
+            # 4 mm/s across the axis offsets the Coriolis drift over the 43 s coast.
+            "start_vel": Fixed(tuple(v_port - 0.07 * axis + 0.004 * np.cross(axis, (0, 0, 1)))),
+        },
+    )
+    env = entry_class(flown)(flown)
+    ep = record_episode(env, DriftAgent(), seed=1, agent_seed=2)
+    info = env._info()
+    event = contact(ep)
+    assert event.t == pytest.approx(info["contact_time_s"], abs=1e-6)
+    assert event.lateral_error == pytest.approx(info["contact_lateral_error_m"], abs=1e-9)
+    assert event.axial_speed == pytest.approx(info["contact_axial_speed_mps"], abs=1e-9)
+    assert event.lateral_speed == pytest.approx(info["contact_lateral_speed_mps"], abs=1e-9)
+    assert event.margin == pytest.approx(info["capture_margin"], abs=1e-7)
+    m = mission_metrics(ep)
+    assert m["success"] is info["success"] is True
+    # The terminal errors are taken from the port where it stands at the end, which has turned
+    # about 0.1 m from where the goal briefed it at t = 0.
+    end = ep.records[-1].true_state
+    port_end = body_point(truth, (0.0, -2.0, 0.0), ep.duration, n)
+    v_end = body_point_velocity(truth, (0.0, -2.0, 0.0), ep.duration, n)
+    assert m["terminal_pos_error"] == pytest.approx(np.linalg.norm(end[:3] - port_end), abs=1e-12)
+    assert m["terminal_vel_error"] == pytest.approx(np.linalg.norm(end[3:] - v_end), abs=1e-12)
+    assert np.linalg.norm(port_end - port) > 0.05
+    # Riding with the port, the chaser's speed across it stays near zero, while its Hill-frame
+    # velocity carries the port's 2 n = 2.2 mm/s across the axis.
+    v = ep.records[-1].true_state[3:6]
+    a = body_point(truth, (0.0, -1.0, 0.0), event.t, n)
+    hill_lateral = float(np.linalg.norm(v - (v @ a) * a))
+    assert event.lateral_speed < 1e-3 < hill_lateral
+
+
+@pytest.mark.parametrize("beside", [49.95, 50.06], ids=["inside", "outside"])
+def test_contact_range_is_judged_at_the_crossing_in_both(beside):
+    # A pass through the port plane about 50 m beside the port, sliding 0.38 m/s sideways: the
+    # environment and the metrics judge the 50 m contact range at the crossing point, so a
+    # crossing at the range's edge counts for both or for neither.
+    spec = SCENARIOS["docking"]
+    flown = replace(
+        spec,
+        config={**spec.config, "max_steps": 2},
+        dispersions={
+            "start_pos": Fixed((beside, -2.0026, 0.0)),
+            "start_vel": Fixed((-0.38, 0.02, 0.0)),
+        },
+    )
+    env = entry_class(flown)(flown)
+    ep = record_episode(env, DriftAgent(), seed=1, agent_seed=2)
+    info = env._info()
+    event = contact(ep)
+    assert (event is not None) is info["contact"] is (beside < 50.0)
+    if event is not None:
+        # The environment judges the state where the step ends, a nanometre past the plane:
+        # 5e-8 s later at 0.02 m/s closing, 2e-8 m further sideways at 0.38 m/s.
+        assert event.t == pytest.approx(info["contact_time_s"], abs=1e-6)
+        assert event.lateral_error == pytest.approx(info["contact_lateral_error_m"], abs=1e-6)

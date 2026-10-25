@@ -197,6 +197,7 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.agents.lqg` functions: the steady-state Kalman gain of the discrete CW model and the
   detectability test for sensor bias states (a constant along-track position bias is not
   detectable).
+- `Episode.target`: the scenario's true target attitude mode, recorded for the metrics.
 
 ### Changed
 
@@ -232,6 +233,17 @@ release may change the public API, and every such change is listed under Changed
   spec names adds a `kind=` token.
 - `inspection` is version 2: its start velocity is drawn again until the start drifts along
   track (`DriftingVelocity`), since free drift completed version 1 on about 1 seed in 60.
+- Docking contact speeds are measured against the port's own velocity, which a turning target
+  gives: `inertial-target` is v2 (its 2 m port moves at 2.2 mm/s) and the `v1-operations` suite
+  is v2.
+- The contact metrics (M1, M4, M6 to M8, M10, now v2) count a crossing of the port plane only
+  at a point within the goal's `contact_range` of the port, carry the port with the target's true
+  attitude mode and measure speeds against the port's velocity, applying the environment's rule
+  to the recorded samples; a crossing far beside the target is no longer a contact, and on a
+  turning port they now agree with the environment's verdict. M2, M3 and M5 (v2) take a docking
+  goal's port where it stands, with its velocity.
+- `DockingEnv` judges the contact range at the crossing point rather than at the samples either
+  side of it, a difference only for crossings within a sample's travel of the range's edge.
 
 ### Fixed
 

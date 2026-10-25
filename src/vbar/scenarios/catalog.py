@@ -392,7 +392,7 @@ DOCKING_OFFSET = register(
 INERTIAL_TARGET = register(
     ScenarioSpec(
         name="inertial-target",
-        version=1,
+        version=2,
         entry_point="vbar.scenarios.docking:DockingEnv",
         summary="Dock at the port of an inertially pointing target whose axis turns at -n.",
         config={**CONFIG, "dt": 5.0, "max_steps": 1200},
@@ -1041,7 +1041,7 @@ SUITE_V1_NAV1 = register_suite(
 SUITE_V1_OPERATIONS = register_suite(
     Suite(
         "v1-operations",
-        1,
+        2,
         (
             SuiteEntry("closing"),
             SuiteEntry("rbar-acquisition"),

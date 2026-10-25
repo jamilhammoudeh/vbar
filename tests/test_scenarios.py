@@ -93,12 +93,14 @@ def test_the_reference_controller_succeeds_and_the_metrics_agree(name, index):
     assert info["success"], info
     assert not info["keep_out_violated"]
     metrics = evaluate(episode, env.metric_settings())
-    if base_name(name) not in ("inertial-target", "separation-flyaround"):
-        # A turning port is not yet a metrics goal, and the departure metric scores only the
-        # arrival in the clear zone.
+    if base_name(name) != "separation-flyaround":
+        # The departure metric scores only the arrival in the clear zone.
         assert metrics["success"] is True
-    if base_name(name) in ("docking", "docking-offset", "vbar-final-shuttle"):
-        assert contact(episode).t == pytest.approx(info["contact_time_s"], abs=1e-6)
+    if base_name(name) in ("docking", "docking-offset", "inertial-target", "vbar-final-shuttle"):
+        event = contact(episode)
+        assert event.t == pytest.approx(info["contact_time_s"], abs=1e-6)
+        assert event.lateral_speed == pytest.approx(info["contact_lateral_speed_mps"], abs=1e-9)
+        assert event.margin == pytest.approx(info["capture_margin"], abs=1e-7)
     assert metrics["delta_v"] == pytest.approx(info["dv_used_mps"], rel=1e-9)
     assert math.isfinite(metrics["composite_score"])
 

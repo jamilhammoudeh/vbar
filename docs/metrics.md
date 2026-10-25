@@ -81,9 +81,16 @@ The goal is the scenario's public goal, of one of two kinds.
   goal with a dwell is met only when the predicate holds continuously for $T_{\text{hold}}$.
 - **Docking goal:** `port` $\mathbf p$, `port_axis` $\hat{\mathbf a}$ (from the port toward the
   approach side), `lateral_limit`, `lateral_speed_limit` and `axial_speed_window`
-  $[v_{\min}, v_{\max}]$. Contact is an event (Fehse 8.1.1, 8.3.6): the first time the port-plane
-  depth $(\mathbf r - \mathbf p)\cdot\hat{\mathbf a}$ turns negative from the approach side, found
-  in continuous time, so a chaser cannot pass the port between two step boundaries.
+  $[v_{\min}, v_{\max}]$, with `contact_range` $R_{\text{contact}}$. Contact is an event (Fehse
+  8.1.1, 8.3.6): the first pair of recorded samples between which the port-plane depth
+  $(\mathbf r - \mathbf p)\cdot\hat{\mathbf a}$ turns from positive to not positive, with either
+  crossing, refined by Brent's method on the trajectory between them, within $R_{\text{contact}}$
+  of the port. That is the environment's rule on the same samples (20 per step by
+  default), so a chaser cannot pass the port between two step boundaries and a crossing far beside
+  the target is no contact. The goal holds the port and axis as briefed at t = 0; on a recorded
+  episode they turn with the target's true attitude mode (`Episode.target`), and the speeds at
+  contact are those of $\mathbf u = \mathbf v - \boldsymbol\omega\times\mathbf p$, the velocity
+  relative to the port, which moves on a turning target.
 - **Inspection goal** (`task` "inspect"): met when the coverage of the inspectable points reaches
   `coverage`. The metrics cannot rebuild the lighting and the target's true attitude from the
   trajectory, so they read the environment's verdict that `record_episode` stores in
@@ -94,13 +101,13 @@ The goal is the scenario's public goal, of one of two kinds.
 | ID | Name | Units | Definition |
 |---|---|---|---|
 | M1 | `success` | bool | the goal is met and no hard constraint's margin fell below zero, at the start or anywhere inside a step (the environment's certified in-step minima). Met means: contact within tolerance (docking); the coverage goal reached (inspection); a dwell of $T_{\text{hold}}$ (hold goal with a dwell); the capture predicate at some step boundary after t = 0 (otherwise) |
-| M2 | `terminal_pos_error` | m | $\lvert\mathbf r - \mathbf r_g\rvert$ at the end ($\mathbf r_g$ the port for docking) |
-| M3 | `terminal_vel_error` | m/s | $\lvert\mathbf v - \mathbf v_g\rvert$ at the end |
+| M2 | `terminal_pos_error` | m | $\lvert\mathbf r - \mathbf r_g\rvert$ at the end ($\mathbf r_g$ the port for docking, where it stands) |
+| M3 | `terminal_vel_error` | m/s | $\lvert\mathbf v - \mathbf v_g\rvert$ at the end ($\mathbf v_g$ the port's velocity for docking) |
 | M4 | `time_to_complete` | s | when the goal is met: the contact time, the end of the first full dwell, or the first capturing step boundary; the episode length $T$ if never |
 | M5 | `progress` | fraction | $\operatorname{clip}(1 - d_{\text{end}}/d_0, 0, 1)$, $d$ the distance to the goal |
 | M6 | `contact_lateral_error` | m | $\lvert\mathbf d - (\mathbf d\cdot\hat{\mathbf a})\hat{\mathbf a}\rvert$, $\mathbf d = \mathbf r - \mathbf p$, at contact |
-| M7 | `contact_axial_speed` | m/s | $-\mathbf v\cdot\hat{\mathbf a}$ at contact |
-| M8 | `contact_lateral_speed` | m/s | $\lvert\mathbf v - (\mathbf v\cdot\hat{\mathbf a})\hat{\mathbf a}\rvert$ at contact |
+| M7 | `contact_axial_speed` | m/s | $-\mathbf u\cdot\hat{\mathbf a}$ at contact |
+| M8 | `contact_lateral_speed` | m/s | $\lvert\mathbf u - (\mathbf u\cdot\hat{\mathbf a})\hat{\mathbf a}\rvert$ at contact |
 | M9 | `hold_dwell` | s | longest continuous time inside the capture predicate, in continuous time (NaN without one) |
 | M10 | `capture_margin` | ratio | $\min\big(\tfrac{l_{\max} - \text{M6}}{l_{\max}}, \tfrac{s_{\max} - \text{M8}}{s_{\max}}, \tfrac{v_{\max} - \text{M7}}{v_{\max}}, \tfrac{\text{M7} - v_{\min}}{v_{\min}}\big)$, the last left out when $v_{\min}$ = 0; negative means out of tolerance (Fehse 7.1.1, 8.3.5) |
 

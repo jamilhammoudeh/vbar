@@ -102,7 +102,7 @@ with `:nav1`, on 100 validation seeds per entry, and `core-test-v1` the same ten
 hidden test seeds each. The rest of the catalogue stays available outside it. Also built in:
 `v1-v1` (the four v1
 scenarios, 50 validation seeds each), `v1-nav1-v1` (the same on the `:nav1` track),
-`v1-operations-v1` (closing, R-bar acquisition, berthing box, the on-axis, lit and offset
+`v1-operations-v2` (closing, R-bar acquisition, berthing box, the on-axis, lit and offset
 dockings, the inertial target and the orbit-normal approach) and `v1-shuttle-v1` (the six
 Shuttle-practice scenarios and the Shuttle corridor docking).
 
@@ -205,7 +205,9 @@ the unflown rest given back (at 0.1 m/s and 5 s steps the
 chaser moves 0.5 m per step, so a step-boundary test would miss or overshoot the plane). Success
 at contact: lateral offset within `lateral_limit`, lateral speed within `lateral_speed_limit`,
 axial closing speed inside the mechanism's window, no hard constraint violated on the way
-(Fehse 7.1.1, 8.3.5, appendix C). The window comes from a preset: `probe-drogue-atv` 0.05 to
+(Fehse 7.1.1, 8.3.5, appendix C). The speeds are relative to the port, which on a turning target
+moves at $\boldsymbol\omega \times \mathbf p$ (`body_point_velocity`; 2.2 mm/s for the 2 m port
+of `inertial-target`, Fehse 8.3.6). The window comes from a preset: `probe-drogue-atv` 0.05 to
 0.10 m/s (ATV, the default), `impact` 0.10 to 0.35 m/s (Soyuz and Progress), `low-impact` 0.01 to
 0.03 m/s (Hermes-Columbus, the ESA active latch) and `apds` 0.025 to 0.05 m/s (the Shuttle's
 mechanism: below 0.05 m/s per Fehse appendix C; the lower end is this benchmark's choice just
@@ -284,7 +286,7 @@ Shuttle values.
 | `docking:corridor-shuttle` | the Shuttle's corridors and mechanism | as `:axis` | 8 deg corridor from 400 ft, then 5 deg from 30 m (ours); `apds` window; optional 300 s hold at 30 ft; 342.62 km | 1200 x 5 s | Goodman p. 137, fig. 20.15, table 25.8 |
 | `docking:lit` | contact inside a Sun window | on the axis 100 to 300 m out; beta in [-70, 70] deg | within 10 m of the port the Sun's in-plane angle from the axis must lie in [15, 75] deg (Fehse's 105 to 165 deg from +V-bar) on the day side; the agent times the approach from a hold | 1500 x 5 s | Fehse 5.4.1 |
 | `docking-offset` (v1) | dock at a port 20 m from the centre of a pitched target | on the V-bar 150 to 300 m behind | pitch in [15, 30] deg; body keep-out 20 m; the approach line is off the V-bar and drifts 3 pi h per orbit | 1200 x 5 s | Fehse 5.3.1, 5.7.3 |
-| `inertial-target` (v1) | dock at the port of an inertially pointing target | random direction, 150 to 300 m | the axis turns at -n from a random phase; on it the chaser needs lateral speed r n | 1200 x 5 s | Fehse 5.3.1 |
+| `inertial-target` (v2) | dock at the port of an inertially pointing target | random direction, 150 to 300 m | the axis turns at -n from a random phase; on it the chaser needs lateral speed r n; contact speeds relative to the moving port (v1 measured them in the Hill frame) | 1200 x 5 s | Fehse 5.3.1, 8.3.6 |
 | `docking-afrl` (v1) | the run time assurance docking task | as docking | reach the origin within 0.5 m at under 0.2 m/s; the whole relative speed under 0.2 + 4n rho (hard); n = 0.001027 rad/s (851.8 km) | 1200 x 5 s | Dunlap et al. 2021, eq. 14 |
 | `inspection` (v2) | image 95% of the lit points | random direction, 50 to 150 m, drifting at least 25 m of 2 x0 + vy0 / n; beta in [-75, 75] deg | keep-out 10 m; range 200 m; Sun exclusion 30 deg (ours) | 1140 x 10 s (about two orbits) | Fehse 5.4.1; Montenbruck and Gill 3.4 |
 | `closing` (v1) | from the S2 hold to the S3 hold of an ISS-class target | 3000 m behind within 20 m, 0.01 m/s | hold 400 m behind, dwell 600 s; keep-out 200 m; the approach ellipsoid (1000 x 2000 x 1000 m) may be entered only after the GO drawn between 600 and 2400 s; plume range 300 m | 1140 x 10 s | Fehse 5.6, 5.7.1, eqs 3.29 to 3.32 and 3.44 to 3.48 |
@@ -375,12 +377,12 @@ Katz, Corso and Moss, *Algorithms for Validation*, section 8.1).
 
 - Relative attitude is perfect in 3-DOF: the docking criteria have no angular terms, and a
   misbriefed attitude cannot be detected from the relative state.
-- The goal's port and axis are their Hill-frame values at t = 0, and the mission metrics judge
-  contact there, so for a turning port (`inertial-target`) the environment's `info["success"]`
-  is the verdict; the metrics' contact entries are not valid there. The departure metric scores
-  only the arrival in the clear zone. The inspection's coverage needs the lighting and the
-  target's true attitude, so the metrics read it from the environment's verdict recorded in the
-  episode (`Episode.outcome`); an episode built without it cannot be scored.
+- The goal's port and axis are their Hill-frame values at t = 0 as briefed; the environment and
+  the mission metrics (contact, the terminal errors and progress) carry them on with the target's
+  true mode, so a misbriefed target is judged at its true port. The departure metric scores only
+  the arrival in the clear zone. The inspection's coverage needs the lighting and the target's
+  true attitude, so the metrics read it from the environment's verdict recorded in the episode
+  (`Episode.outcome`); an episode built without it cannot be scored.
 - The GO time of `closing` is public in the zone constraint; a GO revealed at the event needs the
   supervisory channel.
 - `docking-afrl` keeps this benchmark's exact propagation; the published benchmark integrates

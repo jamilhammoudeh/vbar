@@ -20,7 +20,7 @@ from ..agents.base import AgentView, agent_generator
 from ..constraints import Constraint
 from ..safety import FilteredAgent
 from ..scenarios.base import StepRecord
-from ..scenarios.targets import Misbriefed
+from ..scenarios.targets import Misbriefed, TargetMode
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -39,6 +39,8 @@ class Episode:
     `reset_s` is the agent's wall time in `reset` (s). `target_misbriefed` is True when the target
     followed a motion other than the one `view` describes; the recorder reads it from the
     environment's true target mode, and neither the view nor the agent's info carries it.
+    `target` is the scenario's true target attitude mode (it may differ from the briefing in the
+    goal), for metrics that judge geometry on the target; None for environments without one.
     """
 
     view: AgentView
@@ -62,6 +64,7 @@ class Episode:
     reset_s: float = 0.0
     outcome: Mapping[str, Any] | None = None
     target_misbriefed: bool = False
+    target: TargetMode | None = None
 
     @property
     def duration(self) -> float:
@@ -169,4 +172,5 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         reset_s=reset_s,
         outcome=getattr(env, "task_outcome", lambda: None)(),
         target_misbriefed=isinstance(target, Misbriefed) and target.actual != target.briefed,
+        target=target,
     )

@@ -6,21 +6,26 @@ a dwell `hold_time` (s); its capture predicate is |r - r_goal| < capture_radius 
 |v - v_goal| < capture_speed. A docking goal has `port` (m), `port_axis` (unit vector from the port
 toward the approach side), `lateral_limit` (m), `lateral_speed_limit` (m/s) and
 `axial_speed_window` (m/s), and is judged at the contact event, the first crossing of the port
-plane from the approach side (Fehse, Automated Rendezvous and Docking of Spacecraft, 2003,
-sections 7.1.1 and 8.3.5). An inspection goal (`task` "inspect") is met when the coverage of the
-inspectable points reaches `coverage`; that needs the lighting and the target's true attitude, so
-it is read from the environment's verdict recorded in `Episode.outcome`.
+plane from the approach side within `contact_range` (m) of the port (Fehse, Automated Rendezvous
+and Docking of Spacecraft, 2003, sections 7.1.1 and 8.3.5). The goal holds the port as briefed at
+t = 0; on a recorded episode the port and its axis then turn with the target's true attitude mode,
+and the speeds at contact are relative to the port's own velocity, as the environment judges them.
+An inspection goal (`task` "inspect") is met when the coverage of the inspectable points reaches
+`coverage`; that needs the lighting and the target's true attitude, so it is read from the
+environment's verdict recorded in `Episode.outcome`.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from scipy.optimize import brentq
 
+from ..scenarios.targets import body_point, body_point_velocity, briefed_mode
 from .episode import Episode
 from .stl import Signal, Trace, complement, negative_intervals
 
@@ -100,30 +105,78 @@ class Contact:
     margin: float
 
 
-def contact(ep: Episode, trace: Trace | None = None) -> Contact | None:
-    """The contact event and its capture margin, or None if the port plane was never crossed.
+def port_motion(ep: Episode) -> Callable[[Any], tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """The port's position (m), unit axis and velocity (m/s) in Hill axes as functions of time.
 
-    The margin is the least over the criteria of (limit - value) / limit, with the lower end of
-    the axial window taken as (value - limit) / limit, or left out when it is zero; negative
-    means out of tolerance.
+    With the episode's true target mode recorded, the briefed port and axis at t = 0 are taken
+    to body axes and carried by the true mode, the geometry the environment flies; without one
+    (a hand-built episode) the goal's port is fixed.
     """
     goal = ep.view.goal
-    trace = trace or Trace(ep)
     port = np.asarray(goal["port"], dtype=float)
     axis = np.asarray(goal["port_axis"], dtype=float)
     axis = axis / np.linalg.norm(axis)
+    mode, n = ep.target, ep.view.n
+    if mode is None:
 
-    def depth(state, t=0.0):
-        return (np.asarray(state)[..., :3] - port) @ axis
+        def fixed(t):
+            shape = (*np.shape(t), 3)
+            return np.broadcast_to(port, shape), np.broadcast_to(axis, shape), np.zeros(shape)
 
-    crossings = negative_intervals(Signal("port_plane", depth, lambda v, a, r: v, 1e-6), trace)
-    starts = [lo for lo, _ in crossings if lo > 0.0]
-    if not starts:
-        return None
-    t = starts[0]
-    state = trace.state_at(t)
+        return fixed
+    turn = briefed_mode(mode).matrix(0.0, n)
+    port_body, axis_body = turn.T @ port, turn.T @ axis
+
+    def moving(t):
+        return (
+            body_point(mode, port_body, t, n),
+            body_point(mode, axis_body, t, n),
+            body_point_velocity(mode, port_body, t, n),
+        )
+
+    return moving
+
+
+def contact(ep: Episode, trace: Trace | None = None) -> Contact | None:
+    """The contact event and its capture margin, or None if the port plane was never crossed.
+
+    Contact is the first crossing between recorded samples at which the depth (r - p) . a_hat
+    turns from positive to not positive, refined by Brent's method on the rebuilt trajectory, at a
+    point within the goal's `contact_range` of the port (no limit when the goal has none): the
+    rule the environment applies to the same samples. The margin is the least over the criteria
+    of (limit - value) / limit, with the lower end of the axial window taken as
+    (value - limit) / limit, or left out when it is zero; negative means out of tolerance.
+    """
+    goal = ep.view.goal
+    trace = trace or Trace(ep)
+    motion = port_motion(ep)
+    reach = goal.get("contact_range", math.inf)
+
+    def depth(t):
+        port, axis, _ = motion(t)
+        return float((trace.state_at(t)[:3] - port) @ axis)
+
+    for rec in ep.records:
+        times, states = rec.segment.times, rec.segment.states
+        port, axis, _ = motion(times)
+        depths = np.sum((states[:, :3] - port) * axis, axis=-1)
+        for k in np.flatnonzero((depths[:-1] > 0.0) & (depths[1:] <= 0.0)):
+            if depths[k + 1] == 0.0:
+                t = float(times[k + 1])
+            else:
+                t = brentq(depth, times[k], times[k + 1], xtol=1e-12, rtol=4 * np.finfo(float).eps)
+            state = trace.state_at(t)
+            at = motion(t)
+            if float(np.linalg.norm(state[:3] - at[0])) > reach:
+                continue
+            return _judge(goal, state, t, *at)
+    return None
+
+
+def _judge(goal, state, t, port, axis, port_velocity) -> Contact:
+    """The contact at `t`: offsets from the port and speeds relative to its velocity."""
     offset = state[:3] - port
-    velocity = state[3:6]
+    velocity = state[3:6] - port_velocity
     axial = -float(velocity @ axis)
     lateral = float(np.linalg.norm(offset - (offset @ axis) * axis))
     sideways = float(np.linalg.norm(velocity + axial * axis))
@@ -136,8 +189,7 @@ def contact(ep: Episode, trace: Trace | None = None) -> Contact | None:
     # A window open at zero (soft docking) has no lower criterion to normalise.
     if low > 0.0:
         criteria.append((axial - low) / low)
-    margin = min(criteria)
-    return Contact(t, lateral, axial, sideways, margin)
+    return Contact(t, lateral, axial, sideways, min(criteria))
 
 
 def inspection_outcome(ep: Episode) -> Mapping[str, Any] | None:
@@ -207,7 +259,14 @@ def mission_metrics(ep: Episode) -> dict[str, float | bool]:
             "hold_dwell": math.nan,
             "capture_margin": math.nan,
         }
-    position, velocity = goal_errors(ep.states, goal)
+    if "port" in goal:
+        # The port moves with the target, so the terminal errors and the progress are taken
+        # from it where it stands.
+        port, _, port_velocity = port_motion(ep)(ep.times)
+        position = np.linalg.norm(ep.states[:, :3] - port, axis=-1)
+        velocity = np.linalg.norm(ep.states[:, 3:6] - port_velocity, axis=-1)
+    else:
+        position, velocity = goal_errors(ep.states, goal)
     done = completion_time(ep, trace)
     out: dict[str, float | bool] = {
         "success": done is not None and not hard_violated(ep),

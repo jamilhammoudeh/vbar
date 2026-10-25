@@ -1,12 +1,13 @@
 """Docking: make contact at the port inside the mechanism's reception envelope and a corridor.
 
 Contact is an event, the first crossing of the port plane (r - r_port) . a_hat = 0 from the
-approach side within `contact_range` of the port, found in the exact segment trace; the step
-ends there. Success at contact (Fehse, Automated Rendezvous and Docking of Spacecraft, 2003,
-sections 7.1.1 and 8.3.5, appendix C): lateral offset within `lateral_limit`, lateral speed
-within `lateral_speed_limit`, axial closing speed inside the mechanism's window, and no hard
-constraint violated on the way. The port and its axis are fixed to the target, so they move
-with the target's attitude mode.
+approach side at a point within `contact_range` of the port, found in the exact segment trace;
+the step ends there. Success at contact (Fehse, Automated Rendezvous and Docking of
+Spacecraft, 2003, sections 7.1.1 and 8.3.5, appendix C): lateral offset within
+`lateral_limit`, lateral speed within `lateral_speed_limit`, axial closing speed inside the
+mechanism's window, and no hard constraint violated on the way. The port and its axis are
+fixed to the target, so they move with the target's attitude mode, and the speeds at contact
+are relative to the port's own velocity.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from .targets import (
     Passive,
     RotatingCone,
     body_point,
+    body_point_velocity,
     briefed_mode,
     sun_direction,
 )
@@ -372,19 +374,21 @@ class DockingEnv(ScenarioEnv):
 
     def _event_time(self, tau: np.ndarray, samples: np.ndarray, t0: float) -> float | None:
         depth = self._depth(samples, t0 + tau)
-        near = np.linalg.norm(samples[:, :3] - self.port_at(t0 + tau), axis=-1)
         crossing = np.flatnonzero((depth[:-1] > 0.0) & (depth[1:] <= 0.0))
+
+        def f(s):
+            return float(self._depth(self.dynamics.state_in_last_segment(s), t0 + s))
+
         for k in crossing:
-            if min(near[k], near[k + 1]) > self.params.contact_range:
-                continue
-
-            def f(s):
-                return float(self._depth(self.dynamics.state_in_last_segment(s), t0 + s))
-
             if depth[k + 1] == 0.0:
                 root = float(tau[k + 1])
             else:
                 root = brentq(f, tau[k], tau[k + 1], xtol=1e-12, rtol=4 * np.finfo(float).eps)
+            # The range is judged at the crossing itself, a point the metrics can find again
+            # in the record (the samples after it are cut off).
+            at = self.dynamics.state_in_last_segment(root)[:3] - self.port_at(t0 + root)
+            if float(np.linalg.norm(at)) > self.params.contact_range:
+                continue
             # Propagation between samples is exact only to rounding (the step matrices are
             # cached on a rounded time), so the step ends a nanometre past the plane, where the
             # crossing shows in the record whatever the rounding; the body keep-out is open
@@ -402,7 +406,9 @@ class DockingEnv(ScenarioEnv):
         p = self.params
         axis = self.axis_at(t)
         offset = self.state[:3] - self.port_at(t)
-        velocity = self.state[3:6]
+        # The reception envelope is the port's own: speeds are measured against the port, which
+        # moves at w x r_port on a turning target.
+        velocity = self.state[3:6] - body_point_velocity(self.target, p.port, t, self.n)
         axial = -float(velocity @ axis)
         lateral = float(np.linalg.norm(offset - (offset @ axis) * axis))
         sideways = float(np.linalg.norm(velocity + axial * axis))
