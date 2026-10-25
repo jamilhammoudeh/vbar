@@ -183,7 +183,9 @@ def test_free_drift_fails_every_variant_on_the_audit_seeds(name, index):
     assert not env._info()["success"]
 
 
-@pytest.mark.parametrize("name", ["approach-vbar", "docking:lit", "inspection", "closing"])
+@pytest.mark.parametrize(
+    "name", ["approach-vbar", "docking:lit", "inspection", "closing", "tumbling-capture:separatrix"]
+)
 def test_the_same_seed_repeats_the_episode_and_other_seeds_differ(name):
     def fly(seed, steps=15):
         env = make(name)
@@ -196,14 +198,20 @@ def test_the_same_seed_repeats_the_episode_and_other_seeds_differ(name):
             states.append(info["true_state"])
             if term or trunc:
                 break
-        return np.array(states), dict(env.draw, constraints=env.agent_view().constraints)
+        view = env.agent_view()
+        return np.array(states), dict(env.draw, constraints=view.constraints, goal=view.goal)
 
     steps = 5 if name == "docking:lit" else 15
     first, draw_a = fly(7, steps)
     second, draw_b = fly(7, steps)
-    other, _ = fly(8, steps)
+    other, draw_c = fly(8, steps)
     assert np.array_equal(first, second)
     assert draw_a["constraints"] == draw_b["constraints"]
+    # The goal carries the briefing, the drawn tumble of the flagship among it, which another
+    # seed draws again.
+    assert draw_a["goal"] == draw_b["goal"]
+    if name.startswith("tumbling-capture"):
+        assert draw_c["goal"]["target"] != draw_a["goal"]["target"]
     assert not np.array_equal(first[: len(other)], other[: len(first)])
 
 
