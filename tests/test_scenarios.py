@@ -475,7 +475,7 @@ class StopAtSegmentEnd(make("approach-vbar").__class__):
         return float(tau[-1]) if t0 == 0.0 else None
 
 
-def test_an_event_at_the_end_of_a_segment_ends_the_step_there():
+def test_an_event_at_the_end_of_a_segment_ends_the_step_there(monkeypatch):
     from vbar.scenarios import SCENARIOS
 
     env = StopAtSegmentEnd(SCENARIOS["approach-vbar"], {"action_mode": "impulse_coast"})
@@ -484,7 +484,10 @@ def test_an_event_at_the_end_of_a_segment_ends_the_step_there():
     assert info["time_s"] == env.cfg.dt
     assert len(env.record.segment.segments) == 1
     assert info["dv_used_mps"] == pytest.approx(np.hypot(0.5, 0.2) * env.cfg.max_accel * env.cfg.dt)
-    with pytest.raises(ValueError):
-        type(env)._event_time = lambda self, tau, samples, t0: float(tau[-1]) + 1.0
-        env.reset(seed=1)
+    # Undone after the test, so a rerun in the same process still sees the class as defined.
+    monkeypatch.setattr(
+        StopAtSegmentEnd, "_event_time", lambda self, tau, samples, t0: float(tau[-1]) + 1.0
+    )
+    env.reset(seed=1)
+    with pytest.raises(ValueError, match="inside the segment"):
         env.step(np.array([0.0, 0.0, 0.0, 0.0]))
