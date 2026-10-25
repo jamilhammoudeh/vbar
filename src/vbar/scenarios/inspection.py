@@ -132,9 +132,6 @@ class InspectionEnv(ScenarioEnv):
             "sun_exclusion": p.sun_exclusion,
             "coverage": p.coverage,
             "sun_direction": tuple(float(c) for c in self.sun0),
-            "hold_point": (0.0, 0.0, 0.0),
-            "capture_radius": p.max_range,
-            "capture_speed": 10.0,
         }
 
     def metric_settings(self) -> MetricSettings:
@@ -294,6 +291,21 @@ class InspectionEnv(ScenarioEnv):
 
     def _success(self) -> bool:
         return self.success
+
+    def task_outcome(self) -> dict[str, Any]:
+        """The coverage verdict, which needs the lighting and the target's true attitude.
+
+        Returns
+        -------
+        dict
+            "met" once the inspectable coverage reached `coverage`, "time_s" (s) when it did,
+            and "progress", the inspectable coverage.
+        """
+        return {
+            "met": self.time_to_coverage is not None,
+            "time_s": self.time_to_coverage,
+            "progress": self.inspectable_coverage(),
+        }
 
     def _evaluate(self, record: StepRecord) -> tuple[float, bool, dict[str, Any]]:
         trace = record.segment

@@ -83,10 +83,16 @@ The goal is the scenario's public goal, of one of two kinds.
   $[v_{\min}, v_{\max}]$. Contact is an event (Fehse 8.1.1, 8.3.6): the first time the port-plane
   depth $(\mathbf r - \mathbf p)\cdot\hat{\mathbf a}$ turns negative from the approach side, found
   in continuous time, so a chaser cannot pass the port between two step boundaries.
+- **Inspection goal** (`task` "inspect"): met when the coverage of the inspectable points reaches
+  `coverage`. The metrics cannot rebuild the lighting and the target's true attitude from the
+  trajectory, so they read the environment's verdict that `record_episode` stores in
+  `Episode.outcome` (met, when, and the coverage, which is the progress M5); the terminal errors
+  M2 and M3 are NaN, and a timeout is near when the coverage misses the goal by at most twice
+  the shortfall it allows.
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
-| M1 | `success` | bool | the goal is met and no hard constraint's margin fell below zero, at the start or anywhere inside a step (the environment's certified in-step minima). Met means: contact within tolerance (docking); a dwell of $T_{\text{hold}}$ (hold goal with a dwell); the capture predicate at some step boundary after t = 0 (otherwise) |
+| M1 | `success` | bool | the goal is met and no hard constraint's margin fell below zero, at the start or anywhere inside a step (the environment's certified in-step minima). Met means: contact within tolerance (docking); the coverage goal reached (inspection); a dwell of $T_{\text{hold}}$ (hold goal with a dwell); the capture predicate at some step boundary after t = 0 (otherwise) |
 | M2 | `terminal_pos_error` | m | $\lvert\mathbf r - \mathbf r_g\rvert$ at the end ($\mathbf r_g$ the port for docking) |
 | M3 | `terminal_vel_error` | m/s | $\lvert\mathbf v - \mathbf v_g\rvert$ at the end |
 | M4 | `time_to_complete` | s | when the goal is met: the contact time, the end of the first full dwell, or the first capturing step boundary; the episode length $T$ if never |

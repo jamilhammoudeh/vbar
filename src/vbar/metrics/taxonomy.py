@@ -53,7 +53,8 @@ def failure_label(
     `metrics` are the episode's other metrics (success, minimum margins, filter, parse, chatter,
     contact and terminal figures), as `evaluate` gives them. Overshoot means the goal position
     came within the capture radius but the capture predicate never held, in continuous time;
-    a timeout ending within twice the capture radius is near.
+    a timeout ending within twice the capture radius is near. An inspection timeout is near when
+    the inspectable coverage misses the goal by at most twice the shortfall the goal allows.
     """
     if metrics["success"]:
         return None
@@ -82,6 +83,12 @@ def failure_label(
         return "oscillation"
     if "port" in goal and metrics["capture_margin"] < 0.0:
         return "contact_out_of_tolerance"
+    if goal.get("task") == "inspect":
+        # Near means short of the goal by at most twice the shortfall the goal allows.
+        near = metrics["progress"] >= 1.0 - 2.0 * (1.0 - goal["coverage"])
+        if ep.truncated:
+            return "timeout_near" if near else "timeout_far"
+        return "other"
     held = goal.get("hold_time", 0.0) > 0.0 and hold_intervals(ep, trace)
     if held and completion_time(ep, trace) is None:
         return "hold_not_maintained"

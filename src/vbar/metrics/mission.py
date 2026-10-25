@@ -7,7 +7,9 @@ a dwell `hold_time` (s); its capture predicate is |r - r_goal| < capture_radius 
 toward the approach side), `lateral_limit` (m), `lateral_speed_limit` (m/s) and
 `axial_speed_window` (m/s), and is judged at the contact event, the first crossing of the port
 plane from the approach side (Fehse, Automated Rendezvous and Docking of Spacecraft, 2003,
-sections 7.1.1 and 8.3.5).
+sections 7.1.1 and 8.3.5). An inspection goal (`task` "inspect") is met when the coverage of the
+inspectable points reaches `coverage`; that needs the lighting and the target's true attitude, so
+it is read from the environment's verdict recorded in `Episode.outcome`.
 """
 
 from __future__ import annotations
@@ -138,6 +140,21 @@ def contact(ep: Episode, trace: Trace | None = None) -> Contact | None:
     return Contact(t, lateral, axial, sideways, margin)
 
 
+def inspection_outcome(ep: Episode) -> Mapping[str, Any] | None:
+    """The recorded coverage verdict of an inspection episode, or None for other goals.
+
+    Raises
+    ------
+    ValueError
+        If the goal is an inspection and the episode carries no outcome.
+    """
+    if ep.view.goal.get("task") != "inspect":
+        return None
+    if ep.outcome is None:
+        raise ValueError("an inspection episode needs its outcome; record it with record_episode")
+    return ep.outcome
+
+
 def completion_time(ep: Episode, trace: Trace | None = None) -> float | None:
     """When the goal is met (s), hard constraints aside, or None.
 
@@ -146,6 +163,9 @@ def completion_time(ep: Episode, trace: Trace | None = None) -> float | None:
     predicate.
     """
     goal = ep.view.goal
+    outcome = inspection_outcome(ep)
+    if outcome is not None:
+        return float(outcome["time_s"]) if outcome["met"] else None
     if "port" in goal:
         event = contact(ep, trace)
         return event.t if event is not None and event.margin >= 0.0 else None
@@ -167,10 +187,26 @@ def mission_metrics(ep: Episode) -> dict[str, float | bool]:
     """M1 to M10 for one episode.
 
     Contact metrics are NaN without a port or a contact; the dwell is NaN without a capture
-    predicate.
+    predicate. An inspection has no goal position, so its terminal errors are NaN and its
+    progress is the inspectable coverage.
     """
     goal = ep.view.goal
     trace = Trace(ep)
+    outcome = inspection_outcome(ep)
+    if outcome is not None:
+        done = completion_time(ep, trace)
+        return {
+            "success": done is not None and not hard_violated(ep),
+            "terminal_pos_error": math.nan,
+            "terminal_vel_error": math.nan,
+            "time_to_complete": ep.duration if done is None else done,
+            "progress": float(outcome["progress"]),
+            "contact_lateral_error": math.nan,
+            "contact_axial_speed": math.nan,
+            "contact_lateral_speed": math.nan,
+            "hold_dwell": math.nan,
+            "capture_margin": math.nan,
+        }
     position, velocity = goal_errors(ep.states, goal)
     done = completion_time(ep, trace)
     out: dict[str, float | bool] = {

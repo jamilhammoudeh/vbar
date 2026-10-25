@@ -20,6 +20,8 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.scenarios.targets.body_point_velocity`: the Hill-frame velocity w x (R p) of a point fixed
   to a turning target.
 - `Episode.scenario_id`: the identifier of what was flown.
+- `BaseEnv.task_outcome()` and `Episode.outcome`: the environment's verdict on a goal the metrics
+  cannot rebuild from the trajectory (the inspection's coverage).
 
 ### Changed
 
@@ -46,6 +48,9 @@ release may change the public API, and every such change is listed under Changed
   specs are built from the briefed mode, so a cone on a target briefed as LVLH-stabilised no
   longer carries the rate `n` of the true mode, and the view's identifier hashes the briefed
   spec rather than the true one.
+- The metrics judge an inspection by its coverage. The inspection goal no longer carries a hold
+  point at the target with a 200 m capture radius, under which every inspection run, free drift
+  included, was a metrics success with a composite score of 1.
 
 ## [0.3.1] - 2026-10-24
 

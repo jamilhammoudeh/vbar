@@ -32,7 +32,8 @@ class Episode:
     `agent_log` holds the agent's own per-decision log when it keeps one (LLM agents), and
     `first_obs` the observation the first decision was made on. `scenario_id` is the identifier
     of what was flown, which can differ from the one in `view` where the briefing hides the
-    target's true mode.
+    target's true mode. `outcome` is the environment's verdict on a goal the metrics cannot
+    rebuild from the trajectory (`BaseEnv.task_outcome`; the inspection's coverage), else None.
     """
 
     view: AgentView
@@ -52,6 +53,7 @@ class Episode:
     seed: int | None = None
     agent_seed: int | None = None
     scenario_id: str | None = None
+    outcome: Mapping[str, Any] | None = None
 
     @property
     def duration(self) -> float:
@@ -152,4 +154,5 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         seed=seed,
         agent_seed=agent_seed,
         scenario_id=env.scenario_id,
+        outcome=getattr(env, "task_outcome", lambda: None)(),
     )

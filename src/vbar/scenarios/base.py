@@ -285,6 +285,17 @@ class BaseEnv(gym.Env):
         """Whether the success predicate holds now with no hard constraint violated (M1)."""
         return False
 
+    def task_outcome(self) -> dict[str, Any] | None:
+        """The environment's verdict on a goal the metrics cannot rebuild from the trajectory.
+
+        Returns
+        -------
+        dict or None
+            "met" (bool, the goal reached, constraints aside), "time_s" (s, when, or None) and
+            "progress" (fraction); None for goals the metrics judge from the states alone.
+        """
+        return None
+
     @property
     def scenario_id(self) -> str:
         base = f"vbar:{self.scenario_name}:{self.cfg.dynamics}:{self.cfg.thrust_limit}:dv:v0"

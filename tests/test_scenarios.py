@@ -64,9 +64,9 @@ def test_the_reference_controller_succeeds_and_the_metrics_agree(name, index):
     assert info["success"], info
     assert not info["keep_out_violated"]
     metrics = evaluate(episode, env.metric_settings())
-    if base_name(name) not in ("inspection", "inertial-target", "separation-flyaround"):
-        # The inspection goal is not a hold, a turning port is not yet a metrics goal, and
-        # the departure metric scores only the arrival in the clear zone.
+    if base_name(name) not in ("inertial-target", "separation-flyaround"):
+        # A turning port is not yet a metrics goal, and the departure metric scores only the
+        # arrival in the clear zone.
         assert metrics["success"] is True
     if base_name(name) in ("docking", "docking-offset", "vbar-final-shuttle"):
         assert contact(episode).t == pytest.approx(info["contact_time_s"], abs=1e-6)
@@ -387,8 +387,8 @@ def test_inspection_counts_lit_facing_points_within_range_and_outside_the_glare(
     ["docking", "docking-offset", "vbar-final-shuttle", "inspection", "separation-flyaround"],
 )
 def test_built_in_agents_refuse_a_goal_that_is_not_a_hold_at_reset(name):
-    # The inspection and departure goals carry a hold point for the mission metrics; flying to it
-    # would take a chaser into the target or past its corridor.
+    # The departure goal carries a hold point for the mission metrics; flying to it would take a
+    # chaser past its corridor.
     from vbar.agents import LLMAgent
     from vbar.agents.llm import text_model
     from vbar.agents.plan import PlanAgent
@@ -427,6 +427,36 @@ def test_lighting_follows_the_configured_central_body():
     lit.reset(seed=2)
     window = next(c for c in lit.constraints if c.name == "lighting_window")
     assert window.body is KERBIN and window.orbit_radius == pytest.approx(radius)
+
+
+def test_a_drifting_inspector_is_not_a_metrics_success():
+    # The metrics read the coverage verdict the environment recorded; 30 steps of drift image
+    # far less than the goal, so the run is a far timeout with progress equal to the coverage.
+    env = make("inspection", max_steps=30)
+    episode = record_episode(env, DriftAgent(), seed=11, agent_seed=12)
+    metrics = evaluate(episode, env.metric_settings())
+    coverage = env._info()["inspectable_coverage"]
+    assert 0.0 < coverage < 0.9
+    assert metrics["success"] is False
+    assert metrics["progress"] == coverage
+    assert metrics["failure_label"] == "timeout_far"
+    assert math.isnan(metrics["terminal_pos_error"])
+    assert metrics["composite_score"] < 1.0
+
+
+def test_an_inspection_is_judged_on_its_recorded_coverage():
+    from dataclasses import replace
+
+    env = make("inspection", max_steps=3)
+    episode = record_episode(env, DriftAgent(), seed=11, agent_seed=12)
+    met = replace(episode, outcome={"met": True, "time_s": 20.0, "progress": 0.97})
+    metrics = evaluate(met, env.metric_settings())
+    assert metrics["success"] is True and metrics["time_to_complete"] == 20.0
+    assert metrics["failure_label"] is None
+    short = replace(episode, outcome={"met": False, "time_s": None, "progress": 0.9})
+    assert evaluate(short, env.metric_settings())["failure_label"] == "timeout_near"
+    with pytest.raises(ValueError, match="outcome"):
+        evaluate(replace(episode, outcome=None), env.metric_settings())
 
 
 def test_an_agent_sees_the_coverage_count_but_not_which_points():

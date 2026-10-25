@@ -158,8 +158,8 @@ position; at 500 km with the Sun in the orbit plane the target is in eclipse 37.
 Every kind reads its parameters from the spec, draws the episode in `_draw_episode`, builds
 its constraints and goal, and ends the episode as its task demands. The goal names its task
 (`"hold"`, `"dock"`, `"inspect"`, `"berth"` or `"depart"`); the built-in PD, LLM and plan agents
-fly only holds and berthings and refuse the other tasks at `reset`, since the inspection and
-departure goals carry a hold point for the mission metrics, not as a place to fly to. All kinds
+fly only holds and berthings and refuse the other tasks at `reset`; the departure goal carries a
+hold point for the mission metrics, not as a place to fly to. All kinds
 support `thrust_inhibit` windows, (start, end) in seconds on step boundaries, during which every
 command is zeroed (an attitude manoeuvre or a procedural inhibit; `info["inhibited"]` reports
 it); the windows are public in the goal under `thrust_inhibit`. `soft` names the constraints
@@ -319,7 +319,9 @@ Katz, Corso and Moss, *Algorithms for Validation*, section 8.1).
 - The goal's port and axis are their Hill-frame values at t = 0, and the mission metrics judge
   contact there, so for a turning port (`inertial-target`) the environment's `info["success"]`
   is the verdict; the metrics' contact entries are not valid there. The departure metric scores
-  only the arrival in the clear zone.
+  only the arrival in the clear zone. The inspection's coverage needs the lighting and the
+  target's true attitude, so the metrics read it from the environment's verdict recorded in the
+  episode (`Episode.outcome`); an episode built without it cannot be scored.
 - The GO time of `closing` is public in the zone constraint; a GO revealed at the event needs the
   supervisory channel.
 - `docking-afrl` keeps this benchmark's exact propagation; the published benchmark integrates
