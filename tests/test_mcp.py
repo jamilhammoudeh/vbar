@@ -16,6 +16,7 @@ from vbar.agents.mcp import (
     ToolServer,
     main,
 )
+from vbar.agents.remote import view_to_dict
 from vbar.agents.tools import predict_coast
 
 # Only a hang should reach this; a loaded machine took 143 s for what takes 3 s idle.
@@ -324,3 +325,17 @@ def test_a_command_too_large_for_a_float_is_a_tool_error():
 def test_the_tool_server_refuses_modes_without_a_continuous_command(mode):
     with pytest.raises(ValueError, match=f"'{mode}' takes no continuous command"):
         ToolServer(ApproachEnv(ApproachConfig(action_mode=mode)), [0])
+
+
+@pytest.mark.parametrize("name", ["inspection", "docking-offset"])
+def test_the_task_described_is_the_episode_being_flown(name):
+    # Both scenarios draw their goal at each reset: the Sun direction, the port's attitude.
+    from vbar.scenarios import make
+
+    env = make(name)
+    built = env.agent_view()
+    server = ToolServer(env, [5])
+    call(server, "start_episode")
+    _, task = call(server, "describe_task")
+    assert task["view"]["goal"] == view_to_dict(env.agent_view())["goal"]
+    assert task["view"]["goal"] != view_to_dict(built)["goal"]

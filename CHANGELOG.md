@@ -587,6 +587,14 @@ release may change the public API, and every such change is listed under Changed
 - F10 `stall_time` (version 2) counted a whole step for a decision whose step a contact cut short,
   so a slow docking with an active safety row read up to one step too long.
 
+### Fixed
+
+- `ToolServer`'s `describe_task` and predictions used the view of the environment as built, not of
+  the episode being flown, so on scenarios that draw their goal at each reset (a docking port's
+  attitude, the Sun direction) a client was told another episode's goal. They now use the view of
+  the episode running, as `run_episode` does; before the first episode `describe_task` gives the
+  environment's view as built.
+
 ## [0.3.1] - 2026-10-24
 
 ### Changed

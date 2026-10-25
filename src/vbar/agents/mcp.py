@@ -126,6 +126,8 @@ class ToolServer:
         if self.next_seed >= len(self.seeds):
             raise ToolError("no episodes left")
         self.episode = ScoredRun(self.env, self.seeds[self.next_seed])
+        # A scenario may draw its goal at each reset (a port's attitude, the Sun).
+        self.view = self.env.agent_view()
         self.next_seed += 1
         self.since = time.perf_counter()
         return self._snapshot()
