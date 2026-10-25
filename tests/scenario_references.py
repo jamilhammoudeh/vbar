@@ -727,4 +727,6 @@ def reference_for(name: str, n: float = 0.0011458864877737333):
         return Capture()
     if name == "separation-flyaround":
         return Glide([(0.0, 30.0 + 130.0, 0.0), (0.0, 700.0, 0.0)], v_max=0.5)
+    if name == "departure":
+        return Glide([(0.0, -30.0 - 130.0, 0.0), (0.0, -400.0, 0.0)], v_max=0.5)
     raise KeyError(name)

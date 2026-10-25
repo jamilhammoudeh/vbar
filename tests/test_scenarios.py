@@ -50,11 +50,13 @@ AUDIT = [
     "tumbling-capture:coning",
     "tumbling-capture:separatrix",
     "tumbling-capture:intermediate",
+    "departure",
     *sorted(SCENARIOS),
     *(entry.scenario for entry in SUITES["core-v1"].entries),
 ]
 AUDIT = list(dict.fromkeys(AUDIT))
 SEEDS_PER_SCENARIO = 3
+DEPARTURES = ("separation-flyaround", "departure")
 # Variants no reference solves yet on every seed; each fails for a stated reason, and the test
 # reports when one starts to pass.
 UNSOLVED = {
@@ -146,9 +148,9 @@ def test_a_dwell_broken_between_samples_restarts_the_clock():
 def test_free_drift_does_not_reach_any_scenario_goal(name):
     # Constraints aside, since a drifting chaser cannot even meet the goal; without them a
     # long episode costs milliseconds per step instead of the refinement of several margins.
-    # The departure is the exception: a push along the V-bar drifts up, over the station and
-    # out to the clear zone, and only the departure corridor forbids it.
-    env = make(name) if name.startswith("separation-flyaround") else unconstrained(name)
+    # The departures are the exception: a push along the V-bar drifts over or under the station
+    # and out to the clear zone, and only the departure corridor forbids it.
+    env = make(name) if name.startswith(DEPARTURES) else unconstrained(name)
     seed, agent_seed = seeds(name, "validation", 1).pairs()[0]
     run_episode(env, DriftAgent(), seed=seed, agent_seed=agent_seed)
     assert not env._info()["success"]
@@ -175,7 +177,7 @@ DRIFT_CASES = [
 def test_free_drift_fails_every_variant_on_the_audit_seeds(name, index):
     # The audit's seeds of every registered scenario and variant; drifting from a start on a
     # slowly drifting orbit once completed the inspection, so the variants are checked too.
-    env = make(name) if name.startswith("separation-flyaround") else unconstrained(name)
+    env = make(name) if name.startswith(DEPARTURES) else unconstrained(name)
     seed, agent_seed = seeds(name, "validation", SEEDS_PER_SCENARIO).pairs()[index]
     run_episode(env, DriftAgent(), seed=seed, agent_seed=agent_seed)
     assert not env._info()["success"]
@@ -463,6 +465,7 @@ def test_inspection_counts_lit_facing_points_within_range_and_outside_the_glare(
         "inspection",
         "separation-flyaround",
         "tumbling-capture",
+        "departure",
     ],
 )
 def test_built_in_agents_refuse_a_goal_that_is_not_a_hold_at_reset(name):

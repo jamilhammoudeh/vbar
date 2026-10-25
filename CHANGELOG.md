@@ -214,6 +214,8 @@ release may change the public API, and every such change is listed under Changed
 - Capture goals in the mission metrics: `goal_state`, `goal_errors`, `captured` and `hold_signal`
   take the time, the target mode and the mean motion, `goal_bounds` gives the goal point's speed
   and acceleration bounds, and M1 to M5 and M9 (M9 now v2) follow the moving capture point.
+- The scenario `departure` (`vbar/Departure-v1`): leave the -V-bar port of an ISS-class target
+  through a 10 deg departure cone onto a path that does not come back (Fehse, section 2.6).
 
 ### Changed
 

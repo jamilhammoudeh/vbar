@@ -1,4 +1,4 @@
-"""The flagship scenario: capture of a tumbling upper stage, with its tumble presets.
+"""The flagship scenario, capture of a tumbling upper stage with its presets, and the departure.
 
 The target is an upper stage (ours): a body 6 m long and 2.4 m across, principal moments
 (1000, 4200, 4700) kg m^2 about its long axis x and two transverse axes, its keep-out a capsule
@@ -8,14 +8,16 @@ parameters (Scheeres, Orbital Motion in Strongly Perturbed Environments, 2012, s
 the presets are a flat spin about the major axis, the state dissipation leaves (Schaub and
 Junkins, Analytical Mechanics of Space Systems, section 4.2.1), a coning spin about the long
 axis, a tumble near the separatrix, and a spin started next to the unstable intermediate axis.
-The tumble is drawn per episode and briefed at t = 0 in the goal's target entry.
+The tumble is drawn per episode and briefed at t = 0 in the goal's target entry. The departure
+is the other end of a visit: from the aft port through a departure cone onto a path that does not
+come back.
 """
 
 from __future__ import annotations
 
 import math
 
-from .catalog import ALTITUDE, INCLINATION, LATITUDE, TWO_PI
+from .catalog import ALTITUDE, INCLINATION, ISS_ALTITUDE, LATITUDE, TWO_PI
 from .registry import register
 from .spec import Observation, ScenarioSpec, Shell, Uniform
 from .targets import TorqueFree
@@ -102,4 +104,45 @@ TUMBLING_CAPTURE = register(
     )
 )
 
-__all__ = ["MOMENTS", "TUMBLING_CAPTURE"]
+# A departure after Fehse (Automated Rendezvous and Docking of Spacecraft, 2003, section 2.6):
+# springs push the chaser off at about 0.06 m/s, and it stays inside a 10 deg departure cone for
+# the first few hundred metres on a path that does not come back, its first burns kept off the
+# target. The rest is ours: the -V-bar port of a 30 m target, the cone active within 200 m, clear
+# beyond 300 m, the dispersions, and the 342.62 km of the `:iss` variants (the STS-130 mean,
+# Goodman, History of Space Shuttle Rendezvous, 2011, p. 227).
+DEPARTURE = register(
+    ScenarioSpec(
+        name="departure",
+        version=1,
+        entry_point="vbar.scenarios.departure:DepartureEnv",
+        summary=(
+            "Leave the -V-bar port through a 10 deg departure cone onto a path that does not "
+            "come back."
+        ),
+        config={
+            "altitude_m": ISS_ALTITUDE,
+            "inclination": INCLINATION,
+            "dt": 10.0,
+            "max_steps": 360,
+        },
+        parameters={
+            "port": (0.0, -30.0, 0.0),
+            "port_axis": (0.0, -1.0, 0.0),
+            "body_radius": 30.0,
+            "cone": (math.radians(10.0), 200.0),
+            "clear_range": 300.0,
+            "clear_radius": 100.0,
+            "plume_range": 100.0,
+        },
+        dispersions={
+            "separation": Uniform(0.0, 0.2),
+            "separation_speed": Uniform(0.05, 0.07),
+            **LATITUDE,
+        },
+        tags=("departure", "vbar"),
+        observation=Observation(note="the state decides the next state"),
+        oracle={"spring_separation_mps": 0.06},
+    )
+)
+
+__all__ = ["DEPARTURE", "MOMENTS", "TUMBLING_CAPTURE"]
