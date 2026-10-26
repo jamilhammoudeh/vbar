@@ -50,6 +50,7 @@ AUDIT = [
     "tumbling-capture:coning",
     "tumbling-capture:separatrix",
     "tumbling-capture:intermediate",
+    "tumbling-capture:libration",
     "departure",
     *sorted(SCENARIOS),
     *(entry.scenario for entry in SUITES["core-v1"].entries),

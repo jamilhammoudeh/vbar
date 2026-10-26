@@ -15,7 +15,14 @@ from vbar.metrics import mission_metrics, record_episode
 from vbar.metrics.mission import goal_errors, hold_signal
 from vbar.scenarios import SCENARIOS, Fixed, make
 from vbar.scenarios.registry import entry_class
-from vbar.scenarios.targets import Passive, TorqueFree, Tumbling, body_point, body_point_velocity
+from vbar.scenarios.targets import (
+    GravityGradientTumble,
+    Passive,
+    TorqueFree,
+    Tumbling,
+    body_point,
+    body_point_velocity,
+)
 from vbar.scenarios.tumbling import CaptureParams, RotatingCapsule
 
 N = mean_motion(EARTH.radius + 500e3)
@@ -157,17 +164,34 @@ def test_capture_metrics_need_the_target_mode():
     assert distance == pytest.approx(5.0) and speed == pytest.approx(0.0)
 
 
-@pytest.mark.parametrize("variant", ["", ":coning", ":separatrix", ":intermediate"])
+@pytest.mark.parametrize("variant", ["", ":coning", ":separatrix", ":intermediate", ":libration"])
 def test_every_tumble_preset_passes_the_gymnasium_checker(variant):
     env = make("tumbling-capture" + variant)
     check_env(env, skip_render_check=True)
     _, info = env.reset(seed=11)
     # The tumble is drawn and briefed: the public parameters rebuild the true attitude.
     public = env.agent_view().goal["target"]
-    rebuilt = TorqueFree(*(public[key] for key in KEYS))
+    kind = GravityGradientTumble if public["mode"] == "gravity_gradient" else TorqueFree
+    rebuilt = kind(*(public[key] for key in KEYS))
     times = np.array([0.0, 100.0, 1000.0])
     assert rebuilt.matrix(times, env.n) == pytest.approx(env.target.matrix(times, env.n), abs=1e-12)
     assert info["captured"] is False
+
+
+def test_the_libration_preset_starts_long_axis_radial_turning_with_the_orbit():
+    # Schaub and Junkins, section 4.4.3: with the long axis radial and the largest axis on the
+    # orbit normal the gravity gradient holds the stage; the preset pitches it by up to 20 deg
+    # and spins it about the normal within 5% of n.
+    env = make("tumbling-capture:libration")
+    for seed in range(6):
+        env.reset(seed=seed)
+        assert env.agent_view().goal["target"]["mode"] == "gravity_gradient"
+        r_hb = env.target.matrix(0.0, env.n)
+        assert r_hb[:, 2] == pytest.approx((0.0, 0.0, 1.0), abs=1e-12)
+        assert abs(math.atan2(r_hb[1, 0], r_hb[0, 0])) <= math.radians(20.0) + 1e-12
+        relative = env.target.angular_velocity(0.0, env.n)
+        assert relative[:2] == pytest.approx((0.0, 0.0), abs=1e-15)
+        assert abs(relative[2]) <= 0.05 * env.n * (1.0 + 1e-9)
 
 
 def test_the_dwell_ends_when_the_drifting_chaser_falls_behind_the_moving_point():

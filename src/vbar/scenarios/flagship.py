@@ -3,24 +3,24 @@
 The target is an upper stage (ours): a body 6 m long and 2.4 m across, principal moments
 (1000, 4200, 4700) kg m^2 about its long axis x and two transverse axes, its keep-out a capsule
 of radius 1.5 m about the long axis. The grapple interface is the aft ring at x = -3 m and the
-capture point is 2 m beyond it, at arm's reach. The tumble is torque-free and set by its
-parameters (Scheeres, Orbital Motion in Strongly Perturbed Environments, 2012, section 3.2.8):
-the presets are a flat spin about the major axis, the state dissipation leaves (Schaub and
-Junkins, Analytical Mechanics of Space Systems, section 4.2.1), a coning spin about the long
-axis, a tumble near the separatrix, and a spin started next to the unstable intermediate axis.
-The tumble is drawn per episode and briefed at t = 0 in the goal's target entry. The departure
-is the other end of a visit: from the aft port through a departure cone onto a path that does not
-come back.
+capture point is 2 m beyond it, at arm's reach. The tumble is set by its parameters (Scheeres,
+Orbital Motion in Strongly Perturbed Environments, 2012, section 3.2.8): torque-free, a flat
+spin about the major axis, the state dissipation leaves (Schaub and Junkins, Analytical Mechanics
+of Space Systems, section 4.2.1), a coning spin about the long axis, a tumble near the separatrix
+and a spin started next to the unstable intermediate axis; and under the gravity-gradient
+torque, a dead stage librating about the orbit normal. The tumble is drawn per episode and
+briefed at t = 0 in the goal's target entry. The departure is the other end of a visit: from the
+aft port through a departure cone onto a path that does not come back.
 """
 
 from __future__ import annotations
 
 import math
 
-from .catalog import ALTITUDE, INCLINATION, ISS_ALTITUDE, LATITUDE, TWO_PI
+from .catalog import ALTITUDE, INCLINATION, ISS_ALTITUDE, LATITUDE, TWO_PI, N
 from .registry import register
-from .spec import Observation, ScenarioSpec, Shell, Uniform
-from .targets import TorqueFree
+from .spec import Fixed, Observation, ScenarioSpec, Shell, Uniform
+from .targets import GravityGradientTumble, TorqueFree
 
 MOMENTS = (1000.0, 4200.0, 4700.0)
 DEG = math.radians(1.0)
@@ -91,6 +91,20 @@ TUMBLING_CAPTURE = register(
                     "target_rate": Uniform(0.5 * DEG, 1.5 * DEG),
                 },
                 "tags": ("separatrix",),
+            },
+            # A dead stage held by the gravity gradient with its long axis radial, the stable
+            # attitude for these moments (Schaub and Junkins, section 4.4.3), librating about the
+            # orbit normal from a pitch and a rate a little off the orbit's.
+            "libration": {
+                "target": GravityGradientTumble(MOMENTS, 4700.0, N, 0.0, (0.0, 0.0, 1.0), 0.0),
+                "dispersions": {
+                    "target_effective_inertia": Fixed(4700.0),
+                    "target_rate": Uniform(0.95 * N, 1.05 * N),
+                    "target_phase": Fixed(0.0),
+                    "target_momentum_direction": Fixed((0.0, 0.0, 1.0)),
+                    "target_spin_angle": Uniform(math.radians(-20.0), math.radians(20.0)),
+                },
+                "tags": ("libration", "gravity-gradient"),
             },
             "intermediate": {
                 "dispersions": {

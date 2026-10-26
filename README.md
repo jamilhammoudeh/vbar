@@ -375,9 +375,9 @@ box, and the Shuttle's flown profiles (ORBT, the pitch-manoeuvre hold, the twice
 transition, the V-bar final approach, the HST grapple approach and the separation fly-around),
 four comparison tasks rebuilt from their papers (the AFRL docking and illuminated inspection, the
 SpaceGym docking and rendezvous), a departure from an aft port, and the capture of a tumbling
-upper stage with four tumble presets (flat spin, coning, near the separatrix, next to the
-intermediate axis). Each has a Gymnasium ID, and all but the comparison tasks, the departure and
-the capture have `:nav1` and `:nav2` variants:
+upper stage with five tumble presets (flat spin, coning, near the separatrix, next to the
+intermediate axis, a dead stage librating in the gravity gradient). Each has a Gymnasium ID, and
+all but the comparison tasks, the departure and the capture have `:nav1` and `:nav2` variants:
 
 ```python
 import gymnasium as gym

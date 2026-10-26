@@ -208,6 +208,8 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.dynamics.rigid_body.GravityGradientMotion` and the target mode `GravityGradientTumble`: a
   tumble under the gravity-gradient torque of a circular orbit, integrated numerically from the
   briefed state, with rate bounds from the orbit-frame Jacobi integral.
+- The preset `tumbling-capture:libration` (`vbar/TumblingCaptureLibration-v1`): a dead stage held
+  by the gravity gradient with its long axis radial, librating about the orbit normal.
 - The scenario kind `CaptureEnv` (`vbar.scenarios.tumbling`), with the turning capsule keep-out
   `RotatingCapsule`: reach a capture-ready state at a capture point fixed to a turning target,
   within a ball and a speed relative to the moving point, and hold it for a dwell.

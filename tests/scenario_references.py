@@ -591,14 +591,15 @@ class Capture:
         self.far, self.station, self.blend, self.descent, self.wn = far, station, blend, descent, wn
 
     def reset(self, view, rng=None):
-        from vbar.scenarios.targets import TorqueFree
+        from vbar.scenarios.targets import GravityGradientTumble, TorqueFree
 
         self.n = view.n
         self.dt = view.dt
         self.max_accel = view.max_accel
         self.scale = action_scale(view)
         goal = view.goal
-        self.mode = TorqueFree(*(goal["target"][key] for key in self.KEYS))
+        kind = GravityGradientTumble if goal["target"]["mode"] == "gravity_gradient" else TorqueFree
+        self.mode = kind(*(goal["target"][key] for key in self.KEYS))
         self.point = np.array(goal["capture_point"], dtype=float)
         self.h = np.asarray(self.mode.motion.momentum) / self.mode.motion.h
         self.stage = None
