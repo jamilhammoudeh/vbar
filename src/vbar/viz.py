@@ -320,6 +320,10 @@ class _Labels:
 
 
 _AROUND = ((0, 1), (0, -1), (-1, 0), (1, 0), (-1, 1), (1, 1), (-1, -1), (1, -1))
+# Columns that measure distance to the target: both of a Hill-panel point (y, x), and the range
+# of a range-panel point (t, r).
+_PLANE = slice(0, 2)
+_RANGE = slice(1, 2)
 
 
 def _hill_limits(results: Sequence[dict], env) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -333,16 +337,47 @@ def _hill_limits(results: Sequence[dict], env) -> tuple[tuple[float, float], tup
     return (y.min() - pad_y, y.max() + pad_y), (x.min() - pad_x, x.max() + pad_x)
 
 
-def _emphasise(ax, u, v, color: str, region, gid: str):
-    """A heavier stroke with a violation outline over the part of a line inside `region`.
+def _inside(uv: np.ndarray, r_ko: float, axes: slice) -> np.ndarray:
+    """The parts of a polyline within `r_ko` of the origin, cut where it crosses that radius.
 
-    `region` is a matplotlib Path in data coordinates; the line keeps its series colour.
+    Distance counts only the columns in `axes`; the line is straight between its points, so a
+    step that cuts through the zone between two outside points has a part inside too. Parts are
+    separated by a row of NaN, which breaks a matplotlib line.
     """
+    rows: list[np.ndarray] = []
+    open_part = False
+    for a, b in zip(uv[:-1], uv[1:], strict=True):
+        d = b - a
+        # |a + s d| = r_ko over the distance columns, a quadratic in s along the step.
+        qa, qb, qc = d[axes] @ d[axes], a[axes] @ d[axes], a[axes] @ a[axes] - r_ko**2
+        disc = qb**2 - qa * qc
+        if qa == 0.0:
+            lo, hi = (0.0, 1.0) if qc < 0.0 else (1.0, 0.0)
+        elif disc <= 0.0:
+            lo, hi = 1.0, 0.0
+        else:
+            lo = max((-qb - np.sqrt(disc)) / qa, 0.0)
+            hi = min((-qb + np.sqrt(disc)) / qa, 1.0)
+        if lo >= hi:
+            open_part = False
+            continue
+        if not open_part or lo > 0.0:
+            if rows:
+                rows.append(np.full_like(a, np.nan))
+            rows.append(a + lo * d)
+        rows.append(a + hi * d)
+        open_part = hi == 1.0
+    return np.array(rows).reshape(-1, uv.shape[1])
+
+
+def _emphasise(ax, uv: np.ndarray, color: str, gid: str):
+    """A heavier stroke with a violation outline over the parts `uv` (from `_inside`)."""
     from matplotlib import patheffects
 
+    # Butt caps end the outline square at the crossings instead of running past them.
     (line,) = ax.plot(
-        u,
-        v,
+        uv[:, 0],
+        uv[:, 1],
         color=color,
         lw=PATH_WIDTH + 1.8,
         solid_capstyle="butt",
@@ -353,7 +388,6 @@ def _emphasise(ax, u, v, color: str, region, gid: str):
             patheffects.Normal(),
         ],
     )
-    line.set_clip_path(region, ax.transData)
     return line
 
 
@@ -387,7 +421,6 @@ def _draw_hill(
     ax, results, env, names, tick_s, *, legend: bool, closest_note: bool, colors=SERIES_COLORS
 ):
     from matplotlib.patches import Circle
-    from matplotlib.path import Path as MplPath
 
     cfg = env.cfg
     r_ko = cfg.keep_out_radius
@@ -404,7 +437,7 @@ def _draw_hill(
         ax.plot(y, x, color=color, lw=PATH_WIDTH, zorder=5, label=names[i], gid=f"path{i}")
         _heading(ax, r["states"], color, f"heading{i}")
         if r["keep_out_violated"]:
-            _emphasise(ax, y, x, color, MplPath.circle((0.0, 0.0), r_ko), f"inside{i}")
+            _emphasise(ax, _inside(np.column_stack([y, x]), r_ko, _PLANE), color, f"inside{i}")
         ax.plot(
             y[step::step],
             x[step::step],
@@ -622,7 +655,6 @@ def trajectory_figure(
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from matplotlib.layout_engine import ConstrainedLayoutEngine
-    from matplotlib.path import Path as MplPath
 
     (y_lo, y_hi), (x_lo, x_hi) = _hill_limits(results, env)
     # Height of the equal-aspect panel at the width left after its tick labels.
@@ -642,11 +674,10 @@ def trajectory_figure(
         speed_points = _draw_series(ax_speed, results, env, names, "speed")
         _draw_hill(ax, results, env, names, tick_s, legend=False, closest_note=True)
         r_ko = env.cfg.keep_out_radius
-        below = MplPath([(-1e9, -1e9), (1e9, -1e9), (1e9, r_ko), (-1e9, r_ko), (-1e9, -1e9)])
         for i, r in enumerate(results):
             if r["keep_out_violated"]:
-                t, rng = range_points[i].T
-                _emphasise(ax_range, t, rng, SERIES_COLORS[i], below, f"inside_range{i}")
+                below = _inside(range_points[i], r_ko, _RANGE)
+                _emphasise(ax_range, below, SERIES_COLORS[i], f"inside_range{i}")
         range_labels = _Labels(ax_range, range_points)
         _limit_line(range_labels, r_ko, f"keep-out {r_ko:g} m")
         speed_labels = _Labels(ax_speed, speed_points)
@@ -670,7 +701,6 @@ class _ApproachScene:
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.collections import LineCollection
         from matplotlib.figure import Figure
-        from matplotlib.path import Path as MplPath
 
         self.states = np.asarray(result["states"], dtype=float)
         self.t = _times(result, env)
@@ -711,8 +741,7 @@ class _ApproachScene:
             ax.add_collection(self.fade)
             self.inside = None
             if result["keep_out_violated"]:
-                circle = MplPath.circle((0.0, 0.0), self.r_ko)
-                self.inside = _emphasise(ax, [], [], color, circle, "inside")
+                self.inside = _emphasise(ax, np.empty((0, 2)), color, "inside")
             self.marker = ax.plot(
                 [], [], "o", ms=7.5, color=color, mec=SURFACE, mew=1.2, zorder=9, gid="marker"
             )[0]
@@ -747,7 +776,7 @@ class _ApproachScene:
             s[self.step : k + 1 : self.step, 1], s[self.step : k + 1 : self.step, 0]
         )
         if self.inside is not None:
-            self.inside.set_data(s[: k + 1, 1], s[: k + 1, 0])
+            self.inside.set_data(*_inside(s[: k + 1, [1, 0]], self.r_ko, _PLANE).T)
         lo = max(0, k - self.trail)
         pts = s[lo : k + 1][:, [1, 0]]
         segs = np.stack([pts[:-1], pts[1:]], axis=1)
@@ -840,8 +869,8 @@ def approach_animation(
     images = [scene.frame(k) for k in range(len(scene.states))]
     # One palette, from frames with the trail at its longest, keeps colours steady.
     sheet = np.concatenate([images[len(images) // 2], images[scene.k_closest], images[-1]])
-    reduced = Image.fromarray(sheet).quantize(colors=128, method=Image.Quantize.MEDIANCUT)
-    palette = np.array(reduced.getpalette() or [], dtype=int).reshape(-1, 3)[:128]
+    reduced = Image.fromarray(sheet).quantize(colors=32, method=Image.Quantize.MEDIANCUT)
+    palette = np.array(reduced.getpalette() or [], dtype=int).reshape(-1, 3)[:32]
     # Median cut averages each box, which shifts the surface; put it back exactly.
     surface = np.round(np.array(_matplotlib().colors.to_rgb(SURFACE)) * 255).astype(int)
     palette[np.argmin(np.abs(palette - surface).sum(axis=1))] = surface

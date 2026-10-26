@@ -47,7 +47,10 @@ target's Hill frame ([frames.md](frames.md)): along-track $y$ (V-bar) horizontal
   an open circle at its start labelled with its name, and an arrowhead partway along showing
   which way the craft moved;
 - for a run that entered the keep-out zone, the part of its path inside the disk drawn heavier
-  with a #a3201a outline, and a note "keep-out violated" over its closest approach;
+  with a #a3201a outline, and a note "keep-out violated" over its closest approach. The path is
+  straight between recorded states, so each inside part starts and ends where a step meets the
+  circle ($y^2 + x^2 = r_{ko}^2$, solved on the step), with square ends there; a step that cuts
+  through the disk between two outside states is outlined over its chord;
 - an arrow for the orbital velocity of the target (+$y$), which is not the craft's heading, and
   the dot interval.
 
@@ -61,9 +64,11 @@ the outline inside the disk is drawn only for a run whose record says it entered
 axis (minutes): range to target $\lVert \mathbf r \rVert$ (m) with the keep-out radius as a dashed
 line, and relative speed $\lVert \mathbf v \rVert$ in the Hill frame (m/s) with the capture speed
 `cfg.capture_speed` as a dashed line. Each quantity has its own axis. The part of a range curve
-below the keep-out radius gets the same heavier stroke and outline as in the Hill panel. The
-figure is sized from the Hill panel's aspect at a fixed width (7.2 in by default); at 170 dpi it
-is about 1220 px wide.
+below the keep-out radius gets the same heavier stroke and outline as in the Hill panel, from
+and to the times where the range, linear between recorded states, crosses that radius. A run whose
+record says it entered the zone but whose plotted range never drops below the radius gets no
+outline in this panel. The figure is sized from the Hill panel's aspect at a fixed width (7.2 in
+by default); at 170 dpi it is about 1220 px wide.
 
 ## Animation
 
@@ -71,14 +76,15 @@ is about 1220 px wide.
 per recorded state, a marker at the state shown, the path flown so far as a solid line with dots
 every 60 s, its newest `trail_s` seconds (60 by default) widening toward the marker, and a readout
 of the time, range and speed of that state, with "inside keep-out" while the range is below the
-keep-out radius. Once the run enters the zone the part inside the disk gets its outline and the
-"keep-out violated" note shows; a run that entered only between recorded states gets the note
-from the state after its recorded closest. The closest-approach number appears once the run has
-passed it. The axes are fixed from the first frame and hold the whole path. Frames show for
-`frame_s` seconds (0.08 by default), the first for 0.6 s and the last for 2 s. All frames share
-one 128-colour palette, so colours do not flicker, and each frame is stored whole, so a viewer
-that does not composite GIF frames still shows the full plot (about 2.4 MB for an 8 in wide,
-75-frame run at 150 dpi).
+keep-out radius. Once the run enters the zone the part inside the disk gets its outline, cut at
+the crossings of the path drawn so far as in the figure, and the "keep-out violated" note shows;
+a run that entered only between recorded states gets the note from the state after its recorded
+closest. The closest-approach number appears once the run has passed it. The axes are fixed from
+the first frame and hold the whole path. Frames show for `frame_s` seconds (0.08 by default), the
+first for 0.6 s and the last for 2 s. All frames share one 32-colour palette, so colours do not
+flicker, and each frame is stored whole, so a viewer that does not composite GIF frames still
+shows the full plot. Size grows with the pixel count: an 8 in wide, 75-frame run is about 1.0 MB
+at 100 dpi (the README animation) and about 1.7 MB at the default 150 dpi.
 
 ## Values and placement
 
@@ -156,7 +162,8 @@ two runs above and writes `docs/images/pd_approach.png` and `docs/images/pd_appr
 - the README shows both committed assets, the animation under 3 MB.
 
 `tests/test_viz_story.py` checks what the figures must say: only a run whose record has a
-keep-out violation is outlined, clipped to the zone in the Hill and range panels and labelled;
+keep-out violation is outlined in the Hill and range panels and labelled, and the outline,
+both its data and its rendered pixels, starts and ends at the interpolated crossings;
 each path is the heaviest line in its panel and carries an arrowhead; the speed panel has no
 legend; in the animation the flown path stays solid at full width, the axes hold the whole path
 from the first frame, the violation note shows from the frame the run enters the zone (or the
