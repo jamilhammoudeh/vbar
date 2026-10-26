@@ -44,6 +44,8 @@ release may change the public API, and every such change is listed under Changed
   `ClosingSpeedLimit` raise `ValueError` for NaN, infinite or non-numeric values, and for negative
   ones where the quantity cannot be negative (a NaN keep-out radius reported no violation, a
   negative collision radius scored every drift safe).
+- `summarize` and `unsafe_tail` report `n` and `missing` (the NaN values left out), and
+  `summarize` raises for a NaN success, progress or composite score.
 
 ### Fixed
 

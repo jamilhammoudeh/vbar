@@ -36,10 +36,17 @@ def test_per_constraint_margins_are_summarised_constraint_by_constraint():
     episodes = [{"keep_out": m, "approach_cone": 5.0} for m in MARGINS]
     found = summarize("min_margin", episodes)
     assert found["keep_out"] == summarize("min_margin", MARGINS)
-    assert found["approach_cone"] == {"worst": 5.0, "quantile": 5.0, "tail_mean": 5.0}
+    assert found["approach_cone"] == {
+        "worst": 5.0,
+        "quantile": 5.0,
+        "tail_mean": 5.0,
+        "n": 40,
+        "missing": 0,
+    }
     # A constraint an episode lacks, or an episode without the metric, is left out, not zero.
     sparse = summarize("min_margin", [{"keep_out": 3.0, "zone": 2.0}, {"keep_out": 4.0}, np.nan])
     assert sparse["zone"]["worst"] == 2.0 and sparse["keep_out"]["worst"] == 3.0
+    assert (sparse["zone"]["n"], sparse["zone"]["missing"]) == (1, 2)
 
 
 def test_both_tails_hold_the_same_number_of_episodes():
@@ -53,15 +60,27 @@ def test_both_tails_hold_the_same_number_of_episodes():
 def test_infinite_values_stay_episode_values_in_the_tail():
     # S5 is infinite through a hold gate, S6 when never closing, S4t when every drift is certified.
     ratios = summarize("closing_speed_ratio", [0.5] * 20 + [np.inf] * 2)
-    assert ratios == {"worst": np.inf, "quantile": np.inf, "tail_mean": np.inf}
+    assert ratios == {
+        "worst": np.inf,
+        "quantile": np.inf,
+        "tail_mean": np.inf,
+        "n": 22,
+        "missing": 0,
+    }
     assert summarize("min_time_to_keep_out", [np.inf] * 5)["quantile"] == np.inf
     threat = summarize("passive_threat_time", [10.0, np.inf, np.inf, np.inf])
-    assert threat == {"worst": 10.0, "quantile": 10.0, "tail_mean": 10.0}
+    assert threat == {"worst": 10.0, "quantile": 10.0, "tail_mean": 10.0, "n": 4, "missing": 0}
 
 
-def test_rates_count_successes_and_nan_is_left_out():
-    found = summarize("success", [1.0, 0.0, 1.0, np.nan, 1.0])
-    assert (found["rate"], found["count"], found["n"]) == (0.75, 3.0, 4)
+def test_nan_is_left_out_and_counted_but_never_for_a_metric_every_episode_has():
+    found = summarize("sign_check_pass", [1.0, 0.0, 1.0, np.nan, 1.0])
+    assert (found["rate"], found["count"], found["n"], found["missing"]) == (0.75, 3.0, 4, 1)
+    dv = summarize("delta_v", [1.0, np.nan, 2.0])
+    assert (dv["n"], dv["missing"]) == (2, 1)
+    # A run whose score is NaN failed; leaving it out would raise the IQM over the others.
+    for name in ("success", "progress", "composite_score"):
+        with pytest.raises(ValueError, match="NaN in 1"):
+            summarize(name, [1.0, np.nan, 1.0])
     with pytest.raises(ValueError, match="0 or 1"):
         summarize("success", [0.4, 0.4])
     assert np.isnan(unsafe_tail([np.nan], "low")["worst"])

@@ -19,6 +19,9 @@ from scipy.stats import beta
 from .filter import iqm
 from .registry import METRICS
 
+# Metrics every episode has: a NaN is a broken run, which must count as one, not drop out.
+_DEFINED = ("composite_score", "progress", "success")
+
 
 def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str, float]:
     """Worst value, the `level` quantile on the unsafe side, and the mean beyond it.
@@ -27,20 +30,24 @@ def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str,
     durations). The quantile is an episode value (the inverse of the empirical distribution, no
     interpolation), so infinite values, which S5, S6 and S4t give by design, are not mixed with
     finite ones. The tail mean averages the values at or beyond it, a conditional value at risk;
-    it always holds at least the worst value. NaN values are left out.
+    it always holds at least the worst value. NaN values are left out and counted: `n` is the
+    number of values summarised and `missing` the number of NaN values left out.
     """
     if worse not in ("low", "high"):
         raise ValueError(f"unknown side {worse!r}, expected low or high")
     x = np.asarray(values, dtype=float)
+    counts = {"n": int(np.sum(~np.isnan(x))), "missing": int(np.sum(np.isnan(x)))}
     x = x[~np.isnan(x)]
     if len(x) == 0:
-        return {"worst": np.nan, "quantile": np.nan, "tail_mean": np.nan}
+        return {"worst": np.nan, "quantile": np.nan, "tail_mean": np.nan, **counts}
     if worse == "low":
         q = float(np.quantile(x, level, method="inverted_cdf"))
-        return {"worst": float(x.min()), "quantile": q, "tail_mean": float(x[x <= q].mean())}
+        tail = {"worst": float(x.min()), "quantile": q, "tail_mean": float(x[x <= q].mean())}
+        return {**tail, **counts}
     # Mirrored, so the upper tail holds as many episodes as the lower one would.
     q = -float(np.quantile(-x, level, method="inverted_cdf"))
-    return {"worst": float(x.max()), "quantile": q, "tail_mean": float(x[x >= q].mean())}
+    tail = {"worst": float(x.max()), "quantile": q, "tail_mean": float(x[x >= q].mean())}
+    return {**tail, **counts}
 
 
 def clopper_pearson(successes: int, trials: int, confidence: float = 0.95) -> tuple[float, float]:
@@ -64,7 +71,9 @@ def summarize(name: str, values: ArrayLike | Sequence[Mapping[str, float]]) -> d
 
     Per-constraint metrics (S1 to S3) come as one mapping per episode; each constraint is then
     summarised on its own, a constraint missing from an episode, or an episode given as a number
-    (NaN) instead of a mapping, counting as NaN.
+    (NaN) instead of a mapping, counting as NaN. NaN values are left out of a summary and
+    counted in its `missing` entry, beside `n`, the number summarised; the success, progress and
+    composite score of every episode are defined, so a NaN among them raises `ValueError`.
     """
     if isinstance(values, Sequence) and any(isinstance(v, Mapping) for v in values):
         per_episode = [v if isinstance(v, Mapping) else {} for v in values]
@@ -72,14 +81,24 @@ def summarize(name: str, values: ArrayLike | Sequence[Mapping[str, float]]) -> d
         return {c: summarize(name, [v.get(c, np.nan) for v in per_episode]) for c in names}
     kind = METRICS[name].summary
     x = np.asarray(values, dtype=float)
+    missing = int(np.sum(np.isnan(x)))
+    if missing and name in _DEFINED:
+        raise ValueError(f"{name} is NaN in {missing} episodes")
     x = x[~np.isnan(x)]
     if kind == "lower_tail":
-        return unsafe_tail(x, "low")
+        return {**unsafe_tail(x, "low"), "missing": missing}
     if kind == "upper_tail":
-        return unsafe_tail(x, "high")
+        return {**unsafe_tail(x, "high"), "missing": missing}
     if kind == "rate":
         if len(x) == 0:
-            return {"rate": np.nan, "count": 0.0, "n": 0, "lower": np.nan, "upper": np.nan}
+            return {
+                "rate": np.nan,
+                "count": 0.0,
+                "n": 0,
+                "lower": np.nan,
+                "upper": np.nan,
+                "missing": missing,
+            }
         if not np.all((x == 0.0) | (x == 1.0)):
             raise ValueError(f"{name} is a rate, so its values must be 0 or 1")
         count = int(x.sum())
@@ -90,7 +109,8 @@ def summarize(name: str, values: ArrayLike | Sequence[Mapping[str, float]]) -> d
             "n": len(x),
             "lower": lower,
             "upper": upper,
+            "missing": missing,
         }
     if kind == "iqm":
-        return {"iqm": iqm(x) if len(x) else np.nan}
+        return {"iqm": iqm(x) if len(x) else np.nan, "n": len(x), "missing": missing}
     raise ValueError(f"{name} is not summarised across episodes")
