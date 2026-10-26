@@ -350,7 +350,9 @@ def test_the_task_and_each_observation_come_with_the_episode_s_briefing_and_situ
 
     env = make("docking-offset")
     server = ToolServer(env, [5])
+    _, before = call(server, "describe_task")
     _, snapshot = call(server, "start_episode")
+    assert snapshot["briefing"] == briefing(env.agent_view()) != before["briefing"]
     _, task = call(server, "describe_task")
     assert task["briefing"] == briefing(env.agent_view())
     assert task["briefing"].startswith("Task: dock at the target's port")

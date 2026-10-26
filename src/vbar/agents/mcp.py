@@ -81,7 +81,7 @@ class ToolServer:
                 self._describe,
             ),
             "start_episode": (
-                "Start the next episode and return its first observation.",
+                "Start the next episode and return its first observation and its briefing.",
                 NO_ARGUMENTS,
                 self._start,
             ),
@@ -145,7 +145,8 @@ class ToolServer:
         self.view = self.env.agent_view()
         self.next_seed += 1
         self.since = time.perf_counter()
-        return self._snapshot()
+        # A goal drawn at reset (a port's attitude, the Sun) differs from the one described before.
+        return {**self._snapshot(), "briefing": briefing(self.view)}
 
     def _observe(self, args: dict) -> dict:
         return self._snapshot()

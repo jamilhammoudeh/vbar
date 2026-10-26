@@ -104,7 +104,7 @@ goes on answering.
 | Tool | Arguments | Returns |
 |---|---|---|
 | `describe_task` | none | the frame in words, the briefing and the `AgentView` of the episode running (before the first, of the environment as built), and the number of episodes |
-| `start_episode` | none | the next seed's first observation (by name), time, situation, steps left, episode number |
+| `start_episode` | none | the next seed's first observation (by name), time, situation, steps left, episode number, and the episode's briefing |
 | `observe` | none | the same for the current step |
 | `command` | `ax`, `ay`, `az` fractions in [-1, 1] | the next observation, or `episode_over` and the episodes left |
 | `predict_coast`, `transfer_burn` | as for the LLM agent | predictions from the current observation ([llm-agents.md](llm-agents.md)) |
@@ -171,8 +171,9 @@ says a little about the true path ([environment.md](environment.md)).
 - A PD controller flying through `start_episode` and `command` calls produces exactly the
   in-process run's states and actions; command replies hold only the observation, time,
   situation, steps left and episode number. On docking-offset, which draws its port at each
-  reset, `describe_task` holds the episode's briefing and goal, and each observation the situation
-  of the observation it carries.
+  reset, the `start_episode` reply and then `describe_task` hold the episode's briefing (unlike the
+  one described before the episode) and goal, and each observation the situation of the
+  observation it carries.
 - Starting before the episode ends, observing with none running, a non-numeric command and starting
   past the last seed are tool errors; a command with a quoted number, booleans, or a missing or null
   value flies nothing, and a prediction with `seconds` true is refused; 200 000 levels of nesting
