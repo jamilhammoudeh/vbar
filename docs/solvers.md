@@ -351,9 +351,10 @@ with Mehrotra's predictor-corrector step (Nocedal and Wright, *Numerical Optimiz
 sec. 16.6). The rows carry slacks, $C z - e = s$ with $s > 0$, and multipliers $\lambda > 0$. The
 method is infeasible-start: neither the dynamics nor the rows need to hold at the start, which is
 `warm = (x, u)` or the zero-thrust rollout from $x_0$; a row that holds starts with its own value as
-slack, a violated row with slack 1, and the products $\lambda_i s_i$ start equal to the size of the
-objective's terms per row, so the start does not depend on the units of the states, inputs or
-costs. A start far from the dynamics made the first Newton steps chase that residual with thrust
+slack, a violated row with its violation $e_i - C_i z$ (or its terms $\sum_j |C_{ij} z_j| + |e_i|$
+where the violation is only rounding), and the products $\lambda_i s_i$ start equal to the size of
+the objective's terms per row, so the start does not depend on the units of the states, inputs,
+costs or rows. A start far from the dynamics made the first Newton steps chase that residual with thrust
 far beyond the box, cutting the step to a few percent and crawling for dozens of iterations,
 which the rollout start avoids.
 
@@ -388,31 +389,50 @@ still fails, the plain step toward $\tau = \mu / \mu_{\text{IPM}}$, Boyd's $t = 
 s^T\lambda$, which is a descent direction, replaces it, since backtracking the corrected step
 further can stall.
 
+A row whose relative slack or relative multiplier (below) is already at most $10^{-3}$
+`tol_gap` is held there: its target is the product at which the smaller of the two equals
+$10^{-3}$ `tol_gap`, instead of $\sigma\mu$, and its centrality residual is divided by its own
+product; $\mu$ and $\sigma$ are taken over the other rows, whose mean the held products would
+otherwise raise. With one target for all rows, Mehrotra's step drives every product down
+together until the slowest row is complementary; on the CW proximity problems of the tests that
+pushed $\lambda_i / s_i$ of strongly active thrust faces to $10^{21}$ while one weakly active
+face lagged, past what the Riccati sweep resolves, and the solve ended in a Cholesky failure. A
+held active row keeps $\lambda_i / s_i = 10^{11} \lambda_i / (\sum_j |C_{ij} z_j| + |e_i|)$.
+
 The iterate counts as converged when every component of the primal residual (initial state,
 dynamics and slack definitions) and of the dual residual is at most `tol_feas` times the sum of
 the magnitudes of the terms that component sums, for example
 $|A_k||x_k| + |B_k||u_k| + |c_k| + |x_{k+1}|$ for a dynamics row, and when every row is
 complementary to `tol_gap`: either its slack is at most `tol_gap` times its terms
 $\sum_j |C_{ij} z_j| + |e_i|$ (it is active), or its multiplier moves the components it enters by
-at most `tol_gap` of the row's scale (it is inactive),
+at most `tol_gap` against their cost terms and the row's scale (it is inactive),
 
 $$
 \lambda_i \max_j \frac{C_{ij}^2}{|C_{ij}|\,\sigma_j + Q_{jj} \sum_l |C_{il} z_l|} \le
 \text{tol\_gap},
 $$
 
-with $\sigma_j$ the cost and dynamics terms of stationarity component $j$; on an axis the plan does
-not use, where both terms in the denominator vanish, $Q_{jj}$ times the row's terms with $|e_i|$
-replaces them. A row whose terms and bound are both only rounding, such as $u_z \le 0$ where the
+with $\sigma_j = \sum_l |Q_{jl} z_l| + |q_j|$ the cost terms of stationarity component $j$; on an
+axis the plan does not use, where both terms in the denominator vanish, $Q_{jj}$ times the row's
+terms with $|e_i|$ replaces them. A row counted inactive thus has a multiplier of at most
+`tol_gap` times the one whose force balances those terms. The dynamics terms of component $j$ are left out of $\sigma_j$: through the dynamics
+multipliers they carry the forces of the other rows, so with them a strongly active row hides a
+wrong multiplier on the components it enters. On one 2710 s CW stage with $|B|$ up to 4.7e6, an
+active row with multiplier 1.1e8 made a multiplier of 1.34 on an inactive row look negligible,
+with the plan 1.2e-4 off the exact optimum. A row whose terms and bound are both only rounding, such as $u_z \le 0$ where the
 plan never thrusts cross-track, has no scale of its own and is judged against the largest row's
 terms; without that, a row the optimum touches with zero slack and zero multiplier never counts
 as complementary. A single bound on the products $\lambda_i s_i$ would not do: multipliers of
 active rows span orders of magnitude, and a weakly active row stays visibly short of its bound
-while its product is small. No test has a
-floor of 1 or an absolute scale, so a problem and the same problem with every cost multiplied by
-$k$, or posed in `HillScaling` units, take the same steps and stop at the same iterate; the tests
-solve the 40-stage approach with an active box for $k$ from 1e-9 to 1e6 and in Hill units and
-require the same plan to 1e-6. A converged solution therefore bounds no residual and no product
+while its product is small. No test, target or starting value has a
+floor of 1 or an absolute scale (the one exception is a start where no row has any terms or bound,
+which sets no unit), so a problem and the same problem with every cost multiplied by $k$, posed in
+`HillScaling` units, or with lengths in km, take the same steps in exact arithmetic and stop at the
+same iterate; in floating point the steps differ by rounding. The tests solve the 40-stage
+approach with an active box for $k$ from 1e-9 to 1e6 and in Hill units and require the same plan
+to 1e-6, and require the same status, iteration count and plan in SI and Hill units on four
+random proximity problems and in metres and kilometres on the 10-stage approach with a reach row
+that the start violates. A converged solution therefore bounds no residual and no product
 $\lambda_i s_i$ in absolute terms: a residual whose terms are large can exceed `tol_feas` itself.
 
 ### Statuses and outputs
@@ -451,7 +471,18 @@ positive definite.
 - Rows that the optimum touches with zero slack and zero multiplier (not strictly complementary)
   converge, but slowly, since the method's convergence is only linear there; the tests require
   such rows on the 10-stage approach to converge within the default cap of 60.
-- A stall on a feasible problem gives "solver_failed", not a plan.
+- Rows are compared with each other in one place: a row whose terms are below 1.5e-8 of the
+  largest row's counts as rounding and is judged against that row's scale. Rows posed in units
+  more than about 1e6 apart are therefore not solved alike: with the row $y_N \ge -110$ m added
+  to the 10-stage approach and multiplied by 1e-12 or 1e6, the solve reports "converged" with a
+  plan 4% or 36% off, and by 1e9 "solver_failed", while factors from 1e-9 to 1e3 give the same
+  steps.
+- A stall on a feasible problem gives "solver_failed", not a plan. The stall test (the primal
+  residual not halving in ten iterations) also fires on feasible problems whose first steps crawl:
+  on the random CW problems of the tests, with steps of 1 ms to 1e4 s, random rows that the
+  start violates, units rescaled by up to 1e3 per axis and costs by up to 1e12, about 250 of 1000
+  draws end without a plan. On the random proximity problems of the tests (CW, 5 to 60 stages
+  of 1 to 100 s, a thrust box and position halfspaces that zero thrust meets), 0 of 300 do.
 
 ### Validation
 
@@ -470,6 +501,19 @@ The tests in `tests/test_solvers_ipm.py` check:
   the unconstrained optimum to 1e-5.
 - Hypothesis: random problems of 2 to 6 stages with rows that hold with slack at the
   unconstrained optimum converge to it with KKT residuals below 1e-6.
+
+The tests in `tests/test_solvers_ipm_random_cw.py` check, against references built without the
+solver:
+
+- One 2710 s CW stage with an active row of multiplier 1.1e8: the plan within 1e-6 of the exact
+  optimum on that active set, solved in rational arithmetic, and every multiplier within 1e-6 of
+  the larger of its exact value and the one balancing the cost terms of its row's components.
+- Four random proximity problems give the same status, iteration count and plan in SI and Hill
+  units, and the 10-stage approach with a reach row the start violates the same in metres and
+  kilometres.
+- Five pinned and 300 random proximity problems (the latter marked slow) converge to points whose
+  stationarity, dynamics, row violation and complementarity, judged scale-free, are below 1e-6,
+  with more than 100 of them having an active row.
 
 ```python
 from dataclasses import replace

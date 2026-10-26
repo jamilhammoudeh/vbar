@@ -43,6 +43,10 @@ _CORRECTOR_BACKTRACKS = 1
 # gives, or a row whose terms are below this fraction of the largest row's, counts as unused:
 # only rounding is left of its terms.
 _UNUSED = math.sqrt(np.finfo(float).eps)
+# A row whose slack or multiplier is this fraction of tol_gap inside the complementarity test is
+# held there: driving its product further only raises lam / s on its row, and a sweep with lam / s
+# near 1e19 times the curvature no longer resolves the step.
+_HOLD = 1e-3
 # A Farkas certificate must cancel to this fraction of the magnitude of the terms it sums.
 _FARKAS_TOL = 1e-9
 # Rows whose certificate multiplier exceeds this fraction of the largest one are its support.
@@ -61,7 +65,7 @@ class IPMSettings:
     tol_gap : float
         Complementarity below which the iterate counts as optimal: every row has a slack below
         this fraction of its terms sum_j |C_ij z_j| + |e_i|, or a multiplier below this fraction
-        of the one that balances the largest gradient term.
+        of the one whose force balances the cost terms of the component it moves most easily.
     max_iter : int
         Newton steps before the solve stops with status "iteration_cap".
     mu : float
@@ -180,10 +184,12 @@ class _Rows:
     ) -> np.ndarray:
         """How far a unit multiplier moves the components a row enters, relative to the row.
 
-        A force C_ij on component j is resisted by the cost and dynamics terms of j (`size`) and
-        by its curvature Q_jj against the row's own scale in z_j, |C_i| |z| / |C_ij|. Where both
+        A force C_ij on component j is resisted by the cost terms of j (`size`) and by its
+        curvature Q_jj against the row's own scale in z_j, |C_i| |z| / |C_ij|. Where both
         vanish, on an axis the plan does not use, the row's `scale` (its terms with |e_i|) is
-        used instead. The largest ratio over j is returned.
+        used instead. The largest ratio over j is returned. The dynamics terms of j are left
+        out: through the dynamics multipliers they carry the forces of the other rows, so a
+        strongly active row would make any multiplier on the components it enters look small.
         """
         split = self.n * self.m
         c_abs, c_n_abs = np.abs(self.c), np.abs(self.c_n)
@@ -269,7 +275,10 @@ class _Residuals:
     # Sizes of the terms each component sums, laid out as `dual` and `primal`.
     dual_size: np.ndarray
     primal_size: np.ndarray
-    complementarity: float  # max over rows of min(slack, force) relative to the row's terms
+    row_scale: np.ndarray  # (rows,), the terms each row's slack is judged against
+    force: np.ndarray  # (rows,), how far a unit multiplier moves the row's components
+    decided: np.ndarray  # (rows,), min(slack / row_scale, lam force)
+    complementarity: float  # max of `decided`
     mean_product: float  # s^T lam / rows
 
     @property
@@ -327,11 +336,13 @@ def _residuals(qp: StageQP, rows: _Rows, it: _Iterate) -> _Residuals:
     # Each component is measured against the magnitudes of the terms it sums, so the tests do not
     # depend on the units of the costs, states, inputs or rows.
     abs_y = np.abs(it.y)
-    size_z = np.einsum("kij,kj->ki", np.abs(qp.Q), np.abs(z)) + np.abs(qp.q)
+    cost_z = np.einsum("kij,kj->ki", np.abs(qp.Q), np.abs(z)) + np.abs(qp.q)
+    cost_n = np.abs(qp.P) @ np.abs(x_n) + np.abs(qp.p)
+    size_z = cost_z.copy()
     size_z[:, :nx] += np.einsum("kji,kj->ki", np.abs(qp.A), abs_y)
     size_z[1:, :nx] += abs_y[:-1]
     size_z[:, nx:] += np.einsum("kji,kj->ki", np.abs(qp.B), abs_y)
-    size_n = np.abs(qp.P) @ np.abs(x_n) + np.abs(qp.p) + abs_y[-1]
+    size_n = cost_n + abs_y[-1]
     abs_lam_z, abs_lam_n = rows.transpose_abs(it.lam)
     dual_size = np.concatenate([(size_z + abs_lam_z).ravel(), size_n + abs_lam_n])
     dynamics_size = (
@@ -351,15 +362,17 @@ def _residuals(qp: StageQP, rows: _Rows, it: _Iterate) -> _Residuals:
         [np.abs(it.x[0]) + np.abs(qp.x0), dynamics_size.ravel(), magnitude + it.s]
     )
     # Each row must have either a slack that is small against its own terms (it is active) or a
-    # multiplier whose force moves the components it enters little against the row's scale (it
-    # is inactive). A single bound on the products would not do: multipliers of active rows
-    # span orders of magnitude, and a product that is small overall leaves a weakly active row
-    # visibly short of its bound. x_0 is fixed, so a force on it moves nothing.
-    size_z[0, :nx] = np.inf
+    # multiplier whose force moves the components it enters little against their cost terms
+    # and the row's scale (it is inactive), so that an inactive row's multiplier is at most
+    # tol_gap of the one that balances those terms. A single bound on the products would not
+    # do: multipliers of active rows span orders of magnitude, and a product that is small
+    # overall leaves a weakly active row visibly short of its bound. x_0 is fixed, so a force on
+    # it moves nothing.
+    cost_z[0, :nx] = np.inf
     curvature_z = np.diagonal(qp.Q, axis1=1, axis2=2)
-    force = rows.force(size_z, size_n, curvature_z, np.diagonal(qp.P), terms, row_scale)
+    force = rows.force(cost_z, cost_n, curvature_z, np.diagonal(qp.P), terms, row_scale)
     with np.errstate(divide="ignore", invalid="ignore"):
-        complementarity = _largest(np.minimum(it.s / row_scale, it.lam * force))
+        decided = np.minimum(it.s / row_scale, it.lam * force)
     return _Residuals(
         grad,
         grad_n,
@@ -368,20 +381,26 @@ def _residuals(qp: StageQP, rows: _Rows, it: _Iterate) -> _Residuals:
         slack,
         dual_size,
         primal_size,
-        complementarity,
+        row_scale,
+        force,
+        decided,
+        _largest(decided),
         float(it.s @ it.lam) / max(rows.total, 1),
     )
 
 
-def _merit(res: _Residuals, it: _Iterate, target: float, units: _Residuals) -> float:
+def _merit(
+    res: _Residuals, it: _Iterate, target: np.ndarray, units: _Residuals, weight: np.ndarray
+) -> float:
     """Norm of the residual of the perturbed KKT conditions with lam s = target.
 
-    Each component is divided by its size in `units`, held fixed over a line search, so the norm
-    does not depend on the units of the problem and the Newton step is still a descent direction.
+    Each component is divided by its size in `units`, and each product by its `weight`, all
+    held fixed over a line search, so the norm does not depend on the units of the problem and
+    the Newton step is still a descent direction.
     """
     dual = _relative(res.dual, units.dual_size)
     primal = _relative(res.primal, units.primal_size)
-    centrality = (it.lam * it.s - target) / (units.mean_product or 1.0)
+    centrality = (it.lam * it.s - target) / weight
     return float(np.sqrt(dual @ dual + primal @ primal + centrality @ centrality))
 
 
@@ -391,7 +410,7 @@ def _direction(
     factor: _Factor,
     it: _Iterate,
     res: _Residuals,
-    target: float,
+    target: np.ndarray,
     product: np.ndarray,
 ) -> _Iterate:
     """Newton step toward lam s = target - product, from the reduced system.
@@ -427,17 +446,18 @@ def _line_search(
     it: _Iterate,
     res: _Residuals,
     step: _Iterate,
-    target: float,
+    target: np.ndarray,
+    weight: np.ndarray,
     settings: IPMSettings,
     backtracks: int,
 ) -> tuple[_Iterate, _Residuals] | None:
     """Backtracking on the residual norm from 0.99 of the step to the boundary (sec. 11.7.3)."""
     alpha = min(1.0, _STEP_TO_BOUNDARY * _max_step(it, step))
-    merit = _merit(res, it, target, res)
+    merit = _merit(res, it, target, res, weight)
     for _ in range(backtracks + 1):
         trial = it.moved(step, alpha)
         trial_res = _residuals(qp, rows, trial)
-        trial_merit = _merit(trial_res, trial, target, res)
+        trial_merit = _merit(trial_res, trial, target, res, weight)
         if trial_merit < merit and trial_merit <= (1.0 - settings.alpha * alpha) * merit:
             return trial, trial_res
         alpha *= settings.beta
@@ -457,7 +477,8 @@ def _start(qp: StageQP, rows: _Rows, warm: tuple[np.ndarray, np.ndarray] | None)
     above the problem's scale (an initial state hundreds of metres off, or slacks of 1 on rows
     whose values are 1e-2) hold every step to a small fraction of its length while the rows
     bind. The rollout meets x_0 = x0 and the dynamics, and a row that holds starts with its
-    own value as slack; a violated row starts at 1.
+    own value as slack. A violated row starts with its violation, or with its terms where the
+    violation is only rounding, so the start does not depend on the rows' units either.
     """
     n, nx, nu = qp.B.shape
     if warm is None:
@@ -474,7 +495,12 @@ def _start(qp: StageQP, rows: _Rows, warm: tuple[np.ndarray, np.ndarray] | None)
             raise ValueError("warm start must be finite")
     z = np.concatenate([x[:-1], u], axis=1)
     value = rows.apply(z, x[-1]) - rows.e
-    s = np.where(value > 0.0, value, 1.0)
+    magnitude = rows.terms(z, x[-1]) + np.abs(rows.e)
+    largest = _largest(magnitude)
+    # Rows that are only rounding take the largest row's scale; when no row has any, nothing
+    # sets a unit and 1 is as good as any value.
+    scale = np.where(magnitude > _UNUSED * largest, magnitude, largest or 1.0)
+    s = np.where(value > 0.0, value, np.where(-value > _UNUSED * scale, -value, scale))
     # Products lam_i s_i start equal, at the size of the objective's terms per row: the start
     # then does not depend on the units of the states and inputs, and multiplying every cost by k
     # multiplies the starting multipliers by k.
@@ -662,8 +688,8 @@ def solve_horizon(
     warm : (x, u), optional
         Starting states (N + 1, nx) and inputs (N, nu), which need not satisfy the dynamics or
         the rows; the rollout with zero inputs from x0 when None. Slacks start at C z - e on
-        rows that hold and at 1 on the others, and multipliers at the value whose force balances the
-        largest cost gradient term.
+        rows that hold and at e - C z on the others, and multipliers so that every product
+        lam_i s_i equals the size of the objective's terms per row.
 
     Returns
     -------
@@ -684,7 +710,6 @@ def solve_horizon(
     it = _start(qp, rows, warm)
     # Definiteness is a property of the problem; failures after this check are numerical.
     _factor(qp, None, None)
-    m = max(rows.total, 1)
     res = _residuals(qp, rows, it)
     history: list[float] = []
     iteration = 0
@@ -721,17 +746,32 @@ def solve_horizon(
         except ValueError:
             return _result("solver_failed", iteration, it, res, started)
         none = np.zeros(rows.total)
-        mean = gap / m
-        affine = _direction(qp, rows, factor, it, res, 0.0, none)
+        product = it.lam * it.s
+        # Rows already well inside the complementarity test are held at the product where the
+        # smaller of their relative slack and multiplier is _HOLD tol_gap (a target-following
+        # step). The barrier parameter is the mean product of the other rows, which the held
+        # products would otherwise inflate, raising the target of the rows still converging.
+        hold = res.decided <= _HOLD * settings.tol_gap
+        balance = np.divide(it.s, res.force, out=np.zeros(rows.total), where=res.force > 0.0)
+        floor = np.where(
+            hold, _HOLD * settings.tol_gap * np.maximum(it.lam * res.row_scale, balance), 0.0
+        )
+        free = ~hold if not hold.all() else hold
+        mean = float(np.mean(product[free])) if rows.total else 0.0
+        # A held product far below the mean would vanish from a merit divided by the mean.
+        weight = np.where(hold, np.maximum(product, floor), mean)
+        affine = _direction(qp, rows, factor, it, res, floor, none)
         trial = it.moved(affine, min(1.0, _max_step(it, affine)))
-        sigma = (float(trial.s @ trial.lam) / m / mean) ** 3 if rows.total else 0.0
-        target = sigma * mean
+        sigma = (float(np.mean((trial.s * trial.lam)[free])) / mean) ** 3 if rows.total else 0.0
+        target = np.where(hold, floor, sigma * mean)
         step = _direction(qp, rows, factor, it, res, target, affine.s * affine.lam)
-        found = _line_search(qp, rows, it, res, step, target, settings, _CORRECTOR_BACKTRACKS)
+        found = _line_search(
+            qp, rows, it, res, step, target, weight, settings, _CORRECTOR_BACKTRACKS
+        )
         if found is None:
-            target = mean / settings.mu
+            target = np.where(hold, floor, mean / settings.mu)
             step = _direction(qp, rows, factor, it, res, target, none)
-            found = _line_search(qp, rows, it, res, step, target, settings, _MAX_BACKTRACKS)
+            found = _line_search(qp, rows, it, res, step, target, weight, settings, _MAX_BACKTRACKS)
         iteration += 1
         if found is None:
             return _result("solver_failed", iteration, it, res, started)
