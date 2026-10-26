@@ -105,6 +105,9 @@ release may change the public API, and every such change is listed under Changed
 - `MPCAgent` in `vbar.agents.mpc`: the hold-point MPC baseline, one interior-point solve per
   decision from a warm start, a passing side chosen with hysteresis, the in-step keep-out
   certificate of each applied step logged, and documented fallback levels when the solve fails.
+- `NMPCAgent` and `shooting_linearization` in `vbar.agents.nmpc`: nonlinear MPC by multiple
+  shooting on the declared dynamics model, with a real-time iteration split and a cold retry when
+  a warm-started solve fails.
 - `regulator_model` and `RegulatorModel` in `vbar.agents.lqr`: the LQR design (augmented model,
   gain, Riccati solution, steady state and stage costs, with read-only arrays) shared by `LQRAgent`
   and the MPC baselines, so an MPC equals the LQR wherever no constraint binds.

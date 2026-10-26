@@ -401,8 +401,8 @@ ed., Nob Hill, 2017)
 The tests of the classical baselines ([lqr.md](lqr.md), [lqg.md](lqg.md),
 [lyapunov.md](lyapunov.md), [two-impulse.md](two-impulse.md), [glideslope.md](glideslope.md),
 [trajectory-elements.md](trajectory-elements.md), [shuttle-baselines.md](shuttle-baselines.md),
-[lambert.md](lambert.md), [mpc.md](mpc.md)) reproduce the examples below. Each item names its
-test.
+[lambert.md](lambert.md), [mpc.md](mpc.md), [nonlinear-mpc.md](nonlinear-mpc.md)) reproduce the
+examples below. Each item names its test.
 
 **Alfriend, Vadali, Gurfil, How and Breger, *Spacecraft Formation Flying***
 
@@ -539,6 +539,29 @@ ed.), at 500 km with a 10 s step
 - Sections 2.4.2 and 2.7, recursive feasibility: for 20 converged plans with the terminal set on
   `approach-vbar`, 55 to 120 m from the target, the shifted plan with the LQR move appended meets
   every row of the next problem (`test_shifted_plan_meets_every_row_of_the_next_problem`).
+- Sections 8.5.2 and 8.6.3, direct multiple shooting with one Gauss-Newton step; the book prints
+  no number for this case, so the values come from our own independent computation. A
+  minimum-energy rendezvous to the origin at rest from (100, -2000, 50) m, (0.05, 0.2, -0.02) m/s
+  on two-body at 51.6 deg: over four 60 s segments the CW plan flown open loop misses by
+  0.017893 m, and one step from the shooting linearization leaves continuity below 1e-10 and a
+  miss below 1e-9 m
+  (`test_one_gauss_newton_step_from_the_cw_plan_closes_a_short_two_body_rendezvous`); over twenty
+  segments of half an orbit the CW plan misses by 3.9909 m, and one step leaves continuity below
+  3e-10, a miss below 1e-7 m and 0.07806 % more energy than the CW plan
+  (`test_one_gauss_newton_step_closes_the_half_orbit_two_body_rendezvous`). The node Jacobians
+  from the variational equations agree with central differences of the flown segment to 1e-5
+  relative, with and without J2
+  (`test_two_body_jacobians_equal_central_differences_of_the_flown_segment`).
+- Section 8.9.2, eq. 8.60, the real-time iteration: on `approach-vbar` flown on two-body from
+  300 m behind the hold point, the matched declared model predicts the next observation to 1e-8 m
+  and 1e-9 m/s over three decisions of a two-step horizon
+  (`test_matched_two_body_model_predicts_the_next_observation`), and to 1e-8 m over five decisions
+  of a ten-step horizon
+  (`test_matched_two_body_model_predicts_the_next_observation_over_a_ten_step_horizon`); declared
+  CW mispredicts by more than 5e-7 m
+  (`test_declared_cw_on_two_body_motion_mispredicts_by_the_gravity_remainder`). The preparation
+  linearizes at the shifted plan without reading the new observation
+  (`test_preparation_linearizes_at_the_shifted_plan_without_the_new_observation`).
 
 **Boyd and Vandenberghe, *Convex Optimization***
 
