@@ -16,6 +16,166 @@ release may change the public API, and every such change is listed under Changed
   an excerpt format), and `TwoBodyDynamics.reset_inertial`. A GRACE-FO excerpt of 2019-12-03
   (doi:10.5067/GFL1B-ASJ04, CC0) checks the two-body, J2 and drag rungs over ten orbits against a bound
   stated before the run; `docs/flight-data.md` documents it.
+- `vbar.safety.projections`: halfspace, box, ball and second-order cone projections, and an exact
+  projection out of a keep-out sphere with the hard case handled.
+- `vbar.safety.tightening`: box, ball and ellipsoid error sets with halfspace, chance and keep-out
+  margins and the execution-bias offsets of exponential and first-order barriers.
+- `vbar.safety.barriers`: control barrier functions for the keep-out sphere (`KeepOutEcbf`, an
+  exponential barrier with real poles and its start set), a range-dependent speed limit
+  (`SpeedCbf`), a closing-speed limit (`ClosingSpeedCbf`) and an approach cone (`ConeEcbf`, with
+  `infeasible_radius`), each giving its condition as one linear row on the command; and two
+  evading-maneuver barriers without rows: `PassiveBarrier`, the certified free-drift keep-out
+  margin over a horizon set by the secular drift, with its envelope-theorem gradient (with
+  `terminal=True`, drift clear for all time through a terminal set reached within the cap), and
+  `BrakingBarrier`, with `braking_deceleration` for its braking acceleration under a held
+  command and the thrust limit.
+- `vbar.safety.sampled`: `held_segment_bound`, a certified lower bound on the keep-out margin over
+  a held step on the exact CW solution, tightened for navigation error sets and execution error,
+  and `line_search`, the bisection from a candidate command toward a backup, returning a
+  `LineSearch`.
+- `vbar.safety.cbf`: `CbfFilter`, an exponential keep-out barrier with speed rows projected under
+  the thrust limit, a pole rule max(p) dt <= 0.6 checked at reset, a declared buffer and safe
+  set, and an exact held-step check (end-of-step speed cap by cutting planes, certified keep-out
+  bound); `BackupFilter`, free-drift or braking backup filters that check each held step on the
+  exact CW solution and search toward the backup, with "nominal" or "bounded-W" certificates
+  (without error sets the free-drift set is invariant under drift, so every step inside it is
+  feasible; a "solver_failed" step carries no certificate);
+  `SoftCbfFilter`, the exact-penalty form of the barrier rows, which never counts toward
+  certification; and `FilterDeclaration`, what each filter enforces and assumes.
+- `vbar.safety.audit`: `audit_filter`, which flies a certified safety filter around a nominal
+  agent from starts drawn inside or outside its declared safe set, with one recorded root seed
+  of 64 to 128 bits, and judges each step on the certified in-step bound, re-flying uncertain
+  steps on the exact CW solution with up to 64 times the samples; it reports violations, uncertified
+  steps, infeasible and failed decisions with the check of each infeasibility proof, and the
+  time to re-enter the set, in a `FilterAudit` with a `passed` verdict. Soft filters, dynamics
+  other than CW, imperfect navigation, execution error, actuation delay, a minimum impulse bit
+  and the thrust drive are refused.
+- `vbar.reach`: zonotope and polytope sets, affine loops on the exact CW step built with the
+  closed-loop matrix (`cw_loop`), exact support functions of reachable sets by backward
+  propagation of the direction, certified keep-out clearance of a set of states in free drift
+  (`drift_clearance`) and in a closed loop that is refused if it saturates (`loop_clearance`),
+  set propagation with optional order reduction, exact zonotope containment and an invariance
+  test, minimum time under a thrust box with a separating-direction certificate
+  (`min_time_steps`), and a bound on the differential gravity a CW model leaves out.
+- `vbar.metrics.record_pair` and `vbar.runner.run_pairs`: one seed flown with a safety filter on
+  and off, with the same episode and agent seeds, a new agent per run, the unfiltered run through
+  the pass-through filter and the order drawn at random, returned as a `FilterPair`; and F8p
+  `unnecessary_intervention_rate_paired`, the share of active decisions in episodes whose
+  unfiltered run broke no hard constraint. F3 and F4 (v2) now refuse pairs whose agent seeds or
+  scenarios differ.
+- `vbar.safety.InfeasibilityProof` and `FilterResult.proof`: an "infeasible_certified" step of
+  `CbfFilter` carries the Farkas certificate of its rows under the thrust limit, each row in its
+  own SI units, and
+  `verify()` checks it from its own arrays; the step's action is the least-violation command.
+- `vbar.safety.rta`: the four run time assurance filters of Dunlap et al. (2022), explicit and
+  implicit switching and optimization, on the paper's Euler plant, with `AfrlSetup` (the paper's
+  and the authors' code's speed-limit slopes), `AfrlConstraints` and the natural-motion backup
+  `NmtBackup`. Implicit optimization uses the paper's eq. 11 with its bracket corrected. None of
+  the four counts toward certification.
+- `vbar.stress.cross_entropy`, a seeded cross-entropy search over a box with a mean shift, a
+  floored spread, elites kept across generations, independent chains, rejection of points
+  outside an acceptance test, and a dispersion report; and `vbar.safety.audit.falsify_filter`,
+  which searches a certified filter's declared safe set for the start whose run comes closest to
+  failing and judges that run as the audit does, with the verdict "none_found" at best.
+- `vbar.reach.drift_cover` and `DriftCover`: a box of start states split into parts whose free
+  drift is certified clear of the keep-out, parts that provably enter it, and undecided parts,
+  with counterexamples checked against a declared set. `drift_clearance` is faster with
+  unchanged results.
+- `vbar.safety.rta.reproduce`, `start_state` and `Reproduction`: the Dunlap et al. Euler docking
+  run with the paper's LQR primary, and `benchmarks/afrl_reproduction.py` over 100 seeded starts
+  at 2.15 n and 4 n plus the authors' start cases. The AFRL backup gain is now the position and
+  velocity block of the LQR on the state augmented with integrators, as in the authors' design.
+- `benchmarks/filter_audit.py --parts cover`: a sampling-free check of the free-drift filter's
+  declared set by `drift_cover` over the audited run, with no counterexample allowed and at least
+  99% of drawn in-set starts required to lie in certified boxes.
+- `FilterResult.prep_s` and `feedback_s`: `run_filter` calls a filter's optional `prepare()` before
+  `filter`, times both itself and sets `compute_s` to their sum, so a filter cannot report its own
+  latency split.
+- `vbar.safety.tightening`: `box_hull`, `tube_margin` (closed-loop tube with a bounded tail),
+  `delay_margin` (open loop over a delay window), `per_draw_sigma`, `scenario_sample_count` and
+  `scenario_margin`, the margins shared by the filters for execution and navigation errors.
+- `vbar.safety.predictive.PredictiveFilter`: plans `horizon` held commands toward the agent's
+  command and applies the first only when the plan is certified on the exact held steps and the
+  free-drift terminal set; falls back to the shifted plan, then zero thrust, so inside its
+  declared set it is never stuck; predicts through pending commands.
+- `vbar.safety.corridor.CorridorCamFilter`: passes commands through until the state leaves the
+  V-bar passive-safety corridor (and a declared approach cone) outside the commit radius, then
+  latches a phase-specific open-loop CAM followed by zero thrust; it makes no certified claim and
+  the audit refuses it. `vbar.safety.audit.cam_rates` gives the false-CAM, missed-CAM and
+  CAM-induced rates of paired runs with 95% Clopper-Pearson intervals, read from the recorded
+  commands.
+- `vbar.safety.barriers.CamBarrier` and `BackupFilter(barrier="cam")` ("cbf-cam"): a backup
+  filter whose set holds the states that a CAM held for up to m whole steps, then free drift,
+  keeps outside the keep-out for all time; the backup is zero thrust where free drift is
+  certified and the CAM elsewhere, the set is kept by it, and the certificate is "nominal"
+  (error sets are refused). `vbar.metrics.passive.cam_direction` gives the unit CAM direction of
+  a goal, which `cam_impulses` and the filter share.
+- `drift_cover` takes `accel` and `burn_time`: a box of starts carried through a held collision
+  avoidance burn and then free drift, with a certified in-step bound during the burn.
+- `benchmarks/filter_audit.py` audits, searches and covers the CAM and predictive filters too
+  (the CAM set level by level, each level's burn then drift), and takes `--filters` to run a
+  subset.
+- `vbar.safety.CERTIFICATE_KINDS` ("nominal", "bounded-W", "chance-epsilon",
+  "finite-horizon"): `FilterResult` and `FilterDeclaration` raise `ValueError` for a
+  certificate outside it or for a kind and a horizon not given together, and `run_filter`
+  checks the result again after the filter returns it. A backup filter whose declared error
+  set has a positive exceedance certifies "chance-epsilon".
+- `PredictiveFilter` modes "finite-horizon" and "soft" (exact-penalty slacks, never counted toward
+  certification), the braking backup as the recovery outside the declared set, `backup="cam"`
+  ("predictive-cam-n10"), and a check of the pending command's wait against `delay_s`.
+- `CbfFilter` enforces `approach_cone` constraints with one `ConeEcbf` row each, named
+  "approach_cone", "approach_cone#1", ...; with a cone its declaration says "cone activation
+  untreated", does not count toward certification, and `audit_filter` refuses it.
+- `vbar.safety.tightening.error_zonotope`: a zonotope centered at zero that contains a box,
+  two-ball or ellipsoid error set, exact for the box.
+- `BackupFilter(barrier="passive", navigation=...)` decides its set and the end of each held step
+  on the free-drift clearance of the whole navigation error set (`vbar.reach.drift_clearance`)
+  instead of the point estimate.
+- `PredictiveFilter` takes `navigation`, `execution` and `grid`: declared error sets tighten its
+  program and its checks, open loop, and certify "bounded-W" (or "chance-epsilon") up to two
+  orbits.
+- `vbar.safety.tightening.declared_errors`: the navigation box of a truncated `GaussianNav` and
+  the execution bound da_max of a truncated `ExecutionError`, from the model parameters and the
+  truncation level alone; `episode_draws` counts the Gaussian draws of an episode that the level
+  covers, for `vbar.scenarios.per_draw_level`.
+- `CbfFilter`, `SoftCbfFilter`, `BackupFilter` and `PredictiveFilter` take `exceedance` and
+  `per_draw_level`, the truncation their error sets come from, and report them in
+  `FilterDeclaration` fields of the same names (None by default); `contains_start(x)` tells
+  whether every estimate within the navigation set of a true state lies in the declared set.
+- `benchmarks/filter_audit_errors.py`: the filter audit, the falsification search and the
+  Gaussian exceedance rates under truncated `:nav1` navigation and execution errors, one line
+  per filter and part with p, the per-draw level and the draw count.
+- `benchmarks/predictive_comparison.py`, comparing the predictive, barrier and free-drift filters
+  on the filter metrics and on passes where the barrier filter's keep-out row is infeasible.
+- The `euler1` dynamics rung, `vbar.dynamics.EulerCWDynamics`: Clohessy-Wiltshire
+  stepped by forward Euler in 1 s steps, defined only at its nodes. Environments on it check
+  constraints at the nodes (`vbar.constraints.node_minimum`, `node_violations`); `Trace`,
+  `passive_metrics` and `evaluate` raise `ValueError` for its episodes.
+- The `docking-afrl-paper` scenario (v1) and its `:code` variant, registered as
+  `vbar/DockingAfrlPaper-v1` and `vbar/DockingAfrlPaperCode-v1`: the run time assurance docking
+  benchmark as published, on the `euler1` rung.
+- `audit_filter(..., errors=)`: "bounded" flies `GaussianNav` and `ExecutionError` models
+  truncated at the filter's declared `per_draw_level` and refuses declared sets that do not hold
+  those `declared_errors` derives; "gaussian" flies them untruncated, sets `passed` to None and
+  reports `FilterAudit.exceedance_rates`, per covered constraint and "any", an `ExceedanceRate`
+  with the count of violating runs, its 95% Clopper-Pearson interval and the declared level.
+  `FilterAudit` reports `errors`, `exceedance`, `per_draw_level`, `draws` and `covered`, and
+  `RunAudit` and `FilterAudit` report `uncovered`, the uncertified decisions that are not a coast
+  inside the last certificate's horizon; under "bounded" one fails the audit. "none", the
+  default, audits as before.
+- `exceedance` and `per_draw_level` are given together and only with an error set, in a filter
+  and in `FilterDeclaration`; otherwise they raise `ValueError`.
+- `vbar.stress.ScriptedNav` and `vbar.stress.ScriptedExecution`: a navigation error held at a
+  scripted offset in a declared `BoxError` for each quarter of an episode, and a constant burn
+  error mapped radially from the cube onto a declared execution ball, for a search to steer. Both
+  follow the interfaces the environment calls and draw nothing.
+- `falsify_filter(..., errors="bounded")` searches 33 numbers, the start, a navigation offset per
+  quarter episode and one burn error, under the truncated models the bounded audit accepts, each
+  run flown with the scripted errors scaled by the filter's declared sets; it refuses
+  "gaussian". Under "bounded" an uncovered decision gives the verdict "uncovered".
+  `FilterFalsification` records `errors`.
+- `vbar.spacecraft.ExecutionModel`, the protocol of a burn's execution error;
+  `EnvConfig.execution` and `Spacecraft(execution=)` take any model that follows it.
 
 ### Changed
 
@@ -26,6 +186,80 @@ release may change the public API, and every such change is listed under Changed
   `(safety_filter, obs, command)` and sets the result's `compute_s` to the measured wall time,
   whatever the filter reported. `PassThroughFilter.filter` returns
   `FilterResult(action, intervened=False)`.
+- A constraint's `second_order_bounds(states, h, speed, accel, jerk=None)` takes a bound on the
+  jerk; the speed, closing-speed and gate-table limits define it, so their refinement nearly
+  stops. `min_margin_bound` (S1b) is version 3 for these bounds, and the golden metric fixtures
+  were regenerated.
+- `benchmarks/filter_audit.py --parts cover` fails only on a counterexample; the share of in-set
+  starts in certified boxes is reported, and marked when below 99%, but never gated.
+- `benchmarks/afrl_reproduction.py` reports each of the paper's claims as met or not met and
+  exits 0 when the reproduction runs; it fails only on a non-finite result. The implicit
+  switching filter's violations now have their cause on run-time-assurance.md.
+- `CbfFilter` lowers the v0 of every speed row by `first_order_bias(execution + model_error,
+  gamma)` and refuses at reset a declared error that uses up a speed limit; its declared safe set
+  adds `execution + model_error` to the thrust budget. Without declared errors nothing changes.
+- `BrakingBarrier(radius, a_b, rho_cap, v_cap, n, dt, a_max)` adds the outer barrier
+  `outer_value`, h_o = rho_cap - rho - max(0, rho_dot)^2 / (2 a_b), to its set, and its backup
+  cancels the CW acceleration and brakes along and across the line of sight, so the set h_b >= 0,
+  h_o >= 0, |v| <= v_cap is kept by every held step; full outward thrust left it. It refuses an
+  `a_b` above `braking_deceleration`, which no longer takes `layout` and gives 0.00758 m/s^2
+  for the approach box instead of 0.00991, and 0.0 where the backup keeps no set (above
+  33.37 s there).
+- The braking `BackupFilter` accepts a step only when it ends in the braking set, refuses an
+  explicit `a_b` above `braking_deceleration`, and reports a backup step that leaves the set from
+  inside as "solver_failed" with no certificate. `PredictiveFilter`'s braking recovery uses the
+  new backup.
+- `ConeEcbf` accepts `active_range=inf`, the `ApproachCone` default.
+- `audit_filter` names the refused filter's declared safe set instead of calling it a soft
+  filter.
+- `AfrlSetup.paper().view()` and `AfrlSetup.authors_code().view()` name the scenarios that fly
+  them, `vbar:docking-afrl-paper:euler1:box:dv:v1` and its `:code` variant, instead of
+  `dunlap2021-euler`, which other setups keep. The four run time assurance filters accept the
+  `euler1` dynamics part when the setup's dt is the rung's 1 s step. `reproduce` steps
+  `EulerCWDynamics` and gives the same numbers as before; `benchmarks/afrl_reproduction.py`
+  prints the scenario IDs.
+
+### Fixed
+
+- A `ZoneEntry` whose `go_time` fell inside a step, as with 15 s steps in the closing scenario,
+  had a `lower_bound` above the true minimum (-0.053 m against -0.400 m with GO 1.4 s into a
+  10 s step) and a violation that ended at the last sample before GO. `segment_minimum`,
+  `segment_minima` and `violation_intervals` now check such a segment up to GO, resampled there.
+- `violation_intervals` and the STL metrics raised `ValueError` when a sample on the boundary
+  rounded to the other side of zero once evaluated again; the end nearer zero is now taken as the
+  crossing.
+- `CWDiscretizer` rounded every duration to the nanosecond, so a step of 5e-10 s or less did not
+  move the state and 3e5 steps of 1/3 s drifted 1.2 mm; it now keys its cache to the exact
+  duration.
+- On a coarse interval with two dips the refined minimum could settle in the shallower one, so a
+  violation went unreported while `lower_bound` stayed negative. Such intervals are now cut up and
+  searched until their bound rules a violation out, one is found, or 16 cuts are spent, and
+  `violation_intervals` searches the reported minimum's time as a sample.
+- `segment_minimum` could report a `KeepOut` `lower_bound` above the exact minimum where that
+  minimum fell at a sample, by up to 8e-14 m on a radial hop, from rounding in the sample's
+  margin. The bound is now lowered by 3 eps times the magnitudes the margin is computed from;
+  `segment_minima` and the speed limits added in this release do the same.
+- `PassiveBarrier.value` could exceed the exact free-drift keep-out margin by up to 1.3e-13 m
+  where the drift's minimum fell at a sample, and report 0 for a state on the sphere whose drift
+  dips inside; it now applies the same allowance, and `CamBarrier` inherits it.
+- `project` without an actuator set accepted rows to 1e-10 of |u|_inf, so a nominal command of
+  1e10 returned u_x = 0 against u_x >= 1 as feasible; rows now hold to 1e-10 of the problem's
+  scale plus the rounding of each row's value. Its certificate without an actuator set accepted
+  A^T lam up to 1e-9 |lam|_1 and so declared rows such as x >= 1, -x + 1e-9 y >= -0.5 infeasible;
+  it is now checked in exact rational arithmetic. Nearly parallel active rows gave a wrong
+  optimum, 60% above the true objective for rows 1.4e-7 off parallel, and rows within 1e-8 of
+  parallel gave "solver_failed" or a false certificate; each subset is now solved through a QR
+  factorization of its rows instead of the KKT matrix. Phase I ran in raw units against HiGHS's
+  absolute tolerances, so a 1% conflict in units of 1e-5 gave "solver_failed"; it now runs in
+  units of the problem's scale.
+- `solve_horizon` ended 14 of 300 feasible CW proximity problems in "solver_failed": one target
+  for every row drove lam / s of strongly active rows to 1e21 while a weakly active row lagged,
+  and the Riccati sweep broke down. Rows already 1e-3 tol_gap inside the complementarity test
+  are now held there; 0 of the 300 fail. An inactive row's multiplier was judged against terms
+  that include the dynamics multipliers, so a strongly active row hid a wrong one (1.34 where the
+  exact value is 0, the plan 1.2e-4 off); it is now judged against the cost terms. A violated
+  row started with slack 1 in its own units, so the solve depended on the rows' units; it now
+  starts with its violation.
 
 ## [0.4.0] - 2026-10-30
 
