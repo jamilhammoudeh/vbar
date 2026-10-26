@@ -97,7 +97,11 @@ blocked = run_episode(env, PDAgent(), seed=5, agent_seed=6)
 fig = trajectory_figure([clear, blocked], env, labels=["PD, clear path", "PD, target in the way"])
 fig.savefig("pd_approach.png", dpi=170)
 approach_animation(
-    blocked, env, "pd_approach.gif", title="PD, target in the way", width_in=5.0,
+    blocked,
+    env,
+    "pd_approach.gif",
+    title="PD, target in the way",
+    width_in=5.0,
     color=SERIES_COLORS[1],
 )
 ```

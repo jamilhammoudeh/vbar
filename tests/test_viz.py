@@ -8,10 +8,10 @@ regenerate them and look at the figure before committing.
 import json
 from pathlib import Path
 
-import matplotlib
 import numpy as np
 import pytest
 
+matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
 
 from matplotlib.colors import to_rgb  # noqa: E402
