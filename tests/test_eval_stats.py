@@ -1,0 +1,297 @@
+"""Scores across scenarios: interquartile mean, stratified bootstrap, profiles and comparisons.
+
+Methods from Agarwal et al., Deep Reinforcement Learning at the Edge of the Statistical Precipice,
+NeurIPS 2021.
+"""
+
+import dataclasses
+
+import numpy as np
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from scipy.stats import mannwhitneyu
+
+from vbar.eval.stats import (
+    Interval,
+    aggregate_iqm,
+    iqm,
+    paired_difference,
+    performance_profile,
+    probability_of_improvement,
+    stratified_bootstrap,
+)
+
+scores = st.lists(
+    st.floats(-100.0, 100.0, allow_nan=False, allow_infinity=False, allow_subnormal=False),
+    min_size=1,
+    max_size=30,
+)
+
+
+def pooled_mean(samples):
+    return float(np.mean(np.concatenate([samples[k] for k in sorted(samples)])))
+
+
+def test_an_interval_is_frozen_and_reports_its_width():
+    interval = Interval(estimate=1.0, lower=0.5, upper=2.0)
+    assert interval.width == 1.5
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        interval.lower = 0.0
+
+
+def test_the_iqm_is_the_mean_of_the_middle_half():
+    # Eight values: the lowest two and the highest two are trimmed, leaving 2, 3, 4, 5.
+    assert iqm(np.arange(8.0)) == 3.5
+    assert iqm([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 1e12]) == 3.5
+    assert iqm([4.0]) == 4.0
+
+
+def test_the_iqm_ignores_infinite_values_in_the_trimmed_quarters():
+    assert iqm([-np.inf, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, np.inf]) == 2.5
+
+
+def test_the_iqm_of_no_values_is_refused():
+    with pytest.raises(ValueError):
+        iqm([])
+
+
+def test_the_aggregate_iqm_pools_runs_across_scenarios():
+    samples = {"a": np.arange(8.0), "b": np.array([100.0, 101.0, 102.0, 103.0])}
+    # Twelve pooled runs, three trimmed at each end: 3, 4, 5, 6, 7 and 100. The mean of the two
+    # per-scenario IQMs would be (3.5 + 101.5) / 2 = 52.5.
+    assert aggregate_iqm(samples) == pytest.approx(125.0 / 6.0, rel=1e-12)
+
+
+def test_the_aggregate_iqm_refuses_no_scenarios():
+    with pytest.raises(ValueError):
+        aggregate_iqm({})
+
+
+def test_the_bootstrap_estimate_is_the_statistic_on_the_data():
+    samples = {"a": np.arange(8.0), "b": np.array([100.0, 101.0, 102.0, 103.0])}
+    found = stratified_bootstrap(samples, aggregate_iqm, reps=100, rng=0)
+    assert isinstance(found, Interval)
+    assert found.estimate == aggregate_iqm(samples)
+    assert found.lower <= found.estimate <= found.upper
+
+
+def test_the_bootstrap_resamples_with_replacement_within_each_scenario():
+    samples = {"a": np.arange(10.0), "b": 100.0 + np.arange(5.0)}
+    seen = []
+
+    def record(resampled):
+        seen.append({k: np.array(v) for k, v in resampled.items()})
+        return 0.0
+
+    stratified_bootstrap(samples, record, reps=200, rng=1)
+    draws = [s for s in seen if set(s) == {"a", "b"}]
+    assert len(draws) >= 200
+    for s in draws:
+        assert len(s["a"]) == 10 and len(s["b"]) == 5
+        assert set(s["a"]) <= set(samples["a"]) and set(s["b"]) <= set(samples["b"])
+    assert any(len(set(s["a"])) < 10 for s in draws)
+
+
+def test_the_bootstrap_resamples_scenarios_independently():
+    x = np.random.default_rng(2).standard_normal(100)
+
+    def gap(s):
+        return float(np.mean(s["a"]) - np.mean(s["b"]))
+
+    found = stratified_bootstrap({"a": x, "b": x.copy()}, gap, reps=2000, rng=3)
+    # Independent resamples of the same 100 values: sd of the gap sqrt(2 var / 100).
+    expected = 2 * 1.96 * np.sqrt(2 * np.var(x) / 100)
+    assert found.estimate == 0.0
+    assert found.width > 0.7 * expected
+
+
+def test_the_stratified_interval_excludes_the_spread_between_scenarios():
+    rng = np.random.default_rng(4)
+    samples = {"a": rng.standard_normal(200), "b": 10.0 + rng.standard_normal(200)}
+    found = stratified_bootstrap(samples, pooled_mean, reps=4000, rng=5)
+    # Within scenarios: sd of the pooled mean sqrt(var_a / 200 + var_b / 200) / 2, about 0.05,
+    # so the 95% width is about 0.196. Resampling the pooled runs would add the spread between
+    # the two scenario means and give about 1.0; a 90% or 99% interval would be 16% narrower or
+    # 31% wider.
+    sd = np.sqrt(np.var(samples["a"]) / 200 + np.var(samples["b"]) / 200) / 2
+    assert found.width == pytest.approx(2 * 1.96 * sd, rel=0.07)
+
+
+def test_the_bootstrap_is_reproducible_from_a_seed_or_a_generator():
+    samples = {"a": np.arange(20.0), "b": np.arange(7.0) ** 2}
+    first = stratified_bootstrap(samples, aggregate_iqm, reps=100, rng=11)
+    assert stratified_bootstrap(samples, aggregate_iqm, reps=100, rng=11) == first
+    from_generator = stratified_bootstrap(
+        samples, aggregate_iqm, reps=100, rng=np.random.default_rng(11)
+    )
+    again = stratified_bootstrap(samples, aggregate_iqm, reps=100, rng=np.random.default_rng(11))
+    assert from_generator == again
+
+
+def test_the_order_of_scenarios_does_not_change_the_interval():
+    a, b = np.arange(20.0), np.arange(7.0) ** 2
+    forward = stratified_bootstrap({"a": a, "b": b}, aggregate_iqm, reps=100, rng=12)
+    backward = stratified_bootstrap({"b": b, "a": a}, aggregate_iqm, reps=100, rng=12)
+    assert forward == backward
+
+
+def test_doubling_every_score_doubles_the_iqm_and_its_interval():
+    rng = np.random.default_rng(13)
+    samples = {"a": rng.standard_normal(30), "b": rng.exponential(size=12)}
+    doubled = {k: 2.0 * v for k, v in samples.items()}
+    one = stratified_bootstrap(samples, aggregate_iqm, reps=200, rng=14)
+    two = stratified_bootstrap(doubled, aggregate_iqm, reps=200, rng=14)
+    assert two.estimate == pytest.approx(2.0 * one.estimate, rel=1e-12)
+    assert two.lower == pytest.approx(2.0 * one.lower, rel=1e-12)
+    assert two.upper == pytest.approx(2.0 * one.upper, rel=1e-12)
+
+
+def test_equal_scores_and_single_runs_give_an_interval_of_zero_width():
+    found = stratified_bootstrap({"a": [3.0, 3.0, 3.0], "b": [5.0]}, pooled_mean, reps=100, rng=0)
+    assert (found.estimate, found.lower, found.upper) == (3.5, 3.5, 3.5)
+    assert found.width == 0.0
+
+
+@pytest.mark.parametrize(
+    "samples, kwargs",
+    [
+        ({}, {}),
+        ({"a": [1.0, 2.0], "b": []}, {}),
+        ({"a": [1.0, 2.0]}, {"reps": 99}),
+        ({"a": [1.0, 2.0]}, {"confidence": 0.0}),
+        ({"a": [1.0, 2.0]}, {"confidence": 1.0}),
+        ({"a": [1.0, 2.0]}, {"confidence": 1.5}),
+    ],
+)
+def test_the_bootstrap_refuses_empty_scenarios_few_reps_and_bad_confidence(samples, kwargs):
+    with pytest.raises(ValueError):
+        stratified_bootstrap(samples, pooled_mean, rng=0, **kwargs)
+
+
+def test_one_hundred_reps_are_enough_for_the_bootstrap():
+    found = stratified_bootstrap({"a": [1.0, 2.0, 4.0]}, pooled_mean, reps=100, rng=0)
+    assert 1.0 <= found.lower <= found.upper <= 4.0
+
+
+def test_the_performance_profile_weights_each_scenario_equally():
+    samples = {"a": np.array([1.0, 2.0, 3.0, 4.0]), "b": np.array([10.0, 20.0])}
+    found = performance_profile(samples, [0.0, 2.0, 5.0, 15.0, 25.0])
+    # Scenario a: 1, 1/2, 0, 0, 0 above each threshold; b: 1, 1, 1, 1/2, 0. A score equal to the
+    # threshold is not above it; pooling the six runs would give 4/6 at 2.
+    np.testing.assert_allclose(found, [1.0, 0.75, 0.5, 0.25, 0.0], rtol=0, atol=1e-15)
+    assert isinstance(found, np.ndarray) and found.shape == (5,)
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    a=scores,
+    b=scores,
+    taus=st.lists(st.floats(-150.0, 150.0, allow_subnormal=False), min_size=1, max_size=10),
+)
+def test_the_performance_profile_falls_from_one_to_zero(a, b, taus):
+    samples = {"a": np.array(a), "b": np.array(b)}
+    found = performance_profile(samples, np.sort(taus))
+    assert np.all((found >= 0.0) & (found <= 1.0))
+    assert np.all(np.diff(found) <= 0.0)
+    np.testing.assert_array_equal(performance_profile(samples, [-200.0, 200.0]), [1.0, 0.0])
+
+
+def test_the_probability_of_improvement_counts_ties_as_half():
+    # Pairs of (1, 2, 3) against (2, 2): 0, 0, 1/2, 1/2, 1, 1, so 3/6. Second scenario: every
+    # run of x beats every run of y. Scenarios weigh equally: (0.5 + 1) / 2.
+    x = {"a": [1.0, 2.0, 3.0], "b": [3.0, 4.0]}
+    y = {"a": [2.0, 2.0], "b": [1.0, 2.0]}
+    found = probability_of_improvement(x, y, reps=200, rng=0)
+    assert isinstance(found, Interval)
+    assert found.estimate == 0.75
+    assert 0.0 <= found.lower <= found.estimate <= found.upper <= 1.0
+
+
+def test_the_probability_of_improvement_weights_each_scenario_equally():
+    x = {"a": np.full(100, 2.0), "b": [0.0, 0.0]}
+    y = {"a": np.full(100, 1.0), "b": [1.0, 1.0]}
+    assert probability_of_improvement(x, y, reps=200, rng=0).estimate == 0.5
+
+
+@settings(max_examples=20, deadline=None)
+@given(a=scores, b=scores)
+def test_the_probability_of_improvement_is_the_mann_whitney_fraction(a, b):
+    found = probability_of_improvement({"s": a}, {"s": b}, reps=100, rng=0).estimate
+    u = mannwhitneyu(a, b, alternative="two-sided").statistic
+    assert found == pytest.approx(u / (len(a) * len(b)), rel=1e-12, abs=1e-12)
+    reverse = probability_of_improvement({"s": b}, {"s": a}, reps=100, rng=0).estimate
+    assert found + reverse == pytest.approx(1.0, rel=1e-12)
+
+
+def test_a_controller_that_always_wins_has_an_interval_at_one():
+    x = {"a": [5.0, 6.0, 7.0], "b": [3.0, 9.0]}
+    y = {"a": [1.0, 2.0], "b": [0.0, 1.0, 2.0]}
+    found = probability_of_improvement(x, y, reps=200, rng=0)
+    assert (found.estimate, found.lower, found.upper) == (1.0, 1.0, 1.0)
+
+
+def test_the_probability_of_improvement_interval_is_reproducible():
+    rng = np.random.default_rng(21)
+    x = {"a": rng.standard_normal(15), "b": rng.standard_normal(9)}
+    y = {"a": rng.standard_normal(15), "b": rng.standard_normal(11)}
+    first = probability_of_improvement(x, y, reps=300, rng=22)
+    assert probability_of_improvement(x, y, reps=300, rng=22) == first
+    assert first.width > 0.0
+
+
+def test_the_probability_of_improvement_needs_the_same_scenarios():
+    with pytest.raises(ValueError):
+        probability_of_improvement({"a": [1.0], "b": [2.0]}, {"a": [1.0]}, reps=100, rng=0)
+    with pytest.raises(ValueError):
+        probability_of_improvement({"a": [1.0]}, {"a": []}, reps=100, rng=0)
+
+
+def test_the_paired_difference_is_the_iqm_of_per_seed_differences():
+    # Differences 0, 1, 2, -7: the middle half is 0 and 1. The difference of the two IQMs would be
+    # 1.5 - 0 = 1.5.
+    x = {"a": [0.0, 1.0, 2.0, 3.0]}
+    y = {"a": [0.0, 0.0, 0.0, 10.0]}
+    found = paired_difference(x, y, reps=200, rng=0)
+    assert isinstance(found, Interval)
+    assert found.estimate == 0.5
+
+
+def test_common_random_numbers_cancel_in_the_paired_difference():
+    rng = np.random.default_rng(31)
+    noise = {"a": 10.0 * rng.standard_normal(40), "b": 10.0 * rng.standard_normal(25)}
+    x = {k: v + 0.1 for k, v in noise.items()}
+    found = paired_difference(x, noise, reps=200, rng=32)
+    # Each seed's noise is shared, so every difference is 0.1 and every resample agrees; resampling
+    # x and y separately would give an interval about 5 wide.
+    assert found.estimate == pytest.approx(0.1, rel=1e-9)
+    assert found.width < 1e-9
+
+
+def test_the_paired_difference_pools_pairs_across_scenarios():
+    x = {"a": [1.0, 2.0, 3.0, 4.0], "b": [10.0, 10.0]}
+    y = {"a": [0.0, 0.0, 0.0, 0.0], "b": [0.0, 0.0]}
+    # Six differences 1, 2, 3, 4, 10, 10; one trimmed at each end leaves 2, 3, 4, 10.
+    assert paired_difference(x, y, reps=200, rng=0).estimate == 4.75
+
+
+def test_the_paired_difference_interval_is_reproducible_and_brackets_the_estimate():
+    rng = np.random.default_rng(33)
+    x = {"a": rng.standard_normal(30), "b": rng.standard_normal(20)}
+    y = {"a": rng.standard_normal(30), "b": rng.standard_normal(20)}
+    first = paired_difference(x, y, reps=150, rng=34)
+    assert paired_difference(x, y, reps=150, rng=34) == first
+    assert first.lower < first.estimate < first.upper
+
+
+@pytest.mark.parametrize(
+    "x, y",
+    [
+        ({"a": [1.0, 2.0]}, {"a": [1.0]}),
+        ({"a": [1.0], "b": [2.0]}, {"a": [1.0]}),
+        ({"a": []}, {"a": []}),
+    ],
+)
+def test_the_paired_difference_refuses_unpaired_runs(x, y):
+    with pytest.raises(ValueError):
+        paired_difference(x, y, reps=100, rng=0)

@@ -31,6 +31,17 @@ release may change the public API, and every such change is listed under Changed
   safe-autonomy deep-RL docking and illuminated inspection tasks) and `spacegym-docking` and
   `spacegym-rendezvous`; the dispersions `AngleShell` and `LimitedSpeed`; `HoldParams.out_of_bounds`
   and `end_on_arrival`; `InspectionParams.shadow` and `out_of_bounds`.
+- `vbar.eval`, the evaluation harness: the suite runner (`run_suite`, `run_jobs`) with resumable
+  JSON-lines results, a provenance hash per run and the `Task` interface.
+- `vbar.eval.stats` and `vbar.eval.tails`: the IQM, stratified bootstrap, performance profiles,
+  probability of improvement and paired differences; safety tails with order-statistic intervals
+  and tolerance bounds, and rate comparisons that refuse unresolved claims.
+- `vbar.eval.coverage`: coverage of the scoring intervals on synthetic outcomes, and McNemar's
+  exact test.
+- `vbar.eval.learned`: learned-agent entries (`LearnedEntry`, `TrainingRun`), training runs as the
+  unit, failed runs never replaced.
+- `vbar.eval.report` and the command line `python -m vbar.eval run | report | reproduce`: suite
+  reports that refuse a partial suite, and `reproduce.toml`, which rebuilds every published table.
 - `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
 - `vbar.dynamics.backends`: Basilisk and Orekit as independent propagators of the two-body plus J2
   rung (the optional extras `basilisk` and `orekit`), and the agreement table against them

@@ -396,6 +396,25 @@ ed., Nob Hill, 2017)
 - Sec. 11.4.1 with sec. 5.8.3: an unreachable terminal row is certified infeasible, and the
   certificate verifies by Farkas' lemma against the assembled matrices.
 
+## Published examples behind the evaluation harness
+
+- Kochenderfer, Wheeler and Wray, *Algorithms for Decision Making* (2022), sec. 14.1: the
+  Clopper-Pearson intervals for 3 failures in 10,000 runs, (6.187e-5, 8.765e-4), and for 90 of 100,
+  (0.8238, 0.9510), and the normal interval's negative lower end for the rare case, -3.945e-5
+  (`tests/test_eval_tails.py`).
+- Kochenderfer, Katz, Corso and Moss, *Algorithms for Validation* (2026), secs. 7.1 and 12.2: the
+  one-sided (95%, 95%) tolerance order statistics, the 2nd of 100 runs (confidence 0.963) and the
+  39th of 1000 (0.957); the zero-failure counts 59, 230 and 299 for 95/95, 99/90 and 99/95; the
+  probability that a split-conformal bound covers less than 95% given its calibration runs, 0.436
+  at 100 runs and 0.480 at 1000 (`tests/test_eval_tails.py`).
+- Agarwal et al., "Deep Reinforcement Learning at the Edge of the Statistical Precipice" (NeurIPS
+  2021): the interquartile mean, the stratified bootstrap and the probability of improvement as the
+  Mann-Whitney fraction (`tests/test_eval_stats.py`).
+- Hamilton, Dunlap and Hobbs (2024, arXiv 2405.12355), van Wijk, Dunlap, Majji and Hobbs (AAS 23-342,
+  2023, arXiv 2308.02743) and Supreeth and Mehta (CVPR 2026 Workshops): every constant of the four
+  comparison tasks, and the inspection paper's minimum completion time of about 3060 s, pi / n,
+  reproduced at 3060 s (`tests/test_comparison_tasks.py`).
+
 ## Agreement with Basilisk and Orekit
 
 V-BAR's two-body plus J2 rung, Basilisk 2.12 and Orekit 13.1 fly the same initial inertial states
@@ -437,6 +456,31 @@ second-order term of that approximation), identically in both: it comes from tha
 not from V-BAR. The tests assert a one-orbit coast within 1e-4 m and a burn replay within 1e-3 m
 whose residual falls by more than three when the substep halves (`tests/test_backends_external.py`,
 run when the extras are installed).
+
+## Coverage of the scoring intervals
+
+Synthetic outcomes with a known truth, 1000 experiments per cell, each interval at 95%
+(`benchmarks/coverage_table.py`; the cells at 50 and 100 runs and the narrowed interval are
+asserted in `tests/test_eval_coverage.py`). An interval holds when its coverage is within three
+binomial standard errors (2.1 points) of 95%. Success and keep-out rates use Clopper-Pearson;
+the continuous metric (normal, mean 2, sd 1) and the paired difference (two controllers sharing
+90% of each seed's variance, true difference 0.3) use the percentile bootstrap of the IQM with
+1000 resamples; McNemar's exact test compares two equal controllers (success 0.8) flown on the
+same seeds.
+
+| Runs per cell | Success 0.9 | Keep-out 0.05 | IQM | Paired difference | McNemar false positives |
+|---|---|---|---|---|---|
+| 5 | 0.992 | 0.980 | 0.889 (short) | 0.886 (short) | 0.000 |
+| 10 | 0.989 | 0.992 | 0.927 (short) | 0.925 (short) | 0.000 |
+| 20 | 0.991 | 0.984 | 0.939 | 0.943 | 0.000 |
+| 50 | 0.976 | 0.992 | 0.938 | 0.945 | 0.014 |
+| 100 | 0.962 | 0.987 | 0.948 | 0.954 | 0.034 |
+
+The exact rate intervals cover at every count (they are conservative); the bootstrap intervals
+fall short below 20 runs, so a leaderboard row needs at least 20 runs per cell for its IQM
+interval to mean what it says, and the default of 100 holds with room. McNemar's false-positive
+rate stays below 5% at every count. An IQM interval narrowed to 0.7 of its width covers 0.849 at
+100 runs, so the test catches an interval that is too narrow.
 
 ## Methods
 

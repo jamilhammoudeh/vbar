@@ -27,4 +27,5 @@ and how it is tested.
 | [solvers.md](solvers.md) | nondimensional Hill-frame units, the exact projection of a command onto linear rows under a box or ball thrust limit, its multipliers, the phase I certificate of infeasibility, stage-structured horizon problems and their Riccati solve, the primal-dual interior-point method and its statuses |
 | [viz.md](viz.md) | the screen style and its colours, the Hill-frame view, range and speed panels, the approach animation, label placement, regenerating the README figures |
 | [backends.md](backends.md) | Basilisk and Orekit as independent propagators of the two-body plus J2 rung, burns held in the Hill frame, the agreement table and how its residuals are attributed |
+| [evaluation.md](evaluation.md) | the evaluation harness: the suite runner, result files, the provenance hash, IQM and stratified bootstrap statistics, safety tails with order-statistic intervals and tolerance bounds, rate comparisons, learned-agent rules, reports and one-command reproduction |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |

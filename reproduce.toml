@@ -1,0 +1,10 @@
+# Every published table, rebuilt by `python -m vbar.eval reproduce reproduce.toml`.
+# Each table names its suite, the agent and filter factories, and where its results and its
+# Markdown table go (relative to this file). Runs already in a results file are not flown again.
+
+[[table]]
+name = "core suite, free drift"
+suite = "core-v1"
+agent = "vbar.agents:DriftAgent"
+results = "outputs/core-v1-drift.jsonl"
+markdown = "outputs/core-v1-drift.md"

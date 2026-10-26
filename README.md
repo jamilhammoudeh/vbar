@@ -142,6 +142,20 @@ print(m["success"], m["composite_score"], m["failure_label"])  # True 1.0 None
 Definitions, tests and one card per metric are in
 [docs/metrics.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/metrics.md).
 
+A whole suite is run and reported with `vbar.eval`: every (scenario, seed) of the suite in
+parallel, one JSON-lines result per run with a provenance hash, and a report that refuses a
+partial suite and gives success rates with exact intervals, interquartile means with stratified
+bootstrap intervals and safety metrics by their unsafe tails. The core suite `core-v1` holds the
+headline benchmark: the V-bar and R-bar approaches, the on-axis docking, the run time assurance
+docking and the inspection, each with and without navigation noise.
+
+```
+python -m vbar.eval run --suite core-v1 --agent vbar.agents:DriftAgent --workers 8 --out drift.jsonl
+python -m vbar.eval report drift.jsonl --markdown drift.md
+```
+
+See [docs/evaluation.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/evaluation.md).
+
 ## Writing a controller
 
 Any object with a `name`, a `reset(view, rng)` method and an `act(obs, info)` method that returns
@@ -332,7 +346,7 @@ How each part is built, with its equations, methods, assumptions and limits, is 
 frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
 spacecraft, sensors, constraints, the environment, scenarios, metrics, rewards, training
 interfaces, the vectorized environment, agent tools, LLM agents, remote agents, policy export,
-and validation.
+solvers, the evaluation harness, the external propagators and validation.
 
 ## Tests
 

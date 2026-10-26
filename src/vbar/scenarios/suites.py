@@ -81,8 +81,14 @@ class Suite:
         """The suite identifier, `<name>-v<version>`."""
         return f"{self.name}-v{self.version}"
 
-    def runs(self) -> list[tuple[str, int, int]]:
+    def runs(self, identifiers: Mapping[str, str] | None = None) -> list[tuple[str, int, int]]:
         """(scenario_id, seed, agent_seed) for every episode of the suite.
+
+        Parameters
+        ----------
+        identifiers : mapping, optional
+            Entry scenario to the identifier its runs fly under, where an evaluation builds the
+            environment otherwise than `make`; the catalogue identifier by default.
 
         Returns
         -------
@@ -91,17 +97,21 @@ class Suite:
         """
         out = []
         for entry in self.entries:
-            scenario_id = entry.scenario_id
+            scenario_id = (identifiers or {}).get(entry.scenario) or entry.scenario_id
             out += [(scenario_id, s, a) for s, a in entry.seeds().pairs()]
         return out
 
-    def missing(self, results: Iterable[Mapping[str, Any]]) -> list[tuple[str, int]]:
+    def missing(
+        self, results: Iterable[Mapping[str, Any]], identifiers: Mapping[str, str] | None = None
+    ) -> list[tuple[str, int]]:
         """The (scenario_id, seed) runs absent from `results`; empty when a report is complete.
 
         Parameters
         ----------
         results : iterable of mapping
             Episode results, each with "scenario_id" and "seed".
+        identifiers : mapping, optional
+            As in `runs`.
 
         Returns
         -------
@@ -114,15 +124,20 @@ class Suite:
             If a result lacks "scenario_id" or "seed".
         """
         seen = {(r["scenario_id"], int(r["seed"])) for r in results}
-        return [(sid, seed) for sid, seed, _ in self.runs() if (sid, seed) not in seen]
+        runs = self.runs(identifiers)
+        return [(sid, seed) for sid, seed, _ in runs if (sid, seed) not in seen]
 
-    def require_complete(self, results: Iterable[Mapping[str, Any]]) -> None:
+    def require_complete(
+        self, results: Iterable[Mapping[str, Any]], identifiers: Mapping[str, str] | None = None
+    ) -> None:
         """Refuse `results` that leave out any run of the suite.
 
         Parameters
         ----------
         results : iterable of mapping
             Episode results, each with "scenario_id" and "seed".
+        identifiers : mapping, optional
+            As in `runs`.
 
         Raises
         ------
@@ -131,7 +146,7 @@ class Suite:
         KeyError
             If a result lacks "scenario_id" or "seed".
         """
-        missing = self.missing(results)
+        missing = self.missing(results, identifiers)
         if missing:
             total = sum(entry.count for entry in self.entries)
             scenario_id, seed = missing[0]
