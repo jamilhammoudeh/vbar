@@ -233,10 +233,11 @@ def test_van_loan_cost_matches_gauss_legendre_quadrature(dt):
     qd, rd, sd = lqr.sampled_data_cost(a, b, Q_DEFAULT, R_DEFAULT, dt)
     qq, rq, sq = quadrature_cost(Q_DEFAULT, R_DEFAULT, dt)
     # Two paths to the same integral: the exponential and the quadrature of closed forms.
-    # Observed agreement is 2e-12 at the longest step and rounding below it.
-    assert np.max(np.abs(qd - qq)) <= 1e-9 * np.max(np.abs(qq))
-    assert np.max(np.abs(rd - rq)) <= 1e-9 * np.max(np.abs(rq))
-    assert np.max(np.abs(sd - sq)) <= 1e-9 * np.max(np.abs(sq))
+    # Observed agreement is 2e-12 at the longest step with current SciPy and 4e-9 with the oldest
+    # supported release, whose matrix exponential is less accurate.
+    assert np.max(np.abs(qd - qq)) <= 1e-8 * np.max(np.abs(qq))
+    assert np.max(np.abs(rd - rq)) <= 1e-8 * np.max(np.abs(rq))
+    assert np.max(np.abs(sd - sq)) <= 1e-8 * np.max(np.abs(sq))
 
 
 @pytest.mark.parametrize("dt", [1e-6, 1e-3, 10.0, 1e3, 1e4])

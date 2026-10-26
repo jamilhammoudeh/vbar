@@ -227,13 +227,13 @@ def _chebyshev_radius(a: np.ndarray, b: np.ndarray, box: np.ndarray) -> float:
     a_s = a * half
     b_s = b - a @ centre
     nx = a.shape[1]
-    lp = linprog(
-        np.r_[np.zeros(nx), -1.0],
-        A_ub=np.column_stack([a_s, np.linalg.norm(a_s, axis=1)]),
-        b_ub=b_s,
-        bounds=[(None, None)] * nx + [(0.0, None)],
-        method="highs",
-    )
+    c = np.r_[np.zeros(nx), -1.0]
+    a_ub = np.column_stack([a_s, np.linalg.norm(a_s, axis=1)])
+    bounds = [(None, None)] * nx + [(0.0, None)]
+    lp = linprog(c, A_ub=a_ub, b_ub=b_s, bounds=bounds, method="highs")
+    if lp.status not in (0, 2):
+        # The oldest supported HiGHS reports an unknown status on some degenerate cells.
+        lp = linprog(c, A_ub=a_ub, b_ub=b_s, bounds=bounds, method="highs-ipm")
     if lp.status == 2:
         return -1.0
     if lp.status != 0:

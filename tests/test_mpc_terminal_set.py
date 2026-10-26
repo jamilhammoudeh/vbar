@@ -269,7 +269,8 @@ def test_set_that_cannot_be_certified_is_refused():
     # Without the certificate this returns t* = 2, yet an independent interior-point LP puts a
     # row of h F^3 at 1.0001 times its bound over that set: a wrong set, so it must raise.
     f, k = scaled_loop(10**2.5, 1e-4, 0.2)
-    with pytest.raises(RuntimeError, match="could not be certified"):
+    # Platform arithmetic decides whether the recursion stalls first or the certificate fails.
+    with pytest.raises((RuntimeError, ValueError), match="could not be certified|not finitely"):
         admissible_set(f, k, np.full(3, A_MAX))
 
 
