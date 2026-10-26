@@ -36,6 +36,8 @@ def main(out: Path = IMAGES) -> tuple[Path, Path]:
         out / "pd_approach.gif",
         title="PD baseline, target in the way (seed 5)",
         color=SERIES_COLORS[1],
+        # 800 px wide matches the README column and keeps the file near 1 MB.
+        dpi=100,
     )
     return png, gif
 
