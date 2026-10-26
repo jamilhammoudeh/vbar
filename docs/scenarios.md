@@ -90,7 +90,12 @@ neither search finds without the key.
 
 A `Suite` is a versioned list of entries (scenario with variants, split, number of seeds);
 `runs()` lists every (scenario identifier, seed, agent seed) and `missing(results)` the runs a
-report lacks, so a suite is reported in full or not at all. Built in: `v1-v1` (the four v1
+report lacks, and `require_complete(results)` refuses a report that lacks any, so a suite is
+reported in full or not at all. The core suite carries the headline benchmark: `core-v1` is
+`approach-vbar`, `approach-rbar`, `docking:axis`, `docking-afrl` and `inspection`, each without and
+with `:nav1`, on 100 validation seeds per entry, and `core-test-v1` the same ten entries on 100
+hidden test seeds each. The rest of the catalogue stays available outside it. Also built in:
+`v1-v1` (the four v1
 scenarios, 50 validation seeds each), `v1-nav1-v1` (the same on the `:nav1` track),
 `v1-operations-v1` (closing, R-bar acquisition, berthing box, the on-axis, lit and offset
 dockings, the inertial target and the orbit-normal approach) and `v1-shuttle-v1` (the six

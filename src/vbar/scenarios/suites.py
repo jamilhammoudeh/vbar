@@ -116,6 +116,30 @@ class Suite:
         seen = {(r["scenario_id"], int(r["seed"])) for r in results}
         return [(sid, seed) for sid, seed, _ in self.runs() if (sid, seed) not in seen]
 
+    def require_complete(self, results: Iterable[Mapping[str, Any]]) -> None:
+        """Refuse `results` that leave out any run of the suite.
+
+        Parameters
+        ----------
+        results : iterable of mapping
+            Episode results, each with "scenario_id" and "seed".
+
+        Raises
+        ------
+        ValueError
+            If a run is missing; the message counts them and names the first.
+        KeyError
+            If a result lacks "scenario_id" or "seed".
+        """
+        missing = self.missing(results)
+        if missing:
+            total = sum(entry.count for entry in self.entries)
+            scenario_id, seed = missing[0]
+            raise ValueError(
+                f"{self.id} is reported in full or not at all: {len(missing)} of {total} runs "
+                f"are missing, the first {scenario_id} seed {seed}"
+            )
+
     def complete(self, results: Iterable[Mapping[str, Any]]) -> bool:
         """Whether `results` cover every run of the suite.
 

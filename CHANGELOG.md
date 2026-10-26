@@ -23,6 +23,9 @@ release may change the public API, and every such change is listed under Changed
 - `BaseEnv.task_outcome()` and `Episode.outcome`: the environment's verdict on a goal the metrics
   cannot rebuild from the trajectory (the inspection's coverage).
 - Every scenario goal carries `cam_impulses`, the abort set the abort metrics check.
+- The core suite `core-v1` (the V-bar and R-bar approaches, `docking:axis`, `docking-afrl` and the
+  inspection, each with and without `:nav1`, 100 validation seeds each) and `core-test-v1` (the
+  same on the hidden test split); `Suite.require_complete` refuses a partial report.
 - `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
 
 ### Changed

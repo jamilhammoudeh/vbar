@@ -310,6 +310,27 @@ def test_suites_list_their_runs_and_find_missing_ones():
         Suite("twice", 1, (SuiteEntry("docking"), SuiteEntry("docking")))
 
 
+def test_the_core_suite_lists_exactly_its_runs_and_refuses_a_partial_report():
+    core = ("approach-vbar", "approach-rbar", "docking:axis", "docking-afrl", "inspection")
+    expected = [name for base in core for name in (base, base + ":nav1")]
+    for suite_id, split in (("core-v1", "validation"), ("core-test-v1", "test")):
+        suite = SUITES[suite_id]
+        assert [e.scenario for e in suite.entries] == expected
+        assert {(e.split, e.count) for e in suite.entries} == {(split, 100)}
+    suite = SUITES["core-v1"]
+    runs = suite.runs()
+    assert len({(sid, seed) for sid, seed, _ in runs}) == len(runs) == 1000
+    assert {sid for sid, _, _ in runs} == {make(name).scenario_id for name in expected}
+    results = [{"scenario_id": sid, "seed": seed} for sid, seed, _ in runs]
+    suite.require_complete(results)
+    with pytest.raises(ValueError, match="1 of 1000 runs"):
+        suite.require_complete(results[1:])
+    # Leaving out a whole scenario, the classic subset report, is refused the same way.
+    docking = make("docking:axis:nav1").scenario_id
+    with pytest.raises(ValueError, match="100 of 1000 runs"):
+        suite.require_complete([r for r in results if r["scenario_id"] != docking])
+
+
 def test_tags_group_results_by_scenario_tag():
     ids = [make("approach-vbar").scenario_id, make("approach-rbar:iss").scenario_id]
     groups = scenarios.group_by_tag([{"scenario_id": i} for i in ids])

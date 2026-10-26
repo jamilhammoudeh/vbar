@@ -887,4 +887,25 @@ SUITE_V1_SHUTTLE = register_suite(
     )
 )
 
-__all__ = ["FT", "GATES", "N", "N_HST", "N_ISS", "feet", "hold_oracle"]
+# The headline benchmark: five scenarios, each without and with navigation noise, reported in
+# full. The rest of the catalogue stays available outside the headline table.
+CORE = ("approach-vbar", "approach-rbar", "docking:axis", "docking-afrl", "inspection")
+SUITE_CORE = register_suite(
+    Suite(
+        "core",
+        1,
+        tuple(
+            SuiteEntry(name, "validation", 100) for base in CORE for name in (base, f"{base}:nav1")
+        ),
+    )
+)
+# The same runs on the hidden test split, for scored comparisons.
+SUITE_CORE_TEST = register_suite(
+    Suite(
+        "core-test",
+        1,
+        tuple(SuiteEntry(name, "test", 100) for base in CORE for name in (base, f"{base}:nav1")),
+    )
+)
+
+__all__ = ["CORE", "FT", "GATES", "N", "N_HST", "N_ISS", "feet", "hold_oracle"]
