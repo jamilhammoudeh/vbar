@@ -66,20 +66,26 @@ normals internally, so rows in different units mix freely.
 
 At the solution of a QP in three variables at most three linearly independent rows are active.
 Every subset $S$ of at most three rows (box faces count as rows) whose unit normals have smallest
-singular value above 1e-12 gives the equality-constrained problem with $a_S u = b_S$, solved from
-its KKT system
+singular value above 1e-12 gives the equality-constrained problem with $A_S u = b_S$. It is
+solved by eliminating the rows (Boyd and Vandenberghe, sec. 10.1.2) through the QR factorization
+$A_S^T = [Q_1\ Q_2]\,[R;\ 0]$, computed once per subset:
 
 $$
-\begin{bmatrix} H & -A_S^T \\ A_S & 0 \end{bmatrix}
-\begin{bmatrix} u \\ \lambda_S \end{bmatrix} =
-\begin{bmatrix} H u_{\text{nom}} \\ b_S \end{bmatrix},
+u_p = Q_1 R^{-T} b_S, \qquad
+u = u_p + Q_2 t, \quad (Q_2^T H Q_2)\,t = Q_2^T H (u_{\text{nom}} - u_p), \qquad
+R\,\lambda_S = Q_1^T H (u - u_{\text{nom}}),
 $$
 
-all subsets at once as stacked 6x6 systems. A candidate is optimal when every row holds and every
-multiplier is nonnegative, the KKT conditions (Boyd and Vandenberghe, sec. 5.5.3, eq. 5.49).
-With linear rows these conditions are necessary and sufficient whenever the rows can be met, so a
-feasible problem always has a winning subset; the lowest objective among winners is returned.
-With 32 rows and a box that is 9178 subsets, and there is no iteration count or starting point.
+all subsets at once, with a least-norm step $Q_1 R^{-T}(A_S u - b_S)$ back onto the active rows
+to remove the rounding that a large $t$ carries into them. The factors have the conditioning of
+the rows; the KKT matrix of the same problem squares it in elimination and can round to an
+exactly singular matrix for rows within 1e-8 of parallel. Stationarity
+$H(u - u_{\text{nom}}) = A_S^T\lambda_S$ holds by construction, so a candidate is optimal when
+every row holds and every multiplier is nonnegative, the KKT conditions (Boyd and Vandenberghe,
+sec. 5.5.3, eq. 5.49). With linear rows these conditions are necessary and sufficient whenever
+the rows can be met, so a feasible problem always has a winning subset; the lowest objective
+among winners is returned. With 32 rows and a box that is 9178 subsets, and there is no
+iteration count or starting point.
 
 A ball limit is dualized. For a fixed multiplier $\mu \ge 0$ on $|u|^2 \le a_{\max}^2$ the
 problem is the rows-only projection with $H + \mu I$, and $|u(\mu)|$ is nonincreasing in $\mu$.
@@ -98,11 +104,25 @@ $$
 $$
 
 with unit rows $\hat a_i$, by `scipy.optimize.linprog` (HiGHS); a ball is replaced here by its
-bounding box. The LP's dual gives $\lambda \ge 0$, which is checked in numpy as a certificate of
+bounding box. HiGHS's tolerances are absolute, so $u$, $s$ and $\hat b$ are divided by the
+problem's scale (below), which leaves the dual unchanged and makes the verdict independent of the
+command units. The LP's dual gives $\lambda \ge 0$, which is checked as a certificate of
 infeasibility (a theorem of alternatives, sec. 5.8.3): $b^T\lambda$ must exceed the largest
-$\lambda^T A u$ over the actuator set, that is $a_{\max}|A^T\lambda|_1$ for a box,
-$a_{\max}|A^T\lambda|_2$ for a ball and 0 with no limit (where $A^T\lambda$ must also vanish to
-1e-9 of $|\lambda|_1$). Then for every $u$ in the set $\lambda^T(Au - b) < 0$, so some row fails.
+$\lambda^T A u$ over the actuator set by 1e-10 of the scale times $|\lambda|_1$, where that
+largest value is $a_{\max}|A^T\lambda|_1$ for a box and $a_{\max}|A^T\lambda|_2$ for a ball. Then
+for every $u$ in the set $\lambda^T(Au - b) < 0$, so some row fails.
+
+With no limit the largest value is 0 only if $A^T\lambda = 0$, which in floating point holds only
+to rounding, while nearly parallel rows meet far out: $x \ge 1$ and $-x + 10^{-9}y \ge -0.5$ are
+met at $y = 5\times10^8$, yet $\lambda = (1, 1)$ leaves $A^T\lambda = (0, 10^{-9}, 0)$. The
+entries of $\lambda$ above 1e-9 of its largest are therefore projected, in rational arithmetic on
+the given rows, onto the null space of $A_S^T$ for that support $S$,
+$\lambda \leftarrow \lambda - A_B (A_B^T A_B)^{-1} A_B^T \lambda$ with $A_B$ the columns of $A_S$
+that span the others, and the result must be nonnegative with $b^T\lambda > 0$, checked exactly.
+The certificate then covers every command, not a bounded region. Rows that conflict only to
+rounding, such as a row and a rounded multiple of its negative, are feasible far out in exact
+arithmetic and give "solver_failed".
+
 The status is "infeasible_certified" only when the check passes, and "solver_failed" otherwise.
 With a ball and rows that can be met, the nearest row-feasible point to the origin, $u_m$, decides:
 if $|u_m| > a_{\max}$ its multipliers $\lambda_m$ satisfy $u_m = A^T\lambda_m$ and
@@ -110,13 +130,14 @@ $b^T\lambda_m = |u_m|^2$, so $b^T\lambda_m > a_{\max}|A^T\lambda_m|_2$.
 
 `certificate` holds $\lambda$ over the rows, followed for a box by its six faces in the order
 "box+x", "box-x", "box+y", "box-y", "box+z", "box-z" ("box+x" is the face $u_x = a_{\max}$),
-chosen so that $A^T\lambda = 0$ and $b^T\lambda > 0$ over rows and faces together. `conflicting`
-names the rows, faces and "ball" in its support (entries above 1e-9 of the largest), the
-constraints that cannot hold together. The returned command is the one nearest
-$u_{\text{nom}}$ in the actuator set among those that violate no row more than the phase I point
-does; with a ball the search ignores the limit and the result is scaled onto the ball, which can
-violate the rows more than the phase I point. `phase1_margin` is the sum of the remaining
-violations $(b_i - a_i \cdot u)/|a_i|$ in command units.
+chosen so that $A^T\lambda = 0$ and $b^T\lambda > 0$ over rows and faces together; without a
+limit it is the float rounding of the exact certificate. `conflicting` names the rows, faces and
+"ball" in its support (entries above 1e-9 of the largest), the constraints that cannot hold
+together. The returned command is the one nearest $u_{\text{nom}}$ in the actuator set among
+those that violate no row more than the phase I point does; with a ball the search ignores the
+limit and the result is scaled onto the ball, which can violate the rows more than the phase I
+point. `phase1_margin` is the sum of the remaining violations $(b_i - a_i \cdot u)/|a_i|$ in
+command units.
 
 ### Statuses and outputs
 
@@ -128,11 +149,14 @@ violations $(b_i - a_i \cdot u)/|a_i|$ in command units.
 - "solver_failed": no answer and no proof, a defect of the solver rather than of the command;
   `u` is the best command found.
 
-Rows are accepted to 1e-10 of the problem's scale, the largest of $a_{\max}$, $|b_i|/|a_i|$ and
-$|u|_\infty$, so the answer does not depend on the units of the command. The nominal command is
-left out of that scale on purpose: the multipliers carry $H(u - u_{\text{nom}})$ and get its
-rounding allowance, but a large nominal command must not loosen a safety row. Equal inputs give
-bitwise equal outputs.
+Rows are accepted to 1e-10 of the problem's scale, the largest of $a_{\max}$ and $|b_i|/|a_i|$,
+plus the rounding of the row's own value, $4\varepsilon\sum_j |a_{ij}u_j|/|a_i|$ with
+$\varepsilon$ the machine epsilon, so the answer does not depend on the units of the command.
+Neither the command nor the nominal command enters the scale, and the rounding term is zero for
+a row across a large component of $u$: $u_x \ge 1$ holds to 1e-10 at
+$u_{\text{nom}} = (0, 10^{12}, 0)$ without a limit. The multipliers carry
+$H(u - u_{\text{nom}})$ and get its rounding allowance, 1e-10 of the largest of the scale,
+$|u|_\infty$ and $|u_{\text{nom}}|_\infty$. Equal inputs give bitwise equal outputs.
 
 ### Assumptions and limits
 
@@ -142,10 +166,10 @@ bitwise equal outputs.
 - When the rows touch the ball at a single point the feasible set is that point, Slater's
   condition fails and finite multipliers do not exist in general, as in Boyd and Vandenberghe,
   exercise 5.26; the point is returned as feasible with infinite multipliers on its active rows.
-- Rows within 1e-12 of parallel count as dependent; nearly parallel rows active together give
-  large multipliers. A subset of such rows whose KKT or correction system rounds to an exactly
-  singular matrix is solved again on its own by least squares, and its candidate is checked
-  like any other.
+- Rows within 1e-12 of parallel count as dependent and are never active together; when the
+  optimum needs both, no subset wins and the status is "solver_failed", or
+  "infeasible_certified" for rows that cannot be met. Nearly parallel rows active together give
+  large multipliers, 6.4e10 on unit rows 1.4e-7 off parallel in the tests.
 
 ### Validation
 
@@ -175,6 +199,22 @@ The tests in `tests/test_solvers_qp.py` check:
   ball.
 - Bitwise determinism, the same answer in SI and in `HillScaling` units to 1e-12 $a_{\max}$, and
   the refusal of 33 rows.
+
+The tests in `tests/test_solvers_project_conditioning.py` compare with answers known exactly,
+since `linprog` and SLSQP are unreliable on these problems:
+
+- $u_x \ge 1$ with $u_{\text{nom}} = (0, Y, 0)$ and no limit, $Y$ from 1e6 to 1e12: the optimum
+  $(1, Y, 0)$ to 1e-10; and $u_x \ge 1$, $u_x \le 0.99$ certified under the same nominal commands
+  with no limit, a box and a ball.
+- $x \ge 1$ and $-x + \epsilon y \ge -0.5$ for $\epsilon$ from 1e-9 to 1e-15, and a wedge that
+  opens at $y = 1000$, never certified infeasible; a point meeting each is checked in rational
+  arithmetic.
+- A sweep problem whose two active rows are 1.4e-7 off parallel, within 1e-5 of the objective of
+  the KKT point found in rational arithmetic; the apex of the wedge $1 \le x \le 1 + d(y - Y_0)$
+  for $d$ from 1e-9 to 1e-11 and $Y_0$ of 10 and 1000, within 1e-6 of its exact objective.
+- A 1% conflict with no limit, a box and a ball, and a row beyond a box and a ball, in command
+  units from 1e3 to 1e-12: certified with the same conflicting names and, to 1e-9, the same
+  certificate direction as in unit command units.
 
 ```python
 import numpy as np

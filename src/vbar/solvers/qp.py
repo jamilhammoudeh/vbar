@@ -3,17 +3,19 @@
 The problem is min 1/2 (u - u_nom)^T H (u - u_nom) subject to rows a_i . u >= b_i and a box or
 ball limit on u, with H diagonal and positive. In three dimensions at most three linearly
 independent rows are active at the solution, so every subset of at most three rows is tried: each
-gives an equality-constrained QP whose KKT system is solved directly, and the subset whose point
-satisfies every row with nonnegative multipliers is the solution (Boyd and Vandenberghe, *Convex
-Optimization*, sec. 5.5.3, eq. 5.49). With linear rows the KKT conditions are necessary and
-sufficient whenever the rows are feasible, so a subset always wins then. Box faces are rows. The
+gives an equality-constrained QP, solved by eliminating its rows through a QR factorization
+(Boyd and Vandenberghe, *Convex Optimization*, sec. 10.1.2), and the subset whose point satisfies
+every row with nonnegative multipliers is the solution (sec. 5.5.3, eq. 5.49). With linear rows
+the KKT conditions are necessary and sufficient whenever the rows are feasible, so a subset
+always wins then. Box faces are rows. The
 ball |u| <= a_max is dualized: for a fixed multiplier mu the problem is the rows-only QP with
 H + mu I, and |u(mu)| is nonincreasing in mu, so mu is found by Brent's method, a bisection
 safeguarded by secant steps, on a_max / |u(mu)| - 1.
 
-When no subset wins, the sum-of-infeasibilities phase I LP (sec. 11.4.1, eq. 11.20) gives the
-least-violation command and a dual vector lam >= 0 that is checked in numpy as a Farkas
-certificate (sec. 5.8.3) before infeasibility is reported.
+When no subset wins, the sum-of-infeasibilities phase I LP (sec. 11.4.1, eq. 11.20), posed in
+units of the problem's scale, gives the least-violation command and a dual vector lam >= 0 that
+is checked as a Farkas certificate (sec. 5.8.3) before infeasibility is reported: against the
+actuator set's support in numpy, or in rational arithmetic when there is no actuator set.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from __future__ import annotations
 import itertools
 import math
 from dataclasses import dataclass, replace
+from fractions import Fraction
 from functools import lru_cache
 
 import numpy as np
@@ -36,9 +39,12 @@ _FACE_NORMALS = np.array(
 )
 _FACE_NORMALS.flags.writeable = False
 
-# Candidates are accepted when rows and multipliers hold to this fraction of the problem's
-# scale; rounding in the 6x6 solves is near 1e-15 of it.
+# Candidates are accepted when rows and multipliers hold to this fraction of the problem's scale.
 _TOL = 1e-10
+# Rows are also accepted to this multiple of the rounding of a_i . u, eps sum_j |a_ij u_j|, which
+# its evaluation, the step onto the active rows and the row's normalization each contribute
+# about once; tight rows of random problems stay within 0.75 of it.
+_ROUNDING = 4.0 * float(np.finfo(float).eps)
 # Unit row normals are independent when the smallest singular value of the subset exceeds this.
 _RANK_TOL = 1e-12
 # The ball radius is matched to this fraction of a_max.
@@ -47,8 +53,10 @@ _MAX_ITERATIONS = 200
 # The ball multiplier is located to this fraction of the smallest weight, or 4 ulp of itself;
 # u then moves by about the same fraction of its size on every axis.
 _MU_TOL = 1e-14
-# Without an actuator set, a Farkas certificate's A^T lam must vanish to this fraction of |lam|_1.
+# A certificate keeps and names the rows whose entry exceeds this fraction of its largest.
 _FARKAS_TOL = 1e-9
+# Column sets of A, largest first; the first independent one spans the others.
+_COLUMN_SETS = ((0, 1, 2), (0, 1), (0, 2), (1, 2), (0,), (1,), (2,))
 
 
 @dataclass(frozen=True)
@@ -157,9 +165,11 @@ class Projection:
         "infeasible_certified".
     certificate : ndarray or None
         lam >= 0 over the rows, followed for a box by its six faces, with b^T lam above the
-        largest lam^T A u over the actuator set. With a box (faces included) or no actuator set
-        this is A^T lam = 0 and b^T lam > 0; with a ball, b^T lam > a_max |A^T lam|_2. None
-        unless "infeasible_certified".
+        largest lam^T A u over the actuator set. With a box (faces included) this is
+        A^T lam = 0 and b^T lam > 0; with a ball, b^T lam > a_max |A^T lam|_2. With no actuator
+        set, lam is the float rounding of a vector with A^T lam = 0 and b^T lam > 0 in exact
+        arithmetic on the given rows, so it covers every command. None unless
+        "infeasible_certified".
     phase1_margin : float
         When feasible, the largest row violation (b_i - a_i . u) / |a_i| at `u`, in command
         units, <= 0 up to rounding and -inf with no rows; otherwise the sum of those violations
@@ -177,98 +187,183 @@ class Projection:
 
 
 @lru_cache(maxsize=MAX_ROWS + len(BOX_FACES) + 1)
-def _subsets(m: int) -> tuple[np.ndarray, np.ndarray]:
-    """Every subset of at most three of m rows, padded with index m, and its membership mask."""
-    combos = [c for size in range(4) for c in itertools.combinations(range(m), size)]
-    idx = np.full((len(combos), 3), m, dtype=np.intp)
-    used = np.zeros((len(combos), 3), dtype=bool)
-    for j, combo in enumerate(combos):
-        idx[j, : len(combo)] = combo
-        used[j, : len(combo)] = True
-    idx.flags.writeable = False
-    used.flags.writeable = False
-    return idx, used
+def _subsets(m: int) -> tuple[np.ndarray, ...]:
+    """Every subset of one, two and three of m rows, one array of shape (count, size) per size."""
+    combos = []
+    for size in (1, 2, 3):
+        idx = np.array(list(itertools.combinations(range(m), size)), dtype=np.intp)
+        idx = idx.reshape(-1, size)
+        idx.flags.writeable = False
+        combos.append(idx)
+    return tuple(combos)
 
 
 class _NoCandidate(Exception):
     """No active set satisfied the optimality conditions."""
 
 
+def _forward(lower: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+    """Solve the stacked lower-triangular systems lower x = rhs by substitution."""
+    x = np.zeros_like(rhs)
+    for i in range(rhs.shape[1]):
+        x[:, i] = (rhs[:, i] - np.sum(lower[:, i, :i] * x[:, :i], axis=1)) / lower[:, i, i]
+    return x
+
+
+def _backward(upper: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+    """Solve the stacked upper-triangular systems upper x = rhs by substitution."""
+    x = np.zeros_like(rhs)
+    for i in reversed(range(rhs.shape[1])):
+        tail = np.sum(upper[:, i, i + 1 :] * x[:, i + 1 :], axis=1)
+        x[:, i] = (rhs[:, i] - tail) / upper[:, i, i]
+    return x
+
+
+@dataclass(frozen=True)
+class _Size:
+    """The independent subsets of one size, with the QR factors of their transposed rows."""
+
+    idx: np.ndarray
+    a_s: np.ndarray
+    b_s: np.ndarray
+    r: np.ndarray
+    span: np.ndarray
+    null: np.ndarray
+    u_p: np.ndarray
+
+
 class _ActiveSets:
-    """Candidate active sets of unit rows, with their independence decided once."""
+    """Candidate active sets of unit rows, each factored once.
+
+    For a subset S with a_S^T = [Q_1 Q_2] [R; 0], Q_2 spans the null space of a_S and
+    u_p = Q_1 R^-T b_S meets a_S u = b_S, so the candidate is u_p + Q_2 t with t from the reduced
+    Hessian Q_2^T H Q_2, and R lam = Q_1^T H (u - u_nom) gives its multipliers (Boyd and
+    Vandenberghe, sec. 10.1.2). The factors have the conditioning of the rows; the KKT matrix,
+    whose elimination squares it, can round to singular for rows within 1e-8 of parallel.
+    """
 
     def __init__(self, a_hat: np.ndarray, b_hat: np.ndarray, scale: float):
         self.a_hat = a_hat
         self.b_hat = b_hat
         self.scale = scale
-        self.idx, self.used = _subsets(len(a_hat))
-        self.a_s = np.vstack([a_hat, np.zeros((1, 3))])[self.idx]
-        singular = np.linalg.svd(self.a_s, compute_uv=False)
-        self.independent = np.sum(singular > _RANK_TOL, axis=1) == np.sum(self.used, axis=1)
-        self.b_s = np.where(self.used, np.append(b_hat, 0.0)[self.idx], 0.0)
+        self.abs_a = np.abs(a_hat)
+        self.sizes: list[_Size] = []
+        for idx in _subsets(len(a_hat)):
+            if len(idx) == 0:
+                continue
+            a_s = a_hat[idx]
+            independent = np.linalg.svd(a_s, compute_uv=False)[:, -1] > _RANK_TOL
+            idx, a_s = idx[independent], a_s[independent]
+            if len(idx) == 0:
+                continue
+            size = idx.shape[1]
+            q, r = np.linalg.qr(np.swapaxes(a_s, 1, 2), mode="complete")
+            r = r[:, :size, :]
+            b_s = b_hat[idx]
+            span = q[:, :, :size]
+            u_p = np.einsum("nis,ns->ni", span, _forward(np.swapaxes(r, 1, 2), b_s))
+            self.sizes.append(_Size(idx, a_s, b_s, r, span, q[:, :, size:], u_p))
 
     def tolerance(self, u: np.ndarray) -> float:
+        """The multiplier tolerance at u, per unit weight."""
         return _TOL * max(self.scale, float(np.max(np.abs(u))))
+
+    def _holds(self, u: np.ndarray) -> np.ndarray:
+        # A row's tolerance comes from the problem's scale and the rounding of a_i . u, which
+        # vanishes for a row across a large component of u, never from |u| as a whole.
+        allowance = _TOL * self.scale + _ROUNDING * (np.abs(u) @ self.abs_a.T)
+        return np.all(u @ self.a_hat.T - self.b_hat >= -allowance, axis=1)
+
+    def _candidates(
+        self, w: np.ndarray, u0: np.ndarray, part: _Size
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """The optimum on each subset's rows and its multipliers under weight diag(w)."""
+        size = part.idx.shape[1]
+        u = np.array(part.u_p)
+        if size < 3:
+            weighted = part.null * w[None, :, None]
+            reduced = np.einsum("nik,nil->nkl", part.null, weighted)
+            gradient = np.einsum("nik,ni->nk", weighted, u0 - part.u_p)
+            t = np.linalg.solve(reduced, gradient[..., None])[..., 0]
+            u += np.einsum("nik,nk->ni", part.null, t)
+        # a_S Q_2 is zero only to rounding, which a large t carries into the active rows; the
+        # least-norm step back onto them leaves only the rounding of a_S u.
+        residual = np.einsum("nsj,nj->ns", part.a_s, u) - part.b_s
+        u -= np.einsum("nis,ns->ni", part.span, _forward(np.swapaxes(part.r, 1, 2), residual))
+        lam = _backward(part.r, np.einsum("nis,ni->ns", part.span, w * (u - u0)))
+        return u, lam
 
     def solve(self, w: np.ndarray, u0: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
         """The optimum and its unit-row multipliers under weight diag(w), or None if none wins."""
-        n = len(self.idx)
-        kkt = np.zeros((n, 6, 6))
-        kkt[:, [0, 1, 2], [0, 1, 2]] = w
-        kkt[:, :3, 3:] = -np.swapaxes(self.a_s, 1, 2)
-        kkt[:, 3:, :3] = self.a_s
-        # Unused multiplier slots get lam_j = 0 from an identity row.
-        kkt[:, [3, 4, 5], [3, 4, 5]] = ~self.used
-        rhs = np.zeros((n, 6))
-        rhs[:, :3] = w * u0
-        rhs[:, 3:] = self.b_s
-        kkt[~self.independent] = np.eye(6)
-        rhs[~self.independent] = 0.0
-        sol = _solve_each(kkt, rhs)
-        u, lam = sol[:, :3], sol[:, 3:]
-        # The solve's error grows with |u0|; projecting u back onto the active rows from its
-        # small residual makes the active rows hold to rounding of |u| instead.
-        gram = self.a_s @ np.swapaxes(self.a_s, 1, 2)
-        gram[:, [0, 1, 2], [0, 1, 2]] += ~self.used
-        gram[~self.independent] = np.eye(3)
-        residual = np.einsum("nij,nj->ni", self.a_s, u) - self.b_s
-        correction = _solve_each(gram, residual)
-        u = u - np.einsum("nji,nj->ni", self.a_s, correction)
-        tol_u = _TOL * np.maximum(self.scale, np.max(np.abs(u), axis=1))
-        primal = np.all(u @ self.a_hat.T - self.b_hat >= -tol_u[:, None], axis=1)
-        # Multipliers carry H (u - u0), whose rounding grows with |u0|; the rows' tolerance must
-        # not, or a large nominal command would loosen them.
-        tol_lam = np.maximum(tol_u, _TOL * float(np.max(np.abs(u0)))) * np.max(w)
-        dual = np.all((lam >= -tol_lam[:, None]) | ~self.used, axis=1)
-        ok = self.independent & primal & dual & np.all(np.isfinite(sol), axis=1)
-        if not np.any(ok):
+        if self._holds(u0[None, :])[0]:
+            return u0, np.zeros(len(self.a_hat))
+        best: tuple[float, np.ndarray, np.ndarray] | None = None
+        for part in self.sizes:
+            u, lam = self._candidates(w, u0, part)
+            # Multipliers carry H (u - u0), whose rounding grows with |u0|; the rows' tolerance
+            # must not, or a large nominal command would loosen them.
+            scale_lam = np.maximum(self.scale, np.max(np.abs(u), axis=1))
+            tol_lam = _TOL * np.maximum(scale_lam, float(np.max(np.abs(u0)))) * np.max(w)
+            finite = np.all(np.isfinite(u), axis=1) & np.all(np.isfinite(lam), axis=1)
+            ok = finite & np.all(lam >= -tol_lam[:, None], axis=1)
+            ok[ok] = self._holds(u[ok])
+            if not np.any(ok):
+                continue
+            objective = 0.5 * np.sum(w * (u - u0) ** 2, axis=1)
+            j = int(np.argmin(np.where(ok, objective, np.inf)))
+            if best is None or objective[j] < best[0]:
+                lam_rows = np.zeros(len(self.a_hat))
+                lam_rows[part.idx[j]] = np.maximum(lam[j], 0.0)
+                best = (float(objective[j]), u[j], lam_rows)
+        return None if best is None else best[1:]
+
+
+def _solve_rational(m: list[list[Fraction]], rhs: list[Fraction]) -> list[Fraction] | None:
+    """The solution of m x = rhs by Gauss-Jordan elimination, or None if m is singular."""
+    n = len(rhs)
+    aug = [row[:] + [rhs[i]] for i, row in enumerate(m)]
+    for c in range(n):
+        pivot = next((r for r in range(c, n) if aug[r][c] != 0), None)
+        if pivot is None:
             return None
-        objective = 0.5 * np.sum(w * (u - u0) ** 2, axis=1)
-        j = int(np.argmin(np.where(ok, objective, np.inf)))
-        lam_rows = np.zeros(len(self.a_hat))
-        lam_rows[self.idx[j, self.used[j]]] = np.maximum(lam[j, self.used[j]], 0.0)
-        return u[j], lam_rows
+        aug[c], aug[pivot] = aug[pivot], aug[c]
+        for r in range(n):
+            if r != c and aug[r][c] != 0:
+                f = aug[r][c] / aug[c][c]
+                aug[r] = [x - f * y for x, y in zip(aug[r], aug[c], strict=True)]
+    return [aug[i][n] / aug[i][i] for i in range(n)]
 
 
-def _solve_each(m: np.ndarray, rhs: np.ndarray) -> np.ndarray:
-    """Solve the stacked systems m x = rhs, by least squares for one that is exactly singular.
+def _exact_farkas(a: np.ndarray, b: np.ndarray, lam: np.ndarray) -> np.ndarray | None:
+    """`lam` moved onto A^T lam = 0 in rational arithmetic, or None if it then proves nothing.
 
-    Elimination squares a subset's smallest singular value, so an independent subset of nearly
-    parallel rows (a row 2e-12 off a box face normal, say) can round to an exactly singular
-    matrix. Whether it does depends on the rounding, not on a threshold that a well-posed subset
-    would not also cross, so only the system that fails is solved again. Its candidate is then
-    judged by the optimality checks like any other.
+    The step is the projection lam - A_B (A_B^T A_B)^-1 A_B^T lam, with A_B the columns of A on
+    its support that span the others. The result proves a_i . u >= b_i infeasible for every u
+    when it is nonnegative and b^T lam > 0, both checked exactly.
     """
-    try:
-        return np.linalg.solve(m, rhs[..., None])[..., 0]
-    except np.linalg.LinAlgError:
-        x = np.empty_like(rhs)
-        for k in range(len(m)):
-            try:
-                x[k] = np.linalg.solve(m[k], rhs[k])
-            except np.linalg.LinAlgError:
-                x[k] = np.linalg.lstsq(m[k], rhs[k], rcond=None)[0]
-        return x
+    support = np.flatnonzero(lam)
+    rows = [[Fraction(x) for x in row] for row in a[support].tolist()]
+    lam_q = [Fraction(x) for x in lam[support].tolist()]
+    for cols in _COLUMN_SETS:
+        gram = [[sum((r[i] * r[j] for r in rows), Fraction(0)) for j in cols] for i in cols]
+        at_lam = [
+            sum((r[i] * x for r, x in zip(rows, lam_q, strict=True)), Fraction(0)) for i in cols
+        ]
+        y = _solve_rational(gram, at_lam)
+        if y is not None:
+            lam_q = [
+                x - sum((r[i] * y_i for i, y_i in zip(cols, y, strict=True)), Fraction(0))
+                for r, x in zip(rows, lam_q, strict=True)
+            ]
+            break
+    b_lam = sum(
+        (Fraction(b_i) * x for b_i, x in zip(b[support].tolist(), lam_q, strict=True)), Fraction(0)
+    )
+    if min(lam_q) < 0 or not b_lam > 0:
+        return None
+    exact = np.zeros(len(lam))
+    exact[support] = [float(x) for x in lam_q]
+    return exact
 
 
 def _vector3(value, name: str) -> np.ndarray:
@@ -316,10 +411,11 @@ def project(
     -------
     Projection
         The command, its status, active rows and multipliers, and the certificate when
-        infeasible. Rows hold to 1e-10 of the largest of a_max, |b_i| / |a_i| and |u|_inf,
-        multipliers to 1e-10 of that or |u_nom|_inf, so the result does not depend on the units
-        and a large nominal command does not loosen the rows; the ball radius is met to 1e-12
-        a_max.
+        infeasible. Rows hold to 1e-10 of the scale, the largest of a_max and |b_i| / |a_i|, plus
+        the rounding of each row's value, 4 eps sum_j |a_ij u_j| / |a_i|, which is zero for a row
+        across a large component of u; multipliers hold to 1e-10 of the largest of the scale,
+        |u|_inf and |u_nom|_inf. The result does not depend on the units and a large nominal
+        command does not loosen the rows; the ball radius is met to 1e-12 a_max.
 
     Raises
     ------
@@ -357,6 +453,8 @@ class _Problem:
         scale: float,
     ):
         self.names = rows.names
+        self.a = rows.a
+        self.b = rows.b
         self.unit = unit
         self.a_hat = rows.a / unit[:, None]
         self.b_hat = rows.b / unit
@@ -482,17 +580,19 @@ class _Problem:
         if self.k == 0:
             return self._unsolved(fallback, "solver_failed")
         # A ball is replaced by its bounding box here, which keeps any certificate valid for it.
-        bound = None if self.actuator is None else self.actuator.a_max
+        # HiGHS's tolerances are absolute, so the LP is posed in units of the problem's scale;
+        # its dual is unchanged by that.
+        bound = None if self.actuator is None else self.actuator.a_max / self.scale
         res = linprog(
             np.concatenate([np.zeros(3), np.ones(self.k)]),
             A_ub=np.hstack([-self.a_hat, -np.eye(self.k)]),
-            b_ub=-self.b_hat,
+            b_ub=-self.b_hat / self.scale,
             bounds=[(None if bound is None else -bound, bound)] * 3 + [(0.0, None)] * self.k,
             method="highs",
         )
         if res.status != 0:
             return self._unsolved(fallback, "solver_failed")
-        u_lp = _onto_actuator(np.asarray(res.x[:3], dtype=float), self.actuator)
+        u_lp = _onto_actuator(self.scale * np.asarray(res.x[:3], dtype=float), self.actuator)
         lam_hat = np.maximum(-np.asarray(res.ineqlin.marginals, dtype=float), 0.0)
         return self._certify(lam_hat, self._least_violation(u_lp))
 
@@ -506,13 +606,22 @@ class _Problem:
 
     def _certify(self, lam_hat: np.ndarray, u: np.ndarray) -> Projection:
         """`u` as infeasible_certified if `lam_hat` verifies as a certificate, else failed."""
-        total = float(np.sum(lam_hat))
-        if not total > 0.0:
+        if not float(np.sum(lam_hat)) > 0.0:
             return self._unsolved(u, "solver_failed")
+        threshold = _FARKAS_TOL * float(np.max(lam_hat))
+        exact = None
+        if self.actuator is None:
+            # A^T lam = 0 holds in floats only to rounding, which can certify rows that meet far
+            # out, such as x >= 1 and -x + 1e-9 y >= -0.5 at y = 5e8; it is made exact instead.
+            kept = np.where(lam_hat > threshold, lam_hat / self.unit, 0.0)
+            exact = _exact_farkas(self.a, self.b, kept)
+            if exact is None:
+                return self._unsolved(u, "solver_failed")
+            lam_hat = exact * self.unit
+            threshold = _FARKAS_TOL * float(np.max(lam_hat))
+        total = float(np.sum(lam_hat))
         w_vec = self.a_hat.T @ lam_hat
         if self.actuator is None:
-            if np.max(np.abs(w_vec)) > _FARKAS_TOL * total:
-                return self._unsolved(u, "solver_failed")
             support = 0.0
         elif self.actuator.layout == "box":
             support = self.actuator.a_max * float(np.sum(np.abs(w_vec)))
@@ -521,9 +630,8 @@ class _Problem:
         if not float(self.b_hat @ lam_hat) - support > _TOL * self.scale * total:
             return self._unsolved(u, "solver_failed")
         # The support of the certificate; positive phase I slacks depend on the LP vertex chosen.
-        threshold = _FARKAS_TOL * float(np.max(lam_hat))
         names = tuple(np.array(self.names, dtype=object)[lam_hat > threshold])
-        certificate = lam_hat / self.unit
+        certificate = lam_hat / self.unit if exact is None else exact
         if self.actuator is not None and self.actuator.layout == "box":
             faces = np.stack([np.maximum(w_vec, 0.0), np.maximum(-w_vec, 0.0)], axis=1).ravel()
             names += tuple(np.array(BOX_FACES, dtype=object)[faces > threshold])
