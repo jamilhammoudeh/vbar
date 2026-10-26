@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import sys
 
@@ -431,3 +432,26 @@ def test_a_command_takes_only_json_numbers_and_flies_nothing_otherwise(arguments
     assert len(server.episode.actions) == 0
     result, _ = call(server, "predict_coast", seconds=True)
     assert result["isError"] and "seconds must be a number" in result["content"][0]["text"]
+
+
+def test_the_command_line_reads_utf8_whatever_the_locale(tmp_path):
+    # A real subprocess, about 3 s. Windows consoles decode text input in the ANSI code page, which
+    # garbled non-ASCII ids before the server read its input as UTF-8 bytes.
+    ident = "é中\U0001f600"
+    lines = [
+        json.dumps({"jsonrpc": "2.0", "id": ident, "method": "ping"}, ensure_ascii=False).encode(),
+        b'{"jsonrpc": "2.0", "id": 2, "method": "ping", "x": "\xff\xfe"}',
+        json.dumps({"jsonrpc": "2.0", "id": 3, "method": "ping"}).encode(),
+    ]
+    out = tmp_path / "results.jsonl"
+    done = subprocess.run(
+        [sys.executable, "-m", "vbar.agents.mcp", "--max-steps", "1", "--out", str(out)],
+        input=b"\n".join(lines) + b"\n",
+        capture_output=True,
+        timeout=120,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
+    )
+    responses = [json.loads(line) for line in done.stdout.splitlines()]
+    assert responses[0] == {"jsonrpc": "2.0", "id": ident, "result": {}}
+    assert responses[1]["error"]["code"] == PARSE_ERROR and responses[1]["id"] is None
+    assert responses[2]["id"] == 3

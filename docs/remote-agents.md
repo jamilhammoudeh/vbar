@@ -93,8 +93,8 @@ answers one message and `serve(stdin, stdout)` runs the loop. It answers `initia
 versions 2025-06-18, 2025-03-26 and 2024-11-05; the client's choice when supported), `ping`,
 `tools/list` and `tools/call`, ignores notifications, and returns JSON-RPC errors for unknown
 methods (-32601), unknown tools and `params` or `arguments` that are not objects (-32602), lines
-that are not JSON (-32700) and failures inside the server (-32603); after an error it goes on
-answering.
+that are not JSON or not UTF-8 (-32700) and failures inside the server (-32603); after an error it
+goes on answering.
 
 | Tool | Arguments | Returns |
 |---|---|---|
@@ -177,7 +177,8 @@ says a little about the true path ([environment.md](environment.md)).
   episode's result; without `--seeds` it records two episodes under two different drawn 128-bit
   seeds; `--scenario docking-afrl --max-steps 2` serves two steps of that scenario and records its
   identifier; an unknown scenario, a negative seed (also after a valid one) and a step limit of 0
-  or -3 are refused.
+  or -3 are refused; with its text encoding set to cp1252 it returns a non-ASCII id sent as raw
+  UTF-8 unchanged, answers a line that is not UTF-8 with -32700 and the next request as usual.
 
 ## Example
 

@@ -242,19 +242,29 @@ class ToolServer:
             )
         return _error(ident, METHOD_NOT_FOUND, f"unknown method {method!r}")
 
-    def serve(self, stdin: IO[str] | None = None, stdout: IO[str] | None = None) -> None:
+    def serve(
+        self, stdin: IO[str] | IO[bytes] | None = None, stdout: IO[str] | None = None
+    ) -> None:
         """Answer messages from `stdin` on `stdout`, one per line, until the input ends.
 
-        A message that fails inside the server gets an internal error, and the loop goes on.
-        The session ends when the input ends or the output can no longer be written; then
-        unfinished episodes are recorded (`finish`), however the session ended.
+        Lines read as bytes (standard input by default) are decoded as UTF-8, whatever the
+        locale; a line that is not UTF-8 gets a parse error. A message that fails inside the
+        server gets an internal error, and the loop goes on. The session ends when the input
+        ends or the output can no longer be written; then unfinished episodes are recorded
+        (`finish`), however the session ended.
         """
-        source, sink = stdin or sys.stdin, stdout or sys.stdout
+        source, sink = stdin or sys.stdin.buffer, stdout or sys.stdout
         try:
-            for line in source:
-                if not line.strip():
+            for raw in source:
+                try:
+                    line = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+                except UnicodeDecodeError:
+                    line = None
+                if line is not None and not line.strip():
                     continue
                 try:
+                    if line is None:
+                        raise ValueError("not UTF-8")
                     message = json.loads(line)
                 except (ValueError, RecursionError):
                     response: dict | None = _error(None, PARSE_ERROR, "invalid JSON")

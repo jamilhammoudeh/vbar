@@ -619,6 +619,9 @@ release may change the public API, and every such change is listed under Changed
 - The agent server and the MCP `command` tool flew quoted numbers and booleans as action numbers
   (`["0.5", "0", "0"]`, `true`), though the protocol and the tool schema ask for numbers; both now
   refuse them.
+- `python -m vbar.agents.mcp` decoded its input in the locale's code page, so on Windows a non-ASCII
+  request (an id, a name) sent as UTF-8 came back garbled; it now reads UTF-8 whatever the locale,
+  and a line that is not UTF-8 gets a parse error.
 
 ## [0.3.1] - 2026-10-24
 
