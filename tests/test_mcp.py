@@ -363,7 +363,7 @@ def test_the_task_and_each_observation_come_with_the_episode_s_briefing_and_situ
 
 
 def test_the_command_line_serves_a_catalogue_scenario_by_name(tmp_path):
-    # A real subprocess, about 3 s, nearly all of it importing numpy and scipy.
+    # A real subprocess: a few seconds idle, nearly all of it importing numpy and scipy.
     out = tmp_path / "results.jsonl"
     lines = [
         {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "describe_task"}},
@@ -384,7 +384,7 @@ def test_the_command_line_serves_a_catalogue_scenario_by_name(tmp_path):
         input="\n".join(json.dumps(m) for m in lines) + "\n",
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=HANG,
     )
     task = json.loads(done.stdout.splitlines()[0])["result"]["structuredContent"]
     assert task["view"]["scenario_id"].startswith("vbar:docking-afrl:")
@@ -435,8 +435,8 @@ def test_a_command_takes_only_json_numbers_and_flies_nothing_otherwise(arguments
 
 
 def test_the_command_line_reads_utf8_whatever_the_locale(tmp_path):
-    # A real subprocess, about 3 s. Windows consoles decode text input in the ANSI code page, which
-    # garbled non-ASCII ids before the server read its input as UTF-8 bytes.
+    # A real subprocess, a few seconds idle. Windows consoles decode text input in the ANSI code
+    # page, which garbled non-ASCII ids before the server read its input as UTF-8 bytes.
     ident = "é中\U0001f600"
     lines = [
         json.dumps({"jsonrpc": "2.0", "id": ident, "method": "ping"}, ensure_ascii=False).encode(),
@@ -448,7 +448,7 @@ def test_the_command_line_reads_utf8_whatever_the_locale(tmp_path):
         [sys.executable, "-m", "vbar.agents.mcp", "--max-steps", "1", "--out", str(out)],
         input=b"\n".join(lines) + b"\n",
         capture_output=True,
-        timeout=120,
+        timeout=HANG,
         env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
     )
     responses = [json.loads(line) for line in done.stdout.splitlines()]
