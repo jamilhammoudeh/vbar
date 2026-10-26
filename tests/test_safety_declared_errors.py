@@ -281,6 +281,30 @@ def test_braking_start_set_refuses_starts_whose_estimates_cross_its_caps():
         assert filt.contains(x + e), e
 
 
+def test_braking_start_set_refuses_estimates_beyond_the_outer_barrier():
+    filt = braking(navigation=NAVIGATION)
+    filt.reset(view(DT, start=HOLD))
+    a_b, rho_cap = filt.declaration.barriers[0].a_b, filt.rho_cap
+    errors = VERTICES * np.repeat([NAVIGATION.r_pos, NAVIGATION.r_vel], 3)
+    # Opening at 0.3 m/s along -V-bar takes 0.09 / (2 a_b) = 10 m to stop. Half a box radius
+    # inside that edge, the vertex error along the axis carries the estimate past it.
+    p = 0.3
+    stop = p * p / (2 * a_b)
+    x = np.array([0.0, -(rho_cap - stop - 0.5 * NAVIGATION.r_pos), 0.0, 0.0, -p, 0.0])
+    assert filt.contains(x)
+    assert not filt.contains_start(x)
+    assert any(not filt.contains(x + e) for e in errors)
+    # Range errors up to sqrt(3) r_pos and opening errors up to sqrt(3) r_vel plus the turn of
+    # rhat, 2 g_r (|v| + g_v) / rho; 1 cm inside the tightened edge.
+    g_r, g_v = math.sqrt(3.0) * NAVIGATION.r_pos, math.sqrt(3.0) * NAVIGATION.r_vel
+    opening = p + g_v + 2 * g_r * (p + g_v) / (rho_cap - stop - 1.0)
+    rho = rho_cap - g_r - opening**2 / (2 * a_b) - 0.01
+    x = np.array([0.0, -rho, 0.0, 0.0, -p, 0.0])
+    assert filt.contains_start(x)
+    for e in errors:
+        assert filt.contains(x + e), e
+
+
 @pytest.mark.parametrize("name", FILTERS)
 def test_start_set_without_navigation_error_is_the_declared_set(name):
     filt = FILTERS[name](execution=1e-4)

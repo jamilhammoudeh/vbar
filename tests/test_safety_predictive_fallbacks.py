@@ -5,12 +5,13 @@ The interface these tests assume, beyond that of `tests/test_safety_predictive.p
 - `PredictiveFilter(*, backup="passive", brake_v_cap=1.0, rho_cap=2000.0, ...)` keeps each as
   an attribute of the same name; `backup` is "passive" or "cam", and any other value raises
   ValueError.
-- At reset, a_b = braking_deceleration(a_max, layout, v_cap=brake_v_cap, dt, radius, rho_cap, n).
+- At reset, a_b = braking_deceleration(a_max, v_cap=brake_v_cap, dt, radius, rho_cap, n).
   When a_b > 0 there is a braking level: a decision with nothing certified, at a state x where
-  `BrakingBarrier(radius=R, a_b=a_b, rho_cap=rho_cap, v_cap=brake_v_cap).contains(x)`, applies
-  that barrier's `backup(x, actuator)` at `fallback_level` 2 as "feasible" with `recovering`
-  True and no certificate. When a_b <= 0 reset still succeeds and there is no braking level.
-  `declaration.backup` is "zero thrust, else full outward braking outside the set" when the
+  `BrakingBarrier(radius=R, a_b=a_b, rho_cap=rho_cap, v_cap=brake_v_cap, n=n, dt=dt,
+  a_max=a_max).contains(x)`, applies that barrier's `backup(x, actuator)` at `fallback_level` 2
+  as "feasible" with `recovering` True and no certificate. When a_b <= 0 reset still succeeds
+  and there is no braking level.
+  `declaration.backup` is "zero thrust, else the braking backup outside the set" when the
   braking level exists and does not name braking otherwise. Braking comes before an
   uncertified soft solution.
 - With backup="cam" the declared set is the CAM set: `declaration.barriers` is the one
@@ -27,9 +28,9 @@ The interface these tests assume, beyond that of `tests/test_safety_predictive.p
 
 BRAKE, 60 m out on -V-bar closing at 0.26 m/s, stands in for a faster closing start: from
 that start, (0, 80, 0, 0, -0.5, 0), the current filter certifies every decision and clears the
-keep-out by 22 mm, and it lies outside the braking set at the defaults (h_b = -5.63 m with
-a_b = 3.508e-3 m/s^2). BRAKE is inside it (h_b = +0.37 m) and the filter without braking drifts
-about 35 m into the keep-out from it.
+keep-out by 22 mm. BRAKE is inside the braking set at the defaults (h_b = +2.48 m with
+a_b = 4.492e-3 m/s^2) and the filter without braking drifts 32.8 m into the keep-out from
+it.
 """
 
 import math
@@ -77,10 +78,8 @@ def ready(filt, dt=DT, **cfg):
 
 
 def braking_barrier(dt=DT, v_cap=1.0, rho_cap=2000.0):
-    a_b = braking_deceleration(
-        a_max=A_MAX, layout="box", v_cap=v_cap, dt=dt, radius=R, rho_cap=rho_cap, n=N
-    )
-    return BrakingBarrier(radius=R, a_b=a_b, rho_cap=rho_cap, v_cap=v_cap)
+    a_b = braking_deceleration(a_max=A_MAX, v_cap=v_cap, dt=dt, radius=R, rho_cap=rho_cap, n=N)
+    return BrakingBarrier(radius=R, a_b=a_b, rho_cap=rho_cap, v_cap=v_cap, n=N, dt=dt, a_max=A_MAX)
 
 
 def toward_target(x):
@@ -138,7 +137,7 @@ def test_an_unknown_backup_is_refused():
 def test_braking_is_applied_when_nothing_is_certified_inside_the_braking_set(monkeypatch):
     filt = ready(PredictiveFilter())
     assert filt.contains(BRAKE) is False
-    assert braking_barrier().value(BRAKE) == pytest.approx(0.366, abs=1e-3)
+    assert braking_barrier().value(BRAKE) == pytest.approx(2.476, abs=1e-3)
     assert braking_barrier().contains(BRAKE)
     monkeypatch.setattr(predictive_module, "solve_horizon", stopped)
     result = filt.filter(BRAKE.copy(), ZERO.copy())
@@ -168,11 +167,11 @@ def test_braking_keeps_a_fast_close_approach_out_until_a_decision_is_certified()
     assert all(r.status == "feasible" for r in results)
 
 
-# The entry passes 30 m deep about 170 s in and bottoms out near 35 m about 200 s in.
+# The entry passes 30 m deep about 170 s in and reaches 32.8 m at the last decision, 180 s in.
 MUTANT_STEPS = 18
 
 
-def test_a_no_braking_mutant_enters_the_keep_out_by_about_35_m(monkeypatch):
+def test_a_no_braking_mutant_enters_the_keep_out_by_30_to_40_m(monkeypatch):
     monkeypatch.setattr(BrakingBarrier, "contains", lambda self, x: False)
     worst, _ = fly(PredictiveFilter(), BRAKE, MUTANT_STEPS)
     assert -40.0 < worst < -30.0
@@ -198,13 +197,11 @@ def test_braking_is_never_applied_inside_the_declared_set(monkeypatch):
 
 
 def test_without_a_positive_braking_deceleration_there_is_no_braking_level(monkeypatch):
-    a_b = braking_deceleration(
-        a_max=A_MAX, layout="box", v_cap=1.0, dt=30.0, radius=R, rho_cap=2000.0, n=N
-    )
+    a_b = braking_deceleration(a_max=A_MAX, v_cap=1.0, dt=30.0, radius=R, rho_cap=2000.0, n=N)
     assert a_b <= 0.0
     with_braking = ready(PredictiveFilter()).declaration.backup
     without = ready(PredictiveFilter(), dt=30.0)
-    assert with_braking == "zero thrust, else full outward braking outside the set"
+    assert with_braking == "zero thrust, else the braking backup outside the set"
     assert "braking" not in without.declaration.backup
     monkeypatch.setattr(predictive_module, "solve_horizon", stopped)
     result = without.filter(BRAKE.copy(), ZERO.copy())
@@ -226,8 +223,8 @@ def test_the_soft_mode_with_the_cam_backup_is_named_for_both():
 @pytest.mark.parametrize(
     ("kw", "backup"),
     [
-        ({"backup": "cam"}, "zero thrust, else the CAM, else full outward braking outside the set"),
-        ({"mode": "finite-horizon"}, "zero thrust, else full outward braking outside the set"),
+        ({"backup": "cam"}, "zero thrust, else the CAM, else the braking backup outside the set"),
+        ({"mode": "finite-horizon"}, "zero thrust, else the braking backup outside the set"),
     ],
     ids=["cam", "finite-horizon"],
 )

@@ -280,7 +280,7 @@ HELD_FILTERS = {
         True,
     ),
     "braking": (
-        lambda: BackupFilter(barrier="braking", a_b=0.01044, rho_cap=2000.0, v_cap=1.0),
+        lambda: BackupFilter(barrier="braking", rho_cap=2000.0, v_cap=1.0),
         CLOSING,
         True,
     ),

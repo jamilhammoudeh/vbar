@@ -153,7 +153,7 @@ def test_a_coarse_segment_is_split_until_it_certifies():
     found = coarse_braking()
     refinements = [r for run in found.runs for r in run.refinements]
     factors = collections.Counter(r.factor for r in refinements)
-    # Measured: 28 steps certify at 4 times the samples and 11 at 16 times.
+    # Measured: 33 steps certify at 4 times the samples and 3 at 16 times.
     assert found.refined == len(refinements) > 0
     assert set(factors) <= set(audit_module.REFINEMENTS)
     assert factors[16] > 0
@@ -611,6 +611,32 @@ def test_a_short_search_on_a_correct_braking_filter_finds_nothing_and_claims_not
     assert found.score >= -1.0
     assert math.isfinite(found.score)
     assert not any("safe" in name for name in vars(found))
+
+
+class RecordedBraking(BackupFilter):
+    """The braking `BackupFilter`, keeping every result it returns."""
+
+    def __init__(self):
+        super().__init__(barrier="braking")
+        self.results = []
+
+    def filter(self, obs, action):
+        result = super().filter(obs, action)
+        self.results.append(result)
+        return result
+
+
+def test_braking_filter_from_inside_starts_never_recovers():
+    # Every accepted step ends in the braking set and the backup keeps it, so a start drawn
+    # inside never leaves it under the inward nominal.
+    filt = RecordedBraking()
+    found = audit_filter(
+        filt, ApproachEnv(), nominal=Reckless(), starts=5, box=NEAR, seed=SEED, max_steps=30
+    )
+    assert len(filt.results) == found.steps > 0
+    assert [r.recovering for r in filt.results].count(True) == 0
+    assert all(r.certificate == "nominal" for r in filt.results)
+    assert found.uncovered == 0 and found.passed
 
 
 def tiny_search(filt, env=None, box=NEAR, max_steps=2):

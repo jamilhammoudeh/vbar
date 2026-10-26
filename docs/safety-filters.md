@@ -423,35 +423,110 @@ speeds), against 97.75% and 91.90% for the capped set.
 
 ### Braking
 
-`BrakingBarrier(radius, a_b, rho_cap, v_cap)` is the keep-out analogue of the survey's
-lane-keeping barrier (sec. V.B):
+`BrakingBarrier(radius, a_b, rho_cap, v_cap, n, dt, a_max)` is the keep-out analogue of the
+survey's lane-keeping barrier (sec. V.B), closed by a second braking barrier at the range cap:
 
 $$
-h_b = \rho - R - \frac{\max(0, -\dot\rho)^2}{2 a_b}.
+h_b = \rho - R - \frac{\max(0, -\dot\rho)^2}{2 a_b}, \qquad
+h_o = \rho_{\text{cap}} - \rho - \frac{\max(0, \dot\rho)^2}{2 a_b}.
 $$
 
-Its backup is full outward braking along $\hat r$, $\beta = a_{\max} \hat r / \max_i |\hat r_i|$
-for a box and $a_{\max} \hat r$ for a ball, so $\hat r \cdot \beta \ge a_{\max}$. While closing at
-$c = -\dot\rho$, $\dot h_b = \dot\rho + (c / a_b)\ddot\rho \ge \dot\rho + c = 0$ as long as
-$\ddot\rho \ge a_b$. `braking_deceleration(a_max, layout, v_cap, dt, radius, rho_cap, n)` returns
-the $a_b$ for which that holds under a command held for `dt` in the region $\rho \le
-\rho_{\text{cap}}$, $|v| \le v_{\text{cap}}$:
+The set is $h_b \ge 0$, $h_o \ge 0$, $|v| \le v_{\text{cap}}$; `value(x)` is $h_b$,
+`outer_value(x)` is $h_o$ and `contains(x)` tests all three. A plain cap
+$\rho \le \rho_{\text{cap}}$ could not be kept: from $\rho = \rho_{\text{cap}}$ while opening no
+command keeps the next sample inside it, so the cap carries its own stopping distance.
+
+**Backup.** With $\hat r$, $p = \dot\rho$, the velocity across the line of sight $v_t = v - p\hat r$,
+$w = |v_t|$ and $\hat t = v_t / w$, the backup held for $\Delta t$ is
 
 $$
-a_b = a_{\max}\left(1 - k \frac{v_{\text{cap}}\, \Delta t}{R}\right)
-  - \left(3 n^2 \rho_{\text{cap}} + 2 n v_{\text{cap}}\right),
-\qquad k = \sqrt3 \text{ (box)},\ 1 \text{ (ball)}.
+u = a\,\hat r - \min(a_R, w / \Delta t)\,\hat t - a_{cw}(x_0),
 $$
 
-Outside the keep-out $\hat r$ turns by at most $v_{\text{cap}} t / R$ within a step, which costs at
-most $|\beta|\, v_{\text{cap}} \Delta t / R$ of the braking, and the CW terms take at most
-$3 n^2 \rho + 2 n |v|$. For a box of 0.02 m/s^2, $v_{\text{cap}} = 0.3$ m/s, $\Delta t = 10$ s,
-$\rho_{\text{cap}} = 2$ km and 500 km, $a_b = 0.00991$ m/s^2. The value may be zero or negative
-(at $\rho_{\text{cap}} = 20$ km the CW terms alone exceed 0.02 m/s^2); `BrakingBarrier` refuses
-$a_b \le 0$. `contains(x)` requires $h_b \ge 0$ inside the region.
+which cancels the CW acceleration at the start of the step and brakes the speed across the line
+of sight to zero without reversing it. With $\rho_{\text{mid}} = (R + \rho_{\text{cap}})/2$ and
+$\delta = \sigma \Delta t$:
+
+| Region | $\dot\rho$ | $a$ |
+|---|---|---|
+| $\rho < \rho_{\text{mid}}$ | $< 0$ | $a_R$, braking the closing |
+| $\rho < \rho_{\text{mid}}$ | $\ge 0$ | $(\delta - p)/\Delta t$ clipped to $[-a_R, a_R]$ |
+| $\rho \ge \rho_{\text{mid}}$ | $> 0$ | $-a_R$, braking the opening |
+| $\rho \ge \rho_{\text{mid}}$ | $\le 0$ | $(-\delta - p)/\Delta t$ clipped to $[-a_R, a_R]$ |
+
+Both layouts use the ball of radius $a_{\max}$, which the box contains. What is left after the CW
+acceleration, $B = a_{\max} - (3 n^2 \rho_{\text{cap}} + 2 n v_{\text{cap}})$, since
+$|a_{cw}| \le 3 n^2 \rho + 2 n |v|$, is split as $a_R = B / \sqrt2$ along $\hat r$ and up to
+$a_R$ across it, so inside the set $|u| \le a_{\max}$ and the command is the same in both layouts.
+Outside the set the command is clipped to the actuator's limit. `backup` refuses an actuator whose
+$a_{\max}$ is below the barrier's.
+
+**Deceleration.** `braking_deceleration(a_max, v_cap, dt, radius, rho_cap, n)` returns
+$a_b = a_R - \sigma$ with
+
+$$
+\varepsilon = \frac{(3 n^2 v_{\text{cap}} + 2 n B)\,\Delta t}{1 - 2 n \Delta t - 1.5 n^2 \Delta t^2},
+\quad v_{hi} = v_{\text{cap}} + \tfrac12 \varepsilon \Delta t,
+\quad \theta = \frac{v_{hi} \Delta t}{R},
+\quad \sigma = a_R\left(\tfrac12\theta^2 + \theta\right) + \varepsilon
+  + \frac{v_{hi}^2}{\rho_{\text{mid}} - v_{hi}\Delta t}.
+$$
+
+$\varepsilon$ bounds the change of the CW acceleration over the step, $|a_{cw}(x(t)) - a_{cw}(x_0)|
+\le \varepsilon t / \Delta t$, since the position moves at most $v_{hi} t$ and the velocity at most
+$(B + \varepsilon) t$; $v_{hi}$ bounds the speed within the step and $\theta$ the turn of $\hat r$.
+With $\beta' = u + a_{cw}(x_0)$ and $e = a_{cw}(x(t)) - a_{cw}(x_0)$, the range acceleration
+$\ddot\rho = \hat r \cdot (\beta' + e) + w^2/\rho$ then stays within $\sigma$ of the commanded $a$. It returns 0.0 when the backup keeps no set: $B$ or the
+denominator of $\varepsilon$ not positive, $a_b \le 0$,
+$(a_R\Delta t)^2 + \max(0, v_{\text{cap}} - a_R \Delta t)^2 > (v_{\text{cap}} - \tfrac12\varepsilon
+\Delta t)^2$, $\tfrac12 \varepsilon \Delta t > \tfrac12 a_R \Delta t$, or
+$(\rho_{\text{cap}} - R)/2 < v_{hi}\Delta t + v_{hi}^2 / (2 a_b)$. For a box of 0.02 m/s^2,
+$v_{\text{cap}} = 0.3$ m/s, $\Delta t = 10$ s, $R = 50$ m, $\rho_{\text{cap}} = 2$ km and 500 km:
+$B = 0.011986$, $a_R = 0.008475$, $\varepsilon = 2.83 \times 10^{-4}$ m/s^2, $\theta = 0.0603$,
+$\delta = 0.00898$ m/s and $a_b = 0.00758$ m/s^2. The same box keeps a set up to
+$\Delta t = 33.37$ s, where the speed condition fails first; at $v_{\text{cap}} = 1$ m/s
+$a_b = 0.00449$ m/s^2 at 10 s, 0.00225 at 20 s and none at 30 s; at $\rho_{\text{cap}} = 20$ km
+the CW terms alone exceed 0.02 m/s^2. `BrakingBarrier` refuses values with no set, and an
+$a_b$ above `braking_deceleration`, which its backup cannot deliver.
+
+**Invariance.** From every state of the set the held backup keeps $h_b \ge 0$ over the whole
+step and ends it in the set:
+
+1. Closing inside $\rho_{\text{mid}}$, $a = a_R$ gives $\ddot\rho \ge a_b$, so with $c = -\dot\rho$,
+   $\dot h_b = \dot\rho + (c / a_b)\ddot\rho \ge 0$; once $\dot\rho \ge 0$ it stays so and $h_b =
+   \rho - R$ rises.
+2. Opening inside $\rho_{\text{mid}}$, the lower bound on $\dot\rho$ is linear in $t$ and ends at
+   $\delta - \sigma\Delta t \ge 0$, so $\rho$ never falls.
+3. Outside $\rho_{\text{mid}}$ the same two arguments, with the sign of $\dot\rho$ reversed, keep
+   $h_o$ from falling.
+4. The barrier the state is far from keeps its sign since the set leaves
+   $(\rho_{\text{cap}} - R)/2 \ge v_{hi}\Delta t + v_{hi}^2/(2 a_b)$ on each side of
+   $\rho_{\text{mid}}$.
+5. In the basis $(\hat r_0, \hat t_0)$, $v_0 + \beta'\Delta t$ has radial part either at most
+   $a_R \Delta t$ in size or shrunk by $a_R \Delta t$, and tangential part $\max(0, w - a_R
+   \Delta t)$; with the speed conditions above $|v_1| \le v_{\text{cap}}$ at the end of the step.
+
+The speed cap holds at the samples; within a step the speed may exceed $v_{\text{cap}}$ by up to
+$\tfrac12 \varepsilon \Delta t$, 1.4 mm/s at the approach box, which $v_{hi}$ allows for. The
+set is therefore forward invariant under the held backup at every dt that `braking_deceleration`
+admits. Under declared error sets none of this is claimed.
 
 $L_g h_b$ vanishes at $\dot\rho = 0$, so a first-order row on $h_b$ would put no condition on $u$
 there, and a whole held step of inward thrust leaves the set. The class therefore has no `row`.
+
+```python
+import numpy as np
+
+from vbar.safety.barriers import BrakingBarrier, braking_deceleration
+from vbar.solvers.qp import ActuatorSet
+
+n = 0.0011067834463349404
+a_b = braking_deceleration(a_max=0.02, v_cap=0.3, dt=10.0, radius=50.0, rho_cap=2000.0, n=n)
+barrier = BrakingBarrier(radius=50.0, a_b=a_b, rho_cap=2000.0, v_cap=0.3, n=n, dt=10.0, a_max=0.02)
+x = np.array([-66.17, 38.23, 15.59, -0.15, -0.25, -0.03])  # m, m/s, |v| = 0.293 m/s
+print(barrier.contains(x))  # True
+u = barrier.backup(x, ActuatorSet(0.02, "box"))  # m/s^2, held for 10 s
+```
 
 ## Held-segment check and line search
 
@@ -635,11 +710,11 @@ cam barrier has its own subsection below). A command $u$ is accepted when
 1. `held_segment_bound(x, u, dt, 20, R, n, error, da_max)` $\ge f_s$, and
 2. the barrier value at the end of the step, $x_1 = \Phi(\Delta t) x + \Gamma(\Delta t) u$, is
    $\ge f_b$, and, for the braking barrier,
-3. $x_1$ stays in the region, $|r_1| \le \max(\rho_{\text{cap}}, \rho)$ and
-   $|v_1| \le \max(v_{\text{cap}}, |v|)$, since the braking argument holds only there,
+3. $x_1$ keeps the rest of the braking set, $h_o(x_1) \ge f_o$ and
+   $|v_1| \le \max(v_{\text{cap}}, |v|)$, so that the next step has its backup again,
 
-with the floors $f_s = \min(0, \rho - R)$ and $f_b = \min(0, h(x))$: 0 inside the set, and "no
-worse than now" when recovering. The candidate is the clipped command; with
+with the floors $f_s = \min(0, \rho - R)$, $f_b = \min(0, h(x))$ and $f_o = \min(0, h_o(x))$: 0
+inside the set, and "no worse than now" when recovering. The candidate is the clipped command; with
 `candidate="projection"` and the free-drift barrier it is first projected onto the first-order
 row $\nabla h_p \cdot (v, a_{cw} + u) \ge -\gamma h_p$, which corrects less. The row uses the
 capped drift minimum and its gradient in both modes; the terminal value lies below it.
@@ -647,33 +722,32 @@ capped drift minimum and its gradient in both modes; the terminal value lies bel
 Without error sets the free-drift filter uses the terminal set, `terminal=True`, with `grid`
 shortened to $\Delta t / \lceil \Delta t / \text{grid} \rceil$ so that it divides the step. Inside
 the set $h_p \ge 0$ then covers the drift over the step and after it, and the end state is in the
-set again, so the backup is returned without the check (sec. III, Theorem 4). Under full outward
-braking $h_b$ does not fall while $\rho \le \rho_{\text{cap}}$ and $|v| \le v_{\text{cap}}$, so
-the braking backup is returned inside the set whatever its check gives; the check is run only to
-report it. The backup lies in both thrust limits, so without error sets the filter is recursively
-feasible at any dt, up to rounding at the free-drift set's thresholds. A braking backup short of
-its check inside the set by more than the keep-out resolution, 1 mm, is a design defect and is
-reported as "solver_failed" with `certificate` and `certificate_horizon` None; a smaller shortfall
-is the slack of the certified bound at the boundary.
-
-The braking backup is radial in both layouts: $a_{\max} \hat r / \max_i |\hat r_i|$ for a box,
-the longest radial command inside it, and $a_{\max} \hat r$ for a ball. Both give
-$\hat r \cdot \beta \ge a_{\max}$ with $|\beta| \le \sqrt3\, a_{\max}$ (box), the bound that
-`braking_deceleration` allows for the turn of $\hat r$ within a step. A box corner
-$a_{\max}\,\mathrm{sign}(\hat r)$ also brakes, but its part across the line of sight raises the
-speed and can carry the state out of the region in which the braking argument holds.
+set again, so the backup is returned without the check (sec. III, Theorem 4). The braking backup
+keeps $h_b \ge 0$ over every held step from the braking set and ends it with $h_b \ge 0$,
+$h_o \ge 0$ and $|v| \le v_{\text{cap}}$ at the sample (Braking above), so the braking set is
+forward invariant under it at every dt that `braking_deceleration` admits, and every accepted
+step ends in the set by checks 2 and 3. The braking backup is returned inside the set whatever its
+check gives; the check is run only to report it. The backup lies in both thrust limits, so
+without error sets the filter is recursively feasible at any dt, up to rounding at the free-drift
+set's thresholds, and for braking at every dt that reset admits. A braking backup inside the set
+whose step fails check 3, or falls short of checks 1 and 2 by more than the keep-out resolution,
+1 mm, is a design defect and is reported as "solver_failed" with `certificate` and
+`certificate_horizon` None; a smaller keep-out shortfall is the slack of the certified bound at
+the boundary.
 
 - `a_b` defaults to `braking_deceleration` at the view's thrust limit and dt minus
-  $\delta a_{\max}$; reset refuses a value that is not positive. `rho_cap` (2000 m) and `v_cap`
-  (0.3 m/s) bound the region.
+  $\delta a_{\max}$; reset refuses a value that is not positive, and an explicit `a_b` above
+  `braking_deceleration` with "a_b above what the braking backup delivers". `rho_cap` (2000 m)
+  and `v_cap` (0.3 m/s) bound the set.
 - With error sets (`navigation`, `execution`, `model_error`) check 1 is tightened as in
   `held_segment_bound`, and check 2 by the error carried to the end state: for free drift the
   largest range error of the drift from it over the horizon, for braking the range and closing
-  speed errors at the end state. The free-drift set is then the capped one, `terminal=False`,
+  speed errors at the end state; check 3 tightens $h_o$ by the range and opening speed errors in
+  the same way. The free-drift set is then the capped one, `terminal=False`,
   with `t_cap` two orbits by default, and recursive feasibility is not claimed: the backup's
   safety is no longer a theorem. A step whose
   returned command passes the tightened checks carries the certificate "bounded-W" with that
-  horizon; a backup that fails them is still returned, as the most outward command, but with
+  horizon; a backup that fails them is still returned, but with
   `certificate` and `certificate_horizon` None, `active` True, `fallback_level` 2 and its
   predicted shortfall in m as `slack`.
   When a declared error set has a positive exceedance, such as an ellipsoid from
@@ -705,7 +779,7 @@ speed and can carry the state out of the region in which the braking argument ho
 | Backup, $\theta = 0$ | True | 2 | as above | 13 |
 | Recovering | True if $\theta < 1$ | 0 or 2 | None, None | 1 or 13 |
 | Backup failing the tightened checks (error sets) | True | 2 | None, None | 13 |
-| Braking backup short of its check by more than 1 mm inside the set (no error sets) | True | 2 | None, None | 13 |
+| Braking backup failing check 3, or short of checks 1 and 2 by more than 1 mm, inside the set (no error sets) | True | 2 | None, None | 13 |
 
 The status is "feasible" in every row but the last, which is "solver_failed". When recovering,
 `slack` is the predicted violation of the returned action, $\max(0, f_s - \text{bound},
@@ -974,8 +1048,10 @@ print(result.proof.names, result.proof.verify())  # ('keep_out', 'approach_cone'
   up to 13. Measured at the V-bar hold over two orbits: 0.02 to 0.16 s per clearance for boxes up
   to (0.6 m, 0.3 mm/s) at grids of 5 to 60 s, and 0.6 to 2.6 s for a (3 m, 3 mm/s) box, most of it
   in the bounded least-squares refinement of `vbar.reach`; one decision took from 0.04 s to 40 s.
-- The braking barrier's region (`rho_cap`, `v_cap`) is declared, not enforced: a nominal that
-  leaves it puts the filter in recovery.
+- The braking set (`rho_cap`, `v_cap`) is enforced by check 3 and kept by the backup, so without
+  error sets only a start outside it puts the braking filter in recovery. The set shrinks as dt
+  grows: at the approach box $a_b$ is 0.00831 m/s^2 at 1 s and 0.00758 m/s^2 at 10 s, and reset
+  refuses dt above 33.37 s with the default `v_cap` of 0.3 m/s.
 - The free-drift barrier evaluates up to 11 355 drift samples per check (ten orbits at 5 s); a
   step that needs the line search makes 13 checks. Without error sets the grid divides dt, so at
   dt 1 s it is 1 s and a check takes up to 56 771 samples.
@@ -995,7 +1071,7 @@ delay_s=0.0, ignore=())` plans `horizon` held commands toward the agent's comman
 first one only when the whole plan is certified for all time. It declares the same set as
 `BackupFilter(barrier="passive")` without error sets: the terminal free-drift set $h_p \ge 0$ of
 `PassiveBarrier(terminal=True)`, with the grid shortened to $\Delta t / \lceil \Delta t / 5 \rceil$
-s so that it divides the step. Its backup is zero thrust, with full outward braking as a recovery
+s so that it divides the step. Its backup is zero thrust, with the braking backup as a recovery
 outside the set (see Modes and fallbacks), its certificate "nominal", and its name
 "predictive-n10" for a horizon of 10. It enforces the keep-out only, refuses other constraint types
 unless they are listed in `ignore=`, and refuses dynamics other than "cw".
@@ -1092,7 +1168,7 @@ about the true problem, and the filter never reports "infeasible_certified".
 A solve that hits `settings.max_iter` ("iteration_cap"), fails, or reports infeasibility returns no
 plan, since an interior-point iterate meets the dynamics only at convergence; the decision moves on
 to level 1. `recovering` is False on every certified decision outside the finite-horizon mode.
-When nothing is certified the filter returns full outward braking in the braking region (Modes and
+When nothing is certified the filter returns the braking backup in the braking set (Modes and
 fallbacks), else the converged solution if there is one, else the shifted plan, else zero thrust,
 with its predicted shortfall in m as `slack`. Zero thrust is certified wherever $h_p(x) \ge 0$, so this
 happens only outside the declared set, as a recovering step, and the filter never reports
@@ -1149,13 +1225,13 @@ not certified, it is applied while recovering as "feasible" with its predicted s
 "infeasible_certified" nor "solver_failed". It declares `counts_toward_certification` False and
 the audit refuses it.
 
-**Braking recovery.** At reset $a_b$ = `braking_deceleration(a_max, layout, v_cap=brake_v_cap,
-dt, radius, rho_cap, n)`. When $a_b > 0$, a decision with nothing certified at a state where
-`BrakingBarrier(radius, a_b, rho_cap, v_cap=brake_v_cap)` holds ($h_b \ge 0$, $\rho \le$
-`rho_cap`, $|v| \le$ `brake_v_cap`) applies full outward braking at level 2, recovering and with
-no certificate: $h_b$ does not fall under it in that region (Braking above). It comes before the
+**Braking recovery.** At reset $a_b$ = `braking_deceleration(a_max, v_cap=brake_v_cap, dt,
+radius, rho_cap, n)`, 0.00449 m/s^2 at the defaults and dt 10 s. When $a_b > 0$, a decision with
+nothing certified at a state where `BrakingBarrier(radius, a_b, rho_cap, v_cap=brake_v_cap, n, dt,
+a_max)` holds ($h_b \ge 0$, $h_o \ge 0$, $|v| \le$ `brake_v_cap`) applies its backup at level 2,
+recovering and with no certificate: the backup keeps that set (Braking above). It comes before the
 uncertified solution, the soft one included, and before the uncertified shifted plan. The
-declaration's backup then reads "zero thrust, else full outward braking outside the set". At dt
+declaration's backup then reads "zero thrust, else the braking backup outside the set". At dt
 30 s the defaults give $a_b \le 0$; there is no braking level and the backup does not name it.
 
 **CAM backup** (`backup="cam"`, name "predictive-cam-n10"). The declared set is the CAM-then-drift
@@ -1412,10 +1488,11 @@ The audit draws the true start $x$, and the filter first sees an estimate $\hat 
 $e \in E$. `contains_start(x)` is True when every such estimate lies in the declared set. For the
 free-drift and predictive filters the set of an estimate, $\hat x + Z_E$, lies in $x + 2Z_E$, so
 `contains_start(x)` is the drift clearance of $x + 2Z_E$. For the braking filter, with $g_r$ and
-$g_v$ the largest position and velocity errors in $E$, it needs $\rho + g_r \le \rho_{\text{cap}}$,
-$|v| + g_v \le v_{\text{cap}}$ and the lower bound on $h_b$ over states within $g_r$ and $g_v$ of
-$x$ that the end-of-step check uses, $\rho - g_r - R - c^2 / (2a_b)$ with the closing speed $c$
-raised by $g_v + 2 g_r (|v| + g_v) / \rho$, to be nonnegative. Without a navigation set it is
+$g_v$ the largest position and velocity errors in $E$, it needs $|v| + g_v \le v_{\text{cap}}$
+and the lower bounds on $h_b$ and $h_o$ over states within $g_r$ and $g_v$ of $x$ that the
+end-of-step check uses to be nonnegative: $\rho - g_r - R - c^2 / (2a_b)$ with the closing speed
+$c$ raised by $g_v + 2 g_r (|v| + g_v) / \rho$, and $\rho_{\text{cap}} - \rho - g_r - p^2 /
+(2a_b)$ with the opening speed $p$ raised by the same amount. Without a navigation set it is
 `contains(x)`. Before `reset` it raises `RuntimeError`.
 
 ```python
@@ -2162,10 +2239,19 @@ The tests in `tests/test_safety_barriers.py` check:
   minimum at the horizon end raise.
 - The periodic bound $B$ holds on 1000 random states within 2 km and 1 m/s and on drawn states
   within 5 km and 2 m/s.
-- `braking_deceleration` equals the formula for both layouts and 0.00991 m/s^2 for the approach
-  box; zero, negative and NaN $a_b$ raise, and so does the value at $\rho_{\text{cap}} = 20$ km.
-  Under the backup held for 10 s, $h_b$ does not fall on 100 closing states inside the region,
-  for box and ball.
+- `braking_deceleration` equals the formula, 0.00758 m/s^2 for the approach box, 0.004492 m/s^2
+  at $v_{\text{cap}} = 1$ m/s and 0.00225 m/s^2 there at 20 s; it is 0.0 for each failed
+  condition (20 km, $2n\Delta t > 1$, $v_{\text{cap}} = 1$ m/s at 30 s, 45 and 60 s, a 10 m span)
+  and admits the approach box up to 33.37 s; it takes no layout. Zero, negative and NaN $a_b$
+  raise, and so do the value at 20 km and an $a_b$ above the derived one. $h_o$, the speed cap
+  and the room to stop before $\rho_{\text{cap}}$ are checked at hand states.
+- The backup cancels the CW acceleration to 1e-15 on 400 in-set draws, is the same command in
+  both layouts and inside the ball, brakes the speed across the line of sight without
+  reversing it, steers to $\pm\delta$ and brakes at $\pm a_R$ far from it, and is clipped to the
+  limit from fast states outside the set. Held at 1, 10 and 33.37 s from at least 800 draws
+  (uniform and on the inner, outer and middle boundaries), it keeps $h_b \ge -10^{-9}$ on 401
+  samples, the speed below $v_{hi}$, and ends each step in the set with $|v| \le 0.3$ m/s; flown
+  alone for 360 steps from 20 in-set states (100 in the slow run) it never leaves the set.
 - The sample-and-hold thresholds of the double integrator, found by bisection over starts on the
   boundary of the set, are $(\sqrt5 - 1)/2 = 0.618034$ for the set and 0.786578, the root of
   $2s^4 + 4s^3 - 6s^2 + 1$, for $h$, to 1e-4; both lie above 0.6. On CW
@@ -2287,9 +2373,14 @@ The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
   together with slow drifters bisected along $y$, every state is in the set after one 10 s drift
   step. A slow drifter whose drift enters the keep-out about 1.4 s after the ten-orbit cap is
   outside the set; its step is recovering and "feasible", with no certificate.
-- A braking backup with $a_b = 0.03$ m/s^2, above the box's outward limit of 0.02 m/s^2, fails its
-  check inside the set and is reported "solver_failed" with `certificate` and
-  `certificate_horizon` None.
+- A braking backup replaced by full inward thrust fails its keep-out check inside the set, and one
+  replaced by the old full outward thrust leaves the speed cap from the audit's exit states; both
+  are reported "solver_failed" with `certificate` and `certificate_horizon` None.
+- From the three exit states the audit found, 78 to 92 m out at just under 0.3 m/s, the braking
+  filter's step under an inward command ends in the set with $|v| \le 0.3$ m/s and carries
+  "nominal"; from fast states outside the set it stays within both thrust limits. Reset refuses an
+  explicit `a_b` above `braking_deceleration`, and the default gives up at least the execution
+  bound.
 - Two true starts seen through one scripted sensor give identical decisions, and recovery is
   judged on the estimate.
 - The soft filter's action minimises the penalised objective against 500 random commands, and
@@ -2299,7 +2390,7 @@ The tests in `tests/test_safety_predictive.py` check:
 
 - Defaults of 10 steps, 5 row samples and $\epsilon = 10^{-3}$; a negative, NaN or infinite delay
   is refused. The declared set equals that of `BackupFilter(barrier="passive")`, with certificate
-  "nominal" and backup "zero thrust, else full outward braking outside the set"; for dt 1, 7, 10
+  "nominal" and backup "zero thrust, else the braking backup outside the set"; for dt 1, 7, 10
   and 20 s the drift grid divides the step to 1e-12, and over one drift step $h_p$ does not fall on 200 drawn states (100 from the start box,
   100 near the keep-out, both in and out of the set) to 1e-9 m.
 - A certified agent command comes back bit for bit in the "normalized", "accel" and "thrust"
@@ -2350,15 +2441,15 @@ The tests in `tests/test_safety_predictive_fallbacks.py` check:
 
 - Defaults backup "passive", `brake_v_cap` 1 m/s and `rho_cap` 2000 m; an unknown backup is
   refused.
-- Braking: at 60 m on -V-bar closing at 0.26 m/s ($h_b$ = +0.366 m, outside the free-drift set),
-  with the solver stopped, the decision is full outward braking at level 2, recovering, no
+- Braking: at 60 m on -V-bar closing at 0.26 m/s ($h_b$ = +2.476 m, outside the free-drift set),
+  with the solver stopped, the decision is the braking backup at level 2, recovering, no
   certificate, equal to `BrakingBarrier.backup` to 1e-12. Flown with the zero agent for 12
   decisions, the first brakes, a "nominal" decision comes before the last, every decision is
   "feasible" and no certified in-step bound falls below -1 mm; a mutant without braking enters the
   keep-out by 30 to 40 m within 18 decisions. On 100 in-set states from 200 seeded draws, at least
   50 of them in the braking set, with the solver stopped, braking is never applied. At dt 30 s, where $a_b \le 0$,
   the backup does not name braking and zero thrust is applied at level 2; at dt 10 s it reads
-  "zero thrust, else full outward braking outside the set".
+  "zero thrust, else the braking backup outside the set".
 - CAM backup: named "predictive-cam-n10" and refused with the finite-horizon mode; its declared
   barrier equals that of `BackupFilter(barrier="cam")`. At 60 m on -V-bar closing at 0.3 m/s, in
   the CAM set but not the free-drift set, with the solver stopped, the first decision is the CAM
@@ -2529,10 +2620,8 @@ print(round(passive.value(x), 3), passive.horizon(x)[1])  # 29.998 False
 terminal = PassiveBarrier(radius=50.0, n=n, terminal=True)
 print(terminal.value(x), terminal.horizon(x))  # 30.0 (0.0, True)
 
-a_b = braking_deceleration(
-    a_max=0.02, layout="box", v_cap=0.3, dt=10.0, radius=50.0, rho_cap=2000.0, n=n
-)
-print(round(a_b, 5))  # 0.00991
+a_b = braking_deceleration(a_max=0.02, v_cap=0.3, dt=10.0, radius=50.0, rho_cap=2000.0, n=n)
+print(round(a_b, 5))  # 0.00758
 ```
 
 ```python

@@ -11,9 +11,9 @@ have relative degree 1 and use h' >= -gamma h (sec. II, Def. 2).
 
 `PassiveBarrier`, `CamBarrier` and `BrakingBarrier` are evading-maneuver barriers (sec. III,
 eq. 12): h is the margin that a fixed backup command, free drift, a collision avoidance
-manoeuvre then free drift, or full outward braking, keeps from x, so that command is always safe
-on the set h >= 0 (Theorem 4). They have no row and are enforced by a line search toward the
-backup on the exact held segment.
+manoeuvre then free drift, or braking along and across the line of sight, keeps from x, so that
+command is always safe on the set h >= 0 (Theorem 4). They have no row and are enforced by a
+line search toward the backup on the exact held segment.
 """
 
 from __future__ import annotations
@@ -26,7 +26,8 @@ from scipy.optimize import minimize_scalar
 
 from ..constraints import KeepOut, _rounding_allowances, interval_bounds, range_lower_bounds
 from ..dynamics.cw import cw_discrete
-from ..solvers.qp import ACTUATOR_LAYOUTS, ActuatorSet
+from ..solvers.qp import ActuatorSet
+from .projections import ball, box
 from .sampled import held_segment_bound
 
 # Below this speed (m/s) the direction of v is undefined and the speed row is dropped; the
@@ -985,107 +986,207 @@ class CamBarrier:
         return accel
 
 
+def _a_cw(x: np.ndarray, n: float) -> np.ndarray:
+    """Natural acceleration of the CW equations at the state `x`, m/s^2."""
+    return np.array(
+        [3.0 * n * n * x[0] + 2.0 * n * x[4], -2.0 * n * x[3], -n * n * x[2]], dtype=float
+    )
+
+
+def _braking_losses(
+    a_max: float, v_cap: float, dt: float, radius: float, rho_cap: float, n: float
+) -> tuple[float, float, float] | None:
+    """(a_R, sigma, v_hi) of the braking backup, or None when no thrust is left for it.
+
+    a_R is the radial share of what a_max leaves after cancelling the CW acceleration, sigma
+    (m/s^2) what a held step can take of it and v_hi (m/s) the largest speed within a step.
+    """
+    budget = a_max - (3.0 * n * n * rho_cap + 2.0 * n * v_cap)
+    # The change of the CW acceleration over the step feeds back through the state it moves.
+    feedback = 1.0 - 2.0 * n * dt - 1.5 * n * n * dt * dt
+    if not (budget > 0.0 and feedback > 0.0):
+        return None
+    a_r = budget / math.sqrt(2.0)
+    eps = (3.0 * n * n * v_cap + 2.0 * n * budget) * dt / feedback
+    v_hi = v_cap + 0.5 * eps * dt
+    turn_radius = 0.5 * (radius + rho_cap) - v_hi * dt
+    if turn_radius <= 0.0:
+        return None
+    theta = v_hi * dt / radius
+    sigma = a_r * (0.5 * theta * theta + theta) + eps + v_hi * v_hi / turn_radius
+    return a_r, sigma, v_hi
+
+
+def _braking_kept(
+    a_r: float, sigma: float, v_hi: float, a_b: float, v_cap: float, dt: float, span: float
+) -> bool:
+    """Whether the backup keeps the braking set at `a_b`; `span` is rho_cap - R, m."""
+    rise = v_hi - v_cap
+    braked = a_r * dt
+    return (
+        0.0 < a_b <= a_r - sigma
+        and rise < v_cap
+        and braked**2 + max(0.0, v_cap - braked) ** 2 <= (v_cap - rise) ** 2
+        and rise <= 0.5 * braked
+        and 0.5 * span >= v_hi * dt + v_hi * v_hi / (2.0 * a_b)
+    )
+
+
 def braking_deceleration(
     *,
     a_max: float,
-    layout: str,
     v_cap: float,
     dt: float,
     radius: float,
     rho_cap: float,
     n: float,
 ) -> float:
-    """Return the braking acceleration that held full braking delivers in a region.
+    """Return the braking acceleration a_b the braking backup holds over a held step.
 
     Parameters
     ----------
     a_max : float
-        The thrust limit, m/s^2, positive.
-    layout : str
-        "box" or "ball".
+        The thrust limit, m/s^2, positive; the radius of the ball inside both layouts.
     v_cap : float
-        The largest speed of the region, m/s, positive.
+        The speed cap of the braking set, m/s, positive.
     dt : float
         The hold time of a command, s, positive.
     radius : float
         The keep-out radius R, m, positive.
     rho_cap : float
-        The largest range of the region, m, positive.
+        The largest range of the braking set, m, positive.
     n : float
         Mean motion, rad/s, positive.
 
     Returns
     -------
     float
-        a_max (1 - k v_cap dt / R) - (3 n^2 rho_cap + 2 n v_cap), m/s^2, with k = sqrt(3) for a
-        box and 1 for a ball. Outside the keep-out rhat turns by at most v_cap t / R within a
-        step, so a held beta keeps rhat . beta >= a_max - |beta| v_cap dt / R, and the CW terms
-        take at most 3 n^2 rho + 2 n |v| of it. Zero or negative when no braking barrier exists
-        for these values.
+        a_b = a_R - sigma, m/s^2. B = a_max - (3 n^2 rho_cap + 2 n v_cap) is what is left after
+        cancelling the CW acceleration and a_R = B / sqrt(2) its radial share, the same as the
+        tangential one. sigma = a_R (theta^2 / 2 + theta) + eps + v_hi^2 / (rho_mid - v_hi dt),
+        with eps = (3 n^2 v_cap + 2 n B) dt / (1 - 2 n dt - 1.5 n^2 dt^2) the change of the CW
+        acceleration over a step, v_hi = v_cap + eps dt / 2, theta = v_hi dt / R the turn of
+        rhat and rho_mid = (R + rho_cap) / 2. 0.0 when the backup keeps no braking set for these
+        values: B or the denominator of eps not positive, a_b not positive,
+        (a_R dt)^2 + max(0, v_cap - a_R dt)^2 > (v_cap - eps dt / 2)^2, eps dt / 2 > a_R dt / 2,
+        or (rho_cap - R) / 2 < v_hi dt + v_hi^2 / (2 a_b).
 
     Raises
     ------
     ValueError
-        If a parameter is not positive or `layout` is unknown.
+        If a parameter is not finite and positive.
     """
-    if layout not in ACTUATOR_LAYOUTS:
-        raise ValueError(f"unknown layout {layout!r}, expected {ACTUATOR_LAYOUTS}")
     a_max = _positive(a_max, "a_max")
     v_cap = _positive(v_cap, "v_cap")
     dt = _positive(dt, "dt")
     radius = _positive(radius, "radius")
     rho_cap = _positive(rho_cap, "rho_cap")
     n = _positive(n, "n")
-    k = math.sqrt(3.0) if layout == "box" else 1.0
-    held = a_max * (1.0 - k * v_cap * dt / radius)
-    return held - (3.0 * n * n * rho_cap + 2.0 * n * v_cap)
+    losses = _braking_losses(a_max, v_cap, dt, radius, rho_cap, n)
+    if losses is None:
+        return 0.0
+    a_r, sigma, v_hi = losses
+    a_b = a_r - sigma
+    if not _braking_kept(a_r, sigma, v_hi, a_b, v_cap, dt, rho_cap - radius):
+        return 0.0
+    return a_b
 
 
 @dataclass(frozen=True, kw_only=True)
 class BrakingBarrier:
-    """Braking barrier h_b = rho - R - max(0, -rho_dot)^2 / (2 a_b) for the keep-out sphere.
+    """Braking barriers h_b and h_o for the keep-out sphere and the range cap, with a speed cap.
+
+    h_b = rho - R - max(0, -rho_dot)^2 / (2 a_b), h_o = rho_cap - rho - max(0, rho_dot)^2 /
+    (2 a_b), and the set is h_b >= 0, h_o >= 0, |v| <= v_cap.
 
     Parameters
     ----------
     radius : float
         The keep-out radius R, m, positive.
     a_b : float
-        The braking acceleration the barrier assumes, m/s^2, positive.
+        The braking acceleration the barriers assume, m/s^2, positive and at most
+        `braking_deceleration` of the other parameters.
     rho_cap : float
-        The largest range of the region where `a_b` is valid, m, above `radius`.
+        The largest range of the set, m, above `radius`.
     v_cap : float
-        The largest speed of that region, m/s, positive.
+        The speed cap of the set, m/s, positive.
+    n : float
+        Mean motion, rad/s, positive.
+    dt : float
+        The hold time of a command, s, positive.
+    a_max : float
+        The thrust limit the backup is built for, m/s^2, positive.
 
     Raises
     ------
     ValueError
-        If a parameter is out of range or not finite.
+        If a parameter is out of range or not finite, the backup keeps no braking set for these
+        values, or `a_b` is above what the backup delivers.
 
     Notes
     -----
-    The keep-out analogue of the lane-keeping barrier of Ames et al., sec. V.B. Under full
-    outward braking beta along rhat, rhat . beta >= a_max, and while closing at c = -rho_dot,
-    h_b' = rho_dot + (c / a_b) rho_ddot >= rho_dot + c = 0 as long as rho_ddot >= a_b, which
-    `braking_deceleration` makes hold in the region rho <= rho_cap, |v| <= v_cap. L_g h_b
-    vanishes at rho_dot = 0, so a first-order row on h_b puts no condition on u there and fails
-    under sample and hold; the barrier has no row and is enforced by a line search toward
-    `backup`.
+    The keep-out analogue of the lane-keeping barrier of Ames et al., sec. V.B, closed by a
+    second barrier at rho_cap so that the backup can keep the set. `backup` cancels the CW
+    acceleration at the start of the step and brakes at a_R along the line of sight and at up
+    to a_R across it (`braking_deceleration`). Over the held step the CW terms change by at
+    most eps and rhat turns by at most theta, so the range acceleration stays within sigma of
+    the commanded radial part. Closing inside rho_mid it brakes at a_R, so rho_ddot >= a_b and
+    h_b' = rho_dot + (c / a_b) rho_ddot >= 0 with c = -rho_dot; opening outside rho_mid it
+    brakes at -a_R and h_o does not fall in the same way. Otherwise it steers rho_dot to an
+    opening at delta = sigma dt inside rho_mid, or a closing at delta outside it, which no
+    step reverses, so the range moves away from the nearer barrier. Every case ends the step
+    with |v| <= v_cap, so the set is kept by each held step of the backup at the samples;
+    within a step the speed may exceed v_cap by up to eps dt / 2. L_g h_b vanishes at
+    rho_dot = 0, so a first-order row on h_b puts no condition on u there and fails under
+    sample and hold; the barrier has no row and is enforced by a line search toward `backup`.
     """
 
     radius: float
     a_b: float
     rho_cap: float
     v_cap: float
+    n: float
+    dt: float
+    a_max: float
+    _a_r: float = field(init=False, repr=False, compare=False)
+    _delta: float = field(init=False, repr=False, compare=False)
+    _rho_mid: float = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         radius = _positive(self.radius, "radius")
         rho_cap = _positive(self.rho_cap, "rho_cap")
         if rho_cap <= radius:
             raise ValueError("rho_cap must exceed radius")
-        object.__setattr__(self, "radius", radius)
-        object.__setattr__(self, "a_b", _positive(self.a_b, "a_b"))
-        object.__setattr__(self, "rho_cap", rho_cap)
-        object.__setattr__(self, "v_cap", _positive(self.v_cap, "v_cap"))
+        a_b = _positive(self.a_b, "a_b")
+        v_cap = _positive(self.v_cap, "v_cap")
+        n = _positive(self.n, "n")
+        dt = _positive(self.dt, "dt")
+        a_max = _positive(self.a_max, "a_max")
+        losses = _braking_losses(a_max, v_cap, dt, radius, rho_cap, n)
+        derived = braking_deceleration(
+            a_max=a_max, v_cap=v_cap, dt=dt, radius=radius, rho_cap=rho_cap, n=n
+        )
+        if losses is None or not derived > 0.0:
+            raise ValueError("the braking backup keeps no set for these values")
+        # Implied by _braking_kept below, refused first so the error names the cause.
+        if a_b > derived:
+            raise ValueError("a_b above what the braking backup delivers")
+        a_r, sigma, v_hi = losses
+        if not _braking_kept(a_r, sigma, v_hi, a_b, v_cap, dt, rho_cap - radius):
+            raise ValueError("no room to stop between radius and rho_cap at this a_b")
+        for name, value in (
+            ("radius", radius),
+            ("a_b", a_b),
+            ("rho_cap", rho_cap),
+            ("v_cap", v_cap),
+            ("n", n),
+            ("dt", dt),
+            ("a_max", a_max),
+            ("_a_r", a_r),
+            ("_delta", sigma * dt),
+            ("_rho_mid", 0.5 * (radius + rho_cap)),
+        ):
+            object.__setattr__(self, name, value)
 
     def value(self, x) -> float:
         """Return h_b, m, at the Hill-frame state `x` (m, m/s)."""
@@ -1093,8 +1194,14 @@ class BrakingBarrier:
         c = max(0.0, -rho_dot)
         return rho - self.radius - c * c / (2.0 * self.a_b)
 
+    def outer_value(self, x) -> float:
+        """Return h_o, m, at the Hill-frame state `x` (m, m/s)."""
+        rho, _, rho_dot, _ = _range_terms(_state(x))
+        p = max(0.0, rho_dot)
+        return self.rho_cap - rho - p * p / (2.0 * self.a_b)
+
     def contains(self, x) -> bool:
-        """Return whether h_b >= 0 inside the region rho <= rho_cap, |v| <= v_cap.
+        """Return whether h_b >= 0, h_o >= 0 and |v| <= v_cap.
 
         Raises
         ------
@@ -1102,41 +1209,54 @@ class BrakingBarrier:
             If `x` is malformed or its range is zero.
         """
         x = _state(x)
-        rho = float(np.linalg.norm(x[:3]))
         speed = float(np.linalg.norm(x[3:]))
-        return self.value(x) >= 0.0 and rho <= self.rho_cap and speed <= self.v_cap
+        return self.value(x) >= 0.0 and self.outer_value(x) >= 0.0 and speed <= self.v_cap
 
     def horizon(self, x) -> tuple[float, bool]:
-        """Return (inf, True): the braking argument holds for all time inside the region."""
+        """Return (inf, True): the backup keeps the set for all time."""
         _state(x)
         return math.inf, True
 
     def backup(self, x, actuator: ActuatorSet) -> np.ndarray:
-        """Return full outward braking, m/s^2.
+        """Return the braking command, m/s^2.
 
         Parameters
         ----------
         x : array_like, shape (6,)
             Hill-frame state, m and m/s.
         actuator : ActuatorSet
-            The thrust limit.
+            The thrust limit, with a_max at least the barrier's.
 
         Returns
         -------
         ndarray, shape (3,)
-            Along rhat in both layouts: a_max rhat / max_i |rhat_i| for a box, the longest radial
-            command in it, and a_max rhat for a ball. rhat . beta >= a_max, and |beta| is at
-            most sqrt(3) a_max (box) or a_max (ball), the bound `braking_deceleration` allows
-            for the turn of rhat within a step. A command with a part across the line of sight,
-            such as a_max sign(rhat), would raise the speed and carry the state out of the
-            region where the barrier holds.
+            a rhat - min(a_R, w / dt) that - a_cw(x), w that the velocity across the line of
+            sight. a is a_R while closing inside rho_mid, -a_R while opening outside it, and
+            otherwise (target - rho_dot) / dt clipped to [-a_R, a_R], the target delta inside
+            rho_mid and -delta outside. Inside the set it is at most the barrier's a_max in
+            size, the same command in both layouts; outside it the command is clipped to the
+            actuator's limit.
 
         Raises
         ------
         ValueError
-            If `x` is malformed or its range is zero.
+            If `x` is malformed, its range is zero or the actuator's a_max is below the
+            barrier's.
         """
-        _, rhat, _, _ = _range_terms(_state(x))
-        if actuator.layout == "box":
-            return actuator.a_max * rhat / float(np.max(np.abs(rhat)))
-        return actuator.a_max * rhat
+        if actuator.a_max < self.a_max:
+            raise ValueError("the actuator's a_max is below the barrier's")
+        x = _state(x)
+        rho, rhat, rho_dot, _ = _range_terms(x)
+        inner = rho < self._rho_mid
+        if inner and rho_dot < 0.0:
+            a = self._a_r
+        elif not inner and rho_dot > 0.0:
+            a = -self._a_r
+        else:
+            target = self._delta if inner else -self._delta
+            a = min(self._a_r, max(-self._a_r, (target - rho_dot) / self.dt))
+        v_t = x[3:] - rho_dot * rhat
+        w = float(np.linalg.norm(v_t))
+        across = np.zeros(3) if w == 0.0 else -min(self._a_r, w / self.dt) / w * v_t
+        u = a * rhat + across - _a_cw(x, self.n)
+        return box(u, actuator.a_max) if actuator.layout == "box" else ball(u, actuator.a_max)

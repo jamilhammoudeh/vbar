@@ -1,3 +1,4 @@
+import dataclasses
 import functools
 import math
 from decimal import Decimal, localcontext
@@ -445,98 +446,412 @@ def test_passive_backup_is_free_drift():
 
 
 # Braking barrier h_b = rho - R - max(0, -rhodot)^2 / (2 a_b), the keep-out analogue of the
-# lane-keeping barrier of Ames et al. sec. V.B.
+# lane-keeping barrier of Ames et al. sec. V.B, with the outer barrier
+# h_o = rho_cap - rho - max(0, rhodot)^2 / (2 a_b) and the speed cap |v| <= v_cap. The approach
+# box: 0.02 m/s^2, dt 10 s, R 50 m, rho_cap 2000 m, v_cap 0.3 m/s.
+A_MAX = 0.02
+RHO_CAP = 2000.0
+
+
+@dataclasses.dataclass(frozen=True)
+class Braking:
+    """The constants of the braking backup, from its definition in docs/safety-filters.md."""
+
+    a_r: float
+    rho_mid: float
+    eps: float
+    v_hi: float
+    a_b: float
+    delta: float
+    dt: float
+    v_cap: float
+    rho_cap: float
+
+
+def braking_constants(a_max=A_MAX, v_cap=0.3, dt=10.0, radius=R, rho_cap=RHO_CAP, n=N):
+    # What is left of a_max after cancelling the CW acceleration, split equally between the
+    # radial and the tangential parts.
+    budget = a_max - (3 * n * n * rho_cap + 2 * n * v_cap)
+    a_r = budget / math.sqrt(2.0)
+    eps = (3 * n * n * v_cap + 2 * n * budget) * dt / (1 - 2 * n * dt - 1.5 * n * n * dt * dt)
+    v_hi = v_cap + eps * dt / 2
+    theta = v_hi * dt / radius
+    rho_mid = (radius + rho_cap) / 2
+    sigma = a_r * theta**2 / 2 + a_r * theta + eps + v_hi**2 / (rho_mid - v_hi * dt)
+    return Braking(a_r, rho_mid, eps, v_hi, a_r - sigma, sigma * dt, dt, v_cap, rho_cap)
+
+
+APPROACH = braking_constants()
+
+
+def braking_terms(x):
+    """rho, rhat, rho_dot, the velocity across the line of sight and its size."""
+    rho = float(np.linalg.norm(x[:3]))
+    rhat = x[:3] / rho
+    p = float(rhat @ x[3:])
+    v_t = x[3:] - p * rhat
+    return rho, rhat, p, v_t, float(np.linalg.norm(v_t))
+
+
+def braking_law(x, c=APPROACH):
+    """beta' = a_r rhat - b that, the backup's acceleration once the CW part is cancelled."""
+    rho, rhat, p, v_t, w = braking_terms(x)
+    inner = rho < c.rho_mid
+    if inner and p < 0.0:
+        a = c.a_r
+    elif not inner and p > 0.0:
+        a = -c.a_r
+    else:
+        target = c.delta if inner else -c.delta
+        a = float(np.clip((target - p) / c.dt, -c.a_r, c.a_r))
+    tangential = np.zeros(3) if w == 0.0 else -min(c.a_r, w / c.dt) * v_t / w
+    return a * rhat + tangential
+
+
+def braking_barrier(a_b=None, v_cap=0.3, dt=10.0, radius=R, rho_cap=RHO_CAP):
+    if a_b is None:
+        a_b = braking_deceleration(
+            a_max=A_MAX, v_cap=v_cap, dt=dt, radius=radius, rho_cap=rho_cap, n=N
+        )
+    return BrakingBarrier(
+        radius=radius, a_b=a_b, rho_cap=rho_cap, v_cap=v_cap, n=N, dt=dt, a_max=A_MAX
+    )
+
+
+def unit(rng):
+    d = rng.standard_normal(3)
+    return d / np.linalg.norm(d)
+
+
+def braking_draws(c, rng, count):
+    """States of the set: uniform, and on its inner, outer and middle boundaries."""
+    a_b, v_cap, rho_cap, s = c.a_b, c.v_cap, c.rho_cap, 1 - 1e-6
+    states = []
+    for _ in range(count):
+        rho = R * (rho_cap / R) ** rng.uniform()
+        v = unit(rng) * v_cap * rng.uniform() ** (1 / 3)
+        states.append(np.concatenate([rho * unit(rng), v]))
+    for kind in ("inner", "outer", "middle"):
+        for _ in range(count // 2):
+            d = unit(rng)
+            if kind == "inner":
+                rho = R + 10 ** rng.uniform(-6, 1.5)
+                radial = -min(v_cap, math.sqrt(2 * a_b * (rho - R))) * s
+            elif kind == "outer":
+                rho = rho_cap - 10 ** rng.uniform(-6, 1.5)
+                radial = min(v_cap, math.sqrt(2 * a_b * (rho_cap - rho))) * s
+            else:
+                rho = c.rho_mid + rng.uniform(-5.0, 5.0)
+                radial = rng.uniform(-v_cap, v_cap) * s
+            t = unit(rng)
+            t -= (t @ d) * d
+            t /= np.linalg.norm(t)
+            w = math.sqrt(max(0.0, (v_cap * s) ** 2 - radial**2)) * rng.choice([1.0, rng.uniform()])
+            states.append(np.concatenate([rho * d, radial * d + w * t]))
+    return np.array(states)
+
+
+def braking_values(states, a_b, rho_cap=RHO_CAP):
+    """h_b and h_o of an array of states, m."""
+    rho = np.linalg.norm(states[..., :3], axis=-1)
+    p = np.einsum("...i,...i", states[..., :3], states[..., 3:]) / rho
+    h_b = rho - R - np.maximum(0.0, -p) ** 2 / (2 * a_b)
+    h_o = rho_cap - rho - np.maximum(0.0, p) ** 2 / (2 * a_b)
+    return h_b, h_o
 
 
 @pytest.mark.parametrize(
     ("v", "value"),
     [
-        ((-0.03, -0.04, 0.1), 30.0 - 0.05**2 / (2 * 0.01)),
+        ((-0.03, -0.04, 0.1), 30.0 - 0.05**2 / (2 * 0.005)),
         ((0.03, 0.04, 0.1), 30.0),
         ((-0.08, 0.06, 0.0), 30.0),
     ],
 )
 def test_braking_value_at_hand_states(v, value):
-    barrier = BrakingBarrier(radius=20.0, a_b=0.01, rho_cap=2000.0, v_cap=0.3)
+    barrier = braking_barrier(a_b=0.005, radius=20.0)
     x = np.concatenate([[30.0, 40.0, 0.0], v])
     assert barrier.value(x) == pytest.approx(value, rel=1e-14)
 
 
+@pytest.mark.parametrize(
+    ("v", "value"),
+    [
+        ((0.03, 0.04, 0.1), 1950.0 - 0.05**2 / (2 * 0.005)),
+        ((-0.03, -0.04, 0.1), 1950.0),
+        ((-0.08, 0.06, 0.0), 1950.0),
+    ],
+)
+def test_braking_outer_value_at_hand_states(v, value):
+    barrier = braking_barrier(a_b=0.005, radius=20.0)
+    x = np.concatenate([[30.0, 40.0, 0.0], v])
+    assert barrier.outer_value(x) == pytest.approx(value, rel=1e-14)
+
+
 def test_braking_contains_states_with_room_to_stop():
-    barrier = BrakingBarrier(radius=20.0, a_b=0.01, rho_cap=2000.0, v_cap=0.3)
+    barrier = braking_barrier(a_b=0.005, radius=20.0)
     assert barrier.contains(np.array([30.0, 40.0, 0.0, -0.03, -0.04, 0.1]))
-    # 1 m of room, closing at 0.2 m/s: stopping takes 2 m.
+    # 1 m of room, closing at 0.2 m/s: stopping takes 4 m.
     assert not barrier.contains(np.array([0.0, 21.0, 0.0, 0.0, -0.2, 0.0]))
 
 
-def default_deceleration(layout, rho_cap=2000.0):
-    return braking_deceleration(
-        a_max=0.02, layout=layout, v_cap=0.3, dt=10.0, radius=R, rho_cap=rho_cap, n=N
-    )
+def test_braking_contains_needs_room_to_stop_before_rho_cap():
+    barrier = braking_barrier()
+    # 1 m inside rho_cap, opening at 0.2 m/s: stopping takes 2.6 m.
+    assert not barrier.contains(np.array([0.0, RHO_CAP - 1.0, 0.0, 0.0, 0.2, 0.0]))
+    assert barrier.contains(np.array([0.0, RHO_CAP - 1.0, 0.0, 0.0, 0.0, 0.0]))
+    assert not barrier.contains(np.array([0.0, RHO_CAP + 1e-6, 0.0, 0.0, 0.0, 0.0]))
 
 
-@pytest.mark.parametrize(("layout", "turn"), [("box", math.sqrt(3.0)), ("ball", 1.0)])
-def test_default_braking_deceleration_covers_rotation_and_cw_terms(layout, turn):
-    expected = 0.02 * (1 - turn * 0.3 * 10.0 / R) - (3 * N * N * 2000.0 + 2 * N * 0.3)
-    assert default_deceleration(layout) == pytest.approx(expected, rel=1e-12)
+def test_braking_contains_needs_the_speed_cap():
+    barrier = braking_barrier()
+    assert barrier.contains(np.array([0.0, 1000.0, 0.0, 0.3, 0.0, 0.0]))
+    assert not barrier.contains(np.array([0.0, 1000.0, 0.0, 0.3 + 1e-9, 0.0, 0.0]))
 
 
-def test_default_braking_deceleration_for_the_approach_box_is_0_00991():
-    assert round(default_deceleration("box"), 5) == 0.00991
+def default_deceleration(**kw):
+    args = {"a_max": A_MAX, "v_cap": 0.3, "dt": 10.0, "radius": R, "rho_cap": RHO_CAP, "n": N}
+    return braking_deceleration(**(args | kw))
+
+
+@pytest.mark.parametrize(
+    ("kw", "rounded"),
+    [({}, 0.0075776), ({"v_cap": 1.0}, 0.004492), ({"v_cap": 1.0, "dt": 20.0}, 0.00225)],
+    ids=["approach box", "v_cap 1", "v_cap 1 dt 20"],
+)
+def test_default_braking_deceleration_is_the_radial_share_less_the_losses_of_a_step(kw, rounded):
+    c = braking_constants(**kw)
+    assert default_deceleration(**kw) == pytest.approx(c.a_b, rel=1e-12)
+    assert default_deceleration(**kw) == pytest.approx(rounded, abs=5e-6)
+
+
+def test_default_braking_deceleration_for_the_approach_box_is_0_00758():
+    assert round(default_deceleration(), 5) == 0.00758
+
+
+def test_braking_constants_of_the_approach_box():
+    # B = 0.02 - (3 n^2 2000 + 2 n 0.3) = 0.011986 m/s^2; E = eps dt / 2 is the most the speed
+    # rises above v_cap within a step and theta the turn of rhat in a step at 50 m.
+    c = APPROACH
+    assert c.a_r * math.sqrt(2.0) == pytest.approx(0.011986, abs=5e-7)
+    assert c.a_r == pytest.approx(0.008475, abs=5e-7)
+    assert c.eps == pytest.approx(2.83e-4, abs=5e-7)
+    assert c.v_hi - 0.3 == pytest.approx(1.413e-3, abs=5e-7)
+    assert c.v_hi * 10.0 / R == pytest.approx(0.0603, abs=5e-5)
+    assert c.delta == pytest.approx(0.00898, abs=5e-6)
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"rho_cap": 20000.0},
+        {"dt": 460.0},
+        {"v_cap": 1.0, "dt": 30.0},
+        {"dt": 45.0},
+        {"dt": 60.0},
+        {"rho_cap": 60.0},
+    ],
+    ids=[
+        "CW terms above a_max",
+        "2 n dt above 1",
+        "losses above the radial share",
+        "speed cap lost at dt 45",
+        "speed cap lost at dt 60",
+        "no room to stop between R and rho_cap",
+    ],
+)
+def test_braking_deceleration_is_zero_when_the_backup_cannot_keep_its_set(kw):
+    # Each breaks the reset condition its id names. The conditions delta <= a_R dt and
+    # eps <= a_R follow from a_b > 0, so they cannot fail alone.
+    assert default_deceleration(**kw) == 0.0
+
+
+def test_braking_deceleration_admits_the_approach_box_up_to_dt_33_37_s():
+    expected = braking_constants(dt=33.37).a_b
+    assert default_deceleration(dt=33.37) == pytest.approx(expected, rel=1e-12)
+    assert default_deceleration(dt=33.4) == 0.0
+
+
+def test_braking_deceleration_takes_no_layout():
+    with pytest.raises(TypeError):
+        braking_deceleration(
+            a_max=A_MAX, layout="box", v_cap=0.3, dt=10.0, radius=R, rho_cap=RHO_CAP, n=N
+        )
 
 
 @pytest.mark.parametrize("a_b", [0.0, -1e-3, math.nan])
 def test_braking_barrier_refuses_a_nonpositive_deceleration(a_b):
     with pytest.raises(ValueError):
-        BrakingBarrier(radius=R, a_b=a_b, rho_cap=2000.0, v_cap=0.3)
+        braking_barrier(a_b=a_b)
 
 
 def test_braking_barrier_refuses_a_region_the_thrust_cannot_hold():
     # At 20 km the CW terms alone exceed 0.02 m/s^2.
-    assert default_deceleration("box", rho_cap=20000.0) <= 0.0
+    assert default_deceleration(rho_cap=20000.0) <= 0.0
     with pytest.raises(ValueError):
-        BrakingBarrier(
-            radius=R, a_b=default_deceleration("box", 20000.0), rho_cap=20000.0, v_cap=0.3
-        )
+        braking_barrier(a_b=1e-3, rho_cap=20000.0)
 
 
-def test_braking_backup_is_full_outward_thrust():
+def test_braking_barrier_refuses_an_a_b_its_backup_cannot_deliver():
+    derived = default_deceleration()
+    braking_barrier(a_b=derived)
+    braking_barrier(a_b=0.5 * derived)
+    with pytest.raises(ValueError):
+        braking_barrier(a_b=derived * (1 + 1e-9))
+    with pytest.raises(ValueError):
+        braking_barrier(a_b=0.00991)
+
+
+def test_braking_backup_refuses_an_actuator_weaker_than_its_own():
     x = np.array([30.0, -40.0, 10.0, -0.1, 0.05, 0.0])
-    rhat = x[:3] / np.linalg.norm(x[:3])
-    barrier = BrakingBarrier(radius=R, a_b=0.01, rho_cap=2000.0, v_cap=0.3)
-    # The longest command along rhat inside the box: it reaches the face of the largest axis.
-    box = np.asarray(barrier.backup(x, ActuatorSet(0.02, "box")))
-    assert box == pytest.approx(0.02 * rhat / np.max(np.abs(rhat)), rel=1e-14)
-    assert np.all(np.abs(box) <= 0.02 * (1 + 1e-14))
-    assert np.max(np.abs(box)) == pytest.approx(0.02, rel=1e-14)
-    assert rhat @ box >= 0.02 * (1 - 1e-14)
-    assert np.linalg.norm(box) <= np.sqrt(3.0) * 0.02 * (1 + 1e-14)
-    ball = barrier.backup(x, ActuatorSet(0.02, "ball"))
-    assert np.asarray(ball) == pytest.approx(0.02 * rhat, rel=1e-14)
+    with pytest.raises(ValueError):
+        braking_barrier().backup(x, ActuatorSet(0.019, "box"))
+
+
+@functools.cache
+def in_set_draws():
+    barrier = braking_barrier()
+    states = braking_draws(APPROACH, np.random.default_rng(1903), 200)
+    return tuple(x for x in states if barrier.contains(x))
+
+
+def test_braking_backup_cancels_the_cw_acceleration():
+    barrier = braking_barrier()
+    draws = in_set_draws()
+    assert len(draws) >= 400
+    for x in draws:
+        u = np.asarray(barrier.backup(x, ActuatorSet(A_MAX, "box")))
+        np.testing.assert_allclose(u + a_cw(x), braking_law(x), rtol=0.0, atol=1e-15)
+
+
+def test_braking_backup_is_the_same_command_in_both_layouts_and_inside_the_ball():
+    barrier = braking_barrier()
+    for x in in_set_draws():
+        box = np.asarray(barrier.backup(x, ActuatorSet(A_MAX, "box")))
+        ball = np.asarray(barrier.backup(x, ActuatorSet(A_MAX, "ball")))
+        np.testing.assert_array_equal(box, ball)
+        assert np.linalg.norm(box) <= A_MAX
+
+
+def held_change(barrier, x, dt=10.0):
+    """v0 + beta' dt along rhat0, along that0 and across both, m/s."""
+    u = np.asarray(barrier.backup(x, ActuatorSet(A_MAX, "box")))
+    _, rhat, _, v_t, w = braking_terms(x)
+    that = v_t / w
+    end = x[3:] + (u + a_cw(x)) * dt
+    return end @ rhat, end @ that, abs(end @ np.cross(rhat, that))
+
+
+@pytest.mark.parametrize("w", [0.02, 0.0847, 0.2, 0.29])
+def test_braking_backup_brakes_tangential_speed_without_reversing_it(w):
+    # a_T dt = 0.08475 m/s: below it the tangential speed is zeroed in one step, above it cut by
+    # that much.
+    barrier = braking_barrier()
+    for rho, p in ((300.0, -0.01), (300.0, 0.01), (1500.0, 0.01), (1500.0, -0.01)):
+        x = np.array([0.0, rho, 0.0, w, p, 0.0])
+        _, along, across = held_change(barrier, x)
+        assert along == pytest.approx(max(0.0, w - APPROACH.a_r * 10.0), abs=1e-15)
+        assert across <= 1e-15
+
+
+@pytest.mark.parametrize("p", [0.0, 0.02, 0.05, 0.09])
+def test_braking_backup_targets_a_slow_opening_inside_and_a_slow_closing_outside(p):
+    # Unclipped while |target - rho_dot| <= a_R dt = 0.08475 m/s; rho_mid is 1025 m.
+    barrier = braking_barrier()
+    inside = np.array([0.0, 300.0, 0.0, 0.1, p, 0.0])
+    outside = np.array([0.0, 1500.0, 0.0, 0.1, -p, 0.0])
+    assert held_change(barrier, inside)[0] == pytest.approx(APPROACH.delta, rel=1e-12)
+    assert held_change(barrier, outside)[0] == pytest.approx(-APPROACH.delta, rel=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("rho", "p", "a"),
+    [
+        (300.0, -0.2, APPROACH.a_r),
+        (300.0, -1e-6, APPROACH.a_r),
+        (300.0, 0.25, -APPROACH.a_r),
+        (1500.0, 0.2, -APPROACH.a_r),
+        (1500.0, 1e-6, -APPROACH.a_r),
+        (1500.0, -0.25, APPROACH.a_r),
+    ],
+)
+def test_braking_backup_brakes_at_the_radial_share_when_far_from_its_target(rho, p, a):
+    barrier = braking_barrier()
+    x = np.array([0.0, rho, 0.0, 0.1, p, 0.0])
+    assert held_change(barrier, x)[0] == pytest.approx(p + a * 10.0, rel=1e-12)
+
+
+@functools.cache
+def held_steps(dt):
+    """The set's draws at dt, their backup commands and their states on 401 step samples."""
+    c = braking_constants(dt=dt)
+    barrier = braking_barrier(dt=dt)
+    states = braking_draws(c, np.random.default_rng(20261025), 400)
+    states = np.array([x for x in states if barrier.contains(x)])
+    actuator = ActuatorSet(A_MAX, "box")
+    u = np.array([barrier.backup(x, actuator) for x in states])
+    phi, gamma = cw_discrete(N, np.linspace(0.0, dt, 401))
+    path = np.einsum("tij,mj->tmi", phi, states) + np.einsum("tij,mj->tmi", gamma, u)
+    return barrier, c, states, u, path
 
 
 @pytest.mark.parametrize("layout", ["box", "ball"])
-def test_braking_value_never_falls_under_the_backup_over_a_held_step(layout):
-    # d h_b / dt = rhodot + (c / a_b) rhoddot >= rhodot + c = 0 while closing, since rhoddot >= a_b
-    # inside rho <= rho_cap, |v| <= v_cap with the rotation of rhat over the step allowed for.
-    a_b = default_deceleration(layout)
-    barrier = BrakingBarrier(radius=R, a_b=a_b, rho_cap=2000.0, v_cap=0.3)
-    actuator = ActuatorSet(0.02, layout)
-    phi, gamma = cw_discrete(N, np.linspace(0.0, 10.0, 51))
-    rng = np.random.default_rng(1903)
-    checked = 0
-    while checked < 100:
-        d = rng.standard_normal(3)
-        d /= np.linalg.norm(d)
-        v = rng.standard_normal(3)
-        v *= rng.uniform(0.0, 0.3) / np.linalg.norm(v)
-        x = np.concatenate([rng.uniform(R, 2000.0) * d, v])
-        if d @ v >= 0.0 or barrier.value(x) < 0.0:
-            continue
-        checked += 1
-        beta = np.asarray(barrier.backup(x, actuator))
-        values = [barrier.value(s) for s in phi @ x + gamma @ beta]
-        assert min(values) >= values[0] - 1e-9
+@pytest.mark.parametrize("dt", [1.0, 10.0, 33.37])
+def test_braking_backup_keeps_the_set_over_a_held_step(dt, layout):
+    barrier, c, states, u, path = held_steps(dt)
+    assert len(states) >= 800
+    size = np.max(np.abs(u), axis=1) if layout == "box" else np.linalg.norm(u, axis=1)
+    assert np.all(size <= A_MAX)
+    h_b, _ = braking_values(path, barrier.a_b)
+    assert h_b.min() >= -1e-9
+    # Between samples the speed may exceed v_cap by E = eps dt / 2, 1.4 mm/s at dt 10 s.
+    assert np.linalg.norm(path[..., 3:], axis=-1).max() <= c.v_hi
+    for x1 in path[-1]:
+        assert barrier.contains(x1)
+        assert np.linalg.norm(x1[3:]) <= 0.3
+
+
+# 100 starts take about 4 s of Python calls; the default run flies 20.
+FLOWN = (pytest.param(100, marks=pytest.mark.slow), 20)
+
+
+@pytest.mark.parametrize("count", FLOWN)
+def test_braking_backup_flown_alone_never_leaves_its_set(count):
+    barrier = braking_barrier()
+    actuator = ActuatorSet(A_MAX, "box")
+    phi, gamma = cw_discrete(N, 10.0)
+    draws = in_set_draws()
+    starts = draws[:: len(draws) // count][:count]
+    assert len(starts) == count
+    for x in starts:
+        path = []
+        for _ in range(360):
+            x = phi @ x + gamma @ np.asarray(barrier.backup(x, actuator))
+            path.append(x)
+        path = np.array(path)
+        h_b, h_o = braking_values(path, barrier.a_b)
+        assert h_b.min() >= 0.0 and h_o.min() >= 0.0
+        assert np.linalg.norm(path[:, 3:], axis=1).max() <= 0.3
+
+
+# Fast states outside the set, beyond rho_cap and opening at 0.87 m/s: cancelling the CW
+# acceleration and braking at the full shares would take 0.0202 to 0.0206 m/s^2 on the largest
+# axis and 0.0205 to 0.0208 m/s^2 in size.
+FAST_OUTSIDE = (
+    np.array([2100.0, -950.0, 0.0, 0.45, 0.74, 0.0]),
+    np.array([2000.0, -900.0, 0.0, 0.45, 0.74, 0.0]),
+)
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+def test_braking_backup_from_a_fast_state_outside_its_set_stays_within_the_thrust_limit(layout):
+    barrier = braking_barrier()
+    order = np.inf if layout == "box" else 2
+    for x in FAST_OUTSIDE:
+        assert not barrier.contains(x)
+        assert np.linalg.norm(braking_law(x) - a_cw(x), order) > A_MAX
+        u = np.asarray(barrier.backup(x, ActuatorSet(A_MAX, layout)))
+        assert np.linalg.norm(u, order) <= A_MAX
 
 
 # Sample-and-hold of the exponential CBF on a double integrator, h'' = u with

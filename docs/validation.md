@@ -908,9 +908,19 @@ and Applications"** (ECC 2019, arXiv:1903.11199v1)
   500 km with WGS 84): the envelope-theorem gradient of the free-drift minimum matches central
   differences to 1e-6 relative on 5 states; the periodic along-track bound
   $6|x_0| + |y_0| + 4|v_{x0}|/n + 4|v_{y0}|/n$ holds on 1000 random states.
-- Sec. V.B, the lane-keeping barrier's keep-out analogue (ours): under full outward braking held
-  for 10 s the braking barrier does not fall on 100 closing states, for box and ball, with
-  $a_b = 0.00991$ m/s^2 for the approach box.
+- Sec. V.B, the lane-keeping barrier's keep-out analogue, closed by an outer barrier at
+  $\rho_{\text{cap}}$ (ours, derivation in safety-filters.md, Braking): the backup cancels the CW
+  acceleration and brakes at $a_R = B/\sqrt2$ along and across the line of sight, with
+  $a_b = 0.00758$ m/s^2 for the approach box (0.02 m/s^2, dt 10 s, R 50 m, $\rho_{\text{cap}}$
+  2 km, $v_{\text{cap}}$ 0.3 m/s, 500 km). Held from at least 800 draws of the set at dt 1, 10 and
+  33.37 s, the largest dt it admits there, for box and ball, it keeps $h_b \ge -10^{-9}$ m on 401
+  samples per step and ends every step in the set; flown alone for 360 steps it never leaves it.
+  An independent check of the derivation found no state leaving the set among 65 920 to 70 971
+  draws at each of dt 1, 10, 30 and 33.37 s and at $v_{\text{cap}}$ = 1 m/s, dt 20 s, nor in 400
+  states flown 360 steps each; over those dt the in-step change of the CW acceleration reached
+  at most 0.988 of its bound $\varepsilon t/\Delta t$, at dt 1 s (independent fact-check run),
+  and the speed condition holds with 0.2313 against 0.2986 m/s. The old backup, full outward
+  thrust, left its own region in one step from 559 of 1000 uniform states.
 - Our cases, from Definition 7 under sample and hold: the double-integrator thresholds
   $(\sqrt5 - 1)/2$ and 0.786578 (root of $2s^4 + 4s^3 - 6s^2 + 1$) to 1e-4, and the first failing
   CW head-on step at $0.78658/p$ within 0.3% for $p$ = 0.05 and 0.1 1/s; the cone barrier's
@@ -921,7 +931,8 @@ and Applications"** (ECC 2019, arXiv:1903.11199v1)
   dt 10 s all 100 violate (worst -0.313 m); under a 0.02 m/s^2 box the 0.05 1/s row keeps 40 of 40
   out at dt 1, 5, 10 s and loses all 40 at 20 s.
 - Sec. V.B, the braking barrier's keep-out analogue: as a first-order row it fails in 40 of 40
-  runs at every dt; checked on the held step with a line search toward full braking, 0 of 40.
+  runs at every dt; checked on the held step with a line search toward the braking backup, at
+  its default $a_b$ with $v_{\text{cap}}$ 1 and 0.6 m/s, 0 of 40 at dt 1, 5, 10 and 20 s.
 - Sec. III, eq. 12 and Theorem 4 with beta = 0: at least 393 of 400 approach-vbar starts are
   certified passively safe, confirmed by the drift sampled every second; the free-drift filter
   flies 40 of them with no violation and all reach the hold point.

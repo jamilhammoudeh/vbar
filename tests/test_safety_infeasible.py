@@ -7,7 +7,6 @@ from test_safety_cbf import (
     A_MAX,
     DTS,
     FAR,
-    BrakingBarrier,
     CentrePD,
     Reckless,
     braking,
@@ -302,8 +301,7 @@ def test_cbf_filter_from_its_declared_set_has_no_infeasible_steps(dt):
 
 @pytest.mark.parametrize("dt", DTS)
 def test_braking_backup_filter_from_its_set_has_no_infeasible_steps(dt):
-    barrier = BrakingBarrier(radius=R, a_b=0.01044, rho_cap=2000.0, v_cap=1.0)
-    for x0 in braking_starts(barrier, 2):
+    for x0 in braking_starts(ready(braking(), dt).contains, 2):
         flight = fly(braking(), CentrePD(), x0, dt, 30)
         assert all(r.status == "feasible" and r.proof is None for r in flight.results)
 

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
+from test_safety_barriers import FAST_OUTSIDE, braking_constants, braking_law
 
 from vbar.agents.base import action_scale
 from vbar.constraints import KeepOut, segment_minimum
@@ -57,7 +58,7 @@ def cbf(p=0.05, v_cap=0.1, gamma=0.02, **kw):
     return CbfFilter(poles=(p, p), v_cap=v_cap, gamma=gamma, **kw)
 
 
-def braking(a_b=0.01044, rho_cap=2000.0, v_cap=1.0, **kw):
+def braking(a_b=None, rho_cap=2000.0, v_cap=1.0, **kw):
     return BackupFilter(barrier="braking", a_b=a_b, rho_cap=rho_cap, v_cap=v_cap, **kw)
 
 
@@ -238,8 +239,8 @@ def braking_region():
     return sample_region(rng, 5000)
 
 
-def braking_starts(barrier, count=4):
-    return tuple(x for x in braking_region() if barrier.contains(x))[:count]
+def braking_starts(contains, count=4):
+    return tuple(x for x in braking_region() if contains(x))[:count]
 
 
 @functools.cache
@@ -375,12 +376,26 @@ def test_reset_refuses_a_view_without_keep_out(kind):
 
 
 def test_braking_filter_refuses_a_default_deceleration_that_is_not_positive():
-    args = dict(a_max=A_MAX, layout="box", v_cap=1.0, radius=R, rho_cap=2000.0, n=N)
-    assert braking_deceleration(dt=20.0, **args) <= 0.0 < braking_deceleration(dt=10.0, **args)
+    args = dict(a_max=A_MAX, v_cap=1.0, radius=R, rho_cap=2000.0, n=N)
+    assert braking_deceleration(dt=30.0, **args) <= 0.0 < braking_deceleration(dt=20.0, **args)
     filt = BackupFilter(barrier="braking", rho_cap=2000.0, v_cap=1.0)
     with pytest.raises(ValueError, match="a_b"):
-        ready(filt, dt=20.0)
-    ready(BackupFilter(barrier="braking", rho_cap=2000.0, v_cap=1.0), dt=10.0)
+        ready(filt, dt=30.0)
+    ready(BackupFilter(barrier="braking", rho_cap=2000.0, v_cap=1.0), dt=20.0)
+
+
+def test_braking_filter_refuses_an_a_b_above_what_its_backup_delivers():
+    derived = braking_deceleration(a_max=A_MAX, v_cap=1.0, dt=10.0, radius=R, rho_cap=2000.0, n=N)
+    assert ready(braking(a_b=derived)).declaration.barriers[0].a_b == derived
+    for a_b in (derived * (1 + 1e-9), 0.01044):
+        with pytest.raises(ValueError, match="a_b above what the braking backup delivers"):
+            ready(braking(a_b=a_b))
+
+
+def test_braking_filter_default_deceleration_gives_up_at_least_the_execution_error():
+    derived = braking_deceleration(a_max=A_MAX, v_cap=1.0, dt=10.0, radius=R, rho_cap=2000.0, n=N)
+    a_b = ready(braking(execution=2e-4)).declaration.barriers[0].a_b
+    assert 0.0 < a_b <= derived - 2e-4
 
 
 def test_cbf_declaration_lists_its_design():
@@ -557,11 +572,16 @@ def test_passive_certificate_with_secular_drift_holds_for_all_time():
 def test_braking_line_search_stopping_short_of_the_candidate():
     filt = ready(braking())
     x = np.array([0.0, 55.0, 0.0, 0.0, -0.2, 0.0])
-    assert BrakingBarrier(radius=R, a_b=0.01044, rho_cap=2000.0, v_cap=1.0).contains(x)
+    assert filt.contains(x)
     result = filt.filter(x.copy(), np.array([0.0, -1.0, 0.0]))
-    # u = theta u_c + (1 - theta) beta with beta = (0, 1, 0) of a full command.
-    assert result.action[0] == 0.0 and result.action[2] == 0.0
-    assert -1.0 < result.action[1] < 1.0
+    # u = theta u_c + (1 - theta) beta, beta the braking backup in fractions of a full command.
+    beta = braking_beta(braking_constants(v_cap=1.0))(x)
+    candidate = np.array([0.0, -1.0, 0.0])
+    theta = (beta[1] - result.action[1]) / (beta[1] - candidate[1])
+    assert 0.0 < theta < 1.0
+    np.testing.assert_allclose(
+        result.action, theta * candidate + (1 - theta) * beta, rtol=0.0, atol=1e-12
+    )
     assert result.status == "feasible" and result.intervened is True and result.active is True
     assert result.recovering is False and result.slack == 0.0 and result.fallback_level == 0
     assert result.certificate == "nominal" and result.certificate_horizon == math.inf
@@ -569,14 +589,14 @@ def test_braking_line_search_stopping_short_of_the_candidate():
 
 
 def test_braking_line_search_falling_back_to_the_backup():
-    # With a_b just below the box's outward limit, every theta > 2^-12 brakes too weakly from the
-    # braking boundary, so only the backup itself is left.
-    a_b, c = 0.019999, 0.2
-    filt = ready(braking(a_b=a_b))
-    x = np.array([0.0, R + c * c / (2 * a_b) + 1e-9, 0.0, 0.0, -c, 0.0])
-    assert BrakingBarrier(radius=R, a_b=a_b, rho_cap=2000.0, v_cap=1.0).contains(x)
+    # At rest 1 um outside the keep-out every theta > 2^-12 ends inside it or within the
+    # rounding of the certified bound, so only the backup is left: a slow opening to delta.
+    filt = ready(braking())
+    x = np.array([0.0, R + 1e-6, 0.0, 0.0, 0.0, 0.0])
+    assert filt.contains(x)
     result = filt.filter(x.copy(), np.array([0.0, -1.0, 0.0]))
-    np.testing.assert_allclose(result.action, [0.0, 1.0, 0.0], atol=1e-12)
+    delta = braking_constants(v_cap=1.0).delta
+    np.testing.assert_allclose(result.action, [0.0, delta / 10.0 / A_MAX, 0.0], atol=1e-12)
     assert result.status == "feasible" and result.active is True
     assert result.fallback_level == 2 and result.iterations == 13
     assert result.recovering is False and result.certificate == "nominal"
@@ -584,7 +604,7 @@ def test_braking_line_search_falling_back_to_the_backup():
 
 def test_braking_from_outside_its_set_reports_recovery_and_the_predicted_violation():
     filt = ready(braking())
-    # h_b = 1 - 0.5^2 / (2 0.01044) < 0: even full braking enters the keep-out.
+    # h_b = 1 - 0.5^2 / (2 0.00449) < 0: even full braking enters the keep-out.
     x = np.array([0.0, 51.0, 0.0, 0.0, -0.5, 0.0])
     result = filt.filter(x.copy(), np.zeros(3))
     assert result.status == "feasible" and result.recovering is True
@@ -762,14 +782,21 @@ def braking_row(x, a_b, gamma=0.02):
     return rhat, a_b * (-gamma * h_b + c) / c - cent - rhat @ cw_accel(x)
 
 
+def in_braking_region(x, a_b, rho_cap=2000.0, v_cap=1.0):
+    """h_b >= 0 with rho <= rho_cap and |v| <= v_cap."""
+    rho = np.linalg.norm(x[:3])
+    c = max(0.0, -(x[:3] @ x[3:]) / rho)
+    h_b = rho - R - c * c / (2 * a_b)
+    return h_b >= 0.0 and rho <= rho_cap and np.linalg.norm(x[3:]) <= v_cap
+
+
 def test_the_braking_barrier_as_a_qp_row_fails_under_sample_and_hold():
     # L_g h_b vanishes at rho_dot = 0, so the row says nothing at the turn and a held command
     # overshoots: the barrier needs the line search on the exact held segment.
     a_b = A_MAX - (3 * N * N * 2000.0 + 2 * N * 1.0)
-    barrier = BrakingBarrier(radius=R, a_b=a_b, rho_cap=2000.0, v_cap=1.0)
     keep_out, actuator, dt = KeepOut(R), ActuatorSet(A_MAX, "box"), 10.0
     times = np.linspace(0.0, dt, 20)
-    for x0 in braking_starts(barrier):
+    for x0 in braking_starts(functools.partial(in_braking_region, a_b=a_b)):
         dyn = CWDynamics(N)
         dyn.reset(x0)
         x, violated = np.array(x0), False
@@ -792,49 +819,121 @@ def test_the_braking_barrier_as_a_qp_row_fails_under_sample_and_hold():
 BRAKING_STEPS = {1.0: 60, 5.0: 60, 10.0: 60, 20.0: 30}
 
 
-def braking_beta(x):
-    """Full outward braking inside the box, along rhat, in fractions of a full command."""
-    return x[:3] / np.max(np.abs(x[:3]))
+def braking_beta(c):
+    """The braking backup for the constants c, in fractions of a full command."""
+    return lambda x: (braking_law(x, c) - cw_accel(x)) / A_MAX
 
 
 @pytest.mark.parametrize("dt", BRAKING_STEPS)
 def test_braking_backup_filter_keeps_starts_out_at_every_dt(dt):
-    barrier = BrakingBarrier(radius=R, a_b=0.01044, rho_cap=2000.0, v_cap=1.0)
-    for x0 in braking_starts(barrier):
+    for x0 in braking_starts(ready(braking(), dt).contains):
         flight = fly(braking(), CentrePD(), x0, dt, BRAKING_STEPS[dt])
         assert flight.worst >= -DEPTH
-        assert flight.results[0].recovering is False
-        # This a_b carries no allowance for the turn of rhat within a step, so the set need
-        # not be invariant; only decisions made inside it carry the certificate.
-        inside = [r for r in flight.results if r.recovering is False]
-        assert all(r.certificate == "nominal" for r in inside)
-        assert all(r.certificate_horizon == math.inf for r in inside)
-        assert_backup_outcomes(flight, braking_beta)
+        # Every accepted step ends in the set and the backup keeps it, so no decision recovers.
+        assert all(r.recovering is False for r in flight.results)
+        assert all(r.certificate == "nominal" for r in flight.results)
+        assert all(r.certificate_horizon == math.inf for r in flight.results)
+        assert_backup_outcomes(flight, braking_beta(braking_constants(v_cap=1.0, dt=dt)))
 
 
 @pytest.mark.parametrize("dt", [10.0, 20.0])
 def test_braking_backup_filter_with_the_default_deceleration_keeps_starts_out(dt):
-    a_b = braking_deceleration(
-        a_max=A_MAX, layout="box", v_cap=0.6, dt=dt, radius=R, rho_cap=2000.0, n=N
-    )
-    barrier = BrakingBarrier(radius=R, a_b=a_b, rho_cap=2000.0, v_cap=0.6)
-    for x0 in braking_starts(barrier):
-        filt = BackupFilter(barrier="braking", rho_cap=2000.0, v_cap=0.6)
-        flight = fly(filt, CentrePD(), x0, dt, BRAKING_STEPS[dt])
+    for x0 in braking_starts(ready(braking(v_cap=0.6), dt).contains):
+        flight = fly(braking(v_cap=0.6), CentrePD(), x0, dt, BRAKING_STEPS[dt])
         assert flight.worst >= -DEPTH
         assert all(r.status == "feasible" for r in flight.results)
-        # The default a_b covers the turn of rhat, so full braking keeps the set invariant.
         assert all(r.recovering is False for r in flight.results)
 
 
 @pytest.mark.parametrize("dt", DTS)
 def test_braking_backup_filter_rides_the_boundary_without_entering(dt):
     x0 = np.array([0.0, R + 1e-6, 0.0, 0.2, 0.0, 0.0])
-    flight = fly(braking(a_b=None, v_cap=0.3), Reckless(), x0, dt, 30)
+    flight = fly(braking(v_cap=0.3), Reckless(), x0, dt, 30)
     assert flight.worst >= -DEPTH
     assert all(r.status == "feasible" for r in flight.results)
+    assert all(r.recovering is False for r in flight.results)
     assert any(r.active for r in flight.results)
-    assert_backup_outcomes(flight, braking_beta)
+    assert_backup_outcomes(flight, braking_beta(braking_constants(v_cap=0.3, dt=dt)))
+
+
+# The three states the audit saw leave the set in one step under the old backup, full outward
+# thrust: each is in the set, 78 to 92 m out with |v| just under 0.3 m/s.
+EXIT_STATES = (
+    (-66.331702871986209, 61.57763050941832, -14.277690196662526,
+     -0.18610179253086626, -0.23516642349423256, 0.0077987956866784284),
+    (-66.173756403815446, 38.225733985532109, 15.59090155028575,
+     -0.1541974601070904, -0.25571967506975096, -0.02877786308012523),
+    (-73.964288104199355, 26.180798661629947, 14.058101933573766,
+     -0.073064231894083065, -0.28593645304963144, -0.053856147565790199),
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("x", EXIT_STATES)
+def test_braking_filter_keeps_its_speed_cap_from_inside(x):
+    x = np.array(x)
+    filt = ready(braking(v_cap=0.3))
+    assert filt.contains(x)
+    result = filt.filter(x.copy(), -x[:3] / np.linalg.norm(x[:3]))
+    assert result.status == "feasible" and result.recovering is False
+    assert result.certificate == "nominal"
+    phi, gamma = cw_discrete(N, 10.0)
+    x1 = phi @ x + gamma @ (A_MAX * np.asarray(result.action))
+    assert np.linalg.norm(x1[3:]) <= 0.3
+    assert filt.contains(x1)
+
+
+def outward_thrust(self, x, actuator):
+    """The old braking backup: the longest command along rhat inside the box."""
+    rhat = x[:3] / np.linalg.norm(x[:3])
+    return actuator.a_max * rhat / np.max(np.abs(rhat))
+
+
+def test_a_backup_step_that_leaves_the_set_carries_no_certificate(monkeypatch):
+    # Under outward thrust every mix with the inward candidate ends above the speed cap, so the
+    # search returns the backup, whose step fails the filter's own end checks.
+    monkeypatch.setattr(BrakingBarrier, "backup", outward_thrust)
+    x = np.array(EXIT_STATES[1])
+    filt = ready(braking(v_cap=0.3))
+    assert filt.contains(x)
+    result = filt.filter(x.copy(), -x[:3] / np.linalg.norm(x[:3]))
+    assert result.fallback_level == 2
+    assert result.status == "solver_failed" and result.recovering is False
+    assert result.certificate is None and result.certificate_horizon is None
+
+
+def test_a_backup_step_that_leaves_the_set_under_error_sets_is_not_certified(monkeypatch):
+    # The keep-out check passes, so only the end checks on the set catch the step.
+    monkeypatch.setattr(BrakingBarrier, "backup", outward_thrust)
+    x = np.array(EXIT_STATES[1])
+    filt = ready(braking(v_cap=0.3, execution=2e-4))
+    assert filt.contains(x)
+    result = filt.filter(x.copy(), -x[:3] / np.linalg.norm(x[:3]))
+    assert result.fallback_level == 2 and result.recovering is False
+    assert result.certificate is None and result.certificate_horizon is None
+
+
+def test_braking_filter_does_not_certify_a_step_past_the_outer_barrier():
+    # 1.5 m inside rho_cap, opening at 0.05 m/s: full outward thrust for 10 s carries the state
+    # 1.5 m further out, past rho_cap.
+    x = np.array([0.0, -1998.5, 0.0, 0.0, -0.05, 0.0])
+    filt = ready(braking(v_cap=0.3))
+    assert filt.contains(x)
+    result = filt.filter(x.copy(), np.array([0.0, -1.0, 0.0]))
+    assert result.recovering is False and result.certificate == "nominal"
+    phi, gamma = cw_discrete(N, 10.0)
+    x1 = phi @ x + gamma @ (A_MAX * np.asarray(result.action))
+    assert filt.contains(x1)
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+def test_braking_filter_from_a_fast_state_outside_its_set_stays_within_the_thrust_limit(layout):
+    filt = ready(braking(v_cap=0.3), thrust_limit=layout)
+    for x in FAST_OUTSIDE:
+        assert not filt.contains(x)
+        for command in (-x[:3] / np.linalg.norm(x[:3]), np.zeros(3)):
+            result = filt.filter(x.copy(), command)
+            assert result.recovering is True and result.certificate is None
+            assert_in_actuator_set(result.action, layout)
 
 
 @functools.cache
@@ -1032,12 +1131,17 @@ def test_free_drift_step_keeps_boundary_states_in_the_set_when_the_grid_does_not
     assert left == []
 
 
-def test_a_solver_failed_step_carries_no_certificate():
-    # a_b = 0.03 m/s^2 overstates the box's outward limit of 0.02, so full braking from the
-    # braking boundary cannot hold h_b >= 0 and the backup fails its own check inside the set.
-    a_b, c = 0.03, 0.2
-    filt = ready(braking(a_b=a_b))
-    x = np.array([0.0, R + c * c / (2 * a_b) + 1e-9, 0.0, 0.0, -c, 0.0])
+def inward_thrust(self, x, actuator):
+    """Full thrust toward the target, a backup that cannot keep the keep-out."""
+    return -actuator.a_max * x[:3] / np.linalg.norm(x[:3])
+
+
+def test_a_solver_failed_step_carries_no_certificate(monkeypatch):
+    # 20 m out closing at 0.2 m/s: every command of the search pushes inward, so the backup
+    # returned ends the step 17 m out closing at 0.4 m/s, short of room to stop.
+    monkeypatch.setattr(BrakingBarrier, "backup", inward_thrust)
+    filt = ready(braking())
+    x = np.array([0.0, 70.0, 0.0, 0.0, -0.2, 0.0])
     assert filt.contains(x)
     result = filt.filter(x.copy(), np.array([0.0, -1.0, 0.0]))
     assert result.status == "solver_failed" and result.recovering is False

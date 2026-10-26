@@ -131,7 +131,7 @@ def test_declared_set_is_the_terminal_free_drift_set_of_the_backup_filter():
     declared = ready(PredictiveFilter()).declaration
     assert declared.barriers == ready(BackupFilter(barrier="passive")).declaration.barriers
     assert declared.certificate == "nominal"
-    assert declared.backup == "zero thrust, else full outward braking outside the set"
+    assert declared.backup == "zero thrust, else the braking backup outside the set"
 
 
 @pytest.mark.parametrize("dt", [1.0, 7.0, 10.0, 20.0])

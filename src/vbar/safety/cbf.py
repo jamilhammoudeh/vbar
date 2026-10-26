@@ -11,8 +11,9 @@ Theory and Applications*, ECC 2019, sec. II and IV). The rows are continuous-tim
 so the filter is designed for the held step: its poles obey max(p) dt <= 0.6, the keep-out
 radius carries a buffer for riding the boundary, and it makes no certified claim.
 `BackupFilter` checks each held step on the exact Clohessy-Wiltshire solution and searches
-toward a backup command, free drift, a collision avoidance manoeuvre then free drift, or full
-outward braking, whose safety is the barrier's own theorem (sec. III, Theorem 4).
+toward a backup command, free drift, a collision avoidance manoeuvre then free drift, or
+braking along and across the line of sight, whose safety is the barrier's own theorem (sec. III,
+Theorem 4).
 `SoftCbfFilter` penalizes the rows instead of enforcing them and is never a certified filter.
 """
 
@@ -44,6 +45,7 @@ from .barriers import (
     KeepOutEcbf,
     PassiveBarrier,
     SpeedCbf,
+    _a_cw,
     braking_deceleration,
 )
 from .projections import ball, box
@@ -141,13 +143,6 @@ def _pole_label(poles: tuple[float, float]) -> str:
     return f"{p1:g}" if p1 == p2 else f"{p1:g}-{p2:g}"
 
 
-def _a_cw(x: np.ndarray, n: float) -> np.ndarray:
-    """Natural acceleration of the CW equations at the state `x`, m/s^2."""
-    return np.array(
-        [3.0 * n * n * x[0] + 2.0 * n * x[4], -2.0 * n * x[3], -n * n * x[2]], dtype=float
-    )
-
-
 def _numbered(kind: str, taken: int) -> str:
     """The row name of a constraint of type `kind` after `taken` others of that type."""
     return kind if taken == 0 else f"{kind}#{taken}"
@@ -190,8 +185,8 @@ class FilterDeclaration:
         The declared error sets: "navigation" (an error set on the state or None), "execution"
         (da_max, m/s^2) and "model_error" (m/s^2 or None).
     backup : str or None
-        The backup command, "zero thrust", "full outward braking" or "zero thrust, else the
-        CAM"; None without one.
+        The backup command, "zero thrust", "braking along and across the line of sight, CW
+        acceleration cancelled" or "zero thrust, else the CAM"; None without one.
     certificate : str or None
         The kind of guarantee of a step decided inside the safe set, one of `CERTIFICATE_KINDS`,
         or None when the filter makes no certified claim.
@@ -1019,9 +1014,9 @@ class BackupFilter(_HeldCommandFilter):
     Parameters
     ----------
     barrier : str
-        "passive" (free drift, backup zero thrust), "braking" (backup full outward braking) or
-        "cam" (backup zero thrust where free drift is certified, else the CAM; see
-        `CamBarrier`).
+        "passive" (free drift, backup zero thrust), "braking" (backup braking along and across
+        the line of sight; see `BrakingBarrier`) or "cam" (backup zero thrust where free drift
+        is certified, else the CAM; see `CamBarrier`).
     candidate : str
         "clipped" tries the clipped command first; "projection", with the passive barrier only,
         first projects it onto the first-order row grad h_p . f(x, u) >= -gamma h_p, which makes
@@ -1029,12 +1024,13 @@ class BackupFilter(_HeldCommandFilter):
     gamma : float
         The class-K gain of the projection candidate's row, 1/s, positive.
     a_b : float, optional
-        The braking barrier's braking acceleration, m/s^2, positive. By default
-        `braking_deceleration` at the view's thrust limit and dt, minus da_max.
+        The braking barrier's braking acceleration, m/s^2, positive and at most
+        `braking_deceleration` at the view's thrust limit and dt. By default that value minus
+        da_max.
     rho_cap : float
-        The largest range of the braking region, m.
+        The largest range of the braking set, m.
     v_cap : float
-        The largest speed of the braking region, m/s.
+        The speed cap of the braking set, m/s.
     grid : float
         Spacing of the free-drift samples, s; without error sets it is shortened to dt / k for
         the smallest whole k that reaches it.
@@ -1074,19 +1070,22 @@ class BackupFilter(_HeldCommandFilter):
     Notes
     -----
     A command u is accepted when (i) the certified lower bound on the keep-out margin over the
-    held step is at least floor_s and (ii) the barrier value at the end of the step is at least
-    floor_b, both tightened for the declared error sets. The floors are 0 inside the barrier's
-    set and min(0, current value) outside it, so a recovering step does not get worse. The line
-    search goes from the candidate toward the backup beta, which is not checked inside the set:
-    without error sets the free-drift set certifies the drift for all time and is kept by a
-    drift step, since the grid divides dt (sec. III, Theorem 4 with beta = 0), and under full
-    braking h_b does not fall while rho <= rho_cap and |v| <= v_cap. Without error sets the
-    filter is therefore recursively feasible at any dt under box and ball limits; the free-drift
-    backup is returned inside the set without the check, and a braking backup that fails it
-    there is reported as "solver_failed" with no certificate. With error sets the free-drift set
-    is certified up to t_cap only and recursive feasibility is not claimed. The certificate is
-    "bounded-W" with error sets and "chance-epsilon" when the navigation set is an ellipsoid with
-    a positive exceedance, since the error leaves it with that probability per draw.
+    held step is at least floor_s, (ii) the barrier value at the end of the step is at least
+    floor_b and, for the braking barrier, (iii) the end state keeps h_o >= min(0, h_o(x)) and
+    |v| <= max(v_cap, |v(x)|), all tightened for the declared error sets but the speed. The
+    floors are 0 inside the barrier's set and min(0, current value) outside it, so a recovering
+    step does not get worse. The line search goes from the candidate toward the backup beta,
+    which is not checked inside the set: without error sets the free-drift set certifies the
+    drift for all time and is kept by a drift step, since the grid divides dt (sec. III,
+    Theorem 4 with beta = 0), and the braking backup keeps h_b >= 0, h_o >= 0 and |v| <= v_cap
+    over every held step (`BrakingBarrier`). Without error sets the filter is therefore
+    recursively feasible under box and ball limits, at any dt for free drift and at every dt
+    `braking_deceleration` admits for braking; the free-drift backup is returned inside the set
+    without the check, and a braking backup that fails it there is reported as "solver_failed"
+    with no certificate. With error sets the free-drift set is certified up to t_cap only and
+    recursive feasibility is not claimed. The certificate is "bounded-W" with error sets and
+    "chance-epsilon" when the navigation set is an ellipsoid with a positive exceedance, since
+    the error leaves it with that probability per draw.
 
     With a navigation set E and the passive barrier the set is that of the estimate x_hat whose
     whole error set drifts clear: `vbar.reach.drift_clearance` of the zonotope x_hat + Z_E, with
@@ -1179,8 +1178,9 @@ class BackupFilter(_HeldCommandFilter):
         ------
         ValueError
             If the action mode, frame, observation, dynamics or constraints are unsupported, the
-            scenario has no keep_out, no braking barrier exists for the view (a_b <= 0), or the
-            cam barrier is asked for a goal with no approach direction.
+            scenario has no keep_out, no braking barrier exists for the view (a_b <= 0), an
+            explicit a_b is above `braking_deceleration`, or the cam barrier is asked for a goal
+            with no approach direction.
         """
         self._view = None
         self._declaration = None
@@ -1240,31 +1240,35 @@ class BackupFilter(_HeldCommandFilter):
                 )
             backup = "zero thrust"
         else:
+            a_max = self._actuator.a_max
+            derived = braking_deceleration(
+                a_max=a_max, v_cap=self.v_cap, dt=dt, radius=radius, rho_cap=self.rho_cap, n=n
+            )
             a_b = self.a_b
             if a_b is None:
-                a_b = (
-                    braking_deceleration(
-                        a_max=self._actuator.a_max,
-                        layout=self._actuator.layout,
-                        v_cap=self.v_cap,
-                        dt=dt,
-                        radius=radius,
-                        rho_cap=self.rho_cap,
-                        n=n,
-                    )
-                    - self.da_max
-                )
+                a_b = derived - self.da_max
                 if not a_b > 0.0:
                     raise ValueError(
                         f"no braking barrier at dt {dt:g} s: a_b = {a_b:.3g} m/s^2; "
                         "lower v_cap, rho_cap or dt"
                     )
+            elif a_b > derived:
+                raise ValueError(
+                    f"a_b above what the braking backup delivers at dt {dt:g} s, "
+                    f"{derived:.4g} m/s^2"
+                )
             self._barrier = BrakingBarrier(
-                radius=radius, a_b=a_b, rho_cap=self.rho_cap, v_cap=self.v_cap
+                radius=radius,
+                a_b=a_b,
+                rho_cap=self.rho_cap,
+                v_cap=self.v_cap,
+                n=n,
+                dt=dt,
+                a_max=a_max,
             )
             self._end_deviation = self._deviation(phi[:3], phi[3:], gamma[:3], gamma[3:])
-            backup = "full outward braking"
-            safe_set = "braking barrier h_b >= 0 with rho <= rho_cap and |v| <= v_cap"
+            backup = "braking along and across the line of sight, CW acceleration cancelled"
+            safe_set = "braking barriers h_b >= 0 and h_o >= 0 with |v| <= v_cap"
         self._view = view
         self._declaration = FilterDeclaration(
             name=self.name,
@@ -1361,10 +1365,10 @@ class BackupFilter(_HeldCommandFilter):
         A start the audit draws for the true state `x` (m, m/s) passes when the filter's first
         estimate is in its declared set whatever the navigation error. With the free-drift
         barrier every estimate's set x + e + Z_E lies in x + 2 Z_E, so this is the clearance of
-        x + 2 Z_E. With the braking barrier every x + e is in the region and has h_b >= 0 when
-        rho + g_r <= rho_cap, |v| + g_v <= v_cap and the lower bound on h_b of states within
-        g_r and g_v of x is nonnegative, g_r and g_v the largest position and velocity errors
-        in the set. Without a navigation set this is `contains(x)`.
+        x + 2 Z_E. With the braking barrier every x + e is in the set when |v| + g_v <= v_cap
+        and the lower bounds on h_b and h_o of states within g_r and g_v of x are nonnegative,
+        g_r and g_v the largest position and velocity errors in the set. Without a navigation
+        set this is `contains(x)`.
 
         Raises
         ------
@@ -1382,11 +1386,9 @@ class BackupFilter(_HeldCommandFilter):
         axes = np.eye(6)
         g_r = keep_out_margin(axes[:3], self.navigation)
         g_v = keep_out_margin(axes[3:], self.navigation)
-        if float(np.linalg.norm(x[:3])) + g_r > barrier.rho_cap:
-            return False
         if float(np.linalg.norm(x[3:])) + g_v > barrier.v_cap:
             return False
-        return self._braking_bound(x, g_r, g_v) >= 0.0
+        return self._braking_bound(x, g_r, g_v) >= 0.0 and self._outer_bound(x, g_r, g_v) >= 0.0
 
     def _set_value(self, center: np.ndarray, generators: np.ndarray) -> float:
         """The certified free-drift clearance of every state in the zonotope, m."""
@@ -1419,6 +1421,25 @@ class BackupFilter(_HeldCommandFilter):
         # rhat moves by at most 2 |dr| / rho, so rho_dot moves by at most this much.
         closing = max(0.0, -float(x[:3] @ x[3:]) / rho) + g_v + 2.0 * g_r * (speed + g_v) / rho
         return rho - g_r - barrier.radius - closing * closing / (2.0 * barrier.a_b)
+
+    def _outer_bound(self, x: np.ndarray, g_r: float, g_v: float) -> float:
+        """A lower bound on h_o over the states within g_r (m) and g_v (m/s) of `x`, m."""
+        barrier = self._barrier
+        assert isinstance(barrier, BrakingBarrier)
+        if g_r == 0.0 and g_v == 0.0:
+            return barrier.outer_value(x)
+        rho = float(np.linalg.norm(x[:3]))
+        if rho <= g_r:
+            return -math.inf
+        speed = float(np.linalg.norm(x[3:]))
+        opening = max(0.0, float(x[:3] @ x[3:]) / rho) + g_v + 2.0 * g_r * (speed + g_v) / rho
+        return barrier.rho_cap - rho - g_r - opening * opening / (2.0 * barrier.a_b)
+
+    def _kept(self, x1: np.ndarray, v_top: float, floor_o: float) -> bool:
+        """Whether the end state `x1` keeps the speed cap and the outer barrier of the set."""
+        if float(np.linalg.norm(x1[3:])) > v_top:
+            return False
+        return self._outer_bound(x1, *self._end_deviation) >= floor_o
 
     def _margins(
         self, x: np.ndarray, u: np.ndarray, floor_s: float = -math.inf
@@ -1500,18 +1521,16 @@ class BackupFilter(_HeldCommandFilter):
         floor_s = min(0.0, float(np.linalg.norm(x[:3])) - self._radius)
         floor_b = min(0.0, h_set)
 
-        rho_top = v_top = math.inf
+        region: tuple[float, float] | None = None
         if isinstance(barrier, BrakingBarrier):
-            # The braking argument holds only in its region, so a step may not leave it, nor go
-            # further out of it when it has already left.
-            rho_top = max(barrier.rho_cap, float(np.linalg.norm(x[:3])))
+            # A step ends in the braking set, or no further out of it when it has left; the
+            # backup keeps the set, so the next step has a backup again.
             v_top = max(barrier.v_cap, float(np.linalg.norm(x[3:])))
+            region = (v_top, min(0.0, barrier.outer_value(x)))
 
         def accept(u: np.ndarray) -> bool:
-            if v_top < math.inf:
-                x1 = self._phi @ x + self._gamma_u @ u
-                if np.linalg.norm(x1[:3]) > rho_top or np.linalg.norm(x1[3:]) > v_top:
-                    return False
+            if region is not None and not self._kept(self._phi @ x + self._gamma_u @ u, *region):
+                return False
             held, end = self._margins(x, u, floor_s)
             return held >= floor_s and end >= floor_b
 
@@ -1529,13 +1548,18 @@ class BackupFilter(_HeldCommandFilter):
         if (found.theta == 0.0 and not kept) or not inside:
             held, end = self._margins(x, found.u)
             shortfall = max(0.0, floor_s - held, floor_b - end)
+            # The speed cap and the outer barrier are not keep-out distances, so a backup step
+            # that leaves them gets no slack.
+            left = region is not None and not self._kept(
+                self._phi @ x + self._gamma_u @ found.u, *region
+            )
             # A backup short of its own check by less than the keep-out resolution is the
             # slack of the certified bound at the boundary, not a defect of the barrier.
-            if inside and not self.bounded and shortfall > KeepOut.resolution:
+            if inside and not self.bounded and (left or shortfall > KeepOut.resolution):
                 status, slack, certified = "solver_failed", shortfall, False
             elif not inside:
                 slack = shortfall
-            elif self.bounded and shortfall > 0.0:
+            elif self.bounded and (left or shortfall > 0.0):
                 # With error sets the backup is safe by no theorem: one that fails the tightened
                 # check gets no certificate, and its shortfall is reported.
                 slack, certified = shortfall, False

@@ -13,9 +13,9 @@ keep-out resolution. Starts are drawn with seed 1903 in a fixed order, so the co
    10 s, where 0.1 dt exceeds the sample-and-hold limit 0.787.
 2. 40 starts inside each filter's set from the same region, box 0.02 m/s^2, PD nominal, 2000 s:
    the barrier row with poles 0.05 1/s violates in no run at dt 1, 5, 10 s and in all at 20 s; a
-   first-order row on the braking barrier violates in every run at every dt; `BackupFilter`
-   with the braking barrier, at a_b = 0.01044 m/s^2 and at its default a_b, in none at 1, 5, 10
-   and 20 s.
+   first-order row on the braking barrier, at a_b = 0.01044 m/s^2, violates in every run at
+   every dt; `BackupFilter` with the braking barrier at its default a_b, with v_cap 1 and
+   0.6 m/s, in none at 1, 5, 10 and 20 s.
 3. 400 approach-vbar starts: at least 393 are certified passively safe, each confirmed by the
    drift sampled every second; on the first 40 of them `BackupFilter` with the free-drift barrier,
    dt 10 s, box 0.02 m/s^2, has no violation and all 40 reach the hold point.
@@ -33,7 +33,7 @@ from vbar.agents.base import AgentView
 from vbar.constraints import KeepOut, segment_minimum
 from vbar.dynamics import cw_discrete, mean_motion
 from vbar.dynamics.models import CWDynamics
-from vbar.safety.barriers import BrakingBarrier, KeepOutEcbf, PassiveBarrier
+from vbar.safety.barriers import KeepOutEcbf, PassiveBarrier
 from vbar.safety.cbf import BackupFilter
 from vbar.solvers import ActuatorSet, Rows, project
 
@@ -43,7 +43,8 @@ A_MAX = 0.02
 KEEP_OUT = KeepOut(R)
 SAMPLES = 20
 HOLD_POINT = np.array([0.0, -100.0, 0.0])
-# a_max - (3 n^2 rho_cap + 2 n v_cap) for rho_cap = 2 km, v_cap = 1 m/s.
+# a_max - (3 n^2 rho_cap + 2 n v_cap) for rho_cap = 2 km, v_cap = 1 m/s: the first-order row's
+# a_b, with no allowance for the held step.
 A_B = A_MAX - (3.0 * N * N * 2000.0 + 2.0 * N * 1.0)
 BOX = ActuatorSet(A_MAX, "box")
 
@@ -182,7 +183,12 @@ def box_table():
     def ecbf_start(x):
         return KeepOutEcbf(radius=R, poles=(0.05, 0.05)).contains(x)
 
-    braking = BrakingBarrier(radius=R, a_b=A_B, rho_cap=2000.0, v_cap=1.0)
+    def braking_start(x):
+        rho = np.linalg.norm(x[:3])
+        c = max(0.0, -float(x[:3] @ x[3:]) / rho)
+        h_b = rho - R - c * c / (2 * A_B)
+        return h_b >= 0.0 and rho <= 2000.0 and np.linalg.norm(x[3:]) <= 1.0
+
     for dt, count in ((1.0, 0), (5.0, 0), (10.0, 0), (20.0, 40)):
 
         def command(x):
@@ -195,17 +201,17 @@ def box_table():
         def command(x):
             return project(np.clip(pd_target(x), -A_MAX, A_MAX), braking_row(x, 0.02), BOX).u
 
-        runs = [fly(command, x0, dt, 2000.0) for x0 in first_40(braking.contains)]
+        runs = [fly(command, x0, dt, 2000.0) for x0 in first_40(braking_start)]
         table(f"braking row 0.02 1/s, dt {dt:4.1f} s", runs, 40)
-    for a_b, v_cap, label in ((A_B, 1.0, "a_b 0.01044"), (None, 0.6, "default a_b")):
+    for v_cap in (1.0, 0.6):
         for dt in (1.0, 5.0, 10.0, 20.0):
-            backup = BackupFilter(barrier="braking", a_b=a_b, rho_cap=2000.0, v_cap=v_cap)
+            backup = BackupFilter(barrier="braking", rho_cap=2000.0, v_cap=v_cap)
             backup.reset(view(dt, int(2000.0 / dt)))
             runs = []
             for x0 in first_40(backup.contains):
                 backup.reset(view(dt, int(2000.0 / dt)))
                 runs.append(fly(through_filter(backup), x0, dt, 2000.0))
-            table(f"braking backup, {label}, dt {dt:4.1f} s", runs, 0)
+            table(f"braking backup, v_cap {v_cap:3.1f} m/s, dt {dt:4.1f} s", runs, 0)
 
 
 def drift_minimiser(x, tau, phi_r):

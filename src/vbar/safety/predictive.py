@@ -115,9 +115,9 @@ class PredictiveFilter(_HeldCommandFilter):
         CAM-then-drift set of `BackupFilter(barrier="cam")`, kept by its CAM, and adds "cam-"
         to the name. Refused as "cam" in the finite-horizon mode.
     brake_v_cap : float
-        The largest speed of the braking region, m/s, positive.
+        The speed cap of the braking set, m/s, positive.
     rho_cap : float
-        The largest range of the braking region, m, above the keep-out radius.
+        The largest range of the braking set, m, above the keep-out radius.
     navigation : BoxError, BallError or EllipsoidError, optional
         Bound on the error of the observed state, m and m/s; none by default.
     execution : float
@@ -181,14 +181,14 @@ class PredictiveFilter(_HeldCommandFilter):
     wherever h_p >= 0, so a decision with nothing certified lies outside the declared set and is
     a recovering step; the filter never reports "solver_failed".
 
-    When nothing is certified and the state lies in the region of the braking barrier
-    `BrakingBarrier` with a_b from `braking_deceleration` at `brake_v_cap` and `rho_cap`, with
-    h_b >= 0, full outward braking is applied at level 2: h_b does not fall under it in that
-    region. The decision is recovering and has no certificate. Without a positive a_b there is
-    no braking level. With backup="cam", level 2 is `CamBarrier.backup` wherever the
-    CAM-then-drift margin is nonnegative, certified "nominal", and the stored plan is that
-    backup rolled out until the free drift is certified, so the next decision without a
-    solution replays it at level 1. Plans are still certified through the free-drift set.
+    When nothing is certified and the state lies in the set of the braking barrier
+    `BrakingBarrier` with a_b from `braking_deceleration` at `brake_v_cap` and `rho_cap`, its
+    backup is applied at level 2: the braking set is kept by it. The decision is recovering
+    and has no certificate. Without a positive a_b there is no braking level. With
+    backup="cam", level 2 is `CamBarrier.backup` wherever the CAM-then-drift margin is
+    nonnegative, certified "nominal", and the stored plan is that backup rolled out until the
+    free drift is certified, so the next decision without a solution replays it at level 1.
+    Plans are still certified through the free-drift set.
 
     The finite-horizon mode checks the drift after the last thrust with
     `PassiveBarrier(terminal=False, t_cap=drift_horizon)` and linearizes it by its gradient
@@ -373,18 +373,18 @@ class PredictiveFilter(_HeldCommandFilter):
             )
         layout, a_max = self._actuator.layout, self._actuator.a_max
         a_b = braking_deceleration(
-            a_max=a_max,
-            layout=layout,
-            v_cap=self.brake_v_cap,
-            dt=dt,
-            radius=radius,
-            rho_cap=self.rho_cap,
-            n=n,
+            a_max=a_max, v_cap=self.brake_v_cap, dt=dt, radius=radius, rho_cap=self.rho_cap, n=n
         )
         self._braking: BrakingBarrier | None = None
         if a_b > 0.0:
             self._braking = BrakingBarrier(
-                radius=radius, a_b=a_b, rho_cap=self.rho_cap, v_cap=self.brake_v_cap
+                radius=radius,
+                a_b=a_b,
+                rho_cap=self.rho_cap,
+                v_cap=self.brake_v_cap,
+                n=n,
+                dt=dt,
+                a_max=a_max,
             )
         self._cam = self._cam_barrier(view, grid) if self.backup == "cam" else None
         phis, gammas = cw_discrete(n, np.linspace(0.0, dt, self.row_samples))
@@ -422,7 +422,7 @@ class PredictiveFilter(_HeldCommandFilter):
             safe_set = "free drift certified outside the keep-out for all time"
             backup = "zero thrust"
         if self._braking is not None:
-            backup += ", else full outward braking outside the set"
+            backup += ", else the braking backup outside the set"
         self._declaration = FilterDeclaration(
             name=self.name,
             safe_set=safe_set,
