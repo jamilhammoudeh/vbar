@@ -36,15 +36,16 @@ def split_key(split: str) -> str:
     Raises
     ------
     ValueError
-        If `split` is unknown, or it is "test" and the hidden key variable holds fewer than 32
-        characters.
+        If `split` is unknown, or it is "test" and the hidden key variable does not hold at
+        least 32 hex digits. Surrounding white space and the case of the digits are ignored, so
+        a key read from a file with its newline gives the same split as the bare key.
     """
     if split not in SPLITS:
         raise ValueError(f"unknown split {split!r}, expected one of {SPLITS}")
     if split != "test":
         return _PUBLIC_KEYS[split]
-    key = os.environ.get(HIDDEN_KEY_VARIABLE, "")
-    if len(key) < 32:
+    key = os.environ.get(HIDDEN_KEY_VARIABLE, "").strip().lower()
+    if len(key) < 32 or any(c not in "0123456789abcdef" for c in key):
         raise ValueError(
             f"the test split needs the hidden key in {HIDDEN_KEY_VARIABLE} (at least 32 hex digits)"
         )

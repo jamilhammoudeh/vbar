@@ -62,6 +62,9 @@ release may change the public API, and every such change is listed under Changed
 - The metrics judge an inspection by its coverage. The inspection goal no longer carries a hold
   point at the target with a 200 m capture radius, under which every inspection run, free drift
   included, was a metrics success with a composite score of 1.
+- The hidden test key is read without surrounding white space and in either case and must be at
+  least 32 hex digits, so a key read from its file with the newline gives the same split as the
+  bare key.
 
 ## [0.3.1] - 2026-10-24
 

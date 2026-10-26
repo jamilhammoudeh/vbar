@@ -234,6 +234,21 @@ def test_test_split_needs_the_hidden_key(monkeypatch):
     assert first not in set(seeds("approach-vbar", "train", 100))
 
 
+def test_one_hidden_key_gives_one_split_however_it_was_read(monkeypatch):
+    # Python's read keeps a key file's newline and the shell's $(cat file) strips it; the case
+    # of the digits is not part of the key either.
+    key = "0123456789abcdef" * 2
+    monkeypatch.setenv(HIDDEN_KEY_VARIABLE, key)
+    split = list(seeds("docking", "test", 3))
+    for variant in (key + "\n", key + "\r\n", " " + key, key.upper()):
+        monkeypatch.setenv(HIDDEN_KEY_VARIABLE, variant)
+        assert list(seeds("docking", "test", 3)) == split
+    for bad in (" " * 32, "z" * 32, key[:31], key[:16] + "-" + key[16:]):
+        monkeypatch.setenv(HIDDEN_KEY_VARIABLE, bad)
+        with pytest.raises(ValueError, match="hex"):
+            seeds("docking", "test", 1).seed(0)
+
+
 def test_suites_list_their_runs_and_find_missing_ones():
     suite = SUITES["v1-v1"]
     runs = suite.runs()
