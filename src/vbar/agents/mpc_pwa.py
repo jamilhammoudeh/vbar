@@ -227,13 +227,24 @@ def _chebyshev_radius(a: np.ndarray, b: np.ndarray, box: np.ndarray) -> float:
     a_s = a * half
     b_s = b - a @ centre
     nx = a.shape[1]
-    c = np.r_[np.zeros(nx), -1.0]
-    a_ub = np.column_stack([a_s, np.linalg.norm(a_s, axis=1)])
-    bounds = [(None, None)] * nx + [(0.0, None)]
-    lp = linprog(c, A_ub=a_ub, b_ub=b_s, bounds=bounds, method="highs")
-    if lp.status not in (0, 2):
-        # The oldest supported HiGHS reports an unknown status on some degenerate cells.
-        lp = linprog(c, A_ub=a_ub, b_ub=b_s, bounds=bounds, method="highs-ipm")
+    norm = np.linalg.norm(a_s, axis=1)
+    flat = norm == 0.0
+    if np.any(b_s[flat] < 0.0):
+        return -1.0
+    # Rows span many orders of magnitude and the oldest supported HiGHS stalls on them; scaling a
+    # row by its norm leaves the ball radius unchanged.
+    a_s, b_s, norm = (
+        a_s[~flat] / norm[~flat, None],
+        b_s[~flat] / norm[~flat],
+        np.ones(np.sum(~flat)),
+    )
+    lp = linprog(
+        np.r_[np.zeros(nx), -1.0],
+        A_ub=np.column_stack([a_s, norm]),
+        b_ub=b_s,
+        bounds=[(None, None)] * nx + [(0.0, None)],
+        method="highs",
+    )
     if lp.status == 2:
         return -1.0
     if lp.status != 0:
