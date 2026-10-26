@@ -12,8 +12,9 @@ release may change the public API, and every such change is listed under Changed
   README, documentation and report figures, and `SERIES_COLORS`, the three run colours in order.
 - `vbar.viz.trajectory_figure`: the Hill-frame view over range and speed panels sharing the time
   axis, with the keep-out radius and capture speed as reference lines.
-- `vbar.viz.approach_animation`: a GIF of one run in the Hill frame with a moving marker, a fading
-  trail and a readout of time, range and speed.
+- `vbar.viz.approach_animation`: a GIF of one run in the Hill frame with a moving marker, the
+  path flown so far, a keep-out violation marked from the frame it starts, and a readout of time,
+  range and speed.
 - `examples/readme_figures.py` regenerates the README figure and animation from fixed seeds;
   `docs/viz.md` documents the figures.
 - `vbar.scenarios.targets.body_point_velocity`: the Hill-frame velocity w x (R p) of a point fixed
@@ -24,10 +25,10 @@ release may change the public API, and every such change is listed under Changed
 - The README and `CITATION.cff` give the Zenodo DOI, which resolves to the latest release.
 - `vbar.viz.plot_trajectories` draws in the screen style: the keep-out disk with its radius, the
   hold point as a dashed ring, time dots every `tick_s` (60 s), open start circles, a direct label
-  per run, the closest approach of a run that entered the keep-out zone, and a direction-of-flight
-  arrow. Legend entries are the run names (`labels`, or each record's `agent`) without the status
-  and delta-v. It raises `ValueError` for more than three runs; draw more runs over several
-  figures.
+  per run, an arrowhead showing each run's direction, the part of a run inside the keep-out zone
+  outlined and labelled with its closest approach, and an orbital-velocity arrow. Legend entries
+  are the run names (`labels`, or each record's `agent`) without the status and delta-v. It raises
+  `ValueError` for more than three runs; draw more runs over several figures.
 - The `TargetMode` protocol has `angular_velocity(t, n)`, the rate of the body axes relative to
   the Hill frame in Hill axes (rad/s); every built-in mode implements it, and a mode without it
   fails where a port's velocity is needed.

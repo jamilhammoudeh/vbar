@@ -1,7 +1,7 @@
 # Figures
 
-Code: `vbar.viz` (`screen_style`, `SCREEN_STYLE`, `SERIES_COLORS`, `plot_trajectories`,
-`trajectory_figure`, `approach_animation`). Plotting needs the `plot` extra:
+Code: `vbar.viz` (`screen_style`, `SCREEN_STYLE`, `SERIES_COLORS`, `VIOLATION`, `PATH_WIDTH`,
+`plot_trajectories`, `trajectory_figure`, `approach_animation`). Plotting needs the `plot` extra:
 `pip install "vbar[plot]"`; without it each function raises `ModuleNotFoundError` naming that
 command.
 
@@ -26,8 +26,10 @@ Runs take the colours of `SERIES_COLORS` in order: #2a78d6, #eb6834, #1baf7a. Th
 distinguishable with the common colour-vision deficiencies on the light surface; they are not
 cycled past three, so a figure takes at most three runs, and a controller keeps its colour from
 figure to figure when the runs are passed in the same order. Colour never identifies a run on its
-own: each run is labelled directly, and figures with two or more runs have a legend. Keep-out
-violations are called out with a note rather than a colour.
+own: each run's path is labelled directly, `plot_trajectories` adds a legend for two or more
+runs, and the panels of `trajectory_figure` rely on the labelled paths above them. A keep-out
+violation is marked with a status colour, #a3201a, used only for its outline and note and never
+for a run.
 
 DejaVu Sans is bundled with matplotlib, so a figure renders the same on every platform, which the
 style check in the tests relies on.
@@ -41,32 +43,42 @@ target's Hill frame ([frames.md](frames.md)): along-track $y$ (V-bar) horizontal
 - the target as a small square at the origin;
 - the keep-out zone as a light disk of radius `cfg.keep_out_radius`, labelled with its radius;
 - the hold point as a dashed ring of fixed screen size (it marks a point, not a tolerance);
-- each run as a line with dots every `tick_s` seconds (60 by default) and an open circle at its
-  start, labelled with its name;
-- for a run that entered the keep-out zone, a note with the closest approach;
-- an arrow giving the direction of flight (+$y$) and the dot interval.
+- each run as the heaviest line in the panel, with dots every `tick_s` seconds (60 by default),
+  an open circle at its start labelled with its name, and an arrowhead partway along showing
+  which way the craft moved;
+- for a run that entered the keep-out zone, the part of its path inside the disk drawn heavier
+  with a #a3201a outline, and a note "keep-out violated" over its closest approach;
+- an arrow for the orbital velocity of the target (+$y$), which is not the craft's heading, and
+  the dot interval.
 
 Cross-track motion ($z$) is not drawn: a run that starts off the orbit plane looks closer to the
-target than it is. The range panels below and the closest-approach note use the full 3D position.
+target than it is. The range panels below and the closest-approach note use the full 3D position;
+the outline inside the disk is drawn only for a run whose record says it entered the zone.
 
 ## Range and speed
 
 `trajectory_figure(results, env)` puts the Hill-frame view over two panels that share the time
 axis (minutes): range to target $\lVert \mathbf r \rVert$ (m) with the keep-out radius as a dashed
 line, and relative speed $\lVert \mathbf v \rVert$ in the Hill frame (m/s) with the capture speed
-`cfg.capture_speed` as a dashed line. Each quantity has its own axis. The figure is sized from the
-Hill panel's aspect at a fixed width (7.2 in by default); at 170 dpi it is about 1220 px wide.
+`cfg.capture_speed` as a dashed line. Each quantity has its own axis. The part of a range curve
+below the keep-out radius gets the same heavier stroke and outline as in the Hill panel. The
+figure is sized from the Hill panel's aspect at a fixed width (7.2 in by default); at 170 dpi it
+is about 1220 px wide.
 
 ## Animation
 
 `approach_animation(result, env, path)` writes a GIF of one run in the Hill-frame view: one frame
-per recorded state, a marker at the state shown, a trail that fades from the marker back over
-`trail_s` seconds of flight (120 by default) into a faint line of the path already flown, and a
-readout of the time, range and speed of that state, with "inside keep-out" while the range is
-below the keep-out radius. The closest-approach note appears once the run has passed it. Frames
-show for `frame_s` seconds (0.08 by default), the first for 0.6 s and the last for 2 s. All frames
-share one 128-colour palette, taken from frames where the trail is longest, so colours do not
-flicker and the file stays small (about 160 kB for an 8 in wide, 75-frame run at 150 dpi).
+per recorded state, a marker at the state shown, the path flown so far as a solid line with dots
+every 60 s, its newest `trail_s` seconds (60 by default) widening toward the marker, and a readout
+of the time, range and speed of that state, with "inside keep-out" while the range is below the
+keep-out radius. Once the run enters the zone the part inside the disk gets its outline and the
+"keep-out violated" note shows; a run that entered only between recorded states gets the note
+from the state after its recorded closest. The closest-approach number appears once the run has
+passed it. The axes are fixed from the first frame and hold the whole path. Frames show for
+`frame_s` seconds (0.08 by default), the first for 0.6 s and the last for 2 s. All frames share
+one 128-colour palette, so colours do not flicker, and each frame is stored whole, so a viewer
+that does not composite GIF frames still shows the full plot (about 2.4 MB for an 8 in wide,
+75-frame run at 150 dpi).
 
 ## Values and placement
 
@@ -79,8 +91,8 @@ target. Delta-v over time is not plotted, because the record holds only the tota
 
 Labels and notes are placed after one layout pass. Each one tries a short list of sides of its
 anchor and takes the one whose box covers the fewest points of the plotted lines (sampled every
-1.5 px), does not overlap a label already placed, and stays inside the axes. The direction-of-
-flight arrow and the animation readout take the emptiest corner the same way.
+1.5 px), does not overlap a label already placed, and stays inside the axes. The orbital-velocity
+arrow and the animation readout take the emptiest corner the same way.
 
 ## Usage
 
@@ -108,8 +120,8 @@ approach_animation(
 
 Both runs share the keep-out radius, hold point, step and capture speed of `env`; only the start
 differs. The animation takes `color=SERIES_COLORS[1]` so the run keeps the colour it has in the
-figure; the default is the first slot. `trajectory_figure` returns a `Figure` not attached to pyplot. For a figure of your own
-in the same style, make it inside `screen_style()`:
+figure; the default is the first slot. `trajectory_figure` returns a `Figure` not attached to
+pyplot. For a figure of your own in the same style, make it inside `screen_style()`:
 
 ```python
 from matplotlib.figure import Figure
@@ -142,5 +154,14 @@ two runs above and writes `docs/images/pd_approach.png` and `docs/images/pd_appr
 - the animation's marker, trail and readout show the recorded state of each frame, and the GIF
   has one frame per state;
 - the README shows both committed assets, the animation under 3 MB.
+
+`tests/test_viz_story.py` checks what the figures must say: only a run whose record has a
+keep-out violation is outlined, clipped to the zone in the Hill and range panels and labelled;
+each path is the heaviest line in its panel and carries an arrowhead; the speed panel has no
+legend; in the animation the flown path stays solid at full width, the axes hold the whole path
+from the first frame, the violation note shows from the frame the run enters the zone (or the
+state after its recorded closest when no recorded state is inside) and stays inside the Hill
+panel on every frame, the Hill panel labels the orbital-velocity arrow, and every GIF frame is
+stored whole.
 
 After an intended change to the style, `python tests/test_viz.py` rewrites the reference.

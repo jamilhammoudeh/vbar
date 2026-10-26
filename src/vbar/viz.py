@@ -24,6 +24,10 @@ MUTED = "#8a8984"
 GRID = "#e6e5e1"
 KEEP_OUT_FILL = "#ebe9e3"
 SERIES_COLORS = ("#2a78d6", "#eb6834", "#1baf7a")
+# A status colour for annotating a violation, never a series colour.
+VIOLATION = "#a3201a"
+# The path is the subject of a Hill-frame figure, so it is the heaviest line in it.
+PATH_WIDTH = 2.6
 
 SCREEN_STYLE = MappingProxyType(
     {
@@ -72,7 +76,7 @@ SCREEN_STYLE = MappingProxyType(
     }
 )
 
-_NOTE = {"fontsize": 7.5, "color": INK_SECONDARY, "linespacing": 1.2}
+_NOTE: dict[str, Any] = {"fontsize": 7.5, "color": INK_SECONDARY, "linespacing": 1.2}
 
 
 def _matplotlib():
@@ -186,10 +190,18 @@ class _Labels:
         clash = any(x0 < b[2] and b[0] < x1 and y0 < b[3] and b[1] < y1 for b in self.taken)
         return covered + 1000.0 * (outside + clash)
 
-    def place(self, text: str, candidates, gaps_pt: Sequence[float], **kw):
+    def place(
+        self,
+        text: str,
+        candidates,
+        gaps_pt: Sequence[float],
+        above: tuple[str, str] | None = None,
+        **kw,
+    ):
         """Annotate `text` at the best of `candidates`, each (data xy, (sx, sy)) side of it.
 
         Nearer gaps (pt) are tried first; a farther one wins only if it covers fewer points.
+        `above` is (text, gid) of a bold heading stacked on the label and placed with it.
         """
         ax = self.ax
         ann = ax.annotate(
@@ -202,16 +214,47 @@ class _Labels:
             **kw,
         )
         w, h = self._size(ann)
+        block_w, block_h = w, h
+        head = None
+        if above:
+            # Offset from the label's anchor rather than tied to its drawn extent, which is empty
+            # while an animation hides the label.
+            head = ax.annotate(
+                above[0],
+                candidates[0][0],
+                xytext=(0.0, 0.0),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                weight="bold",
+                color=VIOLATION,
+                zorder=kw.get("zorder", 3),
+                gid=above[1],
+            )
+            head_w, head_h = self._size(head)
+            block_w, block_h = max(w, head_w), h + head_h + self.px
         scored = []
         options = [(g * self.px, xy, side) for g in gaps_pt for xy, side in candidates]
         for rank, (gap, xy, (sx, sy)) in enumerate(options):
-            dx, dy = sx * (w / 2 + gap), sy * (h / 2 + gap)
+            dx, dy = sx * (block_w / 2 + gap), sy * (block_h / 2 + gap)
             cx, cy = ax.transData.transform(xy) + (dx, dy)
-            box = (cx - w / 2 - 3, cy - h / 2 - 3, cx + w / 2 + 3, cy + h / 2 + 3)
-            scored.append((self._score(box) + 0.1 * rank, xy, box, (dx, dy)))
+            box = (
+                cx - block_w / 2 - 3,
+                cy - block_h / 2 - 3,
+                cx + block_w / 2 + 3,
+                cy + block_h / 2 + 3,
+            )
+            # The label is the bottom of the block.
+            offset = (dx, dy - (block_h - h) / 2)
+            scored.append((self._score(box) + 0.1 * rank, xy, box, offset))
         _, xy, box, offset = min(scored, key=lambda option: option[0])
         ann.xy = xy
         ann.xyann = (offset[0] / self.px, offset[1] / self.px)
+        if head is not None:
+            # 1 pt above the top of the label, which is centred on its offset.
+            head.xy = xy
+            head.xyann = (offset[0] / self.px, (offset[1] + h / 2) / self.px + 1.0)
         self.taken.append(box)
         return ann
 
@@ -233,10 +276,10 @@ class _Labels:
         return (x - f.x0) / f.width, (y - f.y0) / f.height
 
     def flight_key(self, note: str | None) -> None:
-        """A "direction of flight" arrow along +y, with `note` under it, in an empty corner."""
+        """An "orbital velocity" arrow along +y, with `note` under it, in an empty corner."""
         ax = self.ax
         head = ax.text(
-            0, 0, "direction of flight", transform=ax.transAxes, ha="right", va="center", **_NOTE
+            0, 0, "orbital velocity", transform=ax.transAxes, ha="right", va="center", **_NOTE
         )
         sub = None
         if note:
@@ -284,16 +327,67 @@ def _hill_limits(results: Sequence[dict], env) -> tuple[tuple[float, float], tup
     hold = np.asarray(env.hold_point, dtype=float)
     y = np.concatenate([r["states"][:, 1] for r in results] + [[-r_ko, r_ko, hold[1]]])
     x = np.concatenate([r["states"][:, 0] for r in results] + [[-r_ko, r_ko, hold[0]]])
-    # Room around the data for the start labels and the direction-of-flight key.
+    # Room around the data for the start labels and the orbital-velocity key.
     pad_y = 0.05 * (y.max() - y.min())
     pad_x = max(0.2 * (x.max() - x.min()), 0.07 * (y.max() - y.min()))
     return (y.min() - pad_y, y.max() + pad_y), (x.min() - pad_x, x.max() + pad_x)
+
+
+def _emphasise(ax, u, v, color: str, region, gid: str):
+    """A heavier stroke with a violation outline over the part of a line inside `region`.
+
+    `region` is a matplotlib Path in data coordinates; the line keeps its series colour.
+    """
+    from matplotlib import patheffects
+
+    (line,) = ax.plot(
+        u,
+        v,
+        color=color,
+        lw=PATH_WIDTH + 1.8,
+        solid_capstyle="butt",
+        zorder=6.5,
+        gid=gid,
+        path_effects=[
+            patheffects.Stroke(linewidth=PATH_WIDTH + 4.2, foreground=VIOLATION),
+            patheffects.Normal(),
+        ],
+    )
+    line.set_clip_path(region, ax.transData)
+    return line
+
+
+def _heading(ax, states: np.ndarray, color: str, gid: str) -> None:
+    """A small arrowhead partway along a path, pointing the way the craft flew."""
+    yx = states[:, [1, 0]]
+    s = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(yx, axis=0).T))])
+    if s[-1] == 0.0:
+        return
+    # Past the start label and clear of the target, on most approaches.
+    k = int(np.searchsorted(s, 0.3 * s[-1]))
+    k = min(max(k, 1), len(yx) - 1)
+    ax.annotate(
+        "",
+        xy=yx[k],
+        xytext=yx[k - 1],
+        arrowprops={
+            "arrowstyle": "-|>,head_length=0.7,head_width=0.4",
+            "color": color,
+            "lw": 0.0,
+            "shrinkA": 0,
+            "shrinkB": 0,
+            "mutation_scale": 12,
+        },
+        zorder=7,
+        gid=gid,
+    )
 
 
 def _draw_hill(
     ax, results, env, names, tick_s, *, legend: bool, closest_note: bool, colors=SERIES_COLORS
 ):
     from matplotlib.patches import Circle
+    from matplotlib.path import Path as MplPath
 
     cfg = env.cfg
     r_ko = cfg.keep_out_radius
@@ -307,7 +401,10 @@ def _draw_hill(
     for i, r in enumerate(results):
         color = colors[i]
         y, x = r["states"][:, 1], r["states"][:, 0]
-        ax.plot(y, x, color=color, zorder=5, label=names[i], gid=f"path{i}")
+        ax.plot(y, x, color=color, lw=PATH_WIDTH, zorder=5, label=names[i], gid=f"path{i}")
+        _heading(ax, r["states"], color, f"heading{i}")
+        if r["keep_out_violated"]:
+            _emphasise(ax, y, x, color, MplPath.circle((0.0, 0.0), r_ko), f"inside{i}")
         ax.plot(
             y[step::step],
             x[step::step],
@@ -367,6 +464,7 @@ def _draw_hill(
                 f"closest {r['min_range_to_target_m']:.1f} m",
                 [(at, side) for side in _AROUND],
                 (22, 40),
+                above=("keep-out violated", f"violated{i}"),
                 **{**_NOTE, "color": INK},
                 arrowprops={
                     "arrowstyle": "-",
@@ -484,8 +582,10 @@ def trajectory_figure(
 
     The top panel draws the runs as `plot_trajectories` does. Below it, range to target (m) with
     the keep-out radius, and relative speed in the Hill frame (m/s) with the capture speed, both
-    against time (min). Every value is read from
-    the run records and the scenario configuration. The screen style is applied whatever the
+    against time (min); the runs keep the colours of their labelled paths above, so these panels
+    have no legend. A run inside the keep-out radius is drawn heavier with a violation outline
+    there in both the Hill and range panels. Every value is read from the run records and the
+    scenario configuration. The screen style is applied whatever the
     caller's settings; save at 170 dpi or more for the README.
 
     Parameters
@@ -522,6 +622,7 @@ def trajectory_figure(
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from matplotlib.layout_engine import ConstrainedLayoutEngine
+    from matplotlib.path import Path as MplPath
 
     (y_lo, y_hi), (x_lo, x_hi) = _hill_limits(results, env)
     # Height of the equal-aspect panel at the width left after its tick labels.
@@ -540,14 +641,16 @@ def trajectory_figure(
         range_points = _draw_series(ax_range, results, env, names, "range")
         speed_points = _draw_series(ax_speed, results, env, names, "speed")
         _draw_hill(ax, results, env, names, tick_s, legend=False, closest_note=True)
+        r_ko = env.cfg.keep_out_radius
+        below = MplPath([(-1e9, -1e9), (1e9, -1e9), (1e9, r_ko), (-1e9, r_ko), (-1e9, -1e9)])
+        for i, r in enumerate(results):
+            if r["keep_out_violated"]:
+                t, rng = range_points[i].T
+                _emphasise(ax_range, t, rng, SERIES_COLORS[i], below, f"inside_range{i}")
         range_labels = _Labels(ax_range, range_points)
-        _limit_line(
-            range_labels, env.cfg.keep_out_radius, f"keep-out {env.cfg.keep_out_radius:g} m"
-        )
+        _limit_line(range_labels, r_ko, f"keep-out {r_ko:g} m")
         speed_labels = _Labels(ax_speed, speed_points)
         _limit_line(speed_labels, env.cfg.capture_speed, f"capture {env.cfg.capture_speed:g} m/s")
-        if len(results) >= 2:
-            ax_speed.legend(loc="upper right")
     return fig
 
 
@@ -567,6 +670,7 @@ class _ApproachScene:
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.collections import LineCollection
         from matplotlib.figure import Figure
+        from matplotlib.path import Path as MplPath
 
         self.states = np.asarray(result["states"], dtype=float)
         self.t = _times(result, env)
@@ -582,16 +686,33 @@ class _ApproachScene:
             labels = _draw_hill(
                 ax, [result], env, ["start"], 60.0, legend=False, closest_note=True, colors=[color]
             )
-            # The path is drawn frame by frame, and the closest approach shown once reached.
+            # The path is drawn frame by frame; the notes show once the craft gets there.
+            static = ("path0", "ticks0", "inside0", "heading0", "name0")
             for artist in [*ax.lines, *ax.texts]:
-                if artist.get_gid() in ("path0", "ticks0", "tick_key", "name0"):
+                if artist.get_gid() in static:
                     artist.remove()
-            self.closest = next((a for a in ax.texts if a.get_gid() == "closest0"), None)
-            self.k_closest = int(np.argmin(np.linalg.norm(self.states[:, :3], axis=1)))
-            self.past = ax.plot([], [], color=color, lw=1.0, alpha=0.3, zorder=4)[0]
-            # Butt caps: round caps overlap at the joints and bead the faded trail.
-            self.fade = LineCollection([], linewidths=2.2, capstyle="butt", color=color, zorder=5)
+            texts = {a.get_gid(): a for a in ax.texts}
+            self.closest = texts.get("closest0")
+            self.violated = texts.get("violated0")
+            rng = np.linalg.norm(self.states[:, :3], axis=1)
+            self.k_closest = int(np.argmin(rng))
+            self.k_entry = int(np.argmax(rng < self.r_ko)) if (rng < self.r_ko).any() else None
+            # With no recorded state inside, the zone was entered within a step, taken as one
+            # next to the recorded closest state, so the note waits for the state after it.
+            past_closest = min(self.k_closest + 1, len(self.states) - 1)
+            self.k_violated = past_closest if self.k_entry is None else self.k_entry
+            self.step = max(1, round(60.0 / env.cfg.dt))
+            self.past = ax.plot([], [], color=color, lw=PATH_WIDTH, zorder=5, gid="past")[0]
+            self.ticks = ax.plot([], [], "o", ms=2.8, color=color, mec=SURFACE, mew=0.6, zorder=6)[
+                0
+            ]
+            # Butt caps: round caps overlap at the joints where the width changes.
+            self.fade = LineCollection([], capstyle="butt", color=color, zorder=5.5)
             ax.add_collection(self.fade)
+            self.inside = None
+            if result["keep_out_violated"]:
+                circle = MplPath.circle((0.0, 0.0), self.r_ko)
+                self.inside = _emphasise(ax, [], [], color, circle, "inside")
             self.marker = ax.plot(
                 [], [], "o", ms=7.5, color=color, mec=SURFACE, mew=1.2, zorder=9, gid="marker"
             )[0]
@@ -621,17 +742,24 @@ class _ApproachScene:
     def frame(self, k: int) -> np.ndarray:
         """Draw the scene at recorded state `k` and return the image as RGB."""
         s = self.states
+        self.past.set_data(s[: k + 1, 1], s[: k + 1, 0])
+        self.ticks.set_data(
+            s[self.step : k + 1 : self.step, 1], s[self.step : k + 1 : self.step, 0]
+        )
+        if self.inside is not None:
+            self.inside.set_data(s[: k + 1, 1], s[: k + 1, 0])
         lo = max(0, k - self.trail)
-        self.past.set_data(s[: lo + 1, 1], s[: lo + 1, 0])
         pts = s[lo : k + 1][:, [1, 0]]
         segs = np.stack([pts[:-1], pts[1:]], axis=1)
-        # The trail fades from full colour at the marker into the faint path behind it.
-        alpha = np.linspace(0.3, 1.0, self.trail)[self.trail - len(segs) :]
+        # The newest part of the path widens toward the marker; the rest stays solid.
+        width = np.linspace(PATH_WIDTH, PATH_WIDTH + 2.4, self.trail)[self.trail - len(segs) :]
         self.fade.set_segments(list(segs))
-        self.fade.set_alpha(alpha.tolist() if len(segs) else None)
+        self.fade.set_linewidth(width.tolist() if len(segs) else PATH_WIDTH)
         self.marker.set_data([s[k, 1]], [s[k, 0]])
         if self.closest is not None:
             self.closest.set_visible(k >= self.k_closest)
+        if self.violated is not None:
+            self.violated.set_visible(k >= self.k_violated)
         rng = float(np.linalg.norm(s[k, :3]))
         minutes, seconds = divmod(round(self.t[k]), 60)
         lines = [
@@ -653,16 +781,20 @@ def approach_animation(
     *,
     title: str | None = None,
     frame_s: float = 0.08,
-    trail_s: float = 120.0,
+    trail_s: float = 60.0,
     width_in: float = 8.0,
     dpi: float = 150.0,
     color: str = SERIES_COLORS[0],
 ) -> Path:
     """Write a GIF of one run in the Hill frame, one frame per recorded state.
 
-    A marker moves along the path in the orbit plane with a trail that fades over `trail_s` of
-    flight, over the keep-out disk, the target and the hold point. A readout gives the time,
-    the range and the relative speed of the state shown, all from the record. The first frame
+    A marker moves along the path in the orbit plane over the keep-out disk, the target and the
+    hold point. The path flown so far stays solid, with dots every 60 s, and its newest
+    `trail_s` of flight widens toward the marker. A run that enters the keep-out zone is drawn
+    heavier with a violation outline inside it and labelled from that frame on, or from the
+    state after its recorded closest if it entered only between recorded states; its closest
+    approach from the record shows once reached. A readout gives the time, the range and the
+    relative speed of the state shown, all from the record. The first frame
     is held for 0.6 s and the last for 2 s. Every frame shares one palette, so colours stay
     steady and the file stays small enough to show inline on a repository page.
 
@@ -680,7 +812,7 @@ def approach_animation(
     frame_s : float, optional
         Display time of each frame, s of wall clock.
     trail_s : float, optional
-        Simulated time over which the trail fades, s.
+        Simulated time over which the newest part of the path widens toward the marker, s.
     width_in : float, optional
         Image width, in.
     dpi : float, optional
@@ -726,13 +858,19 @@ def approach_animation(
     durations[0] = 600
     durations[-1] = 2000
     path = Path(path)
-    frames[0].save(path, save_all=True, append_images=frames[1:], duration=durations, loop=0)
+    # Disposal 2 writes every frame whole; Pillow otherwise stores only the changed region, and
+    # viewers that show frames without compositing them then cut off the plot.
+    frames[0].save(
+        path, save_all=True, append_images=frames[1:], duration=durations, loop=0, disposal=2
+    )
     return path
 
 
 __all__ = [
+    "PATH_WIDTH",
     "SCREEN_STYLE",
     "SERIES_COLORS",
+    "VIOLATION",
     "approach_animation",
     "plot_trajectories",
     "screen_style",
