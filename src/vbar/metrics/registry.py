@@ -92,7 +92,7 @@ CATALOGUE = (
     MetricInfo("A1r", "preparation_median", "s"),
     MetricInfo("A1f", "feedback_median", "s"),
     MetricInfo("A1fp", "feedback_p95", "s"),
-    MetricInfo("A2", "compute", "s"),
+    MetricInfo("A2", "compute", "s", version=2),
     MetricInfo("A3i", "input_tokens", "tokens"),
     MetricInfo("A3o", "output_tokens", "tokens"),
     MetricInfo("A3", "token_cost", "USD"),

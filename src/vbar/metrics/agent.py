@@ -177,7 +177,7 @@ def agent_metrics(
     out: dict[str, Any] = {
         "latency_median": float(np.median(latency)) if len(latency) else math.nan,
         "latency_p95": float(np.percentile(latency, 95)) if len(latency) else math.nan,
-        "compute": float(latency.sum()),
+        "compute": ep.reset_s + float(latency.sum()),
         "input_tokens": math.nan,
         "output_tokens": math.nan,
         "token_cost": math.nan,

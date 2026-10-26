@@ -22,6 +22,7 @@ release may change the public API, and every such change is listed under Changed
 - `Episode.scenario_id`: the identifier of what was flown.
 - `BaseEnv.task_outcome()` and `Episode.outcome`: the environment's verdict on a goal the metrics
   cannot rebuild from the trajectory (the inspection's coverage).
+- `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
 
 ### Changed
 
@@ -46,6 +47,7 @@ release may change the public API, and every such change is listed under Changed
   negative collision radius scored every drift safe).
 - `summarize` and `unsafe_tail` report `n` and `missing` (the NaN values left out), and
   `summarize` raises for a NaN success, progress or composite score.
+- A2 `compute` (version 2) includes the agent's time in `reset`.
 - Identifiers name a sensor subclass by its class, never by a built-in track name such as `nav1`;
   a custom `label` that takes a built-in name raises; an environment of another class than its
   spec names adds a `kind=` token.

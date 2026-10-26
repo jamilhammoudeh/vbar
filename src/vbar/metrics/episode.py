@@ -34,6 +34,7 @@ class Episode:
     of what was flown, which can differ from the one in `view` where the briefing hides the
     target's true mode. `outcome` is the environment's verdict on a goal the metrics cannot
     rebuild from the trajectory (`BaseEnv.task_outcome`; the inspection's coverage), else None.
+    `reset_s` is the agent's wall time in `reset` (s).
     """
 
     view: AgentView
@@ -53,6 +54,7 @@ class Episode:
     seed: int | None = None
     agent_seed: int | None = None
     scenario_id: str | None = None
+    reset_s: float = 0.0
     outcome: Mapping[str, Any] | None = None
 
     @property
@@ -112,7 +114,9 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
     obs, info = env.reset(seed=seed)
     start = np.array(info["true_state"], dtype=float)
     first_obs = np.array(obs, dtype=float)
+    t0 = time.perf_counter()
     agent.reset(env.agent_view(), agent_generator(agent_seed))
+    reset_s = time.perf_counter() - t0
     records = []
     terminated = truncated = False
     while not (terminated or truncated):
@@ -154,5 +158,6 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         seed=seed,
         agent_seed=agent_seed,
         scenario_id=env.scenario_id,
+        reset_s=reset_s,
         outcome=getattr(env, "task_outcome", lambda: None)(),
     )

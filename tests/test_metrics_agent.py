@@ -50,11 +50,34 @@ def test_latency_median_p95_and_total_from_the_records():
             dataclasses.replace(r, agent_latency_s=s)
             for r, s in zip(ep.records, latencies, strict=True)
         ),
+        reset_s=0.5,
     )
     m = agent_metrics(ep)
     assert m["latency_median"] == pytest.approx(0.3)
     assert m["latency_p95"] == pytest.approx(np.percentile(latencies, 95))
-    assert m["compute"] == pytest.approx(3.0)
+    assert m["compute"] == pytest.approx(3.5)
+
+
+def test_work_moved_into_reset_still_counts_as_compute():
+    # An agent that plans its whole episode in `reset` acts in microseconds; the recorder times
+    # `reset` too, so the planning shows in A2 and in the runner's result.
+    import time
+
+    from vbar import run_episode
+    from vbar.agents import DriftAgent
+    from vbar.metrics import record_episode
+    from vbar.scenarios import make
+
+    class Planner(DriftAgent):
+        def reset(self, view, rng=None):
+            super().reset(view, rng)
+            time.sleep(0.05)
+
+    env = make("approach-vbar", max_steps=3)
+    ep = record_episode(env, Planner(), seed=5, agent_seed=6)
+    # A 0.05 s sleep, with room for a coarse clock.
+    assert ep.reset_s >= 0.04 and agent_metrics(ep)["compute"] >= 0.04
+    assert run_episode(env, Planner(), seed=5, agent_seed=6)["reset_s"] >= 0.04
 
 
 def test_parse_failures_are_the_share_of_unreadable_replies():

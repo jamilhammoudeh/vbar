@@ -131,10 +131,13 @@ def run_episode(
     Seeds not given are drawn (128 bits) and returned in the result; small seeds can be guessed
     by the agent, and `agent_seed` may not equal `seed` (`ScoredRun`). Environments built for
     training (`training=True`) are refused. `latencies_s` holds the
-    agent's wall-clock time per decision; with `real_time` the clock runs while it decides.
+    agent's wall-clock time per decision and `reset_s` its time in `reset`; with `real_time` the
+    clock runs while it decides.
     """
     episode = ScoredRun(env, seed, agent_seed, real_time)
+    t0 = time.perf_counter()
     agent.reset(env.agent_view(), episode.agent_rng())
+    reset_s = time.perf_counter() - t0
     replay = None if real_time is None else real_time.latencies
     while not episode.done:
         t0 = time.perf_counter()
@@ -150,6 +153,8 @@ def run_episode(
             latency = real_time.time_scale * wall
         episode.step(action, wall, latency)
     result = episode.result(agent.name)
+    # Work moved from `act` into `reset` is still the agent's compute.
+    result["reset_s"] = reset_s
     # Any agent, a subclass included, can set `interventions`; only FilteredAgent's own count holds.
     if type(agent) is FilteredAgent:
         result["filter_interventions"] = agent.interventions

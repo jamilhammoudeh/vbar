@@ -31,19 +31,19 @@ Wall-clock figures are not reproducible by nature and are left out of the golden
 - Validity: not applicable.
 - Changelog: v1, first version.
 
-## A2 compute (v1)
-- Definition: total agent wall time over the episode (s).
+## A2 compute (v2)
+- Definition: total agent wall time over the episode (s): the time in `reset` plus every decision.
 - Summary: interquartile mean across episodes.
 - Why it matters: cost of running the agent.
-- Known-answer tests: 3.0 s for the set latencies.
+- Known-answer tests: 3.5 s for a 0.5 s reset and set latencies summing to 3.0 s; an agent that sleeps 0.05 s in `reset` shows it in A2.
 - Convergence: not applicable.
 - Invariance: not applicable.
 - Mutation detection: not applicable.
-- Anti-gaming: as A1.
+- Anti-gaming: as A1; `reset` is timed by the recorder too, so moving the work there does not hide it.
 - Reproducibility: wall clock.
 - Power: starts behind the target: SD 0.000479 s about a mean of 0.002228 s, 73 episodes per group for a 10% change; the spec's start box: SD 0.000908 s about a mean of 0.002619 s, 189 episodes per group for a 10% change.
 - Validity: not applicable.
-- Changelog: v1, first version.
+- Changelog: v1, first version; v2 adds the time in `reset`, so work moved out of the decisions still counts.
 
 ## A3i input_tokens (v1)
 - Definition: input tokens summed over the agent's log; NaN unless every entry has a count.

@@ -122,7 +122,8 @@ constraint minima and violation intervals.
 `run_episode(env, agent, seed, agent_seed)` resets the environment, calls `agent.reset(view, rng)`
 with a generator seeded by a hash of `agent_seed` alone, and returns the final metrics above plus
 `agent`, `seed`, `agent_seed`, `completed` (false only for an episode a remote session left
-unfinished), `wall_time_s`, the agent's decision times `latencies_s`, the true state history
+unfinished), `wall_time_s`, the agent's decision times `latencies_s`, its time in `reset`
+`reset_s`, the true state history
 `states`, the actions `actions`, and `filter_interventions` when the agent is wrapped in a safety
 filter. `real_time` lets the clock run while the agent decides, and the result records its setting
 under the same key ([agents.md](agents.md)). A seed not given is drawn from the operating system

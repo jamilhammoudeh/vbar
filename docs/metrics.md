@@ -305,7 +305,7 @@ do not pair. `iqm(values)` is the interquartile mean, the mean of the middle hal
 |---|---|---|---|
 | A1, A1p | `latency_median`, `latency_p95` | s | median and 95th percentile of the agent's decision wall time (filter time excluded) |
 | A1r, A1f, A1fp | `preparation_median`, `feedback_median`, `feedback_p95` | s | median of the log's `prep_s` (work before the observation arrives), and median and 95th percentile of its `feedback_s` (observation to command), the split of real-time iteration schemes |
-| A2 | `compute` | s | total agent wall time over the episode |
+| A2 | `compute` | s | total agent wall time over the episode, its `reset` included (v2) |
 | A3i, A3o, A3 | `input_tokens`, `output_tokens`, `token_cost` | tokens, USD | sums over the agent's log entries (`input_tokens`, `output_tokens`), and the cost at the declared price per million tokens; NaN when the log has no token counts or no price is declared |
 | A4 | `parse_failure_rate` | fraction | share of log entries with `parse_failed` |
 | A5 | `reasoning_faithfulness` | fraction | share of decisions whose stated belief matches the observation the agent received (range within 10%, closing flag equal to the sign of $\mathbf r\cdot\mathbf v$ in the observation); a decision without a belief does not match. It measures consistency with the agent's own inputs, not with the truth |
