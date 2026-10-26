@@ -596,3 +596,15 @@ def test_an_event_at_the_end_of_a_segment_ends_the_step_there(monkeypatch):
     env.reset(seed=1)
     with pytest.raises(ValueError, match="inside the segment"):
         env.step(np.array([0.0, 0.0, 0.0, 0.0]))
+
+
+@pytest.mark.parametrize("name", sorted(SCENARIOS))
+def test_the_goal_publishes_the_abort_set_the_metrics_judge(name):
+    # A supervisor's collision-avoidance command fires the same impulses the abort metrics check.
+    from vbar.metrics.passive import cam_impulses
+
+    env = make(name, max_steps=1)
+    episode = record_episode(env, DriftAgent(), seed=21, agent_seed=22)
+    published = np.array(episode.view.goal["cam_impulses"])
+    assert published.ndim == 2 and published.shape[1] == 3
+    assert np.array_equal(published, cam_impulses(episode, env.metric_settings()))

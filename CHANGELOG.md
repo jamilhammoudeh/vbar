@@ -22,6 +22,7 @@ release may change the public API, and every such change is listed under Changed
 - `Episode.scenario_id`: the identifier of what was flown.
 - `BaseEnv.task_outcome()` and `Episode.outcome`: the environment's verdict on a goal the metrics
   cannot rebuild from the trajectory (the inspection's coverage).
+- Every scenario goal carries `cam_impulses`, the abort set the abort metrics check.
 - `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
 
 ### Changed

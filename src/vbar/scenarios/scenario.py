@@ -17,6 +17,7 @@ from typing import Any, ClassVar, cast
 
 import numpy as np
 
+from ..agents.base import AgentView
 from ..constraints import Constraint
 from ..dynamics import TwoBodyDynamics, get_body
 from ..spacecraft import Actuation, GaussianNav, GaussMarkovNav, PerfectNav, RangeScaledNav
@@ -409,6 +410,28 @@ class ScenarioEnv(BaseEnv):
             return actuation
         pieces = split_at(actuation.segments, self.t, self.burn_edges)
         return replace(actuation, segments=pieces)
+
+    def agent_view(self) -> AgentView:
+        """The public view, its goal with the abort set the metrics judge (`cam_impulses`).
+
+        Returns
+        -------
+        AgentView
+            What agents and filters are given.
+        """
+        from ..metrics.passive import abort_set
+        from ..metrics.settings import MetricSettings
+
+        view = super().agent_view()
+        declared = getattr(self, "metric_settings", None)
+        settings = declared() if declared else MetricSettings()
+        try:
+            impulses = abort_set(view.goal, settings)
+        except ValueError:
+            # No declared abort set and no approach direction: the metrics refuse it too.
+            return view
+        cam = tuple(tuple(float(c) for c in impulse) for impulse in impulses)
+        return replace(view, goal={**view.goal, "cam_impulses": cam})
 
     def _goal(self) -> dict[str, Any]:
         goal: dict[str, Any] = {"target": self.target.public(self.n)}
