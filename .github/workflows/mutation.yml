@@ -9,8 +9,15 @@ jobs:
   mutation:
     # Mirrors used for pre-merge CI would otherwise run this weekly on their own minutes.
     if: github.repository == 'jamilhammoudeh/vbar'
+    name: mutation (${{ matrix.package }})
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      # mutmut reads its file list only from pyproject.toml, so each job mutates every listed
+      # file and tests the mutants of one package, selected by name.
+      matrix:
+        package: [constraints, dynamics, spacecraft, solvers, scenarios, metrics]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -18,5 +25,9 @@ jobs:
           python-version: "3.12"
       # No install of the package itself: the tests must import mutmut's mutated copy.
       - run: python -m pip install numpy scipy gymnasium pytest hypothesis "mutmut==3.8.0"
-      - run: mutmut run
-      - run: mutmut results
+      # The step limit sits under the job's so a slow package still prints the mutants it checked.
+      - run: mutmut run "vbar.${{ matrix.package }}.*"
+        timeout-minutes: 340
+      # The other jobs' mutants are listed as not checked.
+      - run: mutmut results | sed '/not checked$/d'
+        if: always()

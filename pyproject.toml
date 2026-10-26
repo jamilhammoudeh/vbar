@@ -88,6 +88,27 @@ source_paths = [
     "src/vbar/dynamics/mean_elements.py",
     "src/vbar/spacecraft/propulsion.py",
     "src/vbar/constraints.py",
+    "src/vbar/solvers/qp.py",
+    "src/vbar/solvers/ipm.py",
+    "src/vbar/solvers/stage.py",
+    "src/vbar/solvers/scaling.py",
+    "src/vbar/scenarios/seeds.py",
+    "src/vbar/scenarios/spec.py",
+    "src/vbar/metrics/episode.py",
+    "src/vbar/metrics/stl.py",
+    "src/vbar/metrics/safety.py",
+    "src/vbar/metrics/efficiency.py",
 ]
-also_copy = ["src", "CITATION.cff", "pyproject.toml"]
-pytest_add_cli_args = ["--ignore=tests/test_docs.py", "-p", "no:cacheprovider"]
+also_copy = ["src", "CITATION.cff", "pyproject.toml", "README.md", "docs", "examples"]
+# Stats, clean and mutant runs each start from a process that has only collected the tests; with
+# plain fork, state a test leaves behind in the stats run leaks into every mutant's run.
+process_isolation = "forkserver"
+# The package is not installed for mutation runs, so a fresh `python -m vbar...` process cannot
+# import it; those two tests run no mutated code in the test process anyway.
+pytest_add_cli_args = [
+    "--ignore=tests/test_docs.py",
+    "-p",
+    "no:cacheprovider",
+    "--deselect=tests/test_mcp.py::test_command_line_server_speaks_json_rpc_on_stdio",
+    "--deselect=tests/test_mcp.py::test_the_command_line_draws_unguessable_seeds_unless_given_some",
+]
