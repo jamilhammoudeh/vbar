@@ -1,4 +1,4 @@
-"""Model predictive control on the zero-order-hold CW model: the terminal set and the horizon QP.
+"""Model predictive control on the zero-order-hold CW model: terminal set, horizon QP and agent.
 
 The terminal set is the maximal output admissible set of a stable closed loop, computed by the
 algorithm of Gilbert and Tan, "Linear systems with state and control constraints: the theory and
@@ -9,7 +9,8 @@ section 2.5.4 and exercise 2.5.
 The horizon problem is the LQR regulator's stage cost about the hold point with the DARE terminal
 cost (Rawlings, Mayne and Diehl, sections 2.5 and 8.8), the thrust box, and keep-out rows at
 samples within each step, linearized at a reference plan and softened by an exact penalty (Boyd
-and Vandenberghe, Convex Optimization, exercise 5.16). Hill frame, SI units.
+and Vandenberghe, Convex Optimization, exercise 5.16). `MPCAgent` solves it at every decision
+and applies the first move, with fallbacks when the solver gives no plan. Hill frame, SI units.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import time
+import warnings
 from dataclasses import dataclass, field
 from fractions import Fraction
 
@@ -24,11 +26,11 @@ import numpy as np
 from numpy.typing import ArrayLike
 from scipy.optimize import linprog
 
-from ..constraints import interval_bounds
+from ..constraints import KeepOut, interval_bounds, segment_minimum
 from ..dynamics import cw_discrete
 from ..solvers import IPMSettings, StageQP, riccati_solve, solve_horizon
-from .base import AgentView
-from .lqr import LQRConfig, RegulatorModel
+from .base import AgentView, action_scale, hold_point
+from .lqr import ALIGNMENT_TOL, LQRConfig, RegulatorModel, regulator_model, steady_state_input
 
 # Within 1e-12 of the unit circle the determination index grows past any cap (2.3e12 steps per
 # decade of decay), and a closed loop with a mode on the circle has no finite description.
@@ -62,6 +64,27 @@ ROW_ROUNDING = 1e-12
 EXTENT_MARGIN = 1e-6
 TERMINAL_CACHE_SIZE = 8
 _TERMINAL_CACHE: dict[tuple, tuple[np.ndarray, np.ndarray]] = {}
+# Samples of the held step in the keep-out certificate, as the environment checks constraints.
+VIOLATION_SAMPLES = 20
+# Passing waypoints sit 1.2 R from the target, 60 m for the 50 m sphere of the catalogue;
+# a side is contested when the straight segment to the hold point passes closer than that.
+WAYPOINT_RADIUS = 1.2
+# A reference leg to a waypoint ends within 0.2 R of it, where the leg to the hold point starts.
+WAYPOINT_REACHED = 0.2
+# A keep-out row asks only for the range of its reference sample, so reference states nearer
+# than 1.1 R are moved radially out to 1.1 R before the rows are built: the margin covers the
+# range a reference loses within a step at closing speeds up to 0.1 R / dt.
+REFERENCE_RADIUS = 1.1
+# The warm start's slack sits 1 mm above zero. The shifted plan is its own reference, so it meets
+# its rows to rounding where a row asks only for the reference's range; started on them, the
+# interior-point method's first Newton system takes multipliers over slacks of 1e-14 and fails to
+# factor ("solver_failed" at iteration 0), which this start avoids. It moves only the starting
+# point passed as `warm`; the problem's rows, and the slack bound sigma >= 1 m, are unchanged.
+WARM_SLACK_M = 1e-3
+# Below this sine of the angle between the radial axis and the segment to the hold point, the
+# radial direction across the segment is set by navigation noise, and the side is chosen across
+# track instead.
+PARALLEL_TOL = 0.1
 
 
 def admissible_set(
@@ -735,3 +758,426 @@ def _rows_hold(qp: StageQP, x: np.ndarray, u: np.ndarray) -> bool:
         if np.any(value_n < -ROW_ROUNDING * size_n):
             return False
     return True
+
+
+class MPCAgent:
+    """Hold-point MPC on the CW model with keep-out rows, a passing side and fallbacks.
+
+    Each decision builds the horizon problem of `mpc_problem` at the observed state and solves
+    it with `mpc_solve` (Rawlings, Mayne and Diehl, Model Predictive Control, 2nd ed., sections
+    2.5 and 8.8). The keep-out rows are linearized at the previous plan shifted by one step, with
+    the LQR move at its last state clipped to the box appended, and flown from the observed
+    state; an interior-point solve starts from that plan with 1 mm of slack. With no plan the
+    reference is the clipped LQR rollout or, when the straight segment to the hold point passes
+    within 1.2 R of the target, a rollout through a waypoint 1.2 R out on the chosen side. In
+    every reference, states nearer than 1.1 R to the target are moved radially out to 1.1 R: a
+    row asks only for its reference sample's range, so a reference inside the sphere would keep
+    later plans there. Pending commands and the rate weight augment the state as for `LQRAgent`,
+    and where no row binds the command is the `LQRAgent` command of the same regulator.
+
+    Passing side: with `side="auto"`, a contested decision with no side yet, or after
+    `side_hysteresis` decisions in a row at level 1 or 2, solves the problems of both waypoints
+    (+-x across the segment, or +-z when the radial axis is within about 6 degrees of it) from
+    the solver's own start and commits to the lower converged objective for the episode. A
+    fixed side skips the comparison.
+
+    Fallback levels: 0, the plan solved now; 1, the shifted plan, when the solver gives no plan
+    and one exists; 2, the LQR law clipped per axis (box) or scaled onto the ball, when none
+    does. An unconverged iterate is never applied. The applied step is certified against the
+    keep-out sphere by `segment_minimum` over 20 samples of the held step on the CW model; a
+    level-0 plan with a negative bound is solved once more with its first step's keep-out rows
+    raised by the shortfall plus the keep-out resolution, and applied either way. Commands are
+    issued in the view's action mode.
+
+    `log` holds one entry per decision: `time_s`; `status`, `path` and `conflicting` of the
+    solve applied (of the first side's when no side converged); `iterations` of every solve of
+    the decision and `elapsed_s`, its wall-clock time (s); `solver` and `tolerance`; `level` and
+    `fallback`; `warm_start`, whether an interior-point solve started from the shifted plan;
+    `resolved`, whether the certificate asked for a second solve; `certified_bound`, the
+    certified lower bound on the keep-out margin over the applied step (m); `certified`, that
+    bound nonnegative and no slack above the keep-out resolution; `predicted_margin`, the least
+    keep-out margin of the plan at its row samples (m), None at level 2; `max_slack`, the
+    largest slack of a plan solved now (m), None at levels 1 and 2; `side`, the committed side or
+    None; `in_xf`, whether the plan ends in the terminal set, None at level 2 or when the set
+    could not be built. Without a keep-out constraint the keep-out entries are None and
+    `certified` is True. `fallbacks` counts decisions by level and `plan` is the (states,
+    commands) plan followed, None after level 2. They are the agent's own bookkeeping, which the
+    recorder and metrics never read as scores.
+
+    Parameters
+    ----------
+    config : MPCConfig, optional
+        Horizon problem, passing side and solver settings; the defaults of `MPCConfig` when
+        omitted.
+    name : str
+        Name in results.
+    """
+
+    def __init__(self, config: MPCConfig | None = None, name: str = "mpc"):
+        self.config = MPCConfig() if config is None else config
+        self.name = name
+        self.log: list[dict] = []
+        self.fallbacks = [0, 0, 0]
+        self.plan: tuple[np.ndarray, np.ndarray] | None = None
+
+    def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
+        """Build the regulator model and the terminal set, and check the horizon problem.
+
+        Parameters
+        ----------
+        view : AgentView
+            Scenario description; uses `n`, `dt`, `max_accel`, `thrust_limit`, `action_mode`,
+            `mass_kg`, `goal["hold_point"]` (Hill frame, m), the keep-out constraints and the
+            observation names.
+        rng : numpy.random.Generator, optional
+            Unused; the controller is deterministic.
+
+        Raises
+        ------
+        ValueError
+            If the goal is not a hold or a berthing or has no hold point, the action mode takes
+            no continuous command, the thrust limit is unknown, the hold point needs more than
+            `max_accel` of steady thrust, the bound between row samples is infinite
+            ("row_samples too few"), or, with terminal "set", the terminal set cannot be built
+            (see `mpc_problem`).
+
+        Warns
+        -----
+        UserWarning
+            With terminal "cost", when the terminal set cannot be built; `in_xf` is then None.
+        """
+        cfg = self.config
+        hold_point(view, "MPC agent")
+        self.scale = action_scale(view)
+        model = regulator_model(view, cfg.regulator)
+        steps = cfg.horizon
+        # Errors of the in-step bound, and of a terminal row set, show here, not mid-episode.
+        at_hold = (np.tile(model.zs, (steps + 1, 1)), np.tile(model.us, (steps, 1)))
+        mpc_problem(model, view, model.zs, at_hold, cfg)
+        a_box = view.max_accel if view.thrust_limit == "box" else view.max_accel / math.sqrt(3.0)
+        radii = [float(c["radius"]) for c in view.constraints if c["type"] == "keep_out"]
+        radius = max(radii) if radii else None
+        self.terminal_rows: tuple[np.ndarray, np.ndarray] | None = None
+        try:
+            self.terminal_rows = _cached_terminal_rows(model, view, cfg.t_max, radius, a_box)
+        except (ValueError, RuntimeError) as err:
+            # With terminal "set" mpc_problem has raised the same error above.
+            warnings.warn(f"{err}; terminal set membership is not logged", stacklevel=2)
+        settings = IPMSettings() if cfg.settings is None else cfg.settings
+        self.model: RegulatorModel = model
+        self.view = view
+        self.a_box = a_box
+        self.radius = radius
+        self.keep_out = None if radius is None else KeepOut(radius)
+        self.cw = cw_discrete(view.n, view.dt)
+        self.row_steps = cw_discrete(view.n, np.linspace(0.0, view.dt, cfg.row_samples))
+        self.check_times = np.linspace(0.0, view.dt, VIOLATION_SAMPLES)
+        self.check_steps = cw_discrete(view.n, self.check_times)
+        self.tolerance = max(settings.tol_feas, settings.tol_gap)
+        self.feasibility = settings.tol_feas
+        self.side = None if cfg.side == "auto" else cfg.side
+        self.failures = 0
+        self.last = np.zeros(3)
+        self.plan = None
+        self.log = []
+        self.fallbacks = [0, 0, 0]
+
+    def act(self, obs: np.ndarray, info: dict) -> np.ndarray:
+        """First move of the horizon plan at the observed state, or a fallback.
+
+        Parameters
+        ----------
+        obs : numpy.ndarray
+            Observation in the order of the view's names: the Hill state (m, m/s) first, then
+            the pending-command slots if enabled.
+        info : dict
+            Agent-safe information; only `time_s` (s since the episode start) is read.
+
+        Returns
+        -------
+        numpy.ndarray, shape (3,)
+            Command in the view's action mode.
+
+        Raises
+        ------
+        ValueError
+            If a pending command's wait is not a whole number of steps.
+        """
+        started = time.perf_counter()
+        cfg, steps = self.config, self.config.horizon
+        t = float(info["time_s"])
+        z0 = self._state(obs)
+        shifted = None if self.plan is None else self._shifted(z0)
+        contested = self._contested(z0[:3])
+        choose = (
+            contested
+            and cfg.side == "auto"
+            and (self.side is None or self.failures >= cfg.side_hysteresis)
+        )
+        if choose:
+            # Both sides start cold: the shifted plan belongs to one of them at most.
+            solves = []
+            for label in self._side_labels(z0[:3]):
+                reference = self._lifted(self._reference(z0, self._waypoint(label, z0[:3])))
+                solves.append((label, *self._solve(z0, reference, None)))
+            ranked = [
+                (self._objective(qp, found), i)
+                for i, (_, qp, found) in enumerate(solves)
+                if found.x is not None
+            ]
+            label, qp, plan = solves[min(ranked)[1] if ranked else 0]
+            if ranked:
+                self.side = label
+            warm_start = False
+            iterations = sum(found.iterations for _, _, found in solves)
+        else:
+            warm = None
+            if shifted is not None:
+                reference = self._lifted(shifted)
+                slack = np.full((steps, 1), SLACK_OFFSET_M + WARM_SLACK_M)
+                warm = (shifted[0], np.concatenate([shifted[1], slack], axis=1))
+            elif contested and self.side is not None:
+                reference = self._lifted(self._reference(z0, self._waypoint(self.side, z0[:3])))
+            else:
+                reference = self._lifted(self._reference(z0, None))
+            qp, plan = self._solve(z0, reference, warm)
+            warm_start = warm is not None and plan.path == "ipm"
+            iterations = plan.iterations
+
+        x_plan: np.ndarray | None = None
+        u_plan: np.ndarray | None = None
+        if plan.x is not None and plan.u is not None:
+            level = 0
+            x_plan, u_plan = plan.x, plan.u
+        elif shifted is not None:
+            level = 1
+            x_plan, u_plan = shifted
+        else:
+            level = 2
+        u = self._first_move(z0, u_plan)
+        bound = self._certificate(z0, u)
+        resolved = False
+        if level == 0 and bound is not None and bound < 0.0:
+            resolved = True
+            raised = self._raised(qp, -bound)
+            iterations += raised.iterations
+            if raised.x is not None and raised.u is not None:
+                plan = raised
+                x_plan, u_plan = raised.x, raised.u
+                u = self._first_move(z0, u_plan)
+                bound = self._certificate(z0, u)
+
+        max_slack = None
+        if level == 0 and plan.slack is not None:
+            max_slack = max(0.0, float(np.max(plan.slack)))
+        margin = in_xf = None
+        if x_plan is not None and u_plan is not None:
+            if self.radius is not None:
+                margin = self._predicted_margin(x_plan, u_plan)
+            if self.terminal_rows is not None:
+                c_n, e_n = self.terminal_rows
+                end = x_plan[-1]
+                size = np.abs(c_n) @ np.abs(end) + np.abs(e_n)
+                in_xf = bool(np.all(c_n @ end - e_n >= -self.feasibility * size))
+        certified = (bound is None or bound >= 0.0) and (
+            max_slack is None or max_slack <= KeepOut.resolution
+        )
+
+        self.plan = None if x_plan is None or u_plan is None else (x_plan, u_plan)
+        self.failures = 0 if level == 0 else self.failures + 1
+        self.last = u
+        self.fallbacks[level] += 1
+        self.log.append(
+            {
+                "time_s": t,
+                "status": plan.status,
+                "iterations": iterations,
+                "elapsed_s": time.perf_counter() - started,
+                "solver": "mpc_solve",
+                "tolerance": self.tolerance,
+                "level": level,
+                "fallback": level > 0,
+                "path": plan.path,
+                "warm_start": warm_start,
+                "resolved": resolved,
+                "certified": certified,
+                "predicted_margin": margin,
+                "certified_bound": bound,
+                "max_slack": max_slack,
+                "side": self.side,
+                "in_xf": in_xf,
+                "conflicting": plan.conflicting,
+            }
+        )
+        return u / self.view.max_accel * self.scale
+
+    def _state(self, obs: np.ndarray) -> np.ndarray:
+        """Augmented state of the regulator model from the observation, as `LQRAgent` builds it."""
+        view, model = self.view, self.model
+        obs = np.asarray(obs, dtype=float)
+        parts = [obs[:6]]
+        if model.slots:
+            pending = obs[model.slots]
+            steps = pending[:, 0] / view.dt
+            if np.any(np.abs(steps - np.round(steps)) > ALIGNMENT_TOL):
+                raise ValueError("pending commands are not aligned to the decision step")
+            # Commands are echoed in the action units of their issue, which are this agent's.
+            parts.append((pending[:, 1:] * (view.max_accel / self.scale)).ravel())
+        elif model.own_last:
+            parts.append(self.last)
+        return np.concatenate(parts)
+
+    def _solve(
+        self,
+        z0: np.ndarray,
+        reference: tuple[np.ndarray, np.ndarray],
+        warm: tuple[np.ndarray, np.ndarray] | None,
+    ) -> tuple[StageQP, MPCPlan]:
+        """The horizon problem at z0 linearized at `reference`, and its plan."""
+        qp = mpc_problem(self.model, self.view, z0, reference, self.config)
+        return qp, mpc_solve(qp, settings=self.config.settings, warm=warm)
+
+    def _raised(self, qp: StageQP, shortfall: float) -> MPCPlan:
+        """Solve of `qp` with the first step's keep-out rows raised by `shortfall` (m)."""
+        assert qp.e is not None
+        e = qp.e.copy()
+        rows = e[0, BOX_AND_SLACK_ROWS:]
+        # Inert rows have a negative bound and stay inert.
+        rows[rows > 0.0] += shortfall + KeepOut.resolution
+        return mpc_solve(dataclasses.replace(qp, e=e), settings=self.config.settings)
+
+    def _shifted(self, z0: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """The plan shifted by one step with the clipped LQR move at its end, flown from z0."""
+        assert self.plan is not None
+        model = self.model
+        x_prev, u_prev = self.plan
+        end = np.clip(model.us - model.k @ (x_prev[-1] - model.zs), -self.a_box, self.a_box)
+        u = np.vstack([u_prev[1:], end])
+        x = np.empty_like(x_prev)
+        x[0] = z0
+        for k, u_k in enumerate(u):
+            x[k + 1] = model.phi @ x[k] + model.gamma @ u_k
+        return x, u
+
+    def _reference(
+        self, z0: np.ndarray, waypoint: np.ndarray | None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Clipped LQR rollout from z0 to the hold point, via the waypoint (m) if one is given."""
+        model, steps = self.model, self.config.horizon
+        targets = [(model.zs, model.us)]
+        if waypoint is not None:
+            xw = np.concatenate([waypoint, np.zeros(3)])
+            uw = steady_state_input(*self.cw, xw)
+            targets.insert(0, (np.concatenate([xw, np.tile(uw, (len(model.zs) - 6) // 3)]), uw))
+        x = np.empty((steps + 1, len(z0)))
+        u = np.empty((steps, 3))
+        x[0] = z0
+        for k in range(steps):
+            if waypoint is not None and len(targets) > 1:
+                assert self.radius is not None
+                if np.linalg.norm(x[k, :3] - waypoint) < WAYPOINT_REACHED * self.radius:
+                    targets.pop(0)
+            z_target, u_target = targets[0]
+            u[k] = np.clip(u_target - model.k @ (x[k] - z_target), -self.a_box, self.a_box)
+            x[k + 1] = model.phi @ x[k] + model.gamma @ u[k]
+        return x, u
+
+    def _lifted(self, reference: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+        """The reference with its later states nearer than 1.1 R moved radially out to 1.1 R."""
+        if self.radius is None:
+            return reference
+        x, u = reference
+        x = x.copy()
+        size = np.linalg.norm(x[:, :3], axis=1)
+        near = (size < REFERENCE_RADIUS * self.radius) & (size > 0.0)
+        near[0] = False
+        x[near, :3] *= (REFERENCE_RADIUS * self.radius / size[near])[:, None]
+        return x, u
+
+    def _contested(self, r: np.ndarray) -> bool:
+        """Whether the segment from r to the hold point passes within 1.2 R of the target."""
+        if self.radius is None:
+            return False
+        d = self.model.xs[:3] - r
+        length = float(d @ d)
+        if length == 0.0:
+            return False
+        s = min(max(-float(r @ d) / length, 0.0), 1.0)
+        return float(np.linalg.norm(r + s * d)) < WAYPOINT_RADIUS * self.radius
+
+    def _across(self, axis: int, r: np.ndarray) -> np.ndarray:
+        """Component of a Hill axis orthogonal to the segment from r to the hold point."""
+        d = self.model.xs[:3] - r
+        d = d / np.linalg.norm(d)
+        unit = np.eye(3)[axis]
+        return unit - (unit @ d) * d
+
+    def _side_labels(self, r: np.ndarray) -> tuple[str, str]:
+        """The two sides compared from r: across the segment along x, or along z."""
+        if np.linalg.norm(self._across(0, r)) >= PARALLEL_TOL:
+            return ("+x", "-x")
+        return ("+z", "-z")
+
+    def _waypoint(self, label: str, r: np.ndarray) -> np.ndarray | None:
+        """Passing waypoint (m) of a side; None when the side's axis lies along the segment."""
+        assert self.radius is not None
+        across = self._across(0 if label[1] == "x" else 2, r)
+        size = float(np.linalg.norm(across))
+        if size < PARALLEL_TOL:
+            return None
+        sign = 1.0 if label[0] == "+" else -1.0
+        return sign * WAYPOINT_RADIUS * self.radius * across / size
+
+    @staticmethod
+    def _objective(qp: StageQP, plan: MPCPlan) -> float:
+        """Objective of `qp` at a converged plan."""
+        assert plan.x is not None and plan.u is not None and plan.slack is not None
+        sigma = plan.slack + SLACK_OFFSET_M
+        z = np.concatenate([plan.x[:-1], plan.u, sigma[:, None]], axis=1)
+        stage = 0.5 * np.einsum("ki,kij,kj->", z, qp.Q, z) + np.einsum("ki,ki->", qp.q, z)
+        end = plan.x[-1]
+        return float(stage + 0.5 * end @ qp.P @ end + qp.p @ end)
+
+    def _first_move(self, z0: np.ndarray, u_plan: np.ndarray | None) -> np.ndarray:
+        """Command (m/s^2): the plan's first move, or the LQR law at z0 without a plan.
+
+        The plan's move is clipped to the box, which moves an interior-point solution by at most
+        the solver's feasibility tolerance. The LQR law is clipped per axis (box) or scaled onto
+        the ball, as `LQRAgent` does.
+        """
+        if u_plan is not None:
+            return np.clip(u_plan[0], -self.a_box, self.a_box)
+        model, limit = self.model, self.view.max_accel
+        u = model.us - model.k @ (z0 - model.zs)
+        if self.view.thrust_limit == "box":
+            return np.clip(u, -limit, limit)
+        size = float(np.linalg.norm(u))
+        return u * (limit / size) if size > limit else u
+
+    def _certificate(self, z0: np.ndarray, u: np.ndarray) -> float | None:
+        """Certified lower bound (m) on the keep-out margin over the held step on the CW model."""
+        if self.keep_out is None:
+            return None
+        n = self.view.n
+        x = z0[:6]
+        acting = z0[6:9] if self.model.slots else u
+        phis, gammas = self.check_steps
+        states = phis @ x + gammas @ acting
+
+        def state_at(tau: float) -> np.ndarray:
+            phi, gamma = cw_discrete(n, tau)
+            return phi @ x + gamma @ acting
+
+        found = segment_minimum(
+            self.keep_out, state_at, self.check_times, states, float(np.linalg.norm(acting)), n
+        )
+        return float(found.lower_bound)
+
+    def _predicted_margin(self, x: np.ndarray, u: np.ndarray) -> float:
+        """Least keep-out margin (m) of a plan at the row samples of its steps."""
+        assert self.radius is not None
+        acting = x[:-1, 6:9] if self.model.slots else u
+        phis, gammas = self.row_steps
+        r = np.einsum("jab,kb->kja", phis[:, :3, :6], x[:-1, :6])
+        r += np.einsum("jab,kb->kja", gammas[:, :3, :], acting)
+        return float(np.min(np.linalg.norm(r, axis=-1))) - self.radius

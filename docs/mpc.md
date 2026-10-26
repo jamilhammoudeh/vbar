@@ -1,6 +1,6 @@
 # Model predictive control
 
-Code: `admissible_set`, `MPCConfig`, `mpc_problem`, `mpc_solve` and `MPCPlan` in
+Code: `admissible_set`, `MPCConfig`, `mpc_problem`, `mpc_solve`, `MPCPlan` and `MPCAgent` in
 `vbar.agents.mpc`. Hill frame ([frames.md](frames.md)), SI units.
 
 ## Terminal set
@@ -375,4 +375,226 @@ print(plan.status, plan.path, plan.u[0])
 z0 = np.array([0.0, 300.0, 0.0, 0.0, -0.1, 0.0])
 plan = mpc_solve(mpc_problem(model, view, z0, lqr_rollout(z0, 20), config))
 print(plan.status, plan.path, plan.iterations, plan.u[0], plan.slack.max())
+```
+
+## Controller
+
+`MPCAgent(config=None, name="mpc")` is the hold-point MPC baseline. At every decision it builds
+the horizon problem above at the observed state, solves it with `mpc_solve` and applies the first
+move (Rawlings, Mayne and Diehl, sec. 2.5); when the solver gives no plan it falls back to the
+previous plan or to the LQR law. It takes the continuous action modes and hold or berthing goals,
+as `LQRAgent` does ([lqr.md](lqr.md)).
+
+### How it is built
+
+**Decision.** Each `act(obs, info)` reads only `info["time_s"]` and does the following.
+
+1. **State.** $\mathbf z_0$ is built as `LQRAgent` builds it: the observed Hill state, then the
+   pending commands converted from action units to m/s^2 (a wait that is not a whole number of
+   steps raises "pending commands are not aligned to the decision step"), or the agent's own last
+   command when a rate weight is set without delay.
+2. **Reference and warm start.** With a plan $(\mathbf z_{0..N}, \mathbf u_{0..N-1})$ from the
+   previous decision, the shifted plan is $\mathbf u_1, \dots, \mathbf u_{N-1}$ followed by the LQR
+   move at its last state clipped to the box, $\operatorname{clip}(\mathbf u_s - K(\mathbf z_N -
+   \mathbf z_s), \pm a_{\text{box}})$, flown on the model from the new $\mathbf z_0$. The keep-out
+   rows are linearized at it, and the interior-point solve starts from it with every slack at
+   1 mm ($\sigma = 1.001$ m). The shifted plan is its own reference, so it meets the rows that ask
+   only for its own range to rounding; with slacks of $10^{-14}$ m there the solver's first Newton
+   system does not factor and the solve ends "solver_failed" at iteration 0, which the millimetre
+   of slack avoids. It moves only the starting point; no row and no slack bound is relaxed, so
+   the solution is that of the same problem. With no plan the reference is the clipped LQR
+   rollout from $\mathbf z_0$, or the passing-side rollout below, and the solver starts from its
+   own default.
+3. **Lifting.** A keep-out row asks only for the range of its reference sample when that is
+   below $R + b$, so a reference inside the sphere keeps later plans inside it. In every
+   reference, states after the first that are nearer than $1.1R$ to the target are moved
+   radially out to $1.1R$, which leaves room for what a reference loses within a step at closing
+   speeds up to $0.1R/\Delta t$; the rows of a reference outside $1.1R$ then ask for $R + b$.
+   The shifted plan is lifted too. Its last step comes from the LQR law, which heads straight
+   for the hold point, so the tail of a plan can pass through the sphere; unlifted, its rows ask
+   only for that tail's own range and every later plan inherits it. In one run of the default
+   agent from the seed-0 starts without this lift, the chaser entered the sphere to 21.5 m from
+   the target on `approach-vbar` and 6.2 m on `approach-hbar`; with it, both runs complete the
+   dwell (see the whole-episode tests below). Where the shifted plan is outside $1.1R$ it is
+   unchanged and stays feasible for its rows.
+4. **Solve.** `mpc_solve` takes the Riccati path when the plan without rows meets every row,
+   else runs `solve_horizon`; the config's `settings` reach every solve.
+5. **Command.** A converged plan gives level 0 and its first move, clipped to the box (which moves
+   an interior-point solution by at most the solver's feasibility tolerance). Otherwise the
+   shifted plan gives level 1 and its first move. With no plan either, level 2 applies the LQR
+   law $\mathbf u_s - K(\mathbf z_0 - \mathbf z_s)$ clipped per axis on a box limit or scaled onto
+   the ball on a ball limit, the `LQRAgent` command. An unconverged iterate is never applied; the
+   solver returns none. A plan, solved or shifted, is kept for the next decision; level 2 leaves
+   none. The command is issued in the view's action mode.
+6. **Certificate.** The applied step is held for $\Delta t$ on the CW model from the observed
+   state, with the command acting during it (the oldest pending command under a delay), and
+   `segment_minimum(KeepOut(R), ...)` over 20 samples of the step gives a certified lower bound
+   on the keep-out margin (the larger of the first- and second-order bounds of `vbar.constraints`
+   on each interval). A level-0 plan with a negative bound is solved once more with the keep-out
+   rows of its first step raised by the shortfall plus the keep-out resolution, 1 mm, from the
+   solver's own start, and the new plan is applied if it converges, the first one otherwise.
+
+**Passing side.** The side of the target is contested when the straight segment from the
+position to the hold point passes within $1.2R$ of the target. Each side has a waypoint
+$\pm 1.2R\,\mathbf e$, with $\mathbf e$ the unit component of $\hat{\mathbf x}$ orthogonal to the
+segment, or of $\hat{\mathbf z}$ when that of $\hat{\mathbf x}$ is shorter than 0.1 (the radial
+axis within about 6 degrees of the segment, where navigation noise would set its direction).
+Labels are "+x", "-x", "+z" and "-z". A side's reference is the clipped LQR rollout to the
+waypoint at rest, with its holding input from `steady_state_input`, until it comes within $0.2R$
+of the waypoint, and to the hold point after that.
+
+The waypoints sit at $1.2R$ rather than at $R + 2b$. The tightening $b$ is computed per row
+inside `mpc_problem` from the reference's own speed bounds and is a fraction of a metre at the
+catalogue's speeds, so waypoints at $R + 2b$ sit about a metre outside the sphere and a
+rollout toward them can pass inside it. From $(3, 80, 0)$ m closing at 0.25 m/s on
+`approach-vbar`, the 20-step reference toward the +x waypoint comes within 49.84 m of the
+target with the waypoint at $R + 2b$ for $b$ = 0.4 m, and within 51.88 m at $1.2R$ (60 m for the
+50 m sphere). The contested distance uses the same $1.2R$, so a side is contested exactly
+when the straight segment passes nearer than the waypoints. The leg ends within $0.2R$ of the
+waypoint, and the x side gives way to z below an orthogonal component of 0.1.
+
+With `side="auto"`, a contested decision with no side yet solves both sides' problems from the
+solver's own start, since the shifted plan belongs to one side at most, and commits for the
+episode to the lower converged objective (the first side on a tie). The plan then carries the
+side, and later decisions use the shifted plan. The side is chosen again only after
+`side_hysteresis` decisions in a row at level 1 or 2 while it is contested, so solver failures
+can change it and navigation noise cannot. A fixed side solves one problem; when its axis lies
+along the segment it has no waypoint and the reference is the plain rollout. Each side is a
+convex problem; the nonconvex choice between them is made once.
+
+**Log.** `log` has one entry per decision and `fallbacks` counts decisions by level, so it sums
+to the number of decisions; `plan` is the (states, commands) plan followed, None after level 2.
+They are the agent's own bookkeeping; the recorder and metrics never read them as scores.
+
+| Key | Meaning |
+|---|---|
+| `time_s` | `info["time_s"]` of the decision (s) |
+| `status`, `path`, `conflicting` | Of the solve whose plan is applied, or of the first side's when no side converged |
+| `iterations` | Interior-point iterations of every solve of the decision, 0 on the Riccati path |
+| `elapsed_s` | Wall-clock time of the decision (s) |
+| `solver`, `tolerance` | "mpc_solve", and the larger of the settings' feasibility and gap tolerances |
+| `level`, `fallback` | 0, 1 or 2, and whether the level is above 0 |
+| `warm_start` | Whether an interior-point solve started from the shifted plan |
+| `resolved` | Whether the certificate asked for the second solve |
+| `certified_bound` | Certified lower bound on the keep-out margin over the applied step (m) |
+| `certified` | `certified_bound` $\ge 0$ and no plan slack above 1 mm |
+| `predicted_margin` | Least keep-out margin of the plan at its row samples (m); None at level 2 |
+| `max_slack` | Largest keep-out slack of a plan solved now (m); None at levels 1 and 2 |
+| `side` | The configured fixed side, or the committed "auto" side; None until one is chosen |
+| `in_xf` | Whether the plan ends in the terminal set, to the solver's feasibility tolerance; None at level 2 or when the set could not be built |
+
+Without a keep-out constraint the keep-out entries are None and `certified` is True.
+
+**Reset.** `reset(view, rng)` builds the regulator model, builds the problem once at the hold
+point, so "row_samples too few" and, with terminal "set", the terminal set's errors raise there
+rather than mid-episode, and builds the terminal set for the `in_xf` entry. With terminal "cost" a
+set that cannot be built gives a `UserWarning` starting with the set's error, and `in_xf` is None.
+It clears the plan, the side, the failure count, the last command, the log and the counts; the
+controller has no random choices and does not use `rng`.
+
+### Parameters and defaults
+
+The agent reads every field of `MPCConfig` (table above); `side` and `side_hysteresis` are read
+only here. Fixed in the module:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `WAYPOINT_RADIUS` | 1.2 | Waypoint radius and contested-segment distance, in units of $R$ |
+| `WAYPOINT_REACHED` | 0.2 | Distance to the waypoint, in units of $R$, where its leg of the reference ends |
+| `REFERENCE_RADIUS` | 1.1 | Radius, in units of $R$, that reference states are lifted to |
+| `PARALLEL_TOL` | 0.1 | Shortest orthogonal component of $\hat{\mathbf x}$ for an x side |
+| `WARM_SLACK_M` | 1e-3 m | Slack of the warm start |
+| `VIOLATION_SAMPLES` | 20 | Samples of the held step in the certificate, the environment's default |
+
+### Assumptions and limits
+
+- The model is the exact zero-order-hold CW step. On other dynamics, or with navigation or
+  execution errors, the plan and the certificate are of the model from the observed state, not
+  of the flown step; the certificate is logged, not enforced.
+- Only the "keep_out" constraint is modelled; approach corridors, speed limits and other
+  constraint types are neither rows nor certified.
+- The committed side makes the law depend on the episode's history, not only on the state.
+- A contested decision with no side costs two interior-point solves. Each decision makes one more
+  solve only when its certificate fails. A solve that does not converge is not retried: it falls
+  back.
+- With terminal "cost" there is no stability claim; `in_xf` shows whether the plan ends where the
+  LQR law keeps the constraints. With terminal "set", starts from which the set is out of reach
+  in $N$ steps fly the LQR law at level 2 until it comes within reach.
+- On a ball limit the plans use the inscribed box and level 2 uses the ball.
+- No wall-clock budget: the iteration cap stops a solve, so runs reproduce across machines. On one
+  machine an interior-point decision at $N$ = 10 to 20 takes 0.1 to 0.3 s and a Riccati decision
+  about 10 ms, so episodes that keep a row binding are about a hundred times slower than the LQR
+  agent's.
+
+### How it is tested
+
+`tests/test_mpc_agent.py`, on a 500 km circular orbit of the WGS 84 Earth with 10 s steps, a
+0.02 m/s^2 limit per axis and the 50 m sphere, default weights unless stated.
+
+- **Hold point**: on `approach-rbar` from the hold point at rest, ten commands equal the hold
+  input $3n^2 \cdot 100$ m $= 3.6749087912 \times 10^{-4}$ m/s^2 radially to $10^{-10}$ relative,
+  all on the Riccati path with the interior-point solver never called; the plan stays at the hold
+  point to $10^{-9}$ m, 50 m outside the sphere, certified and in the terminal set.
+- **LQR equivalence**: from $(-120, 25, 10)$ m at rest on `approach-rbar`, twenty decisions equal
+  the `LQRAgent` actions to $10^{-10}$ relative. With a 10 s delay and the pending-command
+  channel, the discrete weights and `t_max=0`, twenty decisions from 150 m behind the V-bar hold
+  point equal the delay-augmented `LQRAgent`; a 15 s delay is refused, "not aligned".
+- **Thrust limit**: from 400 m below the R-bar hold point the box binds and the commands stay in
+  it; on a ball limit they stay in the inscribed box.
+- **Keep-out**: from $(3, 80, 0)$ m closing at 0.25 m/s, the plan's row samples are at the radius
+  or beyond to $10^{-6}$ m, the logged predicted margin matches them, and the certified bound is
+  nonnegative and below a 2001-sample scan of the applied step; the clipped LQR plan from the
+  same state enters the sphere.
+- **Terminal set**: `in_xf` is True at the hold point and False from 400 m below it with
+  $N = 10$; at 60 s steps with the discrete weights the set fails, which warns with terminal
+  "cost" and raises with terminal "set"; at $10^4$ s steps "row_samples too few" raises at reset.
+- **Warm start**: each interior-point solve after the first starts from the previous plan
+  shifted, with the clipped LQR move at its end, slacks at 1 m or more, and states equal to the
+  previous plan's to $10^{-6}$ m.
+- **Fallbacks**, with `solve_horizon` replaced by a stub: the outcomes "iteration_cap",
+  converged, "iteration_cap", "solver_failed", converged, "solver_failed" give the levels
+  2, 0, 1, 1, 0, 1 and `fallbacks` [2, 3, 1]; level 2 is the clipped LQR command and level 1 the
+  previous plan's next moves, also when the stub returns an iterate. One iteration allowed gives
+  "iteration_cap" and the LQR law at every decision. With terminal "set" and $N = 10$ from
+  $(0, 400, 0)$ m, 500 m from the V-bar hold point beyond the target, the solve is
+  "infeasible_certified" with a terminal row in `conflicting`, at level 2.
+- **Passing side**: on `approach-hbar:nav1` from $(0, 0, 150)$ m at rest, symmetric under
+  $(x, y) \to (-x, -y)$, the side is committed for four decisions on two seeds, while fresh agents
+  at the same observations choose both sides; mirrored states choose mirrored sides; fixed sides
+  at mirrored states give mirrored commands to $10^{-6} a_{\max}$ with one solve each; with
+  failures at decisions 1, 2 and 4, 5, 6 only decisions 0 and 7 compare both sides.
+- **Log and records**: every entry has the keys above, `fallbacks` sums to the decisions, a
+  recorded episode keeps one entry per decision and its solver metrics read them, and the
+  recorder and metrics never read `fallbacks`, `certified_bound`, `max_slack`,
+  `predicted_margin` or `in_xf`.
+- **Sign check** (`vbar.agents.sign_check`): passed, with first commands equal to the LQR
+  agent's to $10^{-10}$ relative.
+- **Agent rules**: "disc27", "impulse_coast" and tasks other than a hold are refused at reset;
+  "normalized", "accel" and "thrust" give equal fractions to $10^{-12}$; a reset agent repeats a
+  fresh one bitwise; two agents from one config stepped interleaved repeat separate runs bitwise;
+  on a hand-made view the agent reads only `info["time_s"]`.
+- **Whole episodes** (marked slow): on `approach-rbar` (210 steps), `approach-vbar` and
+  `approach-hbar` (360 steps) the agent completes the dwell without entering the sphere, where
+  on the last two the LQR agent from the same start enters it; past the target from the closing
+  state with 20 constraint samples per step, the flown margin stays nonnegative in continuous
+  time and is at or above each step's certified bound and within 2 mm of it.
+
+### Example
+
+```python
+import numpy as np
+
+from vbar.agents.mpc import MPCAgent, MPCConfig
+from vbar.scenarios import make
+
+# 150 m beyond the target on V-bar: the target is in the way, so a side is chosen.
+env = make("approach-vbar", training=True)
+obs, _ = env.reset(seed=0, options={"start_state": (0.5, 150.0, 0.0, 0.0, 0.0, 0.0)})
+agent = MPCAgent(MPCConfig(horizon=10))
+agent.reset(env.agent_view(), np.random.default_rng(1))
+for _ in range(3):
+    obs, *_ = env.step(agent.act(obs, env.agent_info()))
+for entry in agent.log:
+    print(entry["level"], entry["path"], entry["side"], entry["warm_start"], entry["certified"])
+print(agent.fallbacks)
 ```

@@ -102,6 +102,9 @@ release may change the public API, and every such change is listed under Changed
   the zero-order-hold CW model from the shared regulator design, with keep-out rows sampled within
   each step, a slack under an exact penalty, an optional terminal set, and the solver's status,
   path and conflicting rows passed through from `vbar.solvers`.
+- `MPCAgent` in `vbar.agents.mpc`: the hold-point MPC baseline, one interior-point solve per
+  decision from a warm start, a passing side chosen with hysteresis, the in-step keep-out
+  certificate of each applied step logged, and documented fallback levels when the solve fails.
 - `regulator_model` and `RegulatorModel` in `vbar.agents.lqr`: the LQR design (augmented model,
   gain, Riccati solution, steady state and stage costs, with read-only arrays) shared by `LQRAgent`
   and the MPC baselines, so an MPC equals the LQR wherever no constraint binds.
