@@ -42,6 +42,8 @@ Issues = "https://github.com/jamilhammoudeh/vbar/issues"
 [project.optional-dependencies]
 plot = ["matplotlib>=3.8"]
 onnx = ["onnx>=1.16", "onnxruntime>=1.18"]
+basilisk = ["bsk>=2.12"]
+orekit = ["orekit-jpype>=13.1"]
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
@@ -78,7 +80,15 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-module = ["scipy.*", "onnx.*", "onnxruntime.*"]
+module = [
+    "scipy.*",
+    "onnx.*",
+    "onnxruntime.*",
+    "Basilisk.*",
+    "orekit_jpype.*",
+    "jdk4py.*",
+    "org.*",
+]
 ignore_missing_imports = true
 
 [tool.mutmut]

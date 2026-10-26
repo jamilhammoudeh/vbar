@@ -32,6 +32,9 @@ release may change the public API, and every such change is listed under Changed
   `spacegym-rendezvous`; the dispersions `AngleShell` and `LimitedSpeed`; `HoldParams.out_of_bounds`
   and `end_on_arrival`; `InspectionParams.shadow` and `out_of_bounds`.
 - `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
+- `vbar.dynamics.backends`: Basilisk and Orekit as independent propagators of the two-body plus J2
+  rung (the optional extras `basilisk` and `orekit`), and the agreement table against them
+  (`benchmarks/agreement_table.py`).
 
 ### Changed
 

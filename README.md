@@ -35,7 +35,9 @@ pip install vbar
 
 Python 3.12 or later. The core dependencies are numpy, scipy and gymnasium. Plotting needs the
 `plot` extra: `pip install "vbar[plot]"`; ONNX policy export and inference need the `onnx` extra:
-`pip install "vbar[onnx]"`. To work on V-BAR itself, see
+`pip install "vbar[onnx]"`. The agreement checks against Basilisk and Orekit need the `basilisk`
+extra, `pip install "vbar[basilisk]"`, and the `orekit` extra, `pip install "vbar[orekit]"` with a
+Java runtime (11 or later) on `JAVA_HOME`. To work on V-BAR itself, see
 [CONTRIBUTING.md](https://github.com/jamilhammoudeh/vbar/blob/main/CONTRIBUTING.md).
 
 ## Quickstart

@@ -396,6 +396,48 @@ ed., Nob Hill, 2017)
 - Sec. 11.4.1 with sec. 5.8.3: an unreachable terminal row is certified infeasible, and the
   certificate verifies by Farkas' lemma against the assembled matrices.
 
+## Agreement with Basilisk and Orekit
+
+V-BAR's two-body plus J2 rung, Basilisk 2.12 and Orekit 13.1 fly the same initial inertial states
+with the same constants (`benchmarks/agreement_table.py`, [backends.md](backends.md)); the largest
+Hill-frame differences over each arc, sampled every 100 s for the coasts and 10 s for the episode:
+
+| Case | Backend | Position (m) | Velocity (m/s) | Loosened backend (m) | Loosened V-BAR (m) |
+|---|---|---|---|---|---|
+| coast 100 m, 1 orbit | Basilisk | 6.28e-08 | 4.05e-11 | 6.28e-08 | 6.28e-08 |
+| coast 100 m, 1 orbit | Orekit | 3.43e-08 | 3.21e-11 | 1.35e-07 | 3.42e-08 |
+| coast 100 m, 10 orbits | Basilisk | 5.20e-06 | 2.92e-10 | 5.20e-06 | 5.20e-06 |
+| coast 100 m, 10 orbits | Orekit | 7.44e-07 | 2.02e-10 | 2.37e-06 | 7.43e-07 |
+| coast 1000 m, 1 orbit | Basilisk | 1.23e-07 | 6.93e-11 | 1.23e-07 | 1.23e-07 |
+| coast 1000 m, 1 orbit | Orekit | 2.27e-08 | 1.80e-11 | 8.51e-08 | 2.26e-08 |
+| coast 1000 m, 10 orbits | Basilisk | 1.32e-06 | 1.52e-10 | 1.32e-06 | 1.32e-06 |
+| coast 1000 m, 10 orbits | Orekit | 3.09e-06 | 3.28e-10 | 4.04e-06 | 3.09e-06 |
+| coast 10000 m, 1 orbit | Basilisk | 1.31e-07 | 5.03e-11 | 1.31e-07 | 1.23e-07 |
+| coast 10000 m, 1 orbit | Orekit | 3.90e-08 | 2.76e-11 | 5.98e-08 | 4.98e-08 |
+| coast 10000 m, 10 orbits | Basilisk | 5.72e-06 | 4.99e-10 | 5.72e-06 | 5.45e-06 |
+| coast 10000 m, 10 orbits | Orekit | 8.09e-07 | 3.81e-10 | 6.05e-06 | 9.99e-07 |
+
+Every coast agrees to 6e-6 m over ten orbits and 1.4e-7 m over one, at every range: the residual
+is the integrators' and does not grow with the range, so no force-model difference shows. The
+last two columns repeat the arc with one tolerance loosened. Orekit's residual grows by up to a
+factor of 7.5 when its own tolerance is loosened from 1e-6 m to 1e-4 m, so its integrator sets it.
+Loosening Basilisk's (from 1e-12 to 1e-10, inside a fixed 10 s task step) changes nothing, and
+loosening V-BAR's (rtol from 1e-12 to 1e-10) changes the residual by at most 6% against Basilisk
+and 28% against Orekit, at 10 km: V-BAR's own error is a smaller share. The frame conversion is
+one formula applied to every tool's states, so it adds nothing.
+
+| Case | Backend | Position, 1 s substep (m) | Position, 0.5 s substep (m) | Velocity, 1 s (m/s) |
+|---|---|---|---|---|
+| PD episode on the V-bar approach, 62 burns | Basilisk | 1.07e-04 | 3.17e-05 | 2.56e-07 |
+| PD episode on the V-bar approach, 62 burns | Orekit | 1.07e-04 | 3.17e-05 | 2.56e-07 |
+
+Replayed open loop, the episode agrees to 1.1e-4 m with both tools, and the residual falls by a
+factor of 3.4 when the substep over which a backend holds a burn's inertial direction halves (the
+second-order term of that approximation), identically in both: it comes from that approximation,
+not from V-BAR. The tests assert a one-orbit coast within 1e-4 m and a burn replay within 1e-3 m
+whose residual falls by more than three when the substep halves (`tests/test_backends_external.py`,
+run when the extras are installed).
+
 ## Methods
 
 - Clohessy and Wiltshire, "Terminal guidance system for satellite rendezvous", *Journal of the
