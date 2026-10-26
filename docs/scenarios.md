@@ -52,9 +52,13 @@ vbar:docking:cw:box:dv:v2:lit:dt=2.5:sensor=gaussian(0.5+0.0005+0+0)
 
 The dynamics field carries the inclination on the J2 rung, the only rung whose relative motion
 depends on it. Named sensors keep their track names (`nav1`, `nav2`); others are written with
-their parameters. The reward and the training flag change no trajectory and are left out. A
-custom sensor without a `label` attribute appears by its type name only, so give one when its
-parameters matter. A spec that differs from the registered spec of its name and variants (a
+their parameters. A subclass of a built-in sensor is written as its class name, a dot and the
+built-in label of its parameters (`noisier.nav1`), so it never shares a track's identifier, and a
+custom `label` that takes a built-in name (`nav1`, `gaussian(...)`) raises `ValueError`. An
+environment of another class than its spec names (a subclass with the constraints removed, say)
+adds a `kind=<class>` token. The reward and the training flag change no trajectory and are left
+out. A custom sensor without a `label` attribute appears by its type name only, so give one when
+its parameters matter. A spec that differs from the registered spec of its name and variants (a
 spec rebuilt with `dataclasses.replace`, or one never registered) adds a `spec=` token with the
 first 12 hex digits of a hash over its kind, configuration, parameters, dispersions, target mode,
 cost and version, so a changed spec never borrows the catalogue's identifier.

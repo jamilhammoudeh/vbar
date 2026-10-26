@@ -46,6 +46,9 @@ release may change the public API, and every such change is listed under Changed
   negative collision radius scored every drift safe).
 - `summarize` and `unsafe_tail` report `n` and `missing` (the NaN values left out), and
   `summarize` raises for a NaN success, progress or composite score.
+- Identifiers name a sensor subclass by its class, never by a built-in track name such as `nav1`;
+  a custom `label` that takes a built-in name raises; an environment of another class than its
+  spec names adds a `kind=` token.
 
 ### Fixed
 

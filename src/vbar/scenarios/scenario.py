@@ -25,6 +25,8 @@ from .spec import ScenarioSpec
 from .targets import ManeuveringDynamics, briefed_mode, burn_boundaries, split_at
 
 _SKIPPED_FIELDS = ("reward", "training")
+# Labels of the built-in models, which a custom label may not take.
+_RESERVED = ("none", "perfect", "nav1", "nav2", "gaussian", "range_scaled", "gauss_markov")
 # Tolerance on the inhibit window edges: the environment's clock is a sum of steps.
 _EDGE_TOL = 1e-6
 
@@ -79,6 +81,11 @@ def label(value: Any) -> str:
     -------
     str
         The label; numbers to 10 significant digits, named sensors by their track names.
+
+    Raises
+    ------
+    ValueError
+        If a custom `label` attribute takes a name the built-in models use.
     """
     if value is None:
         return "none"
@@ -90,6 +97,33 @@ def label(value: Any) -> str:
         return value
     if isinstance(value, tuple | list):
         return "+".join(label(v) for v in value)
+    if type(value) in _SENSORS:
+        return str(_sensor_label(value))
+    tag = getattr(value, "label", None)
+    if isinstance(tag, str):
+        if tag in _RESERVED or tag.split("(")[0] in _RESERVED:
+            raise ValueError(f"the label {tag!r} names a built-in model")
+        return tag
+    named = _sensor_label(value)
+    if named is not None:
+        # A subclass can change what the model does while keeping its fields, so it never takes
+        # a track name: its class name comes first, the dot keeping it apart from every
+        # built-in label.
+        return f"{type(value).__name__.lower()}.{named}"
+    if is_dataclass(value) and not isinstance(value, type):
+        inner = ",".join(label(getattr(value, f.name)) for f in fields(value))
+        found = f"{type(value).__name__.lower()}({inner})"
+    else:
+        found = type(value).__name__.lower()
+    # A class that happens to share a built-in name (a `Nav1` of one's own) is marked as such.
+    return f"custom.{found}" if found.split("(")[0] in _RESERVED else found
+
+
+_SENSORS = (PerfectNav, GaussianNav, RangeScaledNav, GaussMarkovNav)
+
+
+def _sensor_label(value: Any) -> str | None:
+    """The label of a built-in navigation model, by its parameters; None for other values."""
     if isinstance(value, PerfectNav):
         return "perfect"
     if isinstance(value, GaussianNav):
@@ -115,13 +149,7 @@ def label(value: Any) -> str:
         if np.allclose((sp, sv, zeta), (0.04, 4e-4, 1.0), rtol=1e-9, atol=0.0):
             return "nav2"
         return f"gauss_markov({label((sp, sv, zeta))})"
-    tag = getattr(value, "label", None)
-    if isinstance(tag, str):
-        return tag
-    if is_dataclass(value) and not isinstance(value, type):
-        inner = ",".join(label(getattr(value, f.name)) for f in fields(value))
-        return f"{type(value).__name__.lower()}({inner})"
-    return type(value).__name__.lower()
+    return None
 
 
 def config_tokens(cfg: EnvConfig, declared: EnvConfig) -> tuple[str, ...]:
@@ -302,8 +330,19 @@ class ScenarioEnv(BaseEnv):
 
     @property
     def scenario_id(self) -> str:
-        """The identifier of what this environment flies (`scenario_id`)."""
-        return scenario_id(self.scenario, self.cfg)
+        """The identifier of what this environment flies (`scenario_id`).
+
+        An environment of another class than the one its spec names (a subclass that changes
+        the constraints, say) adds a `kind=<class>` token, so it never borrows the spec's
+        identifier.
+        """
+        return scenario_id(self.scenario, self.cfg) + self._kind_token()
+
+    def _kind_token(self) -> str:
+        from .registry import entry_class
+
+        same = type(self) is entry_class(self.scenario)
+        return "" if same else f":kind={type(self).__qualname__}"
 
     def _briefed_id(self) -> str:
         # The fingerprint of the briefed spec: the true mode would set the spec= token apart
@@ -311,7 +350,7 @@ class ScenarioEnv(BaseEnv):
         told = briefed_mode(self.scenario.target)
         if told is self.scenario.target:
             return self.scenario_id
-        return scenario_id(replace(self.scenario, target=told), self.cfg)
+        return scenario_id(replace(self.scenario, target=told), self.cfg) + self._kind_token()
 
     def _briefed_constraints(self) -> tuple[Constraint, ...]:
         # Built from the briefed mode, so a public spec has the form and fields an honest

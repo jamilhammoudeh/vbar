@@ -145,6 +145,54 @@ def test_a_changed_spec_does_not_borrow_the_catalogue_identifier():
     assert make("docking:axis").scenario_id == "vbar:docking:cw:box:dv:v2:axis"
 
 
+def test_a_changed_sensor_or_kind_does_not_borrow_an_official_identifier():
+    from dataclasses import dataclass
+
+    from vbar.scenarios import HoldPointEnv
+
+    class Doubled(GaussianNav):
+        def observe(self, true_state, t):
+            return 2.0 * super().observe(true_state, t) - true_state
+
+    class Nav1(Doubled):
+        pass
+
+    nav1 = make("approach-vbar:nav1").scenario_id
+    doubled = make("approach-vbar", sensor=Doubled(1.0, 1e-3)).scenario_id
+    named = make("approach-vbar", sensor=Nav1(1.0, 1e-3)).scenario_id
+    assert doubled.endswith(":sensor=doubled.nav1") and len({nav1, doubled, named}) == 3
+    # A subclass keeps its parameters in the label, so two settings of it differ.
+    wider = make("approach-vbar", sensor=Doubled(5.0, 1e-2)).scenario_id
+    assert wider != doubled
+
+    @dataclass
+    class Labelled(GaussianNav):
+        label: str = "nav1"
+
+    with pytest.raises(ValueError, match="built-in"):
+        _ = make("approach-vbar", sensor=Labelled()).scenario_id
+
+    class Gaussian:
+        def reset(self, rng):
+            pass
+
+        def observe(self, true_state, t):
+            return np.asarray(true_state, dtype=float)
+
+    own = make("approach-vbar", sensor=Gaussian()).scenario_id
+    assert own.endswith(":sensor=custom.gaussian")
+
+    class Unconstrained(HoldPointEnv):
+        def _constraints(self):
+            return ()
+
+    stripped = Unconstrained(SCENARIOS["approach-vbar"])
+    assert stripped.scenario_id == make("approach-vbar").scenario_id + ":kind=" + (
+        Unconstrained.__qualname__
+    )
+    assert stripped.agent_view().scenario_id == stripped.scenario_id
+
+
 def test_the_reward_and_the_training_flag_do_not_change_the_identifier():
     from vbar.rewards import Reward
 
