@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike
 
+from ..constraints import _VBAR_COAST
 from ..scenarios.targets import (
     FixedOffset,
     InertialPointing,
@@ -51,10 +52,6 @@ _DESCRIBED = {
     "inspect": (*_SCORED_BALL, "shadow"),
     "depart": _SCORED_BALL,
 }
-
-# A chaser whose thrust stops at closing speed v on the V-bar coasts forward kappa v / n, with
-# kappa = sqrt(7) - 3 arccos(3/4) (Fehse, Automated Rendezvous and Docking of Spacecraft, eq. 3.28).
-_VBAR_COAST = math.sqrt(7.0) - 3.0 * math.acos(0.75)
 
 
 def _num(value: float) -> str:
