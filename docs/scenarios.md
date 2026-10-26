@@ -20,8 +20,13 @@ statement (`observation`), reference figures with their sources (`oracle`) and n
 
 Dispersions are typed distributions: `Fixed(value)`, `Uniform(low, high)` per component,
 `Normal(mean, sigma, bound)` with an optional truncation at `bound` sigma by rejection,
-`Choice(options, weights)` and `Shell(low, high)`, a vector of uniform length in a direction
-uniform on the sphere. `spec.draw(rng)` makes one episode's parameters in the spec's order and
+`Choice(options, weights)`, `Shell(low, high)`, a vector of uniform length in a direction
+uniform on the sphere, and `DriftingVelocity(low, high, min_offset, n)`, a velocity uniform in a
+box drawn again until |2 x0 + vy0 / n| >= `min_offset` for the position drawn before it. By the
+Clohessy-Wiltshire solution (Fehse, *Automated Rendezvous and Docking of Spacecraft*, 2003,
+eq. 3.22) a free start drifts 6 pi (2 x0 + vy0 / n) along track per orbit, so the start never sits
+on a slowly drifting orbit about the target. A dispersion with `sample_given(rng, drawn)` reads the
+draws made before it, in the order of the mapping. `spec.draw(rng)` makes one episode's parameters in the spec's order and
 `spec.episode(seed)` does the same through the generator `reset(seed=...)` builds, so the
 environment and the spec agree on every draw (`tests/test_scenario_spec.py`). Every built-in
 scenario draws `start_pos`, `start_vel` and `argument_of_latitude` (the target's mean argument of
@@ -259,8 +264,8 @@ inclination, and 0 deg hides every out-of-plane effect), exact Clohessy-Wiltshir
 500 kg chaser with 0.02 m/s^2 per axis and Isp 220 s, perfect navigation, 10 s steps. `:iss` and
 Shuttle-practice scenarios fly at 342.62 km (185 n.mi., the STS-130 mean altitude, Goodman
 p. 227), since every n-scaled limit and timing taken from Shuttle data belongs to that orbit.
-Values marked "ours" are this benchmark's choices inside published ranges. Every scenario has
-`:nav1` (`GaussianNav`, 1 m and 1 mm/s white noise) and `:nav2` (`GaussMarkovNav`, the CDGPS
+Values marked "ours" are this benchmark's choices inside published ranges. Every scenario but the
+comparison tasks below has `:nav1` (`GaussianNav`, 1 m and 1 mm/s white noise) and `:nav2` (`GaussMarkovNav`, the CDGPS
 levels) variants as separate leaderboard tracks ([sensors.md](sensors.md)). Each spec's
 `oracle` holds reference figures: the two-impulse and forced-motion delta-v of a V-bar transfer
 (Fehse eqs 3.29 to 3.32 and 3.44 to 3.48), the fly-around costs, the hold costs and the flown
@@ -279,7 +284,7 @@ Shuttle values.
 | `docking-offset` (v1) | dock at a port 20 m from the centre of a pitched target | on the V-bar 150 to 300 m behind | pitch in [15, 30] deg; body keep-out 20 m; the approach line is off the V-bar and drifts 3 pi h per orbit | 1200 x 5 s | Fehse 5.3.1, 5.7.3 |
 | `inertial-target` (v1) | dock at the port of an inertially pointing target | random direction, 150 to 300 m | the axis turns at -n from a random phase; on it the chaser needs lateral speed r n | 1200 x 5 s | Fehse 5.3.1 |
 | `docking-afrl` (v1) | the run time assurance docking task | as docking | reach the origin within 0.5 m at under 0.2 m/s; the whole relative speed under 0.2 + 4n rho (hard); n = 0.001027 rad/s (851.8 km) | 1200 x 5 s | Dunlap et al. 2021, eq. 14 |
-| `inspection` (v1) | image 95% of the lit points | random direction, 50 to 150 m; beta in [-75, 75] deg | keep-out 10 m; range 200 m; Sun exclusion 30 deg (ours) | 1140 x 10 s (about two orbits) | Fehse 5.4.1; Montenbruck and Gill 3.4 |
+| `inspection` (v2) | image 95% of the lit points | random direction, 50 to 150 m, drifting at least 25 m of 2 x0 + vy0 / n; beta in [-75, 75] deg | keep-out 10 m; range 200 m; Sun exclusion 30 deg (ours) | 1140 x 10 s (about two orbits) | Fehse 5.4.1; Montenbruck and Gill 3.4 |
 | `closing` (v1) | from the S2 hold to the S3 hold of an ISS-class target | 3000 m behind within 20 m, 0.01 m/s | hold 400 m behind, dwell 600 s; keep-out 200 m; the approach ellipsoid (1000 x 2000 x 1000 m) may be entered only after the GO drawn between 600 and 2400 s; plume range 300 m | 1140 x 10 s | Fehse 5.6, 5.7.1, eqs 3.29 to 3.32 and 3.44 to 3.48 |
 | `rbar-acquisition` (v1) | from a V-bar hold to a hold 500 m below | 1 to 5 km behind | dwell 300 s (ours; the hold costs 0.59 m/s); keep-out 200 m | 1140 x 10 s | Fehse eqs 3.33, 3.38 to 3.39 (2 n dz and 3 n dz) |
 | `berthing-box` (v1) | forced R-bar approach to a box 15 m below | 50 to 80 m below, within 5 m of the axis | ball 0.5 m, 0.01 m/s, 60 s window (ours, inside Fehse's 0.1 to 0.5 m, 0.01 m/s, 60 to 120 s); keep-out 10 m; 10 deg corridor | 360 x 10 s | Fehse 5.3.1, 8.1.3 |
@@ -295,14 +300,54 @@ Gate tables (`GATES` in the catalogue) are the flown range-rate gates in m and m
 `dual-coelliptic` (fig. 9.3) and `sts-130-orbt` (fig. 25.17); the approaches have `:gates-*`
 variants that replace the closing-speed law with one as a soft constraint.
 
+## Comparison tasks
+
+Four tasks are rebuilt from the papers that define them, so results compare directly with the
+published ones; the paper's value is used wherever it states one, and every difference is named
+here. All four use exact Clohessy-Wiltshire propagation. SpaceGym steps with symplectic Euler at 1 s,
+and AFRL's earlier docking environments with forward Euler at 1 s (Dunlap et al., arXiv
+2110.00447; Hamilton et al., arXiv 2207.04117); arXiv 2405.12355 and 2308.02743 do not state
+their integrator. From `afrl-docking`'s start set, exact propagation and forward Euler at 1 s
+stay within 1.5 m of each other over its 2000 s horizon of free drift
+(`tests/test_comparison_tasks.py`).
+None has navigation variants; each fails under free drift and is solved by an audit reference on
+every drawn seed tried.
+
+| Task | Source | Dynamics and vehicle | Start | Ends | Differences |
+|---|---|---|---|---|---|
+| `afrl-docking` | Hamilton, Dunlap and Hobbs, "Investigating the Impact of Choice on Deep Reinforcement Learning for Space Controls", 2024, arXiv 2405.12355, sec. III.B | n = 0.001027 rad/s (851.8 km), 12 kg, 1 N per axis, 1 s steps, 2000 steps | range 100 to 150 m, azimuth and elevation uniform (`AngleShell`); speed a uniform fraction 0 to 0.8 of the speed limit, direction uniform (`LimitedSpeed`) | docked inside 10 m below 0.2 m/s; crash inside 10 m faster (failure); out of bounds beyond 800 m | the paper does not state the distributions of the start speed's fraction or of the angles; uniform here. The speed limit 0.2 + 2 n (rho - 10) m/s is soft, as the paper reports violations rather than ending on them |
+| `afrl-inspection` | van Wijk, Dunlap, Majji and Hobbs, "Deep Reinforcement Learning for Autonomous Spacecraft Inspection using Illumination", AAS 23-342, 2023, arXiv 2308.02743 | n = 0.001027 rad/s, 12 kg, 1 N, 10 s steps, 1224 steps (two Sun orbits) | 50 to 100 m, azimuth and elevation uniform; speed 0 to 0.3 m/s, direction uniform | every lit point of a 10 m chief imaged; keep-out 15 m (hard, the paper's crash rule: chief and deputy radii 10 m and 5 m); out of bounds beyond 800 m | 100 points on the Fibonacci lattice (the paper: a modified Deserno sphere; the AFRL environment: 100); a point is imaged when lit, facing and within 800 m, with no Earth shadow and no glare limit; the paper's binary-ray and Blinn-Phong illumination models are not reproduced |
+| `spacegym-docking` | Supreeth and Mehta, "SpaceGym: A Gymnasium-Based Benchmark for Deep Reinforcement Learning in Spacecraft Proximity Operations", CVPR 2026 Workshops, sec. 3.1 | a = 6778 km (n = 1.1314e-3 rad/s), 500 kg, 10 N per axis, 1 s steps, 500 steps, 50 kg of propellant | range 50 to 100 m, speed 0 to 0.5 m/s, directions uniform (`Shell`) | inside 1 m below 0.1 m/s; out of bounds beyond 200 m | Isp 220 s (ours; the paper gives none); "sampled uniformly" is read as uniform range and direction; spent propellant stops the thrusters rather than ending the episode |
+| `spacegym-rendezvous` | the same, sec. 3.2 | as `spacegym-docking`, 1000 steps | range 800 to 1200 m, speed 0 to 1 m/s | inside 10 m below 0.5 m/s; a 5 m keep-out sphere ends the episode as a failure; out of bounds beyond 2 km | the paper's approach corridor and waypoints have no stated parameters and are left out |
+
+Published results the tasks compare with (spec `oracle`): AFRL docking, PPO without run time
+assurance at 1 N, success 0.57, L1 delta-v 13.23 +- 1.72 m/s, final speed 0.0141 +- 0.0043 m/s,
+2000-step episodes lasting 1781 +- 238 s (the paper's table II, IQM +- std over 10 training seeds
+x 100 episodes, the std per episode). AFRL inspection, PPO with binary-ray lighting, 99.83% of
+the points, delta-v 18.08 m/s, 3217 s (the paper's table 2); its minimum completion time, about
+3060 s, is pi / n, the time the lit hemisphere needs to sweep every in-plane direction, which the
+tests reproduce at 3060 s. SpaceGym, success over 5 seeds: SAC 82 +- 3% and PPO 70 +- 5% on
+docking, 62 +- 5% and 55 +- 6% on rendezvous; its fuel figures are not reproducible as defined
+(an impulse over a mass budget with no specific impulse). The learned-agent rows need trained
+policies on these tasks; until then a comparison checks the task, not the agents.
+
 ## Audit
 
 Each scenario was audited with a reference controller (`tests/scenario_references.py`:
 forced-motion waypoint flights, re-solved two-impulse transfers and reference tracking with
-Clohessy-Wiltshire feedforward, built on the observation and the public view alone). It
-succeeds on the first three validation seeds of every scenario and variant, the audit that
-`pytest -m slow` runs, and on ten more drawn seeds each in the audit sweep; free drift reaches no
-scenario's goal even with the constraints removed, the same seed repeats the episode and the
+Clohessy-Wiltshire feedforward, built on the observation and the public view alone). The audit
+that `pytest -m slow` runs flies the first three validation seeds of every scenario, of the
+variants with references of their own and of the core suite, and the first validation seed of
+every other registered variant. The `:nav1` variants of the docking scenarios fly the docking
+reference on a Kalman filter of the observation, which waits at the standoff until the lateral
+estimate has settled, and so solves `docking:axis:nav1` on the audit's seeds. Six variants
+have no reference that succeeds on every seed yet, each marked in the test with its reason:
+`berthing-box:nav1`, `hst-rbar-grapple:nav1` (the boxes are below the navigation noise),
+`inertial-target:nav1`, `inertial-target:nav2` and `vbar-final-shuttle:nav1` (the filtered final
+leg still leaves the narrow or turning corridor on some seeds), and `inspection:inertial` (an
+inertially pointing target keeps one face lit, and free drift from its sunlit side can image
+it). Free drift reaches no other scenario's goal on the same seeds, even with the constraints
+removed, the same seed repeats the episode and the
 metrics agree with the environment on the run (`tests/test_scenarios.py`). The docking
 reference walks round the sphere of its standoff's radius about the port, so it never crosses a
 corridor's activation sphere off the axis; the inspection reference joins its circle along a

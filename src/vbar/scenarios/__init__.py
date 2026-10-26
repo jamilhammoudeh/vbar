@@ -21,7 +21,19 @@ from .registry import (
 )
 from .scenario import ScenarioEnv, ScenarioParams, scenario_id
 from .seeds import SPLITS, SeedSplit, seeds
-from .spec import Choice, Fixed, Normal, Observation, ScenarioSpec, Shell, Uniform, per_draw_level
+from .spec import (
+    AngleShell,
+    Choice,
+    DriftingVelocity,
+    Fixed,
+    LimitedSpeed,
+    Normal,
+    Observation,
+    ScenarioSpec,
+    Shell,
+    Uniform,
+    per_draw_level,
+)
 from .suites import SUITES, Suite, SuiteEntry, register_suite
 from .targets import (
     FixedOffset,
@@ -39,6 +51,7 @@ __all__ = [
     "SCENARIOS",
     "SPLITS",
     "SUITES",
+    "AngleShell",
     "ApproachConfig",
     "ApproachEnv",
     "ApproachVectorEnv",
@@ -50,6 +63,7 @@ __all__ = [
     "DepartureParams",
     "DockingEnv",
     "DockingParams",
+    "DriftingVelocity",
     "EnvConfig",
     "Fixed",
     "FixedOffset",
@@ -58,6 +72,7 @@ __all__ = [
     "InertialPointing",
     "InspectionEnv",
     "InspectionParams",
+    "LimitedSpeed",
     "Maneuvering",
     "Misbriefed",
     "Normal",

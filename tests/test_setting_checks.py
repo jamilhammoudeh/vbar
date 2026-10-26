@@ -98,3 +98,14 @@ def test_metric_settings_refuse_values_that_would_change_a_score_silently(overri
     # A collision radius of -5 m turned a passive safe fraction of 0.41 into 1.0.
     with pytest.raises(ValueError):
         MetricSettings(**overrides)
+
+
+def test_metric_settings_take_numpy_numbers():
+    # A radius or count computed with numpy is as valid as a Python number.
+    settings = MetricSettings(
+        collision_radius=np.float64(5.0),
+        stall_speed=np.float32(0.01),
+        drift_samples_per_orbit=np.int64(64),
+        partial_burn_samples=np.int32(2),
+    )
+    assert settings.collision_radius == 5.0 and settings.drift_samples_per_orbit == 64

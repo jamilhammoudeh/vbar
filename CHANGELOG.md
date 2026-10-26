@@ -26,6 +26,11 @@ release may change the public API, and every such change is listed under Changed
 - The core suite `core-v1` (the V-bar and R-bar approaches, `docking:axis`, `docking-afrl` and the
   inspection, each with and without `:nav1`, 100 validation seeds each) and `core-test-v1` (the
   same on the hidden test split); `Suite.require_complete` refuses a partial report.
+- `DriftingVelocity`, a start-velocity dispersion that excludes slowly drifting orbits.
+- Comparison tasks rebuilt from their papers: `afrl-docking` and `afrl-inspection` (the AFRL
+  safe-autonomy deep-RL docking and illuminated inspection tasks) and `spacegym-docking` and
+  `spacegym-rendezvous`; the dispersions `AngleShell` and `LimitedSpeed`; `HoldParams.out_of_bounds`
+  and `end_on_arrival`; `InspectionParams.shadow` and `out_of_bounds`.
 - `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
 
 ### Changed
@@ -55,6 +60,8 @@ release may change the public API, and every such change is listed under Changed
 - Identifiers name a sensor subclass by its class, never by a built-in track name such as `nav1`;
   a custom `label` that takes a built-in name raises; an environment of another class than its
   spec names adds a `kind=` token.
+- `inspection` is version 2: its start velocity is drawn again until the start drifts along
+  track (`DriftingVelocity`), since free drift completed version 1 on about 1 seed in 60.
 
 ### Fixed
 

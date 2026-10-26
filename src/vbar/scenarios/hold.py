@@ -80,6 +80,12 @@ class HoldParams(ScenarioParams):
         The abort set, delta-v vectors (m/s), Hill axes.
     terminate_on_violation : bool
         Whether a hard-constraint violation ends the episode.
+    out_of_bounds : float, optional
+        Range from the target (m) beyond which the episode ends as a failure.
+    end_on_arrival : bool
+        Whether arriving inside the capture radius ends the episode at that step boundary,
+        a success only when the speed is under `capture_speed` too (a docking radius; with
+        `hold_time` 0).
     thrust_inhibit, soft
         As in `ScenarioParams`.
 
@@ -106,6 +112,8 @@ class HoldParams(ScenarioParams):
     passive_exclusion: float = 0.0
     cam_impulses: tuple[tuple[float, float, float], ...] | None = None
     terminate_on_violation: bool = False
+    out_of_bounds: float | None = None
+    end_on_arrival: bool = False
 
     def __post_init__(self):
         super().__post_init__()
@@ -115,6 +123,10 @@ class HoldParams(ScenarioParams):
             raise ValueError("keep_out must not be negative")
         if self.passive_axis not in (None, "vbar", "rbar"):
             raise ValueError("passive_axis is None, 'vbar' or 'rbar'")
+        if self.out_of_bounds is not None and not 0.0 < self.out_of_bounds < math.inf:
+            raise ValueError("out_of_bounds must be finite and positive")
+        if self.end_on_arrival and self.hold_time > 0.0:
+            raise ValueError("end_on_arrival needs hold_time 0")
         object.__setattr__(self, "hold_point", tuple(float(c) for c in self.hold_point))
 
 
@@ -180,6 +192,10 @@ class HoldPointEnv(ScenarioEnv):
             goal["plume_range"] = p.plume_range
         if p.waypoints:
             goal["waypoints"] = p.waypoints
+        if p.out_of_bounds is not None:
+            goal["out_of_bounds"] = p.out_of_bounds
+        if p.end_on_arrival:
+            goal["end_on_arrival"] = True
         return goal
 
     def metric_settings(self) -> MetricSettings:
@@ -262,6 +278,13 @@ class HoldPointEnv(ScenarioEnv):
         held = self.held_since is not None and self.dwell >= self.params.hold_time - 1e-9
         self.success = held and not self.violated
         terminated = held or (step_violation and self.params.terminate_on_violation)
+        p = self.params
+        rho = float(np.linalg.norm(self.state[:3]))
+        if p.end_on_arrival and self._goal_distance(self.state) < p.capture_radius:
+            # Inside the docking radius the episode ends, too fast or not (a crash).
+            terminated = True
+        if p.out_of_bounds is not None and rho > p.out_of_bounds:
+            terminated = True
         return 0.0, terminated, {}
 
     def _info(self) -> dict[str, Any]:

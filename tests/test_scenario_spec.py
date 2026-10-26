@@ -64,6 +64,38 @@ def test_dispersions_reject_bad_parameters():
         Observation(horizon="episodic")
 
 
+def test_a_drifting_start_never_sits_on_a_slowly_drifting_orbit():
+    # Free drift carries the start 6 pi (2 x0 + vy0 / n) along track per orbit; inspection v1
+    # drew 5 of 300 validation starts under 17 m of it, and drift then imaged the goal.
+    from vbar.scenarios import DriftingVelocity
+    from vbar.scenarios.catalog import N
+
+    spec = SCENARIOS["inspection"]
+    velocity = spec.dispersions["start_vel"]
+    assert isinstance(velocity, DriftingVelocity) and velocity.min_offset == 25.0
+    for seed in seeds("inspection", "validation", 300):
+        draw = spec.episode(seed)
+        offset = 2.0 * draw["start_pos"][0] + draw["start_vel"][1] / N
+        assert abs(offset) >= 25.0 and np.all(np.abs(draw["start_vel"]) <= 0.05)
+    # The redraw changes only what it must: a start already drifting keeps its first draw.
+    rng = np.random.default_rng(3)
+    first = rng.uniform((-0.05,) * 3, (0.05,) * 3)
+    keeps = velocity.sample_given(np.random.default_rng(3), {"start_pos": np.array([100.0, 0, 0])})
+    assert np.array_equal(keeps, first)
+    for bad in (
+        lambda: DriftingVelocity((0, -0.01, 0), (0, 0.01, 0), 25.0, N),
+        lambda: DriftingVelocity((0, 0, 0), (0, 0.05, 0), 0.0, N),
+        lambda: DriftingVelocity((0, 0), (0, 0.05), 25.0, N),
+    ):
+        with pytest.raises(ValueError):
+            bad()
+    # From x0 = -20 m the box's vy0 / n spans about 27 to 45 m, so |2 x0 + vy0 / n| stays under
+    # 14 m and no redraw could ever be kept.
+    unreachable = DriftingVelocity((0, 0.03, 0), (0, 0.05, 0), 25.0, N)
+    with pytest.raises(ValueError, match="min_offset"):
+        unreachable.sample_given(np.random.default_rng(0), {"start_pos": np.array([-20.0, 0, 0])})
+
+
 def test_per_draw_level_matches_the_union_bound_known_answers():
     # Kochenderfer et al., Algorithms for Validation, sec. 8.1: 3 sigma per draw leaves 94.6% of
     # 1080-draw episodes outside the bounded model; 1e-3 per episode needs 4.91 and 5.04 sigma.

@@ -413,6 +413,318 @@ class Shell:
         return np.full(3, -self.high), np.full(3, self.high)
 
 
+@dataclass(frozen=True)
+class DriftingVelocity:
+    """A start velocity uniform in a box, drawn again until free drift leaves along track.
+
+    In the Clohessy-Wiltshire model a start (x0, vy0) drifts along track by
+    6 pi (2 x0 + vy0 / n) per orbit (Fehse, Automated Rendezvous and Docking of Spacecraft,
+    2003, eq. 3.22); a draw is kept only when |2 x0 + vy0 / n| is at least `min_offset`, so a
+    start never sits on a slowly drifting relative orbit about the target, from which free drift
+    alone could complete a task. The position is the draw named `position`, made before this one.
+
+    Parameters
+    ----------
+    low, high : sequence of float
+        Corners of the velocity box (m/s), Hill axes.
+    min_offset : float
+        Least |2 x0 + vy0 / n| (m), positive.
+    n : float
+        Mean motion (rad/s), positive.
+    position : str
+        Name of the position draw.
+
+    Raises
+    ------
+    ValueError
+        If the box cannot reach `min_offset` from x0 = 0, or `n` or `min_offset` is not positive;
+        at draw time, if it cannot reach `min_offset` from the drawn position.
+    """
+
+    low: tuple[float, float, float]
+    high: tuple[float, float, float]
+    min_offset: float
+    n: float
+    position: str = "start_pos"
+
+    def __post_init__(self):
+        object.__setattr__(self, "low", _floats(self.low, "low"))
+        object.__setattr__(self, "high", _floats(self.high, "high"))
+        if len(self.low) != 3 or len(self.high) != 3:
+            raise ValueError("low and high are 3-vectors")
+        if not (self.n > 0.0 and self.min_offset > 0.0):
+            raise ValueError("n and min_offset must be positive")
+        if max(abs(self.low[1]), abs(self.high[1])) / self.n <= self.min_offset:
+            raise ValueError("the along-track speeds cannot reach min_offset")
+
+    def offset(self, position: Any, velocity: Any) -> float:
+        """2 x0 + vy0 / n (m), the along-track drift per orbit over 6 pi.
+
+        Parameters
+        ----------
+        position, velocity : array_like
+            Start position (m) and velocity (m/s), Hill axes.
+
+        Returns
+        -------
+        float
+            The offset.
+        """
+        return 2.0 * float(np.asarray(position)[0]) + float(np.asarray(velocity)[1]) / self.n
+
+    def sample_given(self, rng: np.random.Generator, drawn: Mapping[str, Any]) -> np.ndarray:
+        """One velocity for the position already drawn.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            The episode's generator.
+        drawn : mapping
+            The draws made before this one; holds `position`.
+
+        Returns
+        -------
+        numpy.ndarray
+            Velocity (m/s), shape (3,), Hill axes.
+        """
+        position = drawn[self.position]
+        # The offset is monotone in vy0, so its extremes over the box sit at the corners; with
+        # neither past min_offset no draw is ever kept.
+        corners = (self.low[1], self.high[1])
+        reach = max(abs(self.offset(position, (0.0, vy, 0.0))) for vy in corners)
+        if reach <= self.min_offset:
+            raise ValueError(
+                f"no velocity in the box reaches min_offset from x0 = {float(position[0]):g} m"
+            )
+        while True:
+            velocity = rng.uniform(self.low, self.high)
+            if abs(self.offset(position, velocity)) >= self.min_offset:
+                return velocity
+
+    def sample(self, rng: np.random.Generator) -> np.ndarray:
+        """A velocity for a start at the origin's radial level (x0 = 0).
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            The episode's generator.
+
+        Returns
+        -------
+        numpy.ndarray
+            Velocity (m/s), shape (3,).
+        """
+        return self.sample_given(rng, {self.position: np.zeros(3)})
+
+    def nominal(self) -> np.ndarray:
+        """The box centre with the along-track speed giving `min_offset` at x0 = 0.
+
+        Returns
+        -------
+        numpy.ndarray
+            Velocity (m/s), shape (3,).
+        """
+        mid = np.array([0.5 * (a + b) for a, b in zip(self.low, self.high, strict=True)])
+        speed = self.min_offset * self.n
+        mid[1] = speed if self.high[1] >= speed else self.low[1]
+        return mid
+
+    def bounds(self) -> tuple[Any, Any]:
+        """The velocity box.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            (`low`, `high`).
+        """
+        return np.array(self.low), np.array(self.high)
+
+
+@dataclass(frozen=True)
+class AngleShell:
+    """A vector of uniform length, uniform azimuth and uniform elevation.
+
+    The length is uniform on [low, high], the azimuth on [0, 2 pi) and the elevation from the
+    orbit plane on [-pi/2, pi/2]. Equal steps in elevation are not equal areas, so directions
+    crowd toward the poles; this is the draw some published benchmarks state (radius, azimuth
+    and elevation ranges), kept for reproducing them. `Shell` draws directions uniform on the
+    sphere.
+
+    Parameters
+    ----------
+    low, high : float
+        Least and greatest length, in the vector's units, 0 <= low <= high < inf.
+
+    Raises
+    ------
+    ValueError
+        If the lengths are not 0 <= low <= high < inf.
+    """
+
+    low: float
+    high: float
+
+    def __post_init__(self):
+        if not 0.0 <= self.low <= self.high < math.inf:
+            raise ValueError("need 0 <= low <= high")
+
+    def sample(self, rng: np.random.Generator) -> np.ndarray:
+        """One vector in Hill axes, elevation measured from the orbit plane.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            The episode's generator.
+
+        Returns
+        -------
+        numpy.ndarray
+            Shape (3,).
+        """
+        length = rng.uniform(self.low, self.high)
+        azimuth = rng.uniform(0.0, 2.0 * math.pi)
+        elevation = rng.uniform(-0.5 * math.pi, 0.5 * math.pi)
+        c = math.cos(elevation)
+        return length * np.array(
+            [c * math.cos(azimuth), c * math.sin(azimuth), math.sin(elevation)]
+        )
+
+    def nominal(self) -> np.ndarray:
+        """The mid length along -V-bar.
+
+        Returns
+        -------
+        numpy.ndarray
+            (0, -(low + high) / 2, 0).
+        """
+        return np.array([0.0, -0.5 * (self.low + self.high), 0.0])
+
+    def bounds(self) -> tuple[Any, Any]:
+        """The bounding box.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            (-high, high) in each component.
+        """
+        return np.full(3, -self.high), np.full(3, self.high)
+
+
+@dataclass(frozen=True)
+class LimitedSpeed:
+    """A start velocity whose speed is a uniform fraction of a distance-dependent limit.
+
+    The direction is uniform on the sphere and the speed a fraction, uniform on [low, high], of
+    v0 + v1 (rho - offset) at the position drawn before it.
+
+    Parameters
+    ----------
+    low, high : float
+        Least and greatest fraction of the limit, 0 <= low <= high.
+    v0 : float
+        Limit at `offset` (m/s), positive.
+    v1 : float
+        Slope of the limit (1/s), not negative.
+    offset : float
+        Range at which the limit is `v0` (m).
+    position : str
+        Name of the position draw.
+
+    Raises
+    ------
+    ValueError
+        If the fractions are not 0 <= low <= high, `v0` is not positive, `v1` is negative, or a
+        value is not finite.
+    """
+
+    low: float
+    high: float
+    v0: float
+    v1: float
+    offset: float = 0.0
+    position: str = "start_pos"
+
+    def __post_init__(self):
+        if not 0.0 <= self.low <= self.high < math.inf:
+            raise ValueError("need 0 <= low <= high")
+        if not (math.inf > self.v0 > 0.0 and math.inf > self.v1 >= 0.0):
+            raise ValueError("v0 must be positive and v1 not negative, both finite")
+        if not math.isfinite(self.offset):
+            raise ValueError("offset must be finite")
+
+    def limit(self, position: Any) -> float:
+        """The speed limit (m/s) at a position (m).
+
+        Parameters
+        ----------
+        position : array_like
+            Position (m), Hill axes.
+
+        Returns
+        -------
+        float
+            v0 + v1 (rho - offset), at least 0.
+        """
+        rho = float(np.linalg.norm(np.asarray(position, dtype=float)))
+        return max(self.v0 + self.v1 * (rho - self.offset), 0.0)
+
+    def sample_given(self, rng: np.random.Generator, drawn: Mapping[str, Any]) -> np.ndarray:
+        """One velocity for the position already drawn.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            The episode's generator.
+        drawn : mapping
+            The draws made before this one; holds `position`.
+
+        Returns
+        -------
+        numpy.ndarray
+            Velocity (m/s), shape (3,), Hill axes.
+        """
+        direction = rng.standard_normal(3)
+        while not np.linalg.norm(direction) > 0.0:
+            direction = rng.standard_normal(3)
+        speed = rng.uniform(self.low, self.high) * self.limit(drawn[self.position])
+        return speed * direction / np.linalg.norm(direction)
+
+    def sample(self, rng: np.random.Generator) -> np.ndarray:
+        """A velocity for a start at range `offset`.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            The episode's generator.
+
+        Returns
+        -------
+        numpy.ndarray
+            Velocity (m/s), shape (3,).
+        """
+        return self.sample_given(rng, {self.position: np.array([self.offset, 0.0, 0.0])})
+
+    def nominal(self) -> np.ndarray:
+        """Rest.
+
+        Returns
+        -------
+        numpy.ndarray
+            Zeros, shape (3,).
+        """
+        return np.zeros(3)
+
+    def bounds(self) -> tuple[Any, Any]:
+        """Unbounded: the limit grows with the range.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            (-inf, inf) in each component.
+        """
+        return np.full(3, -math.inf), np.full(3, math.inf)
+
+
 def per_draw_level(episode_probability: float, draws: int) -> float:
     """Truncation level (in sigma) per Gaussian draw for an episode-level exceedance probability.
 
@@ -618,7 +930,13 @@ class ScenarioSpec:
         dict
             Dispersion name to drawn value, in each parameter's SI units.
         """
-        return {name: d.sample(rng) for name, d in self.dispersions.items()}
+        drawn: dict[str, Any] = {}
+        for name, dispersion in self.dispersions.items():
+            # A draw conditioned on earlier ones reads them; the order of the mapping is the
+            # order of the draws.
+            given = getattr(dispersion, "sample_given", None)
+            drawn[name] = dispersion.sample(rng) if given is None else given(rng, drawn)
+        return drawn
 
     def nominal(self) -> dict[str, Any]:
         """Every dispersed parameter at its nominal value.
@@ -650,6 +968,9 @@ class ScenarioSpec:
 __all__ = [
     "Choice",
     "Dispersion",
+    "AngleShell",
+    "DriftingVelocity",
+    "LimitedSpeed",
     "Fixed",
     "Normal",
     "Observation",

@@ -6,6 +6,8 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import numpy as np
+
 
 @dataclass(frozen=True, kw_only=True)
 class MetricSettings:
@@ -77,7 +79,7 @@ class MetricSettings:
             _check(f"composite_weights[{name!r}]", weight)
         for label in ("partial_burn_samples", "drift_samples_per_orbit"):
             value = getattr(self, label)
-            if isinstance(value, bool) or not isinstance(value, int):
+            if isinstance(value, bool) or not isinstance(value, int | np.integer):
                 raise ValueError(f"{label} must be an integer")
         if self.partial_burn_samples < 0:
             raise ValueError("partial_burn_samples must not be negative")
@@ -86,7 +88,7 @@ class MetricSettings:
 
 
 def _check(label: str, value: float, positive: bool = False) -> None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    if isinstance(value, bool) or not isinstance(value, int | float | np.integer | np.floating):
         raise ValueError(f"{label} must be a number")
     if not math.isfinite(value) or value < 0.0 or (positive and value == 0.0):
         raise ValueError(f"{label} must be finite and {'positive' if positive else 'not negative'}")

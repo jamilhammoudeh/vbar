@@ -15,12 +15,13 @@ from scenario_references import reference_for
 from vbar import run_episode
 from vbar.agents import DriftAgent, PDAgent
 from vbar.metrics import contact, evaluate, record_episode
-from vbar.scenarios import SCENARIOS, get, make, seeds
+from vbar.scenarios import SCENARIOS, SUITES, get, make, seeds
 from vbar.scenarios.registry import entry_class
 from vbar.spacecraft import ExecutionError, GaussianNav
 
-# Every scenario and variant with its own reference; each flies the first three validation
-# seeds, which are drawn 128-bit seeds rather than chosen ones.
+# The scenarios and variants audited on the first three validation seeds, which are drawn 128-bit
+# seeds rather than chosen ones: every scenario, the variants with references of their own, and
+# the core suite. Every other registered variant flies the first validation seed.
 AUDIT = [
     "approach-vbar",
     "approach-vbar:iss",
@@ -45,8 +46,36 @@ AUDIT = [
     "hst-rbar-grapple",
     "separation-flyaround",
     "separation-flyaround:reboost",
+    *sorted(SCENARIOS),
+    *(entry.scenario for entry in SUITES["core-v1"].entries),
 ]
+AUDIT = list(dict.fromkeys(AUDIT))
 SEEDS_PER_SCENARIO = 3
+# Variants no reference solves yet on every seed; each fails for a stated reason, and the test
+# reports when one starts to pass.
+UNSOLVED = {
+    "berthing-box:nav1": "raw 1 m position noise cannot settle in the 0.5 m capture ball",
+    "hst-rbar-grapple:nav1": "the 1 m and 0.01 m/s grapple box is below the navigation noise",
+    "inertial-target:nav1": "the filtered docking reference still leaves the turning corridor",
+    "inertial-target:nav2": "correlated navigation error pushes the final leg out of the corridor",
+    "vbar-final-shuttle:nav1": "the filtered docking reference leaves the 5 deg corridor at times",
+    "inspection:inertial": "an inertially pointing target keeps one face lit; the circle misses it",
+}
+OTHER_VARIANTS = sorted(
+    f"{name}:{variant}"
+    for name, spec in SCENARIOS.items()
+    for variant in spec.variants
+    if f"{name}:{variant}" not in AUDIT
+)
+CASES = [
+    pytest.param(
+        name,
+        index,
+        marks=[pytest.mark.xfail(reason=UNSOLVED[name], strict=False)] if name in UNSOLVED else [],
+    )
+    for name in AUDIT + OTHER_VARIANTS
+    for index in range(SEEDS_PER_SCENARIO if name in AUDIT else 1)
+]
 
 
 def base_name(name):
@@ -54,12 +83,11 @@ def base_name(name):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("index", range(SEEDS_PER_SCENARIO))
-@pytest.mark.parametrize("name", AUDIT)
+@pytest.mark.parametrize("name, index", CASES)
 def test_the_reference_controller_succeeds_and_the_metrics_agree(name, index):
     env = make(name)
     seed, agent_seed = seeds(name, "validation", SEEDS_PER_SCENARIO).pairs()[index]
-    episode = record_episode(env, reference_for(base_name(name)), seed=seed, agent_seed=agent_seed)
+    episode = record_episode(env, reference_for(name), seed=seed, agent_seed=agent_seed)
     info = env._info()
     assert info["success"], info
     assert not info["keep_out_violated"]
@@ -72,6 +100,16 @@ def test_the_reference_controller_succeeds_and_the_metrics_agree(name, index):
         assert contact(episode).t == pytest.approx(info["contact_time_s"], abs=1e-6)
     assert metrics["delta_v"] == pytest.approx(info["dv_used_mps"], rel=1e-9)
     assert math.isfinite(metrics["composite_score"])
+
+
+def test_the_audit_covers_every_registered_scenario_and_variant():
+    names = {name for name, _ in ((c.values[0], c.values[1]) for c in CASES)}
+    registered = {f"{n}:{v}" for n, spec in SCENARIOS.items() for v in spec.variants}
+    assert set(SCENARIOS) | registered <= names
+    assert {entry.scenario for entry in SUITES["core-v1"].entries} <= set(AUDIT)
+    assert set(UNSOLVED) <= names and not set(UNSOLVED) & {
+        entry.scenario for entry in SUITES["core-v1"].entries
+    }
 
 
 def unconstrained(name, **config):
@@ -105,7 +143,35 @@ def test_free_drift_does_not_reach_any_scenario_goal(name):
     # The departure is the exception: a push along the V-bar drifts up, over the station and
     # out to the clear zone, and only the departure corridor forbids it.
     env = make(name) if name.startswith("separation-flyaround") else unconstrained(name)
-    run_episode(env, DriftAgent(), seed=1, agent_seed=2)
+    seed, agent_seed = seeds(name, "validation", 1).pairs()[0]
+    run_episode(env, DriftAgent(), seed=seed, agent_seed=agent_seed)
+    assert not env._info()["success"]
+
+
+DRIFTS_TO_GOAL = (
+    "an inertially pointing target keeps one face lit, which a drifting start can image"
+)
+DRIFT_CASES = [
+    pytest.param(
+        name,
+        index,
+        marks=[pytest.mark.xfail(reason=DRIFTS_TO_GOAL, strict=False)]
+        if name == "inspection:inertial"
+        else [],
+    )
+    for name in sorted({*SCENARIOS, *OTHER_VARIANTS, *AUDIT})
+    for index in range(SEEDS_PER_SCENARIO)
+]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name, index", DRIFT_CASES)
+def test_free_drift_fails_every_variant_on_the_audit_seeds(name, index):
+    # The audit's seeds of every registered scenario and variant; drifting from a start on a
+    # slowly drifting orbit once completed the inspection, so the variants are checked too.
+    env = make(name) if name.startswith("separation-flyaround") else unconstrained(name)
+    seed, agent_seed = seeds(name, "validation", SEEDS_PER_SCENARIO).pairs()[index]
+    run_episode(env, DriftAgent(), seed=seed, agent_seed=agent_seed)
     assert not env._info()["success"]
 
 

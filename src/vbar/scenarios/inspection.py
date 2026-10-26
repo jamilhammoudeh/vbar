@@ -67,6 +67,11 @@ class InspectionParams(ScenarioParams):
         Fraction of the inspectable points needed for success, in (0, 1].
     lit_resolution : float
         Sampling interval of the lighting check that finds the inspectable points (s).
+    shadow : bool
+        Whether the central body's shadow darkens the target; False for a Sun that always shines,
+        as some published inspection tasks assume.
+    out_of_bounds : float, optional
+        Range from the target (m) beyond which the episode ends as a failure.
     thrust_inhibit, soft
         As in `ScenarioParams`.
 
@@ -84,6 +89,8 @@ class InspectionParams(ScenarioParams):
     keep_out: float = 10.0
     coverage: float = 0.95
     lit_resolution: float = 60.0
+    shadow: bool = True
+    out_of_bounds: float | None = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -91,6 +98,8 @@ class InspectionParams(ScenarioParams):
             raise ValueError("points, target_radius, max_range and keep_out must be positive")
         if not 0.0 < self.coverage <= 1.0:
             raise ValueError("coverage is a fraction in (0, 1]")
+        if self.out_of_bounds is not None and not 0.0 < self.out_of_bounds < math.inf:
+            raise ValueError("out_of_bounds must be finite and positive")
 
 
 class InspectionEnv(ScenarioEnv):
@@ -132,6 +141,8 @@ class InspectionEnv(ScenarioEnv):
             "sun_exclusion": p.sun_exclusion,
             "coverage": p.coverage,
             "sun_direction": tuple(float(c) for c in self.sun0),
+            "shadow": p.shadow,
+            **({} if p.out_of_bounds is None else {"out_of_bounds": p.out_of_bounds}),
         }
 
     def metric_settings(self) -> MetricSettings:
@@ -217,6 +228,8 @@ class InspectionEnv(ScenarioEnv):
         numpy.ndarray
             Shape of `t`.
         """
+        if not self.params.shadow:
+            return np.ones(np.shape(t))
         return sunlit(self.sun0, self.n, t, self.orbit_radius, get_body(self.cfg.body))
 
     def reset(self, *, seed=None, options=None):
@@ -318,7 +331,9 @@ class InspectionEnv(ScenarioEnv):
         if done and self.time_to_coverage is None:
             self.time_to_coverage = self.t
         self.success = done and not self.violated
-        return 0.0, done, {}
+        bound = self.params.out_of_bounds
+        lost = bound is not None and float(np.linalg.norm(self.state[:3])) > bound
+        return 0.0, done or lost, {}
 
     def agent_info(self) -> dict[str, Any]:
         """The part of `info` agents may see, with the coverage.

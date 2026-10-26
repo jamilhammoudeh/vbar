@@ -15,7 +15,17 @@ import math
 from ..dynamics import MU_EARTH, R_EARTH, mean_motion
 from ..spacecraft import GaussianNav, GaussMarkovNav
 from .registry import register
-from .spec import Choice, Observation, ScenarioSpec, Shell, Uniform
+from .spec import (
+    AngleShell,
+    Choice,
+    DriftingVelocity,
+    Fixed,
+    LimitedSpeed,
+    Observation,
+    ScenarioSpec,
+    Shell,
+    Uniform,
+)
 from .suites import Suite, SuiteEntry, register_suite
 from .targets import FixedOffset, InertialPointing, Maneuvering
 
@@ -442,10 +452,181 @@ DOCKING_AFRL = register(
     )
 )
 
+# Comparison tasks rebuilt from published benchmarks, for results that compare directly with
+# theirs; every value is the paper's unless marked ours in the docs.
+# AFRL safe-autonomy docking (Hamilton, Dunlap and Hobbs, "Investigating the Impact of Choice on
+# Deep Reinforcement Learning for Space Controls", 2024, arXiv 2405.12355, section III.B): a 12 kg
+# deputy with 1 N per axis, docking within 10 m below 0.2 m/s, under 0.2 + 2 n (rho - 10) m/s.
+AFRL_MASS = 12.0
+AFRL_ACCEL = 1.0 / AFRL_MASS
+AFRL_DOCKING_RADIUS = 10.0
+AFRL_RL_DOCKING = register(
+    ScenarioSpec(
+        name="afrl-docking",
+        version=1,
+        entry_point="vbar.scenarios.hold:HoldPointEnv",
+        summary=(
+            "The AFRL deep-RL docking task: reach 10 m of the chief below 0.2 m/s, starting 100 "
+            "to 150 m out."
+        ),
+        config={
+            **CONFIG,
+            "altitude_m": AFRL_ALTITUDE,
+            "dt": 1.0,
+            "max_steps": 2000,
+            "mass_kg": AFRL_MASS,
+            "max_accel": AFRL_ACCEL,
+        },
+        parameters={
+            "hold_point": (0.0, 0.0, 0.0),
+            "capture_radius": AFRL_DOCKING_RADIUS,
+            "capture_speed": 0.2,
+            "hold_time": 0.0,
+            "keep_out": 0.0,
+            "full_speed_limit": (0.2 - 2.0 * AFRL_N * AFRL_DOCKING_RADIUS, 2.0 * AFRL_N),
+            "out_of_bounds": 800.0,
+            "end_on_arrival": True,
+            "cam_impulses": ((0.3, 0.0, 0.0),),
+            "soft": ("speed_limit",),
+        },
+        dispersions={
+            "start_pos": AngleShell(100.0, 150.0),
+            "start_vel": LimitedSpeed(0.0, 0.8, 0.2, 2.0 * AFRL_N, AFRL_DOCKING_RADIUS),
+            **LATITUDE,
+        },
+        tags=("docking", "afrl", "comparison", "speed-limit"),
+        observation=Observation(note="the state decides the next state"),
+        oracle={
+            # Table II of the paper, PPO without run time assurance, 1 N: IQM +- std over 10
+            # training seeds x 100 episodes, pooled per episode.
+            "ppo_success": 0.57,
+            "ppo_delta_v_l1_mps": (13.2319, 1.7153),
+            "ppo_final_speed_mps": (0.0141, 0.0043),
+            "ppo_length_s": (1780.944, 237.6564),
+        },
+    )
+)
+# AFRL translational inspection (van Wijk, Dunlap, Majji and Hobbs, "Deep Reinforcement Learning
+# for Autonomous Spacecraft Inspection using Illumination", AAS 23-342, 2023, arXiv 2308.02743):
+# every point of a 10 m chief imaged within two Sun orbits, the Sun in the orbit plane.
+AFRL_INSPECTION = register(
+    ScenarioSpec(
+        name="afrl-inspection",
+        version=1,
+        entry_point="vbar.scenarios.inspection:InspectionEnv",
+        summary="The AFRL illuminated inspection task: image every lit point of a 10 m chief.",
+        config={
+            **CONFIG,
+            "altitude_m": AFRL_ALTITUDE,
+            "dt": 10.0,
+            "max_steps": 1224,
+            "mass_kg": AFRL_MASS,
+            "max_accel": AFRL_ACCEL,
+        },
+        parameters={
+            "points": 100,
+            "target_radius": 10.0,
+            "max_range": 800.0,
+            "sun_exclusion": 0.0,
+            "keep_out": 15.0,
+            "coverage": 1.0,
+            "shadow": False,
+            "out_of_bounds": 800.0,
+        },
+        dispersions={
+            "start_pos": AngleShell(50.0, 100.0),
+            "start_vel": Shell(0.0, 0.3),
+            "beta": Fixed(0.0),
+            "sun_phase": Uniform(0.0, TWO_PI),
+            **LATITUDE,
+        },
+        tags=("inspection", "afrl", "comparison", "lighting"),
+        observation=Observation(
+            hidden=("coverage set",),
+            note="the imaged count is in the agent's info; the full set is the camera's record",
+        ),
+        oracle={
+            # The paper's minimum completion time, pi / n, and its IQM results (tables 2 and 3).
+            "minimum_time_s": math.pi / AFRL_N,
+            "ppo_points_binary_ray_pct": 99.83,
+            "ppo_delta_v_binary_ray_mps": 18.08,
+            "ppo_length_binary_ray_s": 3217.0,
+        },
+    )
+)
+# SpaceGym (Supreeth and Mehta, "SpaceGym: A Gymnasium-Based Benchmark for Deep Reinforcement
+# Learning in Spacecraft Proximity Operations", CVPR 2026 Workshops, sections 3.1 and 3.2): a 500 kg
+# chaser with 10 N per axis on a 400 km circular orbit (a = 6778 km), 1 s steps.
+SPACEGYM_ALTITUDE = 6778e3 - R_EARTH
+SPACEGYM_CONFIG = {
+    **CONFIG,
+    "altitude_m": SPACEGYM_ALTITUDE,
+    "dt": 1.0,
+    "mass_kg": 500.0,
+    "max_accel": 10.0 / 500.0,
+    "propellant_kg": 50.0,
+}
+SPACEGYM_DOCKING = register(
+    ScenarioSpec(
+        name="spacegym-docking",
+        version=1,
+        entry_point="vbar.scenarios.hold:HoldPointEnv",
+        summary="The SpaceGym docking task: reach 1 m of the target below 0.1 m/s within 500 s.",
+        config={**SPACEGYM_CONFIG, "max_steps": 500},
+        parameters={
+            "hold_point": (0.0, 0.0, 0.0),
+            "capture_radius": 1.0,
+            "capture_speed": 0.1,
+            "hold_time": 0.0,
+            "keep_out": 0.0,
+            "out_of_bounds": 200.0,
+            "cam_impulses": ((0.3, 0.0, 0.0),),
+        },
+        dispersions={
+            "start_pos": Shell(50.0, 100.0),
+            "start_vel": Shell(0.0, 0.5),
+            **LATITUDE,
+        },
+        tags=("docking", "spacegym", "comparison"),
+        observation=Observation(note="the state decides the next state"),
+        oracle={"sac_success": (0.82, 0.03), "ppo_success": (0.70, 0.05)},
+    )
+)
+SPACEGYM_RENDEZVOUS = register(
+    ScenarioSpec(
+        name="spacegym-rendezvous",
+        version=1,
+        entry_point="vbar.scenarios.hold:HoldPointEnv",
+        summary=(
+            "The SpaceGym rendezvous task: from 800 to 1200 m to 10 m of the target below 0.5 m/s, "
+            "outside a 5 m keep-out sphere, within 1000 s."
+        ),
+        config={**SPACEGYM_CONFIG, "max_steps": 1000},
+        parameters={
+            "hold_point": (0.0, 0.0, 0.0),
+            "capture_radius": 10.0,
+            "capture_speed": 0.5,
+            "hold_time": 0.0,
+            "keep_out": 5.0,
+            "terminate_on_violation": True,
+            "out_of_bounds": 2000.0,
+            "cam_impulses": ((0.3, 0.0, 0.0),),
+        },
+        dispersions={
+            "start_pos": Shell(800.0, 1200.0),
+            "start_vel": Shell(0.0, 1.0),
+            **LATITUDE,
+        },
+        tags=("rendezvous", "spacegym", "comparison"),
+        observation=Observation(note="the state decides the next state"),
+        oracle={"sac_success": (0.62, 0.05), "ppo_success": (0.55, 0.06)},
+    )
+)
+
 INSPECTION = register(
     ScenarioSpec(
         name="inspection",
-        version=1,
+        version=2,
         entry_point="vbar.scenarios.inspection:InspectionEnv",
         summary="Image 95% of the target's lit surface points from within 200 m.",
         config={**CONFIG, "max_steps": 1140},
@@ -459,7 +640,9 @@ INSPECTION = register(
         },
         dispersions={
             "start_pos": Shell(50.0, 150.0),
-            "start_vel": Uniform((-0.05, -0.05, -0.05), (0.05, 0.05, 0.05)),
+            # v2: no start on a slowly drifting orbit about the target, from which free drift
+            # imaged 95% of the points on 5 of 300 validation seeds of v1.
+            "start_vel": DriftingVelocity((-0.05, -0.05, -0.05), (0.05, 0.05, 0.05), 25.0, N),
             "beta": Uniform(math.radians(-75.0), math.radians(75.0)),
             "sun_phase": Uniform(0.0, TWO_PI),
             **LATITUDE,

@@ -12,7 +12,7 @@ import math
 import numpy as np
 
 from vbar.agents import action_scale
-from vbar.dynamics import cw_stm
+from vbar.dynamics import cw_discrete, cw_stm
 from vbar.scenarios.targets import rotation_z, sun_at
 
 
@@ -149,6 +149,20 @@ class Glide:
         return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
 
 
+class ShortOf(Glide):
+    """`Glide` to a point `distance` m from the target on the side the chaser starts on."""
+
+    def __init__(self, distance, **kwargs):
+        super().__init__([], **kwargs)
+        self.distance = distance
+
+    def act(self, obs, info):
+        if self.route is None:
+            r0 = np.asarray(obs[:3], dtype=float)
+            self.waypoints = [self.distance * r0 / np.linalg.norm(r0)]
+        return super().act(obs, info)
+
+
 class Lambert:
     """Two-impulse transfers re-solved every step, then a PD hold at the last point.
 
@@ -269,6 +283,10 @@ class Dock:
         self.orbit_radius = (3.986004418e14 / self.n**2) ** (1.0 / 3.0)
         self.leg = False
 
+    def ready(self, t):
+        """Whether the final leg may start at `t`, the standoff reached."""
+        return True
+
     def geometry(self, t):
         """Port, axis and the rotation rate vector at `t`; the goal holds the t = 0 values."""
         angle = self.rate * t
@@ -314,7 +332,8 @@ class Dock:
             d = point - obs[:3]
             dist = float(np.linalg.norm(d))
             near = float(np.linalg.norm(standoff - obs[:3]))
-            if near < 5.0 and self.window_open(t, self.standoff / self.v_contact * 0.5 + 100.0):
+            leg_time = self.standoff / self.v_contact * 0.5 + 100.0
+            if near < 5.0 and self.window_open(t, leg_time) and self.ready(t):
                 self.leg = True
             elif near < 20.0:
                 a += -(0.02**2) * (obs[:3] - standoff) - 2 * 0.02 * (obs[3:6] - v_standoff)
@@ -329,6 +348,69 @@ class Dock:
         v_des = np.cross(spin, port + max(depth, 0.0) * axis) - speed * axis - 0.03 * lateral
         a += self.k_v * (v_des - obs[3:6]) if depth > 2.0 else 0.2 * (v_des - obs[3:6])
         return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
+
+
+class Estimator:
+    """Kalman filter on the exact CW model, fed the agent's own commands.
+
+    The sensor is the public `:nav1` model, white noise of 1 m and 1 mm/s per axis. The model has
+    no process noise but a floor of 1e-9 m/s^2 white acceleration against rounding, so the
+    estimate averages every fix and its position error falls about as 1 m / sqrt(fixes).
+    """
+
+    def __init__(self, n, dt, sigma=(1.0, 1e-3)):
+        self.phi, self.gamma = cw_discrete(n, dt)
+        self.noise = np.diag([sigma[0] ** 2] * 3 + [sigma[1] ** 2] * 3)
+        self.process = (1e-9) ** 2 * self.gamma @ self.gamma.T
+        self.x = None
+        self.cov = None
+
+    def update(self, z, accel):
+        """The estimate after fix `z`, given the acceleration held over the step before it."""
+        z = np.asarray(z[:6], dtype=float)
+        if self.x is None:
+            self.x, self.cov = z.copy(), self.noise.copy()
+            return self.x
+        x = self.phi @ self.x + self.gamma @ accel
+        cov = self.phi @ self.cov @ self.phi.T + self.process
+        gain = np.linalg.solve(cov + self.noise, cov).T
+        self.x = x + gain @ (z - x)
+        # Joseph form: stays symmetric and positive as the covariance shrinks.
+        keep = np.eye(6) - gain
+        self.cov = keep @ cov @ keep.T + gain @ self.noise @ gain.T
+        return self.x
+
+
+class NavDock(Dock):
+    """`Dock` on a Kalman estimate, starting the final leg once the lateral error is small.
+
+    With 1 m position noise the lateral reception limit of 0.1 m needs a small lateral error of
+    the estimate, so the chaser waits at the standoff while the fixes accumulate, until the
+    root of the covariance across the axis is below `lateral_sigma` (m) or only twice the leg's
+    planned time is left.
+    """
+
+    def __init__(self, lateral_sigma=0.045, **kwargs):
+        super().__init__(**kwargs)
+        self.lateral_sigma = lateral_sigma
+
+    def reset(self, view, rng=None):
+        super().reset(view, rng)
+        self.dt, self.max_steps = view.dt, view.max_steps
+        self.estimator = Estimator(view.n, view.dt)
+        self.accel = np.zeros(3)
+
+    def ready(self, t):
+        across = np.eye(3) - np.outer(self.axis0, self.axis0)
+        lateral = across @ self.estimator.cov[:3, :3] @ across
+        late = t > self.dt * self.max_steps - 2.0 * (0.5 * self.standoff / self.v_contact + 100.0)
+        return late or math.sqrt(float(np.trace(lateral))) < self.lateral_sigma
+
+    def act(self, obs, info):
+        estimate = self.estimator.update(obs, self.accel)
+        action = super().act(estimate, info)
+        self.accel = np.clip(np.asarray(action) / self.scale, -1.0, 1.0) * self.max_accel
+        return action
 
 
 class Grapple:
@@ -492,7 +574,16 @@ class Approach:
 
 
 def reference_for(name: str, n: float = 0.0011458864877737333):
-    """The reference controller of a built-in scenario, by its base name."""
+    """The reference controller of a built-in scenario, by its name with variants.
+
+    The `:nav1` variants of the docking scenarios fly the docking reference on a Kalman estimate;
+    every other variant flies its base scenario's reference on the raw observation.
+    """
+    parts = name.split(":")
+    if parts[0] in ("docking", "docking-offset", "inertial-target", "vbar-final-shuttle"):
+        if "nav1" in parts[1:]:
+            return NavDock()
+    name = name.split(":")[0]
     ft = 0.3048
     period = 2 * math.pi / n
     if name in ("approach-vbar", "approach-rbar", "approach-hbar"):
@@ -501,6 +592,15 @@ def reference_for(name: str, n: float = 0.0011458864877737333):
         return Dock()
     if name == "docking-afrl":
         return Glide([(0.0, 0.0, 0.0)], v_max=0.15)
+    if name == "afrl-docking":
+        return Glide([(0.0, 0.0, 0.0)], v_max=0.15)
+    if name == "spacegym-docking":
+        return Glide([(0.0, 0.0, 0.0)], v_max=0.4, gain=0.02, k_v=0.1, wn=0.05)
+    if name == "spacegym-rendezvous":
+        return ShortOf(7.5, v_max=2.0, gain=0.01, k_v=0.1, wn=0.05)
+    if name == "afrl-inspection":
+        # Out to 100 m, where the points within 8 deg of the poles face the inspector too.
+        return Inspect(radius=100.0)
     if name == "inspection":
         return Inspect()
     if name == "closing":
