@@ -11,11 +11,12 @@ each segment also gets a certified lower bound from a Lipschitz argument: on a s
 of length h whose margin changes at most L per second, the margin never falls below
 (m_i + m_{i+1} - L h) / 2, which is at least min_i m_i - L h / 2. Every interval whose bound is
 more than the constraint's `resolution` below the best value found is refined with a bounded
-Brent search, which finds the true minimum when the refined interval holds a single dip.
-Refinement does not tighten the bound, which can stay up to L h / 2 below the reported minimum.
-A constraint may also give a second-order bound per interval (`KeepOut` does, from a curvature
-bound on |r|^2, and the speed limits do, from bounds on the acceleration and the jerk); the
-certificate is then the larger of the two on each interval.
+Brent search, which finds the true minimum when the refined interval holds a single dip. While
+no violation is found, an interval whose bound still allows one is cut into pieces and searched
+again, within a fixed budget. Neither search tightens the bound, which can stay up to L h / 2
+below the reported minimum. A constraint may also give a second-order bound per interval
+(`KeepOut` does, from a curvature bound on |r|^2, and the speed limits do, from bounds on the
+acceleration and the jerk); the certificate is then the larger of the two on each interval.
 
 A discrete plant has no state between its nodes, so its margins are judged at the nodes alone
 (`node_minimum`, `node_violations`).
@@ -23,6 +24,7 @@ A discrete plant has no state between its nodes, so its margins are judged at th
 
 from __future__ import annotations
 
+import heapq
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -50,9 +52,14 @@ _NATURAL_MARGIN = 2.0
 # margin, set its rounding: |r| - R with |r| near R, and a propagated position whose terms in
 # phi x0 + gamma a reach |r0| + t |v0| + t^2 |a| however small their sum. Against a 50-digit
 # Clohessy-Wiltshire reference, over 11631 samples of 983 coasting and thrusting segments, the
-# error stayed below 1.6 eps of that scale for the keep-out and speed margins
-# (benchmarks/rounding_bounds.py).
-_ROUNDING_ULPS = 2.0
+# error stayed below 1.751 eps of that scale for the keep-out and speed margins
+# (benchmarks/rounding_bounds.py). That worst case moves with the sample times (1.505 eps with
+# them a nanosecond off), so the factor is set well above it, with about 42% to spare.
+_ROUNDING_ULPS = 3.0
+# An interval whose bound still allows a violation after refinement is cut into this many pieces,
+# at most this many times per segment; each cut costs _PIECES + 1 samples and one Brent search.
+_PIECES = 4
+_MAX_CUTS = 16
 
 
 class Constraint(Protocol):
@@ -654,8 +661,8 @@ class ZoneEntry:
     smallest semi-axis. Since |q(x) - q(y)| <= |x - y| / a_min, the margin is 1-Lipschitz in
     position and below the distance to the ellipsoid outside it, exactly that distance for a
     sphere. The ISS approach ellipsoid is 2000 m along-track and 1000 m otherwise (Fehse 5.6).
-    After `go_time` the margin is infinite; the GO event must fall on a step boundary, since a
-    jump inside a segment is not covered by the rate bound.
+    After `go_time` the margin is infinite. That jump is not covered by the rate bound, so a
+    segment that GO falls inside is checked only up to GO, resampled there.
     """
 
     semi_axes: tuple[float, float, float]
@@ -767,6 +774,129 @@ def _rounding_allowances(
     return _ROUNDING_ULPS * np.finfo(float).eps * rounding_scale(extent, pace, rho_min)
 
 
+def _sample_bounds(
+    constraint: Constraint,
+    states: np.ndarray,
+    margins: np.ndarray,
+    h: float,
+    thrust: float,
+    n: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Lower bound on the margin over each interval of evenly spaced samples, before rounding.
+
+    The larger of the Lipschitz bound and the constraint's second-order bound. Also returns the
+    speed, acceleration and range bounds it rests on.
+    """
+    speed, accel = interval_bounds(states, h, thrust, n)
+    rho_min = range_lower_bounds(states, h, speed)
+    rates = np.array(
+        [
+            constraint.rate_bound(v, a, rho_min=r)
+            for v, a, r in zip(speed, accel, rho_min, strict=True)
+        ]
+    )
+    bounds = 0.5 * (margins[:-1] + margins[1:] - rates * h)
+    second_order = getattr(constraint, "second_order_bounds", None)
+    if second_order is not None:
+        jerk = _jerk_bounds(speed, accel, n)
+        bounds = np.maximum(bounds, second_order(states, h, speed, accel, jerk))
+    return bounds, speed, accel, rho_min
+
+
+def _cut_at_go(
+    constraint: Constraint,
+    state_at: Callable[[float], np.ndarray],
+    times: np.ndarray,
+    states: np.ndarray,
+    margins: np.ndarray,
+    t0: float,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Evenly spaced samples up to GO when a constraint's `go_time` falls inside the segment.
+
+    Past GO the margin is infinite and nothing can be violated, but the jump escapes the rate
+    bound, so the part before it is resampled at the same spacing or finer. None when the
+    margin does not switch off within the samples.
+    """
+    go = getattr(constraint, "go_time", None)
+    if go is None or not (np.isfinite(margins[0]) and np.isinf(margins[-1])):
+        return None
+    tau = min(max(float(go) - t0, float(times[0])), float(times[-1]))
+    count = max(2, int(np.ceil((tau - times[0]) / (times[1] - times[0]))) + 1)
+    cut = np.linspace(float(times[0]), tau, count)
+    return cut, np.array([state_at(float(s)) for s in cut])
+
+
+def _search_unsettled(
+    constraint: Constraint,
+    state_at: Callable[[float], np.ndarray],
+    times: np.ndarray,
+    bounds: np.ndarray,
+    best_t: float,
+    best: float,
+    thrust: float,
+    n: float,
+    t0: float,
+) -> tuple[float, float]:
+    """Search the intervals whose bound still allows a violation that refinement did not find.
+
+    Brent's method finds one dip per interval, so on a coarse interval a deeper one can go
+    unseen. While the best value is not negative, the interval with the lowest bound below both
+    zero and best - `resolution` is cut into `_PIECES` pieces, each sampled and bounded, and the
+    lowest piece is refined; this repeats until no such bound is left, a violation is found or
+    `_MAX_CUTS` cuts are spent. The pieces' bounds only steer the search. Returns the best time
+    (s from the segment start) and value.
+    """
+
+    def unsettled(bound: float) -> bool:
+        return best >= 0.0 and bound < min(best - constraint.resolution, 0.0)
+
+    def margin_at(tau: float) -> float:
+        return float(constraint.margin(state_at(tau), t0 + tau))
+
+    leaves = [
+        (float(b), float(times[i]), float(times[i + 1]))
+        for i, b in enumerate(bounds)
+        if unsettled(float(b))
+    ]
+    heapq.heapify(leaves)
+    for _ in range(_MAX_CUTS):
+        if not leaves or not unsettled(leaves[0][0]):
+            break
+        bound, a, b = heapq.heappop(leaves)
+        tau = np.linspace(a, b, _PIECES + 1)
+        states = np.array([state_at(float(s)) for s in tau])
+        margins = np.asarray(constraint.margin(states, t0 + tau), dtype=float)
+        k = int(np.argmin(margins))
+        if margins[k] < best:
+            best_t, best = float(tau[k]), float(margins[k])
+        # A piece lies inside its parent interval, so the parent's bound holds on it too.
+        pieces = np.maximum(
+            _sample_bounds(constraint, states, margins, (b - a) / _PIECES, thrust, n)[0], bound
+        )
+        j = int(np.argmin(pieces))
+        if unsettled(float(pieces[j])):
+            found = minimize_scalar(
+                margin_at,
+                bounds=(tau[j], tau[j + 1]),
+                method="bounded",
+                options={"xatol": _BRACKET_TOL},
+            )
+            if found.fun < best:
+                best_t, best = float(found.x), float(found.fun)
+        for j in range(_PIECES):
+            if unsettled(float(pieces[j])):
+                heapq.heappush(leaves, (float(pieces[j]), float(tau[j]), float(tau[j + 1])))
+    return best_t, best
+
+
+def _row_state_at(
+    state_at: Callable[[np.ndarray, np.ndarray], np.ndarray], row: int
+) -> Callable[[float], np.ndarray]:
+    """Scalar `state_at(tau)` of one segment of a batch."""
+    rows = np.array([row])
+    return lambda tau: state_at(rows, np.array([tau]))[0]
+
+
 def segment_minimum(
     constraint: Constraint,
     state_at: Callable[[float], np.ndarray],
@@ -782,9 +912,14 @@ def segment_minimum(
     `state_at(tau)` gives the state `tau` s into it, `thrust` (m/s^2) is the magnitude of the
     segment's thrust acceleration, `n` the mean motion and `t0` the segment's start time. A
     constraint with `second_order_bounds` gets the larger of its bound and the Lipschitz bound on
-    each interval.
+    each interval. Intervals whose bound still allows a violation after refinement are cut into
+    pieces and searched again, at most 16 times per segment. A segment that a `ZoneEntry`'s GO
+    falls inside is checked up to GO.
     """
     margins = constraint.margin(states, t0 + times)
+    cut = _cut_at_go(constraint, state_at, times, states, margins, t0)
+    if cut is not None:
+        return segment_minimum(constraint, state_at, *cut, thrust, n, t0)
     k = int(np.argmin(margins))
     best_t, best = float(times[k]), float(margins[k])
     if len(times) < 2 or times[-1] <= times[0]:
@@ -795,19 +930,7 @@ def segment_minimum(
         )
         return SegmentMinimum(t0 + best_t, best, best - float(allowances[k]))
     h = float(times[1] - times[0])
-    speed, accel = interval_bounds(states, h, thrust, n)
-    rho_min = range_lower_bounds(states, h, speed)
-    rates = np.array(
-        [
-            constraint.rate_bound(v, a, rho_min=r)
-            for v, a, r in zip(speed, accel, rho_min, strict=True)
-        ]
-    )
-    bounds = 0.5 * (margins[:-1] + margins[1:] - rates * h)
-    second_order = getattr(constraint, "second_order_bounds", None)
-    if second_order is not None:
-        jerk = _jerk_bounds(speed, accel, n)
-        bounds = np.maximum(bounds, second_order(states, h, speed, accel, jerk))
+    bounds, speed, accel, rho_min = _sample_bounds(constraint, states, margins, h, thrust, n)
     for i in np.argsort(bounds):
         if bounds[i] >= best - constraint.resolution:
             break
@@ -819,6 +942,9 @@ def segment_minimum(
         )
         if found.fun < best:
             best_t, best = float(found.x), float(found.fun)
+    best_t, best = _search_unsettled(
+        constraint, state_at, times, bounds, best_t, best, thrust, n, t0
+    )
     allowances = _rounding_allowances(constraint, float(times[-1]), states, speed, accel, rho_min)
     holding = min(int(np.searchsorted(times, best_t, side="right")) - 1, len(bounds) - 1)
     lower = min(float(np.min(bounds - allowances)), best - float(allowances[holding]))
@@ -843,10 +969,15 @@ def segment_minima(
     refine is searched at once, with a golden-section search to 1e-6 s instead of Brent's
     method, and the rule is then replayed on the results, so each minimum comes from the
     intervals `segment_minimum` would refine and agrees with it to the accuracy of the two
-    searches. Returns the times (s from the episode start), margins and lower bounds, each (N,).
+    searches. The few segments whose bound still allows a violation, and those a `ZoneEntry`'s
+    GO falls inside, are finished one at a time as `segment_minimum` does. Returns the times (s
+    from the episode start), margins and lower bounds, each (N,).
     """
     rows = np.arange(len(states))
     margins = constraint.margin(states, t0[:, None] + times)
+    at_go = np.zeros(len(states), dtype=bool)
+    if getattr(constraint, "go_time", None) is not None:
+        at_go = np.isfinite(margins[:, 0]) & np.isinf(margins[:, -1])
     k = np.argmin(margins, axis=1)
     best_t, best = times[k].astype(float), margins[rows, k].astype(float)
     h = float(times[1] - times[0])
@@ -882,10 +1013,35 @@ def segment_minima(
             better = active & (found[rows, visit] < best)
             best = np.where(better, found[rows, visit], best)
             best_t = np.where(better, found_t[rows, visit], best_t)
+    open_bound = bounds.min(axis=1) < np.minimum(best - constraint.resolution, 0.0)
+    for row in np.flatnonzero((best >= 0.0) & open_bound & ~at_go):
+        best_t[row], best[row] = _search_unsettled(
+            constraint,
+            _row_state_at(state_at, int(row)),
+            times,
+            bounds[row],
+            float(best_t[row]),
+            float(best[row]),
+            float(thrust[row]),
+            n,
+            float(t0[row]),
+        )
     allowances = _rounding_allowances(constraint, float(times[-1]), states, speed, accel, rho_min)
     holding = np.minimum(np.searchsorted(times, best_t, side="right") - 1, bounds.shape[1] - 1)
     lower = np.minimum((bounds - allowances).min(axis=1), best - allowances[rows, holding])
-    return t0 + best_t, best, lower
+    t_min = t0 + best_t
+    for row in np.flatnonzero(at_go):
+        one = segment_minimum(
+            constraint,
+            _row_state_at(state_at, int(row)),
+            times,
+            states[row],
+            float(thrust[row]),
+            n,
+            float(t0[row]),
+        )
+        t_min[row], best[row], lower[row] = one.t, one.margin, one.lower_bound
+    return t_min, best, lower
 
 
 def _golden(
@@ -918,18 +1074,23 @@ def sampled_negative_intervals(
     margins: np.ndarray,
     rates: np.ndarray,
 ) -> list[tuple[float, float]]:
-    """Intervals (s) where a margin is negative, from evenly spaced samples and rate bounds.
+    """Intervals (s) where a margin is negative, from samples and rate bounds.
 
-    `times` (s) and `margins` are the samples, `margin_at(t)` the margin at any time between
-    them, and `rates` bound |d margin / dt| on each sample interval. Sign changes are found by
-    Brent's method to 1e-9 s; an interval whose ends share a sign is searched for a dip below zero,
-    or a rise above it, only when its rate bound allows one, which assumes at most one dip per
-    interval. The environment's violation intervals and the metrics' both come from here.
+    `times` (s, increasing) and `margins` are the samples, `margin_at(t)` the margin at any time
+    between them, and `rates` bound |d margin / dt| on each sample interval. Sign changes are
+    found by Brent's method to 1e-9 s; an interval whose ends share a sign is searched for a dip
+    below zero, or a rise above it, only when its rate bound allows one, which assumes at most one
+    dip per interval. The environment's violation intervals and the metrics' both come from here.
     """
     found: list[tuple[float, float]] = []
-    h = float(times[1] - times[0])
+    widths = np.diff(np.asarray(times, dtype=float))
 
     def root(a: float, b: float) -> float:
+        fa, fb = margin_at(a), margin_at(b)
+        if np.sign(fa) * np.sign(fb) > 0.0:
+            # A sample's margin and the same time re-evaluated can round to opposite sides of
+            # zero; the end nearer zero is then the crossing.
+            return a if abs(fa) <= abs(fb) else b
         return float(brentq(margin_at, a, b, xtol=_ROOT_TOL))
 
     def extremum(f: Callable[[float], float], a: float, b: float) -> tuple[float, float]:
@@ -938,6 +1099,7 @@ def sampled_negative_intervals(
 
     for i in range(len(times) - 1):
         t0, t1, a, b = float(times[i]), float(times[i + 1]), margins[i], margins[i + 1]
+        h = float(widths[i])
         if not (np.isfinite(a) and np.isfinite(b)):
             # An infinite margin (a constraint switched off) leaves at most an instant below zero.
             continue
@@ -973,11 +1135,18 @@ def violation_intervals(
 
     Takes the samples `segment_minimum` was given and its result, plus the segment's thrust
     acceleration (m/s^2) and the mean motion (rad/s) for the rate bounds; a segment whose
-    certified lower bound is not negative has none. The search is `sampled_negative_intervals`,
-    and touching intervals are joined.
+    certified lower bound is not negative has none. The search is `sampled_negative_intervals`
+    over the samples and the reported minimum, so a violation the refinement found between two
+    samples is reported; touching intervals are joined. A segment that a `ZoneEntry`'s GO falls
+    inside is searched up to GO.
     """
     if not minimum.lower_bound < 0.0 or len(times) < 2:
         return ()
+    margins = np.asarray(constraint.margin(states, t0 + times), dtype=float)
+    cut = _cut_at_go(constraint, state_at, times, states, margins, t0)
+    if cut is not None:
+        times, states = cut
+        margins = np.asarray(constraint.margin(states, t0 + times), dtype=float)
     h = float(times[1] - times[0])
     speed, accel = interval_bounds(states, h, thrust, n)
     rho_min = range_lower_bounds(states, h, speed)
@@ -987,9 +1156,19 @@ def violation_intervals(
     def margin_at(t: float) -> float:
         return float(constraint.margin(state_at(t - t0), t))
 
-    margins = np.asarray(constraint.margin(states, t0 + times), dtype=float)
+    sample_times = t0 + times
+    k = int(np.searchsorted(sample_times, minimum.t))
+    if (
+        minimum.margin < 0.0
+        and 0 < k < len(sample_times)
+        and min(minimum.t - sample_times[k - 1], sample_times[k] - minimum.t) > _ROOT_TOL
+    ):
+        # The parent interval's rate bound holds on both halves.
+        sample_times = np.insert(sample_times, k, minimum.t)
+        margins = np.insert(margins, k, margin_at(minimum.t))
+        rates = np.insert(rates, k, rates[k - 1])
     joined: list[tuple[float, float]] = []
-    for lo, hi in sampled_negative_intervals(margin_at, t0 + times, margins, rates):
+    for lo, hi in sampled_negative_intervals(margin_at, sample_times, margins, rates):
         if joined and lo <= joined[-1][1] + _ROOT_TOL:
             joined[-1] = (joined[-1][0], max(joined[-1][1], hi))
         else:

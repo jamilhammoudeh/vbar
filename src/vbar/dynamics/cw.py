@@ -180,9 +180,10 @@ def cw_states(n: float, dt: np.ndarray, state: np.ndarray, accel: np.ndarray) ->
 
 
 class CWDiscretizer:
-    """Caches exact CW transition matrices by duration, keyed to the nanosecond."""
+    """Caches exact CW transition matrices by duration, keyed to the exact float."""
 
-    # Arbitrary durations (latencies, refinement) would otherwise grow the cache without bound.
+    # Arbitrary durations (latencies, refinement) would otherwise grow the cache without bound;
+    # refinements of one interval for several constraints start at the same times, so they hit.
     max_entries = 4096
 
     def __init__(self, n: float):
@@ -192,19 +193,19 @@ class CWDiscretizer:
 
     def matrices(self, dt: float) -> tuple[np.ndarray, np.ndarray]:
         """(phi, gamma) for an acceleration held `dt` seconds."""
-        key = round(float(dt), 9)
-        if key not in self._matrices:
+        dt = float(dt)
+        if dt not in self._matrices:
             if len(self._matrices) >= self.max_entries:
                 self._matrices.clear()
-            self._matrices[key] = self._discrete(key)
-        return self._matrices[key]
+            self._matrices[dt] = self._discrete(dt)
+        return self._matrices[dt]
 
     def sample_matrices(self, dt: float, m: int) -> tuple[np.ndarray, np.ndarray]:
         """Stacked (phi, gamma) at `m` evenly spaced times in [0, dt], endpoints included.
 
         Shapes (m, 6, 6) and (m, 6, 3), so all sub-step states come from one batched product.
         """
-        key = (round(float(dt), 9), int(m))
+        key = (float(dt), int(m))
         if key not in self._samples:
             if len(self._samples) >= self.max_entries:
                 self._samples.clear()

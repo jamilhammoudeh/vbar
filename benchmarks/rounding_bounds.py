@@ -10,7 +10,7 @@ of `tests/test_constraint_types.py`. Each is sampled by `CWDynamics` and checked
    margin, from the closed-form solution in 50-digit decimal arithmetic, at any sample or at the
    reported minimum's time.
 2. The worst error of a sample's margin, in units of eps times its interval's rounding scale, is
-   printed per constraint; the allowance is 2 of these units.
+   printed per constraint; the allowance is 3 of these units.
 """
 
 import importlib
@@ -108,8 +108,7 @@ def check(constraint_list, rows):
         model = CWDynamics(N)
         model.reset(state)
         _, sampled = model.advance(accel, duration, n_samples=samples)
-        # The model keys its matrices to the nanosecond, so its samples are at these times.
-        times = np.linspace(0.0, round(duration, 9), samples)
+        times = np.linspace(0.0, duration, samples)
         thrust = float(np.linalg.norm(accel))
         h = float(times[1])
         speed, accel_bound = constraints.interval_bounds(sampled, h, thrust, N)
@@ -129,8 +128,7 @@ def check(constraint_list, rows):
             t_batch, _, bound_batch = constraints.segment_minima(
                 c, batched_state_at, times, sampled[None], np.array([thrust]), N, np.zeros(1)
             )
-            # The scalar refinement reads the model, whose matrices are keyed to the nanosecond.
-            at_found = exact_margin(c, exact_state(state, accel, round(found.t, 9)))
+            at_found = exact_margin(c, exact_state(state, accel, found.t))
             at_batch = exact_margin(c, exact_state(state, accel, float(t_batch[0])))
             ceiling = min(min(exact), at_found, at_batch)
             for bound in (found.lower_bound, float(bound_batch[0])):
@@ -168,5 +166,6 @@ if __name__ == "__main__":
         "no certified bound above the reference"
     )
     for name, ratio in worst.items():
-        print(f"worst sample error, {name:19s}: {ratio:.3f} eps x scale (allowance 2)")
+        allowed = f"{constraints._ROUNDING_ULPS:g}"
+        print(f"worst sample error, {name:19s}: {ratio:.3f} eps x scale (allowance {allowed})")
     print(f"{time.perf_counter() - start:.1f} s")

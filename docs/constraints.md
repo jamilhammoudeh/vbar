@@ -75,8 +75,11 @@ $\rho = |\mathbf r|$ and $\dot\rho = \mathbf r \cdot \mathbf v / \rho$:
   $|q(\mathbf x) - q(\mathbf y)| \le |\mathbf x - \mathbf y| / a_{\min}$, the margin is 1-Lipschitz
   (rate bound $V$) and never above the distance to the ellipsoid outside it, equal to it for a
   sphere. The ISS approach ellipsoid is $\pm$2000 m along-track and $\pm$1000 m otherwise
-  (Fehse 5.6), `ZoneEntry((1000, 2000, 1000))`. The GO event must fall on a step boundary, since the
-  rate bound does not cover a jump inside a segment.
+  (Fehse 5.6), `ZoneEntry((1000, 2000, 1000))`. The rate bound does not cover the jump at GO, so a
+  segment that GO falls inside, as with 15 s steps and a GO at 610 s, is checked only up to GO:
+  `segment_minimum`, `segment_minima` and `violation_intervals` resample it evenly from its start
+  to GO at the same spacing or finer, one model evaluation per sample once per episode, and nothing
+  can be violated after GO.
 
 ## Sampling and refinement
 
@@ -122,25 +125,46 @@ intervals, $h$ above about 350 s at 500 km, the bounds are infinite and so is th
 
 **Which intervals are refined.** Intervals are visited in order of their bound, and each whose
 bound is more than `resolution` below the best value found so far is refined; the first that is
-not ends the search. A pass between two samples cannot go unnoticed, because its interval's bound
-falls below the samples on either side.
+not ends the search. A pass between two samples is flagged, because its interval's bound falls
+below the samples on either side, and the search finds it when the interval holds that one dip.
+
+**Intervals that may still hold a violation.** On a coarse interval with two dips, Brent's method
+can settle in the shallower one while the bound stays negative, so a violation would go unseen
+(two passes 1 m and 5 m from the target, 77 s apart, sampled only at the ends of 100 s: the
+search finds the 5 m pass). An interval is therefore cut while the best value found is not
+negative and its bound is below $\min(0, m_{\text{best}} - \text{resolution})$. The interval with
+the lowest such bound is cut into 4 equal pieces, whose 5 ends are sampled and which are bounded
+the same way, each piece's bound raised to its parent's where that is higher; the piece with the
+lowest bound is refined by the Brent search if its bound still meets the rule, and every piece
+whose bound does joins the intervals to cut. This repeats until no bound meets the rule, a
+violation is found or 16 cuts are spent. A segment therefore costs at most 80 more evaluations
+of the model and 16 more Brent searches, and only where its bound allows a violation that its
+minimum does not show. At the environment's default sampling no
+segment was cut in 60 steps of the PD agent and 100 random steps in each of 12 scenarios. The
+pieces' bounds steer this search alone; `lower_bound` is still the bound of the segment's own
+samples. A segment whose bound is not negative, or whose minimum is already negative, is not cut,
+so where every interval holds one dip nothing changes.
 
 **What is guaranteed.** `lower_bound` is a valid lower bound on the margin of the simulated
 trajectory over the segment. The reported `margin` is the lowest value found: the true minimum
-whenever each refined interval holds a single dip. Where the rule skips the refinement, the
+whenever each refined interval holds a single dip, and otherwise negative wherever the cut search
+above finds a violation the bound allows. Where the rule skips the refinement, the
 reported margin is the lowest sample and is accurate only to the constraint's `resolution`, 1 mm
 for the keep-out sphere. `KeepOut`, `SpeedLimit`, `ClosingSpeedLimit` and `GateTable` lower
-`lower_bound` by 2 eps times the magnitudes their margins are computed from (the range, the
+`lower_bound` by 3 eps times the magnitudes their margins are computed from (the range, the
 radius or allowed speed, and the start range and speed plus what the speed and acceleration bounds
 allow over the segment), since rounding in the propagated state and in $\rho - r_{\text{ko}}$
 with $\rho$ near $r_{\text{ko}}$ can put a sample's margin above the exact one even where the
 margin is near zero. Against a 50-digit reference on the seeded test segments
-(`benchmarks/rounding_bounds.py`), the worst sample error is 1.5 eps of that scale, so the factor
-of 2 leaves a margin of about a third. Refinement does not tighten the bound. The
-Lipschitz bound can stay up to $\tfrac12 L h$ below the reported minimum: over 200 coasting flybys
-at 0.5 to 20 m/s sampled 20 times per 10 s its gap to the exact minimum has a median of 1.76 m and
-a maximum of 5.02 m. The keep-out sphere therefore also carries the second-order bound below, and
-its certificate is the larger of the two on each interval.
+(`benchmarks/rounding_bounds.py`), the worst sample error is 1.751 eps of that scale, for the
+speed limit, so the factor of 3 leaves a margin of about 42%. The worst case moves with the
+sample times, from 1.505 eps with them a nanosecond off, so no sample set gives a tight
+supremum and the factor is set well above it. Neither the refinement nor the cut
+search tightens the bound. The Lipschitz bound can stay up to $\tfrac12 L h$ below the reported
+minimum: over 200 coasting flybys at 0.5 to 20 m/s sampled 20 times per 10 s its gap to the exact
+minimum has a median of 1.76 m and a maximum of 5.02 m. The keep-out sphere therefore also
+carries the second-order bound below, and its certificate is the larger of the two on each
+interval.
 
 ## The second-order certificate for the keep-out sphere
 
@@ -262,8 +286,9 @@ in order of their bound, stopping at the first within `resolution` of the best v
 segment's minimum therefore comes from the intervals `segment_minimum` would refine, and the two
 agree to the accuracy of the searches; near a dip the margin's error is second order in the
 bracket, about 1e-7 m or better. One search for the whole batch keeps the cost per step nearly
-independent of the batch size. The constraint's `margin` and `rate_bound` must accept arrays, as
-`KeepOut`'s do.
+independent of the batch size. The segments whose bound still allows a violation get the cut
+search above one at a time, and those a GO falls inside go through `segment_minimum`. The
+constraint's `margin` and `rate_bound` must accept arrays, as `KeepOut`'s do.
 
 ## Violation intervals
 
@@ -273,14 +298,18 @@ episode start. It takes the samples and the result of `segment_minimum`, with th
 acceleration and the mean motion for the rate bounds, and returns nothing when the certified lower
 bound is not negative. The search, `sampled_negative_intervals`, is the one the metrics use
 (`vbar.metrics.negative_intervals`), so the reward and the violation metrics see the same
-intervals. Each boundary is the root of the margin on a sample interval whose ends have opposite
-signs, found with Brent's method (`scipy.optimize.brentq`) to 1e-9 s. A sample interval whose ends
-share a sign is searched for a dip below zero, or a rise above it, only when its Lipschitz bound
-allows one; like the refinement, this assumes at most one dip per sample interval. An interval
-open at the segment's start or end runs to that end. The environment merges intervals that meet at
-a segment boundary, so a pass through the keep-out zone during an actuation delay's switch is one
-interval. The reward library builds its constraint costs from these intervals
-([rewards.md](rewards.md)).
+intervals. The time of the reported minimum is added to the samples when its margin is negative,
+so a violation found by refinement or by the cut search is reported even where the samples on
+either side are positive. Each boundary is the root of the margin on a sample interval whose ends
+have opposite signs, found with Brent's method (`scipy.optimize.brentq`) to 1e-9 s. The ends are
+evaluated again with the function the root search uses; a sample on the boundary can round to
+the other side of zero there, and the end nearer zero is then taken as the crossing instead of
+the search failing. A sample interval whose ends share a sign is searched for a dip below zero,
+or a rise above it, only when its Lipschitz bound allows one; like the refinement, this assumes
+at most one dip per sample interval. An interval open at the segment's start or end runs to that
+end. The environment merges intervals that meet at a segment boundary, so a pass through the
+keep-out zone during an actuation delay's switch is one interval. The reward library builds its
+constraint costs from these intervals ([rewards.md](rewards.md)).
 
 ## In the environment
 
@@ -359,6 +388,19 @@ entering the keep-out zone when its minimum margin is negative.
   transition matrix to 1e-8 s, including a pass seen only by the refinement between two samples
   and intervals open at a segment's start or end; a pass across an actuation-delay switch is one
   interval within a step.
+
+`tests/test_constraints_edge_cases.py`:
+
+- With GO 1.4 s into a 10 s step sampled 20 times, between two samples, the zone bound lies below
+  the closed-form margin at GO (-0.400 m), the minimum is within 1 mm of it, and the violation runs
+  from the closed-form entry to GO within 1e-6 s. With 15 s steps and seed 30's GO at 610 s, the
+  closing scenario's bound lies below the exact minimum on every step through GO.
+- 40 keep-out radii set to the range at a sample, one ulp either side, give violation intervals
+  without an error, and on a 5 m/s V-bar closing a radius equal to the range at each of samples
+  1 to 18 starts the violation at that sample to 1e-8 s.
+- Two passes 1 m and 5 m from the target in one 100 s segment, sampled at its ends or 191 times:
+  the bound lies below the exact minimum (-2 m), the minimum is within 1 mm of it, and the one
+  violation matches the closed-form entry and exit to 1e-6 s.
 
 ## Example
 

@@ -67,13 +67,17 @@ $$
 $$
 
 `cw_discrete(n, dt)` evaluates $\Phi$ and $\Gamma$ in closed form, so there is no integration
-error at all. The closed form is written in terms of $k = 1 - \cos n\Delta t = 2\sin^2(n\Delta t/2)$
-and $d = n\Delta t - \sin n\Delta t$, with $d$ taken from its Taylor series below $n\Delta t = 0.5$.
+error; what remains is rounding, a few eps of the state per step (1.0e-7 m after 3e5 steps of
+1/3 s from 112 m). The closed form is written in terms of
+$k = 1 - \cos n\Delta t = 2\sin^2(n\Delta t/2)$ and $d = n\Delta t - \sin n\Delta t$, with $d$
+taken from its Taylor series below $n\Delta t = 0.5$.
 The textbook form subtracts nearly equal numbers on short steps and loses about four digits below
 $n\Delta t = 10^{-2}$; this form keeps full precision at any step length. A numerical matrix
 exponential (`scipy.linalg.expm`) is less accurate, about 4e-9 m off over one orbit on some
 supported SciPy versions, and is used only as a cross-check in the tests. `CWDiscretizer` caches
-the matrices by step length. `cw_states(n, dt, state, accel)` evaluates
+the matrices by the exact step length, so a 1/3 s step or a 4e-10 s refinement time moves the
+state by its own length.
+`cw_states(n, dt, state, accel)` evaluates
 $\Phi(\Delta t)\mathbf x + \Gamma(\Delta t)\mathbf a$ row by row for many different durations,
 states and accelerations at once without forming the matrices, as the vectorized environment's
 refinement needs; it agrees with the matrix product to 1e-13 of the largest term (tested in

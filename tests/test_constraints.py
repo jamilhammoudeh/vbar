@@ -9,6 +9,7 @@ from scipy.optimize import brentq
 from vbar.constraints import (
     ClosingSpeedLimit,
     KeepOut,
+    _rounding_allowances,
     interval_bounds,
     range_lower_bounds,
     segment_minima,
@@ -468,9 +469,28 @@ def check_first_order_bound_misses_the_tightness_table(count):
     assert np.median(gap) > 0.1
 
 
+@cache
+def keep_out_rounding_allowances(table, count=PREFIX):
+    """Largest rounding allowance `segment_minimum` takes off the keep-out bound per segment."""
+    largest = []
+    for state, accel, duration, samples in cases(table)[:count]:
+        m = CWDynamics(N)
+        m.reset(state)
+        _, sampled = m.advance(accel, duration, n_samples=samples)
+        h = float(np.linspace(0.0, duration, samples)[1])
+        speed, bound = interval_bounds(sampled, h, float(np.linalg.norm(accel)), N)
+        rho_min = range_lower_bounds(sampled, h, speed)
+        allowances = _rounding_allowances(KEEP_OUT, duration, sampled, speed, bound, rho_min)
+        largest.append(float(np.max(allowances)))
+    return np.array(largest)
+
+
 def check_certified_bound_is_never_below_the_first_order_bound(table, count):
+    # The first-order constraint has no rounding scale, so its bound carries no allowance; the
+    # certified bound may sit below it by the allowance alone.
     first_order = first_order_lower_bounds(table, count)
-    assert np.all(lower_bounds(table)[:count] >= first_order - 1e-12)
+    allowance = keep_out_rounding_allowances(table, count)
+    assert np.all(lower_bounds(table)[:count] >= first_order - allowance)
 
 
 def check_loosened_bound_is_sound_and_outside_the_tightness_table(count):
