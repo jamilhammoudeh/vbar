@@ -118,15 +118,26 @@ observed state measured against them (offsets from a docking port's axis, covera
 Tool results come as JSON text and as `structuredContent`; a call that cannot be carried out (no
 episode running, a new episode before the current one ends, no episodes left, non-numeric or
 non-finite commands, invalid predictions) returns `isError` with the reason. Episodes run in the
-order of the seeds and cannot be abandoned, so a client cannot restart until it likes a start. Each
-command's wall time since the previous observation is the decision latency. Results stay on the
-server: `ToolServer.results` holds `run_episode`'s result for each finished episode (with
-a drawn `agent_seed` the client never uses), and the command line writes them to the
-`--out` file as they finish. When the session ends, because the input ends, the client stops reading
-the output or the server fails, an episode still running and every seed not yet flown are recorded
-too, with `completed` false, so leaving does not remove a bad episode from the results. The client
-never receives the true state, the reward or the outcome, though the time each step takes still
-says a little about the true path ([environment.md](environment.md)).
+order of the seeds and cannot be abandoned within a session. Each command's wall time since the
+previous observation is the decision latency. Results stay on the server: `ToolServer.results`
+holds `run_episode`'s result for each finished episode (with a drawn `agent_seed` the client never
+uses), and the command line writes them to the `--out` file as they finish. When the session ends,
+because the input ends, the client stops reading the output or the server fails, an episode still
+running and every seed not yet flown are recorded too, with `completed` false, so leaving does not
+remove a bad episode from the results. No tool result carries the true state, the reward or the
+outcome, though the time each step takes still says a little about the true path
+([environment.md](environment.md)).
+
+Both servers keep these properties only when the evaluator starts them and the client cannot read
+the evaluator's files. A stdio client is the MCP server's parent process: it can kill the server
+mid-episode, which leaves no record of that episode, and start it again with the same `--out`,
+which empties the file, until it likes a start. A client on the same machine that can read the
+`--out` file sees each episode's true states and outcome as it ends, from either server. On
+either server an episode that ends before `max_steps` (the last observation, or the TCP host's
+close or next reset, comes early) has stopped at an event of its scenario: the goal state reached,
+a contact, or a violation where violations end the episode. A client-launched MCP session is
+therefore for development; for a scored run the evaluator starts the server, keeps the seeds and
+the results file where the client cannot read them, and counts every seed it hands out.
 
 ## How it is tested
 
@@ -196,7 +207,9 @@ says a little about the true path ([environment.md](environment.md)).
   spaces, skipping a blank line, and a file with a negative seed, a word or no seed, a UTF-16 file,
   `--seeds` with `--seeds-file`, a missing file and an empty file name are refused; with its text
   encoding set to cp1252 it returns a non-ASCII id sent as raw UTF-8 unchanged, answers a line that
-  is not UTF-8 with -32700 and the next request as usual.
+  is not UTF-8 with -32700 and the next request as usual; killed mid-episode, it keeps the record
+  of the episode that finished and none of the one it was flying, and a relaunch with the same
+  `--out` empties the file.
 
 ## Example
 

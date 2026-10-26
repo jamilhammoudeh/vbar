@@ -512,3 +512,33 @@ def test_seeds_come_from_the_command_line_or_a_file_not_both(tmp_path, capsys):
     with pytest.raises(SystemExit):
         main(["--seeds-file", ""])
     assert "--seeds-file:" in capsys.readouterr().err
+
+
+def test_a_killed_and_relaunched_server_keeps_no_record_of_its_episodes(tmp_path):
+    # The documented limit of a session a stdio client starts itself.
+    out = tmp_path / "results.jsonl"
+    argv = ["--seeds", "4", "5", "--max-steps", "1", "--out", str(out)]
+    command = [sys.executable, "-m", "vbar.agents.mcp", *argv]
+    calls = [
+        ("initialize", {}),
+        ("tools/call", {"name": "start_episode"}),
+        ("tools/call", {"name": "command", "arguments": {"ax": 0, "ay": 0, "az": 0}}),
+        ("tools/call", {"name": "start_episode"}),
+    ]
+
+    def launch(calls):
+        server = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        for ident, (method, params) in enumerate(calls, 1):
+            message = {"jsonrpc": "2.0", "id": ident, "method": method, "params": params}
+            server.stdin.write(json.dumps(message) + "\n")
+            server.stdin.flush()
+            assert json.loads(server.stdout.readline())["id"] == ident
+        server.kill()
+        server.wait(HANG)
+        server.stdin.close()
+        server.stdout.close()
+
+    launch(calls)
+    assert [json.loads(line)["seed"] for line in out.read_text().splitlines()] == [4]
+    launch(calls[:1])
+    assert out.read_text() == ""
