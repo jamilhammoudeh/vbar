@@ -290,7 +290,8 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
 
 
 def seed_argument(text: str) -> int:
-    """A seed given on a command line: a whole number, not negative (an `argparse` type)."""
+    """A seed given on a command line or in a seeds file: a whole number, not negative (an
+    `argparse` type)."""
     try:
         seed = int(text)
     except ValueError:
@@ -298,6 +299,42 @@ def seed_argument(text: str) -> int:
     if seed < 0:
         raise argparse.ArgumentTypeError(f"seeds must not be negative, got {seed}")
     return seed
+
+
+def add_seed_options(parser: argparse.ArgumentParser) -> None:
+    """The seed options both servers take: `--seeds`, `--seeds-file` and `--episodes`."""
+    given = parser.add_mutually_exclusive_group()
+    given.add_argument(
+        "--seeds",
+        type=seed_argument,
+        nargs="+",
+        help="seeds to repeat; by default drawn and recorded",
+    )
+    given.add_argument(
+        "--seeds-file",
+        help="file of seeds to repeat, one per line, which keeps them out of the process list",
+    )
+    parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
+
+
+def session_seeds(parser: argparse.ArgumentParser, args: argparse.Namespace) -> list[int]:
+    """The session's seeds: given, read from `--seeds-file`, or drawn (128 bits) and recorded."""
+    if args.episodes < 1:
+        parser.error("--episodes must be at least 1")
+    if args.seeds:
+        return list(args.seeds)
+    if args.seeds_file is not None:
+        try:
+            # utf-8-sig also reads the byte-order mark some Windows editors write.
+            with open(args.seeds_file, encoding="utf-8-sig") as lines:
+                seeds = [seed_argument(line.strip()) for line in lines if line.strip()]
+        except (OSError, UnicodeDecodeError, argparse.ArgumentTypeError) as error:
+            parser.error(f"--seeds-file: {error}")
+        if not seeds:
+            parser.error("--seeds-file holds no seeds")
+        return seeds
+    # A small seed can be found by matching the first observation, so seeds are drawn.
+    return [secrets.randbits(128) for _ in range(args.episodes)]
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -318,24 +355,15 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5555)
-    parser.add_argument(
-        "--seeds",
-        type=seed_argument,
-        nargs="+",
-        help="seeds to repeat; by default drawn and recorded",
-    )
-    parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
+    add_seed_options(parser)
     parser.add_argument("--out", default="results.jsonl", help="JSON lines, one per episode")
     parser.add_argument("--timeout", type=float, default=60.0, help="s; bounds every wait")
     args = parser.parse_args(argv)
-    if args.episodes < 1:
-        parser.error("--episodes must be at least 1")
+    seeds = session_seeds(parser, args)
     if not 0 <= args.port <= 65535:
         parser.error("--port must be from 0 to 65535")
     if not 0.0 < args.timeout < math.inf:
         parser.error("--timeout must be a positive number of seconds")
-    # A small seed can be found by matching the first observation, so seeds are drawn.
-    seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
     try:
         env = make(args.scenario) if args.scenario else ApproachEnv(ApproachConfig())
     except (KeyError, ValueError) as error:

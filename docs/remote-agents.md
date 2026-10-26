@@ -58,14 +58,16 @@ silent or wrong first connection cannot take the session from the agent behind i
 approach scenario for one client, or with `--scenario` any catalogue scenario by name, variant or
 identifier (`--scenario docking:lit`), and writes one JSON line per episode with the result of
 `run_episode` (arrays as lists) and the scenario identifier. Each episode's seed is drawn (128 bits)
-and recorded in its result; `--seeds` repeats given seeds instead. A client that can guess the seed
-can rebuild the true state from its first observation, so scored sessions keep the drawn seeds.
-However the session fails (a bad hello, a disconnect or reset, a line that is not JSON, not UTF-8 or
-too deeply nested to parse, an action the server cannot use), the episode being flown is written
-with `completed` false and the error, and so is every seed not yet flown; when no valid hello
-arrives in time every seed is recorded unflown. The records are also written when the host itself is
-interrupted (Ctrl+C) before the interrupt goes on. Real-time runs ([agents.md](agents.md)) work
-through the server too; the measured latency then includes the network.
+and recorded in its result; `--seeds` repeats given seeds instead, and `--seeds-file` reads them
+from a file, one per line, which keeps them out of the process list that any local process can read.
+A client that can guess the seed can rebuild the true state from its first observation, so scored
+sessions keep the drawn seeds. However the session fails (a bad hello, a disconnect or reset, a line
+that is not JSON, not UTF-8 or too deeply nested to parse, an action the server cannot use), the
+episode being flown is written with `completed` false and the error, and so is every seed not yet
+flown; when no valid hello arrives in time every seed is recorded unflown. The records are also
+written when the host itself is interrupted (Ctrl+C) before the interrupt goes on. Real-time runs
+([agents.md](agents.md)) work through the server too; the measured latency then includes the
+network.
 
 ## Clients
 
@@ -92,14 +94,14 @@ there; MATLAB agents that need randomness seed their own generator from it.
 LLM harnesses that call tools through the Model Context Protocol can fly V-BAR episodes directly:
 `python -m vbar.agents.mcp --episodes 3 --out results.jsonl` serves the approach scenario over stdio
 (`--scenario` names another, `--max-steps` shortens its episodes), with drawn seeds as above
-(`--seeds` repeats given ones), JSON-RPC 2.0 with one message per line, and a harness adds it as a
-stdio tool server. `ToolServer(env, seeds)` is the same server in Python; its `handle(message)`
-answers one message and `serve(stdin, stdout)` runs the loop. It answers `initialize` (protocol
-versions 2025-06-18, 2025-03-26 and 2024-11-05; the client's choice when supported), `ping`,
-`tools/list` and `tools/call`, ignores notifications, and returns JSON-RPC errors for unknown
-methods (-32601), unknown tools and `params` or `arguments` that are not objects (-32602), lines
-that are not JSON or not UTF-8 (-32700) and failures inside the server (-32603); after an error it
-goes on answering.
+(`--seeds` or `--seeds-file` repeats given ones), JSON-RPC 2.0 with one message per line, and a
+harness adds it as a stdio tool server. `ToolServer(env, seeds)` is the same server in Python; its
+`handle(message)` answers one message and `serve(stdin, stdout)` runs the loop. It answers
+`initialize` (protocol versions 2025-06-18, 2025-03-26 and 2024-11-05; the client's choice when
+supported), `ping`, `tools/list` and `tools/call`, ignores notifications, and returns JSON-RPC
+errors for unknown methods (-32601), unknown tools and `params` or `arguments` that are not objects
+(-32602), lines that are not JSON or not UTF-8 (-32700) and failures inside the server (-32603);
+after an error it goes on answering.
 
 | Tool | Arguments | Returns |
 |---|---|---|
@@ -140,8 +142,9 @@ says a little about the true path ([environment.md](environment.md)).
   agent's generator) and spawn key, the observation and the time, then the close.
 - Without `--seeds` the host draws a different 128-bit seed for each episode and records it;
   `--episodes 0` is refused, and so are a negative or fractional seed (also after a valid one), a
-  timeout of 0, -1, NaN or infinity and a port outside 0 to 65535; `--scenario inspection` hosts
-  the inspection scenario and records its identifier, and an unknown name is refused.
+  timeout of 0, -1, NaN or infinity and a port outside 0 to 65535; `--scenario inspection` hosts the
+  inspection scenario and records its identifier, and an unknown name is refused; `--seeds-file`
+  with seeds 1 and 2 records those seeds.
 - An error message from the client, a wrong protocol version and a silent client are reported.
 - The command-line host writes one result per seed; a client that answers two steps and then sends a
   line that is not JSON leaves an unfinished record of two steps, with the error, and an unfinished
@@ -188,9 +191,12 @@ says a little about the true path ([environment.md](environment.md)).
 - `python -m vbar.agents.mcp` in a subprocess answers five requests on stdio and writes the
   episode's result; without `--seeds` it records two episodes under two different drawn 128-bit
   seeds; `--scenario docking-afrl --max-steps 2` serves two steps of that scenario and records its
-  identifier; an unknown scenario, a negative seed (also after a valid one) and a step limit of 0
-  or -3 are refused; with its text encoding set to cp1252 it returns a non-ASCII id sent as raw
-  UTF-8 unchanged, answers a line that is not UTF-8 with -32700 and the next request as usual.
+  identifier; an unknown scenario, a negative seed (also after a valid one) and a step limit of 0 or
+  -3 are refused; `--seeds-file` reads a 101-bit seed after a byte-order mark and a seed padded with
+  spaces, skipping a blank line, and a file with a negative seed, a word or no seed, a UTF-16 file,
+  `--seeds` with `--seeds-file`, a missing file and an empty file name are refused; with its text
+  encoding set to cp1252 it returns a non-ASCII id sent as raw UTF-8 unchanged, answers a line that
+  is not UTF-8 with -32700 and the next request as usual.
 
 ## Example
 

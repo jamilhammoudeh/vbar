@@ -466,3 +466,49 @@ def test_a_lit_docking_task_is_described_in_strict_json():
     response = request(server, "tools/call", name="describe_task")
     assert not response["result"]["isError"]
     json.dumps(response, allow_nan=False)
+
+
+def test_the_command_line_reads_its_seeds_from_a_file(tmp_path):
+    # Seeds on the command line are visible to every process that lists the others.
+    seeds_file = tmp_path / "seeds.txt"
+    # With a byte-order mark, as some Windows editors save UTF-8.
+    seeds_file.write_text(f"\ufeff{2**100 + 7}\n\n  12\n", encoding="utf-8")
+    out = tmp_path / "results.jsonl"
+    argv = ["--seeds-file", str(seeds_file), "--max-steps", "1", "--out", str(out)]
+    command = [sys.executable, "-m", "vbar.agents.mcp", *argv]
+    subprocess.run(command, input="", capture_output=True, text=True, timeout=HANG, check=True)
+    assert [json.loads(line)["seed"] for line in out.read_text().splitlines()] == [2**100 + 7, 12]
+
+
+@pytest.mark.parametrize(
+    "lines, message",
+    [
+        ("5\n-1\n", "--seeds-file: seeds must not be negative, got -1"),
+        ("5\nseven\n", "--seeds-file: invalid seed"),
+        ("\n\n", "--seeds-file holds no seeds"),
+        # UTF-16, as Windows PowerShell 5.1 writes with ">".
+        ("5\n".encode("utf-16"), "--seeds-file: 'utf-8' codec can't decode"),
+    ],
+)
+def test_a_bad_seeds_file_is_refused_before_the_session(lines, message, tmp_path, capsys):
+    seeds_file = tmp_path / "seeds.txt"
+    if isinstance(lines, bytes):
+        seeds_file.write_bytes(lines)
+    else:
+        seeds_file.write_text(lines, encoding="utf-8")
+    with pytest.raises(SystemExit):
+        main(["--seeds-file", str(seeds_file)])
+    assert message in capsys.readouterr().err
+
+
+def test_seeds_come_from_the_command_line_or_a_file_not_both(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        main(["--seeds", "1", "--seeds-file", str(tmp_path / "missing.txt")])
+    assert "not allowed with argument" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["--seeds-file", str(tmp_path / "missing.txt")])
+    assert "--seeds-file:" in capsys.readouterr().err
+    # An empty name, as an unset shell variable gives, must not fall back to drawn seeds.
+    with pytest.raises(SystemExit):
+        main(["--seeds-file", ""])
+    assert "--seeds-file:" in capsys.readouterr().err

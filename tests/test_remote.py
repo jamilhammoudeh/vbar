@@ -778,3 +778,15 @@ def test_a_lit_docking_episode_flies_through_the_server():
         client.join(HANG)
     local = run_episode(make("docking:lit", max_steps=3), DriftAgent(), seed=4, agent_seed=9)
     assert np.array_equal(served["states"], local["states"]) and len(served["actions"]) == 3
+
+
+def test_the_host_reads_its_seeds_from_a_file(tmp_path):
+    seeds_file = tmp_path / "seeds.txt"
+    seeds_file.write_text("1\n2\n", encoding="utf-8")
+
+    def client(stream, sock):
+        stream.close()
+        sock.close()
+
+    results = host_with(client, tmp_path, episodes=("--seeds-file", str(seeds_file)))
+    assert [r["seed"] for r in results] == [1, 2]

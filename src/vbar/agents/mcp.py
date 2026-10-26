@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import secrets
 import sys
 import time
 from collections.abc import Callable, Iterable
@@ -29,7 +28,7 @@ from .. import __version__
 from ..runner import ScoredRun
 from .base import action_scale
 from .briefing import briefing, situation
-from .remote import is_number, seed_argument, view_to_dict
+from .remote import add_seed_options, is_number, session_seeds, view_to_dict
 from .tools import CW_TOOLS, call_tool
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -326,23 +325,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--scenario", help="catalogue name, name:variant or identifier; the approach by default"
     )
-    parser.add_argument(
-        "--seeds",
-        type=seed_argument,
-        nargs="+",
-        help="seeds to repeat; by default drawn and recorded",
-    )
-    parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
+    add_seed_options(parser)
     parser.add_argument("--max-steps", type=int, help="step limit; the scenario's by default")
     parser.add_argument("--out", default="results.jsonl", help="JSON lines, one per episode")
     parser.add_argument("--name", default="mcp-client", help="agent name in the results")
     args = parser.parse_args(argv)
-    if args.episodes < 1:
-        parser.error("--episodes must be at least 1")
+    seeds = session_seeds(parser, args)
     if args.max_steps is not None and args.max_steps < 1:
         parser.error("--max-steps must be at least 1")
-    # A small seed can be found by matching the first observation, so seeds are drawn.
-    seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
     limit = {} if args.max_steps is None else {"max_steps": args.max_steps}
     try:
         env = (
