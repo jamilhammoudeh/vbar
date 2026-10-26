@@ -16,7 +16,14 @@ import pytest
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DISC27, PDAgent, remote
 from vbar.agents.base import AgentView, agent_generator
-from vbar.agents.remote import AgentServer, RemoteAgentError, main, serve_agent
+from vbar.agents.remote import (
+    AgentServer,
+    RemoteAgentError,
+    main,
+    serve_agent,
+    view_from_dict,
+    view_to_dict,
+)
 from vbar.spacecraft import GaussianNav
 
 CLEAR = (-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)
@@ -728,3 +735,46 @@ def test_an_agent_slower_than_the_hello_wait_still_gets_the_full_timeout(monkeyp
         server.close()
         thread.join(HANG)
     assert seen["closing"]["type"] == "close"
+
+
+def catalogue_names():
+    from vbar.scenarios import SCENARIOS, get
+
+    return [
+        n
+        for name in sorted(SCENARIOS)
+        for n in (name, *(f"{name}:{v}" for v in get(name).variants))
+    ]
+
+
+@pytest.mark.parametrize("name", catalogue_names())
+def test_every_catalogue_view_crosses_the_protocol_as_strict_json(name):
+    from vbar.scenarios import make
+
+    view = make(name).agent_view()
+    sent = json.loads(json.dumps(view_to_dict(view), allow_nan=False))
+    assert view_from_dict(sent).goal.keys() == view.goal.keys()
+    assert len(view_from_dict(sent).constraints) == len(view.constraints)
+
+
+def test_a_lit_docking_episode_flies_through_the_server():
+    # The lighting window's central body is a dataclass, which once stopped the reset message.
+    from vbar.agents import DriftAgent
+    from vbar.scenarios import make
+
+    env = make("docking:lit", max_steps=3)
+    server = AgentServer(timeout=HANG)
+    host, port = server.address
+    client = threading.Thread(
+        target=serve_agent, args=(DriftAgent(), host, port, HANG), daemon=True
+    )
+    client.start()
+    agent = server.accept()
+    try:
+        served = run_episode(env, agent, seed=4, agent_seed=9)
+    finally:
+        agent.close()
+        server.close()
+        client.join(HANG)
+    local = run_episode(make("docking:lit", max_steps=3), DriftAgent(), seed=4, agent_seed=9)
+    assert np.array_equal(served["states"], local["states"]) and len(served["actions"]) == 3

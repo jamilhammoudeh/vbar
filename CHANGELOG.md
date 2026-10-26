@@ -625,6 +625,9 @@ release may change the public API, and every such change is listed under Changed
 - `AgentServer.accept` served the first connection only, so one that never said hello held the host
   until its timeout and the session ended with every seed unflown; it now drops a connection that
   sends no valid hello within 10 s (`HELLO_WAIT_S`) and waits for the next.
+- `view_to_dict` left the lighting window's central body as a `Body`, so the agent server and the
+  MCP server could not send the view of a scenario with a lighting window (`docking:lit`); it now
+  writes dataclasses as the mapping of their fields.
 
 ## [0.3.1] - 2026-10-24
 

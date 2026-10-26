@@ -29,7 +29,7 @@ import secrets
 import socket
 import time
 from collections.abc import Mapping
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 from typing import Any
 
 import numpy as np
@@ -53,7 +53,8 @@ def is_number(value: Any) -> bool:
 
 
 def view_to_dict(view: AgentView) -> dict[str, Any]:
-    """The view as JSON-ready data; tuples become lists."""
+    """The view as JSON-ready data; tuples become lists and dataclasses (a constraint's central
+    body) the mapping of their fields."""
 
     def plain(value):
         if isinstance(value, Mapping):
@@ -62,6 +63,8 @@ def view_to_dict(view: AgentView) -> dict[str, Any]:
             return [plain(v) for v in value]
         if isinstance(value, np.generic):
             return value.item()
+        if is_dataclass(value) and not isinstance(value, type):
+            return {f.name: plain(getattr(value, f.name)) for f in fields(value)}
         return value
 
     return {f.name: plain(getattr(view, f.name)) for f in fields(view)}

@@ -23,14 +23,14 @@ Version 1 is a lockstep exchange over one TCP connection: UTF-8 JSON objects, on
 A client may answer any message with `{"type": "error", "message": ...}`, which the server raises as
 `RemoteAgentError`, as it does for an action of the wrong form: three finite numbers, four in the
 `impulse_coast` mode (JSON numbers: quoted numbers and booleans are refused), and a whole number
-from 0 to 26 in the discrete mode. The `view` carries every
-`AgentView` field (`scenario_id`, `dt`, `max_steps`, `n`, `action_mode`, `max_accel`,
-`thrust_limit`, `mass_kg`, `goal`, `constraints`, `observation`, `frame`) with tuples as lists.
-`seed` and `spawn_key` are the agent's own random stream (`numpy.random.SeedSequence(seed,
-spawn_key=...)`), seeded from a hash of the agent seed and independently of the episode, so
-they carry nothing about the start state or the noise; the agent seed can be found from them
-only by guessing it, which a drawn 128-bit seed defeats ([environment.md](environment.md)).
-Nothing else crosses: no true state, no reward, no metrics.
+from 0 to 26 in the discrete mode. The `view` carries every `AgentView` field (`scenario_id`, `dt`,
+`max_steps`, `n`, `action_mode`, `max_accel`, `thrust_limit`, `mass_kg`, `goal`, `constraints`,
+`observation`, `frame`) with tuples as lists and dataclasses (the central body of a lighting window)
+as the mapping of their fields. `seed` and `spawn_key` are the agent's own random stream
+(`numpy.random.SeedSequence(seed, spawn_key=...)`), seeded from a hash of the agent seed and
+independently of the episode, so they carry nothing about the start state or the noise; the agent
+seed can be found from them only by guessing it, which a drawn 128-bit seed defeats
+([environment.md](environment.md)). Nothing else crosses: no true state, no reward, no metrics.
 
 Floats are written in Python's shortest round-trip form and read back to the same double, so a
 client computes on exactly the numbers an in-process agent would, and a deterministic agent flies
@@ -133,6 +133,9 @@ says a little about the true path ([environment.md](environment.md)).
 - The PD agent (clear path and target in the way, normalized and acceleration modes), an agent
   driven by its own random stream through 3 m of navigation noise, and a bang-off-bang agent in
   the discrete mode fly exactly the trajectories and commands of the same agents in process.
+- The view of every catalogue scenario and variant crosses the protocol as strict JSON, and a
+  lit docking episode (whose lighting window holds the central body) flies through the server as
+  in process; the MCP server describes that task in strict JSON.
 - A hand-written client sees only the view, its seed (the hashed one behind an in-process
   agent's generator) and spawn key, the observation and the time, then the close.
 - Without `--seeds` the host draws a different 128-bit seed for each episode and records it;

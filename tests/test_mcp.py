@@ -455,3 +455,12 @@ def test_the_command_line_reads_utf8_whatever_the_locale(tmp_path):
     assert responses[0] == {"jsonrpc": "2.0", "id": ident, "result": {}}
     assert responses[1]["error"]["code"] == PARSE_ERROR and responses[1]["id"] is None
     assert responses[2]["id"] == 3
+
+
+def test_a_lit_docking_task_is_described_in_strict_json():
+    from vbar.scenarios import make
+
+    server = ToolServer(make("docking:lit"), [3])
+    response = request(server, "tools/call", name="describe_task")
+    assert not response["result"]["isError"]
+    json.dumps(response, allow_nan=False)
