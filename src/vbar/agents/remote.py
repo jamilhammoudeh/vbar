@@ -37,6 +37,8 @@ import numpy as np
 from .base import Agent, AgentView
 
 PROTOCOL = 1
+# Seconds a new connection has to say hello before the server drops it and waits for another.
+HELLO_WAIT_S = 10.0
 # Longest message line accepted, in bytes; a view or an observation is a few kilobytes.
 MAX_LINE = 1 << 20
 
@@ -211,24 +213,36 @@ class AgentServer:
         return host, port
 
     def accept(self) -> RemoteAgent:
-        """Wait for one agent to connect and say hello."""
-        self.sock.settimeout(self.timeout)
-        try:
-            conn, _ = self.sock.accept()
-        except TimeoutError as error:
-            raise RemoteAgentError("no agent connected in time") from error
-        conn.settimeout(self.timeout)
-        line = _Line(conn)
-        try:
-            hello = line.receive()
-        except RemoteAgentError:
-            line.close()
-            raise
-        version = hello.get("protocol")
-        if hello.get("type") != "hello" or type(version) is not int or version != PROTOCOL:
-            line.close()
-            raise RemoteAgentError(f"expected a protocol {PROTOCOL} hello, got {hello}")
-        return RemoteAgent(line, str(hello.get("name", "remote")))
+        """Wait for an agent to connect and say a protocol hello.
+
+        A connection that sends no valid hello within `HELLO_WAIT_S` (or `timeout`, if shorter)
+        is closed and the server waits for the next one, so a silent or wrong first connection
+        cannot take the session from the agent behind it. The wait ends after `timeout` s with no
+        new connection.
+        """
+        refused = None
+        while True:
+            self.sock.settimeout(self.timeout)
+            try:
+                conn, _ = self.sock.accept()
+            except TimeoutError as error:
+                if refused is None:
+                    raise RemoteAgentError("no agent connected in time") from error
+                raise RemoteAgentError(f"no agent said a valid hello in time: {refused}") from error
+            conn.settimeout(min(self.timeout, HELLO_WAIT_S))
+            line = _Line(conn)
+            try:
+                hello = line.receive()
+                version = hello.get("protocol")
+                if hello.get("type") != "hello" or type(version) is not int or version != PROTOCOL:
+                    raise RemoteAgentError(f"expected a protocol {PROTOCOL} hello, got {hello}")
+            except RemoteAgentError as error:
+                line.close()
+                refused = str(error)
+                continue
+            conn.settimeout(self.timeout)
+            line.timeout = self.timeout
+            return RemoteAgent(line, str(hello.get("name", "remote")))
 
     def close(self) -> None:
         self.sock.close()

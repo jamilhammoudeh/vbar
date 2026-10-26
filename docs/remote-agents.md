@@ -49,6 +49,11 @@ result = run_episode(env, agent, seed=0)
 agent.close()                        # sends close
 ```
 
+`accept` gives each connection `HELLO_WAIT_S` (10 s), or the timeout if that is shorter, to say a
+protocol 1 hello; a connection that does not is closed and the server waits for the next, so a
+silent or wrong first connection cannot take the session from the agent behind it. It raises
+`RemoteAgentError` once the timeout passes with no new connection.
+
 `python -m vbar.agents.remote --port 5555 --episodes 3 --out results.jsonl` hosts the default
 approach scenario for one client, or with `--scenario` any catalogue scenario by name, variant or
 identifier (`--scenario docking:lit`), and writes one JSON line per episode with the result of
@@ -57,10 +62,10 @@ and recorded in its result; `--seeds` repeats given seeds instead. A client that
 can rebuild the true state from its first observation, so scored sessions keep the drawn seeds.
 However the session fails (a bad hello, a disconnect or reset, a line that is not JSON, not UTF-8 or
 too deeply nested to parse, an action the server cannot use), the episode being flown is written
-with `completed` false and the error, and so is every seed not yet flown; a failed hello records
-every seed unflown. The records are also written when the host itself is interrupted (Ctrl+C) before
-the interrupt goes on. Real-time runs ([agents.md](agents.md)) work through the server too; the
-measured latency then includes the network.
+with `completed` false and the error, and so is every seed not yet flown; when no valid hello
+arrives in time every seed is recorded unflown. The records are also written when the host itself is
+interrupted (Ctrl+C) before the interrupt goes on. Real-time runs ([agents.md](agents.md)) work
+through the server too; the measured latency then includes the network.
 
 ## Clients
 
@@ -140,7 +145,10 @@ says a little about the true path ([environment.md](environment.md)).
   record of the seed it never flew; so does an action of two numbers, a string, quoted numbers,
   booleans, a missing action or NaN (the trajectory stays finite), an abortive close, a send that
   fails mid-episode, a 401-digit integer, 200 000 levels of nesting and bytes that are not UTF-8; a
-  hello with the wrong protocol records both seeds unflown; a message sent a byte every 0.25 s times
+  hello with the wrong protocol and no agent after it records both seeds unflown; a wrong hello
+  followed by a valid one gives the valid agent, and a silent first connection is dropped after the
+  timeout and the PD agent behind it flies both seeds; with a 0.3 s hello wait and a 3 s timeout
+  an agent that takes 1 s per message still flies; a message sent a byte every 0.25 s times
   out after the 1 s timeout, a line over 1 MiB is refused, and an interrupt of the host mid-episode
   still writes both records before it propagates.
 - An agent returning `array([13])` in the discrete mode flies the in-process trajectory through

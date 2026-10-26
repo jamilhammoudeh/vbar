@@ -84,12 +84,13 @@ def test_remote_runs_match_in_process_runs_exactly(make, fields):
     assert local["captured"] == served["captured"]
 
 
-def raw_session(handle, timeout=HANG, config=None):
+def raw_session(handle, timeout=HANG, config=None, wait=HANG):
     """Run `handle(file)` as a hand-written client against a one-step episode.
 
-    `timeout` (s) bounds each answer the client gives after its hello.
+    `timeout` (s) bounds each answer the client gives after its hello; `wait` (s) is how long the
+    server waits for another connection after one that fails its hello.
     """
-    server = AgentServer(timeout=HANG)
+    server = AgentServer(timeout=wait)
     seen = {}
 
     def client():
@@ -155,7 +156,7 @@ def test_protocol_errors_and_silence_are_reported():
         send(stream, {"type": "hello", "name": "x", "protocol": 2})
 
     with pytest.raises(RemoteAgentError, match="protocol 1 hello"):
-        raw_session(wrong_version)
+        raw_session(wrong_version, wait=1.0)
 
     def silent(stream, seen):
         send(stream, {"type": "hello", "name": "x", "protocol": 1})
@@ -427,7 +428,8 @@ def test_a_failed_hello_records_every_seed_unflown(tmp_path):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
-    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)]
+    # The host waits this long for an agent after the refused hello.
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", "2"]
     host = threading.Thread(target=main, args=(argv,))
     host.start()
     sock = when_listening(host, lambda: connect(port))
@@ -539,9 +541,9 @@ def test_one_number_actions_cross_the_server_in_any_shape():
         remote_run(Wrong(np.array([np.nan, 0.0, 0.0])), ApproachConfig(max_steps=2))
 
 
-def raw_host_session(lines_after_hello):
+def raw_host_session(lines_after_hello, wait=HANG):
     """Send raw bytes to `AgentServer.accept` and return the agent or the error."""
-    server = AgentServer(timeout=HANG)
+    server = AgentServer(timeout=wait)
     outcome = {}
 
     def client():
@@ -593,9 +595,9 @@ def test_messages_sent_together_are_read_one_at_a_time():
 def test_hellos_that_fail_close_the_connection():
     long = b'{"type": "hello", "name": "' + b"x" * (remote.MAX_LINE + 10)
     for raw in (b'{"type": "hello", "name": "x", "protocol": true}\n', long):
-        outcome = raw_host_session(raw)
+        outcome = raw_host_session(raw, wait=1.0)
         assert "error" in outcome and outcome["closed"]
-    assert "longer than" in raw_host_session(long)["error"]
+    assert "longer than" in raw_host_session(long, wait=1.0)["error"]
 
 
 def test_the_client_converts_actions_as_the_environment_does():
@@ -659,3 +661,70 @@ def test_the_host_refuses_bad_options_before_it_listens(argv, message, capsys):
     with pytest.raises(SystemExit):
         main(argv)
     assert message in capsys.readouterr().err
+
+
+def test_a_failed_hello_does_not_take_the_session_from_the_next_agent():
+    server = AgentServer(timeout=HANG)
+    with socket.create_connection(server.address, timeout=HANG) as wrong:
+        wrong.sendall(b'{"type": "hello", "name": "old", "protocol": 0}\n')
+        with socket.create_connection(server.address, timeout=HANG) as right:
+            right.sendall(b'{"type": "hello", "name": "pd", "protocol": 1}\n')
+            agent = server.accept()
+            assert agent.name == "pd"
+            assert wrong.recv(1) == b""
+            agent.close()
+    server.close()
+
+
+def test_a_silent_first_connection_does_not_stop_the_agent_behind_it(tmp_path, monkeypatch):
+    # The silent connection holds the host for the 1 s hello wait, then the PD agent flies both.
+    monkeypatch.setattr(remote, "HELLO_WAIT_S", 1.0)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    out = tmp_path / "results.jsonl"
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)]
+    host = threading.Thread(target=main, args=(argv,))
+    host.start()
+    with when_listening(host, lambda: connect(port)):
+        when_listening(host, lambda: serve_agent(PDAgent(), "127.0.0.1", port, HANG))
+    host.join(HANG)
+    results = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [(r["seed"], r["completed"], r["agent"]) for r in results] == [
+        (1, True, "pd"),
+        (2, True, "pd"),
+    ]
+
+
+def test_an_agent_slower_than_the_hello_wait_still_gets_the_full_timeout(monkeypatch):
+    # The hello must come within 0.3 s; after it every message may take the 3 s timeout.
+    monkeypatch.setattr(remote, "HELLO_WAIT_S", 0.3)
+
+    def slow(stream, seen):
+        send(stream, {"type": "hello", "name": "slow", "protocol": 1})
+        receive(stream)
+        time.sleep(1.0)
+        send(stream, {"type": "ready"})
+        receive(stream)
+        time.sleep(1.0)
+        send(stream, {"type": "action", "action": [0.0, 0.0, 0.0]})
+        seen["closing"] = receive(stream)
+
+    # Not through raw_session, which sets the line's timeout itself after the accept.
+    server = AgentServer(timeout=3.0)
+    seen = {}
+
+    def client():
+        with socket.create_connection(server.address, timeout=HANG) as sock:
+            slow(sock.makefile("rwb"), seen)
+
+    thread = threading.Thread(target=client, daemon=True)
+    thread.start()
+    agent = server.accept()
+    try:
+        run_episode(ApproachEnv(ApproachConfig(max_steps=1)), agent, seed=0, agent_seed=5)
+    finally:
+        agent.close()
+        server.close()
+        thread.join(HANG)
+    assert seen["closing"]["type"] == "close"

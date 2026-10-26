@@ -622,6 +622,9 @@ release may change the public API, and every such change is listed under Changed
 - `python -m vbar.agents.mcp` decoded its input in the locale's code page, so on Windows a non-ASCII
   request (an id, a name) sent as UTF-8 came back garbled; it now reads UTF-8 whatever the locale,
   and a line that is not UTF-8 gets a parse error.
+- `AgentServer.accept` served the first connection only, so one that never said hello held the host
+  until its timeout and the session ended with every seed unflown; it now drops a connection that
+  sends no valid hello within 10 s (`HELLO_WAIT_S`) and waits for the next.
 
 ## [0.3.1] - 2026-10-24
 
