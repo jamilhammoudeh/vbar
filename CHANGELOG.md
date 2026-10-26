@@ -46,6 +46,129 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.dynamics.backends`: Basilisk and Orekit as independent propagators of the two-body plus J2
   rung (the optional extras `basilisk` and `orekit`), and the agreement table against them
   (`benchmarks/agreement_table.py`).
+- `relative_acceleration` in `vbar.dynamics`: the Hill-frame acceleration of a coasting chaser
+  from the target's inertial state, with or without J2, for model-based controllers.
+- `vbar.agents.lqr` design functions: discrete LQR by the discrete Riccati equation, the exact
+  sampled-data stage cost of a continuous quadratic cost (Van Loan), delay and input-rate
+  augmentation, and the steady-state input of a hold point.
+- `vbar.agents.planning`: `Impulse`, `impulse_action` (an impulse as a one-step burn with a coast,
+  or a multi-step burn when it exceeds one step of thrust) and `predicted_margin` (the keep-out
+  margin over a planned coast at the environment's sub-step samples, with its certified bound).
+- `vbar.agents.cw_targeting` functions: `cw_lambert` and `two_impulse` (Clohessy-Wiltshire
+  two-impulse targeting by solving the transition-matrix relation) and `conditioning` (a sensitivity
+  measure that vanishes on the singular transfer times).
+- `TwoImpulseAgent` (open-loop, re-targeting and tracking modes) and `TwoImpulseBound`, an
+  interim fuel oracle whose upper bound is the best two-impulse cost over a grid of transfer
+  angles, in `vbar.agents.cw_targeting`; the Curtis section 7.5 rendezvous examples are reproduced
+  in the tests.
+- `CWTrackingAgent` (the Clohessy-Wiltshire tracking law of Alfriend et al. with a reference
+  hook) and `LyapunovAgent` with `DeclaredModel` (the Cartesian Lyapunov law of Schaub and Junkins
+  on a declared two-body or J2 model) in `vbar.agents.lyapunov`.
+- Fehse trajectory elements in `vbar.agents.elements`: tangential and radial V-bar transfers, the
+  CW Hohmann, fly-arounds, forced straight-line motion, the twice-orbital-rate circle and
+  finite-burn durations, with the agents that fly them (`ElementAgent`, `TorvaAgent`,
+  `FehseSequenceAgent`, `NominalTrackingAgent`).
+- `GlideslopeAgent` in `vbar.agents.glideslope`: the exponential range-rate glideslope of Hablani,
+  Tapper and Dana-Bashian with pulses computed from the CW transition matrices between waypoints
+  on the line of sight.
+- `lambert` in `vbar.dynamics.lambert`: a universal-variable Lambert solver for the two-body
+  problem (single revolution, prograde or retrograde), checked against Montenbruck and Gill
+  Exercise 2.6 and the Lagrange-coefficient identities, refusing transfers too short for its
+  rounding; and `LambertAgent`, which targets the hold point on two-body truth from the mean motion
+  and a declared gravitational parameter.
+- `MissionManagerAgent` and `Mode` in `vbar.agents.mission`: a timeline of modes, each flown by its
+  own agent, with exit conditions, time limits, contingency and abort transitions, after Fehse
+  section 6.3.
+- `LQGAgent` and `LQGConfig` in `vbar.agents.lqg`: a steady-state Kalman filter on the CW model
+  with a declared sensor law and optional bias states, feeding the LQR hold-point regulator; a
+  baseline for noisy navigation, never an oracle.
+- `Mutant` and `MUTANT_KINDS` in `vbar.agents.mutants`: deliberately broken controllers (biases,
+  delay, sign errors, dither, chatter, a dropped Coriolis term, bang-bang) wrapped around any agent,
+  for checking that the metrics detect each fault and rank its severity.
+- Shuttle-practice baselines in `vbar.agents.shuttle`: the coelliptic (NSR) and football aim
+  points, an elevation-timed transfer burn, and a gate-following pilot model with fixed pulses
+  on the range rate and the line-of-sight rate, after Goodman, History of Space Shuttle Rendezvous.
+- The classical baselines in this section and `MUTANT_KINDS` are exported from `vbar.agents`; the
+  MPC and CLF-CBF baselines are imported from their modules. `docs/validation.md` lists the
+  published examples the baseline tests reproduce.
+- Every classical baseline that flies to the hold point refuses a goal whose task is not a hold or
+  a berthing, and a goal without a hold point, at reset, as the other built-in agents do;
+  `ElementAgent` and `TorvaAgent`, which never read the goal, accept any task.
+- `admissible_set` in `vbar.agents.mpc`: the maximal output admissible set of a stable closed loop
+  under symmetric row constraints, by the Gilbert and Tan iteration on unit-scaled rows, the terminal
+  set of the MPC baselines; every returned set is certified invariant by exact weak-duality
+  multipliers, and a set that cannot be certified raises.
+- `MPCConfig`, `mpc_problem` and `mpc_solve` in `vbar.agents.mpc`: the hold-point MPC horizon QP on
+  the zero-order-hold CW model from the shared regulator design, with keep-out rows sampled within
+  each step, a slack under an exact penalty, an optional terminal set, and the solver's status,
+  path and conflicting rows passed through from `vbar.solvers`.
+- `regulator_model` and `RegulatorModel` in `vbar.agents.lqr`: the LQR design (augmented model,
+  gain, Riccati solution, steady state and stage costs, with read-only arrays) shared by `LQRAgent`
+  and the MPC baselines, so an MPC equals the LQR wherever no constraint binds.
+- `PiecewiseAffineMPCAgent` in `vbar.agents.mpc_pwa`: the box-constrained regulator to a hold point
+  solved once at reset as a multiparametric quadratic program over a box of states, with each
+  decision a lookup in its table of polyhedral regions and one affine law; `mpqp_regions` and
+  `lookup` build and search the table.
+- `ClfCbfAgent` and `clf_cbf_qp` in `vbar.agents.clf_cbf`: a hold-point controller that solves one
+  small QP per decision, a control Lyapunov row at the LQR's guaranteed decay rate relaxed at a
+  cost and a keep-out barrier row with the thrust limit kept exactly, falling back to the
+  least-violation command when the rows conflict.
+- `certify_impulsive`, `PrimerCertificate`, `indirect_optimum` and `hamiltonian` in
+  `vbar.oracles`: Lawden's primer-vector conditions checked over the whole transfer for an
+  impulsive plan on CW motion in the actuator's norm, so a certified plan's cost is a known
+  optimum, and the finite-thrust optimum by the primer's switching control.
+- `minimum_time`, `MinimumTime` and `verify_infeasible` in `vbar.oracles`: the fewest held steps
+  into the capture ball on CW motion with box thrusters, with a plan verified by exact propagation
+  and, for each smaller step, a multiplier that proves no acceleration history within the limit
+  reaches the ball, or the step listed as uncertified.
+- `OracleAgent`, `expert_dataset` and `ExpertDataset` in `vbar.oracles`: an agent that flies the
+  verified fuel plan of the oracle open loop from its own view, and expert datasets of its episodes
+  on validation seeds, saved as NPZ files with a dataset card and regenerated byte for byte;
+  `benchmarks/make_datasets.py` writes them to a directory the caller names.
+- `PassingSideOracle`, `PassingSolution` and `PassingSide` in `vbar.oracles`: fuel bounds when the
+  target lies between the chaser and its goal, with one keep-out halfspace per side of approach pushed
+  until the plan clears the keep-out sphere between samples, and the lower bound of the fuel oracle
+  without the sphere.
+- Free final time and dwells in `FuelOracle`: without `arrival_step`, `solve` and `bounds` bound
+  the least delta-v of a success at any step of the episode, a hold with `hold_time` being in the
+  capture ball at floor(hold_time / dt) consecutive step boundaries, with a verified plan that
+  holds the dwell; `OracleConfig.arrival_candidates`, `bank_stride` and `max_refinements`.
+  `DualBank` in `vbar.oracles` reuses the multipliers of window programs across starts and
+  windows by a time shift, each bound evaluated through the primer bound, and `bounds_for(ep)`
+  gives the bounds of a recorded episode for the optimality-gap metrics. Docking goals and briefed
+  targets with burns raise `ValueError`.
+- `benchmarks/lower_bound_check.py`: flies every classical baseline and one mutant per kind on the
+  CW approach, acquisition and docking-afrl scenarios over public seeds, scores each run against a
+  `DualBank` bound for its start, prints runs, successes, certified runs and E3f flags per scenario
+  and agent, and exits with 1 when any run is flagged and 3 when no run was held to a certified
+  bound.
+- `FuelBounds.accel_limit` and `FuelBounds.impulsive_lower`: a lower bound counts as certified for
+  an episode only when its acceleration limit is at least what the run delivered (per axis for a
+  box, in 2-norm for a ball, at the final mass under the constant-thrust drive) as well as matching
+  its dynamics rung; otherwise it is reported as a model bound, and the certified figure falls back
+  to the impulsive bound when one is given. `Episode.drive` records the thrust drive from the
+  environment configuration. E3u is NaN for an infinite upper bound; E3, E3m, E3u, E3f and E3c are
+  at version 2, and the defaults reproduce version 1 exactly.
+- `vbar.oracles`: the CW primer vector and a rigorous finite-thrust dual lower bound on the fuel of
+  any admissible manoeuvre, with the dual norm of the thruster layout and a certificate that holds
+  between grid points (`vbar.oracles.primer`); and the exact constrained infinite-horizon LQ value
+  with its lower bound and a validity flag, for CW only (`vbar.oracles.lq`).
+- `FuelMPCAgent` in `vbar.agents.mpc_fuel`: fuel-optimal model predictive control by linear
+  programming on the CW model with a declared receding or shrinking horizon, the arrival time
+  reported, a unique applied action through a strictly convex tie-break, and a certified bound on
+  each plan's excess fuel over the linear-programming optimum; box thrust limits only.
+- `FuelOracle` in `vbar.oracles`: certified lower and upper bounds on the fuel of a success on the
+  CW model, at a free final time by default and at a fixed arrival step with `arrival_step`, by an
+  exact linear program for a box thrust layout and a bracket of linear programs for a ball,
+  returned as `FuelBounds` for the optimality-gap metrics.
+- `LQRAgent` and `LQRConfig` in `vbar.agents.lqr`: hold-point regulation on the discrete CW model
+  with the steady-state input as feedforward, a sampled-data or discrete stage cost, delay
+  augmentation from the pending-commands channel and an optional input-rate weight. The default
+  scales, 10 m, 0.03 m/s and the view's `max_accel`, give the slowest closed-loop mode a 333 s
+  time constant, so the agent reaches and holds the `approach-rbar` point within its episode.
+- `vbar.agents.lqg` functions: the steady-state Kalman gain of the discrete CW model and the
+  detectability test for sensor bias states (a constant along-track position bias is not
+  detectable).
 
 ### Changed
 
@@ -95,6 +218,9 @@ release may change the public API, and every such change is listed under Changed
 - The hidden test key is read without surrounding white space and in either case and must be at
   least 32 hex digits, so a key read from its file with the newline gives the same split as the
   bare key.
+- `PDAgent` clipped each axis to `max_accel` even on a ball thrust layout, so a diagonal command
+  exceeded the limit in 2-norm and the actuator saturated it; it now scales such a command back
+  to the ball with its direction kept, and refuses an unknown thrust layout at reset.
 
 ## [0.3.1] - 2026-10-24
 
@@ -308,9 +434,6 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
-- `PDAgent` clipped each axis to `max_accel` even on a ball thrust layout, so a diagonal command
-  exceeded the limit in 2-norm and the actuator saturated it; it now scales such a command back
-  to the ball with its direction kept, and refuses an unknown thrust layout at reset.
 - An agent could read `agent_seed` back from its own generator and, when it equalled the
   episode seed, rebuild the start state and the sensor noise. The agent's stream is now seeded
   from a hash of `agent_seed` (`vbar.agents.agent_generator`), so agents that draw random numbers
