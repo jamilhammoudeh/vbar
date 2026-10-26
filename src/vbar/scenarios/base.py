@@ -87,6 +87,82 @@ class EnvConfig:
     reward: Reward | None = None
     training: bool = False
 
+    def __post_init__(self):
+        # A NaN or negative entry would not fail loudly: a NaN step count removes the limit
+        # and a NaN keep-out reports no violation, so every number is checked here.
+        positive = ("dt", "max_accel", "isp", "mass_kg", "altitude_m")
+        for name in positive:
+            check_number(name, getattr(self, name), low=0.0, strict=True)
+        for name in ("min_impulse", "delay_s"):
+            check_number(name, getattr(self, name), low=0.0)
+        check_number("inclination", self.inclination)
+        if self.propellant_kg is not None:
+            check_number("propellant_kg", self.propellant_kg, low=0.0)
+            if self.propellant_kg > self.mass_kg:
+                raise ValueError("propellant_kg must not exceed mass_kg")
+        check_count("max_steps", self.max_steps, 1)
+        check_count("violation_samples", self.violation_samples, 2)
+
+
+def check_number(name: str, value: Any, low: float = -math.inf, strict: bool = False) -> float:
+    """`value` as a finite float not below `low` (above it when `strict`).
+
+    Parameters
+    ----------
+    name : str
+        The setting's name, for the message.
+    value : Any
+        The value.
+    low : float
+        Lower limit.
+    strict : bool
+        Whether `low` itself is refused.
+
+    Returns
+    -------
+    float
+        The value.
+
+    Raises
+    ------
+    ValueError
+        If the value is not a finite real number at or above (or above) `low`.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float | np.integer | np.floating):
+        raise ValueError(f"{name} must be a number, not {type(value).__name__}")
+    number = float(value)
+    if not math.isfinite(number) or number < low or (strict and number == low):
+        side = "above" if strict else "at least"
+        raise ValueError(f"{name} must be finite and {side} {low:g}, not {value!r}")
+    return number
+
+
+def check_count(name: str, value: Any, low: int) -> int:
+    """`value` as a whole number of at least `low`.
+
+    Parameters
+    ----------
+    name : str
+        The setting's name, for the message.
+    value : Any
+        The value.
+    low : int
+        Least allowed value.
+
+    Returns
+    -------
+    int
+        The value.
+
+    Raises
+    ------
+    ValueError
+        If the value is not an integer of at least `low`.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | np.integer) or value < low:
+        raise ValueError(f"{name} must be an integer of at least {low}, not {value!r}")
+    return int(value)
+
 
 @dataclass(frozen=True)
 class SegmentTrace:

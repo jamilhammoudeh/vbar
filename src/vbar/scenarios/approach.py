@@ -20,7 +20,7 @@ from typing import Any
 import numpy as np
 
 from ..constraints import Constraint, KeepOut
-from .base import BaseEnv, EnvConfig, StepRecord
+from .base import BaseEnv, EnvConfig, StepRecord, check_number
 
 
 @dataclass(kw_only=True)
@@ -40,6 +40,15 @@ class ApproachConfig(EnvConfig):
     start_vel_range: tuple = ((-0.1, 0.1), (-0.1, 0.1), (-0.1, 0.1))
     terminate_on_violation: bool = False
     reward_dv_weight: float = 1.0
+
+    def __post_init__(self):
+        super().__post_init__()
+        for name in ("keep_out_radius", "capture_radius", "capture_speed"):
+            check_number(name, getattr(self, name), low=0.0)
+        if len(self.hold_point) != 3:
+            raise ValueError("hold_point has three components")
+        for c in self.hold_point:
+            check_number("hold_point", c)
 
 
 class ApproachEnv(BaseEnv):

@@ -40,6 +40,10 @@ release may change the public API, and every such change is listed under Changed
   wrong shape were flown as a coast, and a nonzero action of the wrong length had already been
   queued and paid for when it failed. The vector environment no longer takes the actions as one
   flat array.
+- `EnvConfig`, `ApproachConfig`, `MetricSettings`, `KeepOut`, `SpeedLimit` and
+  `ClosingSpeedLimit` raise `ValueError` for NaN, infinite or non-numeric values, and for negative
+  ones where the quantity cannot be negative (a NaN keep-out radius reported no violation, a
+  negative collision radius scored every drift safe).
 
 ### Fixed
 

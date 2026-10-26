@@ -49,8 +49,44 @@ class MetricSettings:
     stall_speed: float = 0.01
 
     def __post_init__(self):
-        for label in ("passive_exclusion", "commit_radius", "stuck_time", "cam_delay", "cam_dv"):
-            if not getattr(self, label) >= 0.0:
-                raise ValueError(f"{label} must not be negative")
+        # A wrong sign passes silently otherwise: a negative collision radius scores every
+        # drift as passively safe.
+        for label in (
+            "passive_exclusion",
+            "commit_radius",
+            "stuck_time",
+            "cam_delay",
+            "cam_dv",
+            "oscillation_threshold",
+            "stall_speed",
+        ):
+            _check(label, getattr(self, label))
+        for label in ("plume_sigma", "plume_half_angle", "plume_target_area"):
+            _check(label, getattr(self, label), positive=True)
+        for label in ("collision_radius", "drift_horizon", "cam_horizon"):
+            if getattr(self, label) is not None:
+                _check(label, getattr(self, label), positive=True)
+        if self.plume_range is not None:
+            _check("plume_range", self.plume_range)
+        if not 0.0 < self.plume_sigma < math.pi or not 0.0 < self.plume_half_angle < math.pi:
+            raise ValueError("plume_sigma and plume_half_angle are angles in (0, pi) rad")
+        for impulse in self.cam_impulses or ():
+            if len(impulse) != 3 or not all(math.isfinite(float(c)) for c in impulse):
+                raise ValueError("cam_impulses are finite 3-vectors (m/s)")
+        for name, weight in (self.composite_weights or {}).items():
+            _check(f"composite_weights[{name!r}]", weight)
+        for label in ("partial_burn_samples", "drift_samples_per_orbit"):
+            value = getattr(self, label)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{label} must be an integer")
+        if self.partial_burn_samples < 0:
+            raise ValueError("partial_burn_samples must not be negative")
         if self.drift_samples_per_orbit < 8:
             raise ValueError("drift_samples_per_orbit must be at least 8")
+
+
+def _check(label: str, value: float, positive: bool = False) -> None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{label} must be a number")
+    if not math.isfinite(value) or value < 0.0 or (positive and value == 0.0):
+        raise ValueError(f"{label} must be finite and {'positive' if positive else 'not negative'}")

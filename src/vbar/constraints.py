@@ -19,6 +19,7 @@ bound on |r|^2); the certificate is then the larger of the two on each interval.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol, cast
@@ -78,11 +79,21 @@ def _vector3(value, name: str) -> tuple[float, float, float]:
 
 @dataclass(frozen=True)
 class KeepOut:
-    """Stay outside a sphere of `radius` (m) around the target; margin rho - radius (m)."""
+    """Stay outside a sphere of `radius` (m) around the target; margin rho - radius (m).
+
+    Raises
+    ------
+    ValueError
+        If `radius` is negative or not finite; a radius of 0 makes the margin the range.
+    """
 
     radius: float
     name: str = "keep_out"
     resolution: ClassVar[float] = 1e-3
+
+    def __post_init__(self):
+        if not (math.isfinite(self.radius) and self.radius >= 0.0):
+            raise ValueError("radius must be finite and not negative")
 
     def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
         return np.linalg.norm(np.asarray(state)[..., :3], axis=-1) - self.radius
@@ -188,6 +199,12 @@ class SpeedLimit:
     name: str = "speed_limit"
     resolution: ClassVar[float] = 1e-5
 
+    def __post_init__(self):
+        # A law may allow less than zero somewhere (the closing-speed ratio is then infinite);
+        # only a NaN or infinite coefficient hides a breach.
+        if not (math.isfinite(self.v0) and math.isfinite(self.v1)):
+            raise ValueError("v0 and v1 must be finite")
+
     def margin(self, state: np.ndarray, t: float | np.ndarray = 0.0) -> np.ndarray:
         state = np.asarray(state)
         rho = np.linalg.norm(state[..., :3], axis=-1)
@@ -208,6 +225,12 @@ class ClosingSpeedLimit:
     v1: float
     name: str = "closing_speed_limit"
     resolution: ClassVar[float] = 1e-5
+
+    def __post_init__(self):
+        # A law may allow less than zero somewhere (the closing-speed ratio is then infinite);
+        # only a NaN or infinite coefficient hides a breach.
+        if not (math.isfinite(self.v0) and math.isfinite(self.v1)):
+            raise ValueError("v0 and v1 must be finite")
 
     def allowed_speed(self, rho: np.ndarray) -> np.ndarray:
         """Highest allowed closing speed (m/s) at range `rho` (m)."""
