@@ -146,6 +146,9 @@ on a turning target has (Fehse 8.3.6):
   parameters and the body rate and attitude at $t = 0$, from which an agent can rebuild the whole
   tumble. Every mode also gives `angular_acceleration_bound(n)`, which certifies predicates on
   points that move with the target.
+- `GravityGradientTumble(...)`, with the parameters of `TorqueFree`: the same tumble at t = 0, then
+  under the gravity-gradient torque of the target's circular orbit, integrated numerically, with
+  rate bounds from the orbit-frame Jacobi integral ([rigid-body.md](rigid-body.md)).
 - `Maneuvering(schedule, attitude)`: a target that burns on a schedule of (start, duration, Hill
   acceleration). The chaser's relative state feels the opposite acceleration, exact in the
   Clohessy-Wiltshire model and first order in the target's orbit change otherwise; the

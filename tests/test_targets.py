@@ -9,6 +9,7 @@ from vbar.dynamics import EARTH, CWDynamics, cw_discrete, cw_stm, mean_motion
 from vbar.scenarios.targets import (
     BodyKeepOut,
     FixedOffset,
+    GravityGradientTumble,
     InertialPointing,
     LightingWindow,
     Maneuvering,
@@ -340,14 +341,16 @@ def test_free_drift_identity_holds_for_the_wrapped_model():
         TorqueFree((1000.0, 4200.0, 4700.0), 1300.0, 0.05, 0.7, (0.0, 0.0, -1.0), 2.0),
         # A pure spin about the major axis with H off z: only the Hill frame's turn moves its rate.
         TorqueFree((1000.0, 4200.0, 4700.0), 4700.0, 0.03, 0.0, (1.0, 0.0, 0.0)),
+        GravityGradientTumble((1000.0, 4200.0, 4700.0), 4650.0, 0.004, 0.3, (0.2, -0.4, 0.9), 0.7),
     ],
     ids=lambda mode: mode.name,
 )
 def test_angular_velocity_is_the_rate_of_the_attitude_matrix(mode):
     # dR/dt R^T is the skew matrix of the body rate in Hill axes; the central difference at 1e-3 s
     # is off by about w (w h)^2 / 6, about 6e-11 rad/s at the fastest rate here (0.07 rad/s),
-    # inside the 1e-9 rad/s tolerance.
-    times = np.array([0.0, 137.0, 911.0])
+    # inside the 1e-9 rad/s tolerance. The times stay after t = 0, before which an integrated
+    # tumble is not defined.
+    times = np.array([1.0, 137.0, 911.0])
     h = 1e-3
     skew = (mode.matrix(times + h, N) - mode.matrix(times - h, N)) / (2.0 * h)
     skew = skew @ np.swapaxes(mode.matrix(times, N), -1, -2)
@@ -387,3 +390,17 @@ def test_a_torque_free_tumble_keeps_its_momentum_fixed_inertially():
         TorqueFree((1000.0, 4200.0, 4700.0), 4200.0, 0.03)
     with pytest.raises(ValueError):
         TorqueFree((1000.0, 4200.0, 4700.0), 4300.0, 0.03, momentum_direction=(0.0, 0.0, 0.0))
+
+
+def test_the_gravity_gradient_tumble_starts_as_briefed_and_departs_from_the_torque_free_one():
+    # Both modes start from the same briefed state; the torque then turns a slow tumble away from
+    # the torque-free motion within an orbit, while a body with no orbit (n = 0) follows it.
+    keys = dict(moments=(1000.0, 4200.0, 4700.0), effective_inertia=4650.0, rate=0.004, phase=0.3)
+    torqued = GravityGradientTumble(**keys, momentum_direction=(0.2, -0.4, 0.9), spin_angle=0.7)
+    free = TorqueFree(**keys, momentum_direction=(0.2, -0.4, 0.9), spin_angle=0.7)
+    assert torqued.matrix(0.0, N) == pytest.approx(free.matrix(0.0, N), abs=1e-15)
+    assert torqued.public(N) == {**free.public(N), "mode": "gravity_gradient"}
+    later = np.array([3000.0])
+    apart = np.linalg.norm(torqued.matrix(later, N) - free.matrix(later, N))
+    assert apart > 1e-3
+    assert torqued.matrix(later, 0.0) == pytest.approx(free.matrix(later, 0.0), abs=1e-8)

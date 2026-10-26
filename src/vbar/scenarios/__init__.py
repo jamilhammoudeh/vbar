@@ -38,6 +38,7 @@ from .spec import (
 from .suites import SUITES, Suite, SuiteEntry, register_suite
 from .targets import (
     FixedOffset,
+    GravityGradientTumble,
     InertialPointing,
     Maneuvering,
     Misbriefed,
@@ -72,6 +73,7 @@ __all__ = [
     "EnvConfig",
     "Fixed",
     "FixedOffset",
+    "GravityGradientTumble",
     "HoldParams",
     "HoldPointEnv",
     "InertialPointing",

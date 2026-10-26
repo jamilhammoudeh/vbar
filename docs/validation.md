@@ -372,6 +372,8 @@ and 2160 draws).
 - Eq. 4.42: the transverse rate of an axisymmetric body turns at (I3 / I_T - 1) w3 in the body.
 - Problem 4.9: I = diag(210, 200, 118) kg m^2 and w0 = (0.2, 0.15, -0.18) rad/s keep T = 8.3616 J
   and |H| = 55.8134 N m s, the momentum fixed in inertial space.
+- Eq. 4.158, in V-BAR axes (the largest moment about the orbit normal z, the smallest radial): a
+  small pitch about z librates under the gravity-gradient torque at n sqrt(3 (I_yy - I_xx) / I_zz).
 
 **Scheeres, *Orbital Motion in Strongly Perturbed Environments*** (2012), section 3.2:
 

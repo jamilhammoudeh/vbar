@@ -13,9 +13,10 @@ from unittest import mock
 import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
+from scipy.optimize import brentq
 from scipy.spatial.transform import Rotation
 
-from vbar.dynamics.rigid_body import TorqueFreeMotion, principal_axes
+from vbar.dynamics.rigid_body import GravityGradientMotion, TorqueFreeMotion, principal_axes
 
 
 def integrated(bodies):
@@ -255,3 +256,88 @@ def test_the_exact_separatrix_and_bad_inputs_are_refused():
         TorqueFreeMotion((1.0, 0.0, 3.0), (0.1, 0.0, 0.0))
     with pytest.raises(ValueError):
         TorqueFreeMotion((1.0, 2.0, 3.0), (0.1, 0.0), (0, 0, 0, 1))
+
+
+def test_without_an_orbit_the_gravity_gradient_motion_is_the_closed_form():
+    # At n = 0 the torque vanishes, so the integrated motion is the torque-free closed form: a
+    # check of the integration against the independent solution.
+    moments, omega = (1000.0, 4200.0, 4700.0), (0.004, -0.006, 0.017)
+    attitude = Rotation.from_rotvec([0.3, 0.9, -1.2]).as_quat()
+    numeric = GravityGradientMotion(moments, omega, attitude, 0.0)
+    closed = TorqueFreeMotion(moments, omega, attitude)
+    times = np.linspace(0.0, 1000.0, 41)
+    assert np.max(angle_between(numeric.matrix(times), closed.matrix(times))) < 1e-8
+    assert numeric.omega(times) == pytest.approx(closed.omega(times), abs=1e-10)
+    with pytest.raises(ValueError):
+        numeric.matrix(-1.0)
+
+
+def test_the_gravity_gradient_motion_keeps_its_jacobi_integral_and_bounds():
+    # On a circular orbit the attitude keeps J = 1/2 w_r . I w_r + 3/2 n^2 o . I o
+    # - 1/2 n^2 z . I z; the rate bounds it gives hold along the motion.
+    n = 1.1e-3
+    moments = np.array([1000.0, 4200.0, 4700.0])
+    motion = GravityGradientMotion(
+        moments, (0.002, -0.003, 0.006), Rotation.from_rotvec([1.0, -0.5, 0.2]).as_quat(), n
+    )
+    times = np.linspace(0.0, 1800.0, 181)
+    r_nb, w = motion.matrix(times), motion.omega(times)
+    values = [motion._jacobi(t, r, v) for t, r, v in zip(times, r_nb, w, strict=True)]
+    assert np.array(values) == pytest.approx(motion.jacobi, rel=1e-10)
+    normal = np.einsum("tji,j->ti", r_nb, (0.0, 0.0, 1.0))
+    relative = np.linalg.norm(w - n * normal, axis=-1)
+    assert np.all(relative <= motion.relative_rate_bound())
+    spin_up = np.diff(w - n * normal, axis=0) / np.diff(times)[:, None]
+    largest = np.max(np.linalg.norm(spin_up, axis=-1))
+    # The componentwise bound is 7 times the largest spin-up of this tumble; one much looser would
+    # brief the capture point as far quicker to speed up than it is.
+    assert largest <= motion.relative_acceleration_bound() <= 10.0 * largest
+    # The same time asked for alone or after others gives the same attitude: whole pieces.
+    for t in (1500.0, 3000.0):
+        alone = GravityGradientMotion(
+            moments, (0.002, -0.003, 0.006), Rotation.from_rotvec([1.0, -0.5, 0.2]).as_quat(), n
+        )
+        assert np.array_equal(alone.matrix(t), motion.matrix(t))
+    with pytest.raises(ValueError):
+        motion.matrix(np.inf)
+
+
+def test_the_relative_rate_bound_is_reached_on_the_long_axis_radial():
+    # Long axis radial and largest axis on the orbit normal is the potential's minimum, and a
+    # relative rate about the smallest axis holds all of J - V_min, so the bound is equality.
+    n = 1.1e-3
+    motion = GravityGradientMotion((1000.0, 4200.0, 4700.0), (0.003, 0.0, n), (0, 0, 0, 1), n)
+    assert motion.relative_rate_bound() == pytest.approx(0.003, rel=1e-12)
+
+
+@pytest.mark.parametrize("pitch", [0.2, 2.0])
+def test_a_small_pitch_librates_at_schaubs_gravity_gradient_frequency(pitch):
+    # Schaub and Junkins, eq. 4.158, in V-BAR axes (largest moment about the orbit normal z,
+    # smallest along the radial x): a body held on the Hill axes and pitched by a small angle
+    # librates about z at n sqrt(3 (I_yy - I_xx) / I_zz). The torque goes as sin 2 theta, a
+    # pendulum in 2 theta, so the period is longer by (2 theta_0)^2 / 16 at amplitude theta_0.
+    # The next term of the series, 11/3072 (2 theta_0)^4, is 8.5e-8 at 2 deg, inside 1e-6.
+    n = 1.1e-3
+    moments = np.array([1000.0, 4200.0, 4700.0])
+    delta = math.radians(pitch)
+    motion = GravityGradientMotion(
+        moments, (0.0, 0.0, n), Rotation.from_rotvec([0.0, 0.0, delta]).as_quat(), n
+    )
+    linear = 2.0 * math.pi / (n * math.sqrt(3.0 * (moments[1] - moments[0]) / moments[2]))
+    times = np.linspace(0.0, 2.2 * linear, 22001)
+    r_hb = np.einsum("tij,tjk->tik", _turn(-n * times), motion.matrix(times))
+    angle = np.arctan2(r_hb[:, 1, 0], r_hb[:, 0, 0])
+    down = np.flatnonzero((angle[:-1] > 0.0) & (angle[1:] <= 0.0))
+    crossings = [brentq(lambda s: _pitch(motion, n, s), times[k], times[k + 1]) for k in down]
+    period = crossings[1] - crossings[0]
+    assert period == pytest.approx(linear * (1.0 + (2.0 * delta) ** 2 / 16.0), rel=1e-6)
+    assert np.max(np.abs(angle)) == pytest.approx(delta, rel=1e-6)
+
+
+def _turn(angle):
+    return Rotation.from_rotvec(np.outer(angle, (0.0, 0.0, 1.0))).as_matrix()
+
+
+def _pitch(motion, n, t):
+    r_hb = _turn(np.array([-n * t]))[0] @ motion.matrix(t)
+    return math.atan2(r_hb[1, 0], r_hb[0, 0])

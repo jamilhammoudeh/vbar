@@ -1,4 +1,4 @@
-"""Torque-free rigid-body attitude in closed form.
+"""Rigid-body attitude: torque-free in closed form, and under the gravity-gradient torque.
 
 A rigid body free of torques keeps its rotational energy T and its angular momentum H, fixed in
 inertial space. With principal moments I1 < I2 < I3 and the effective inertia D = H^2 / (2 T),
@@ -28,6 +28,7 @@ import math
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.integrate import solve_ivp
 from scipy.spatial.transform import Rotation
 from scipy.special import ellipj, ellipk, ellipkinc, elliprf, elliprj
 
@@ -422,6 +423,216 @@ class TorqueFreeMotion:
         return cls(moments, omega, Rotation.from_matrix(about @ to_h).as_quat())
 
 
+class GravityGradientMotion:
+    """The attitude and body rate of a rigid body under the gravity-gradient torque of a circular
+    orbit, integrated numerically.
+
+    The torque is L = 3 n^2 (o x I o), with o the radial unit vector in body axes (Schaub and
+    Junkins, Analytical Mechanics of Space Systems, 4th ed., eq. 4.132, written in the Hill frame's
+    axes, where the radial direction is x). The inertial frame coincides with the Hill frame at
+    t = 0 and the Hill frame turns at n about z, so the radial direction in inertial axes is
+    (cos n t, sin n t, 0). Euler's equations and the quaternion kinematics q_dot = 1/2 q (x) [w, 0]
+    are integrated with DOP853 at a relative tolerance of 1e-12 in fixed 600 s pieces from t = 0,
+    so a time's attitude does not depend on which times were asked for before it. In the orbit
+    frame the motion keeps the integral
+
+        J = 1/2 w_r . I w_r + 3/2 n^2 o . I o - 1/2 n^2 z . I z,  w_r = w - n z,
+
+    with z the orbit normal in body axes (the Jacobi integral of a body on a circular orbit), which
+    bounds the rate relative to the Hill frame.
+
+    Parameters
+    ----------
+    moments : array_like
+        Principal moments about the body x, y and z axes (kg m^2), shape (3,), positive.
+    omega : array_like
+        Body rate at t = 0 (rad/s), body axes, inertial, shape (3,).
+    attitude : array_like
+        Quaternion q_n_b at t = 0, scalar last, shape (4,), nonzero; normalised here.
+    n : float
+        Mean motion of the circular orbit (rad/s).
+
+    Raises
+    ------
+    ValueError
+        If a moment is not positive or the inputs have the wrong shapes.
+    """
+
+    piece = 600.0
+
+    def __init__(self, moments: ArrayLike, omega: ArrayLike, attitude: ArrayLike, n: float):
+        moments = np.asarray(moments, dtype=float)
+        omega = np.asarray(omega, dtype=float)
+        q = np.asarray(attitude, dtype=float)
+        if moments.shape != (3,) or omega.shape != (3,) or q.shape != (4,):
+            raise ValueError("moments and omega are 3-vectors and attitude a quaternion")
+        if not np.all(moments > 0.0) or not np.linalg.norm(q) > 0.0:
+            raise ValueError("moments must be positive and attitude nonzero")
+        self.moments, self.n = moments, float(n)
+        self.omega0 = omega
+        self.r0 = Rotation.from_quat(q).as_matrix()
+        self.pieces: list = []
+        self.start = np.r_[q / np.linalg.norm(q), omega]
+        self.jacobi = self._jacobi(0.0, self.r0, omega)
+
+    def _jacobi(self, t: float, r_nb: np.ndarray, w: np.ndarray) -> float:
+        n, inertia = self.n, self.moments
+        radial = r_nb.T @ np.array([math.cos(n * t), math.sin(n * t), 0.0])
+        normal = r_nb.T @ np.array([0.0, 0.0, 1.0])
+        w_r = w - n * normal
+        potential = 1.5 * n**2 * radial @ (inertia * radial) - 0.5 * n**2 * normal @ (
+            inertia * normal
+        )
+        return float(0.5 * w_r @ (inertia * w_r) + potential)
+
+    def _rhs(self, t: float, y: np.ndarray) -> np.ndarray:
+        n, inertia = self.n, self.moments
+        x, yy, z, s = y[:4] / np.linalg.norm(y[:4])
+        w = y[4:]
+        # The radial direction in body axes, R_n_b^T (cos n t, sin n t, 0), from the unit
+        # quaternion directly: building a rotation object at every evaluation costs more than
+        # the rest of the right-hand side.
+        c, sn = math.cos(n * t), math.sin(n * t)
+        radial = np.array(
+            [
+                (1.0 - 2.0 * (yy * yy + z * z)) * c + 2.0 * (x * yy + z * s) * sn,
+                2.0 * (x * yy - z * s) * c + (1.0 - 2.0 * (x * x + z * z)) * sn,
+                2.0 * (x * z + yy * s) * c + 2.0 * (yy * z - x * s) * sn,
+            ]
+        )
+        torque = 3.0 * n**2 * np.cross(radial, inertia * radial)
+        dw = (torque - np.cross(w, inertia * w)) / inertia
+        wx, wy, wz = w
+        dq = 0.5 * np.array(
+            [
+                s * wx + yy * wz - z * wy,
+                s * wy + z * wx - x * wz,
+                s * wz + x * wy - yy * wx,
+                -x * wx - yy * wy - z * wz,
+            ]
+        )
+        return np.r_[dq, dw]
+
+    def _cover(self, t_max: float) -> None:
+        """Integrate whole pieces until they reach `t_max`."""
+        while not self.pieces or len(self.pieces) * self.piece < t_max:
+            k = len(self.pieces)
+            y0 = self.start if k == 0 else self.pieces[-1](k * self.piece)
+            sol = solve_ivp(
+                self._rhs,
+                (k * self.piece, (k + 1) * self.piece),
+                y0,
+                method="DOP853",
+                rtol=1e-12,
+                atol=1e-14,
+                dense_output=True,
+            )
+            self.pieces.append(sol.sol)
+
+    def _states(self, t: ArrayLike) -> np.ndarray:
+        t = np.asarray(t, dtype=float)
+        if not np.all(np.isfinite(t)) or np.any(t < 0.0):
+            raise ValueError("times must be finite and not before t = 0")
+        flat = t.ravel()
+        self._cover(float(flat.max()) if flat.size else 0.0)
+        index = np.minimum((flat // self.piece).astype(int), len(self.pieces) - 1)
+        out = np.empty((flat.size, 7))
+        for k in np.unique(index):
+            rows = index == k
+            out[rows] = self.pieces[k](flat[rows]).T
+        return out.reshape(*t.shape, 7)
+
+    def omega(self, t: ArrayLike) -> np.ndarray:
+        """Body rate at `t`.
+
+        Parameters
+        ----------
+        t : array_like
+            Time since t = 0 (s), any shape, finite and not negative.
+
+        Returns
+        -------
+        numpy.ndarray
+            Body rate (rad/s), body axes, inertial, shape (*t.shape, 3).
+
+        Raises
+        ------
+        ValueError
+            If a time is negative or not finite.
+        """
+        return self._states(t)[..., 4:]
+
+    def matrix(self, t: ArrayLike) -> np.ndarray:
+        """Attitude R_n_b at `t`.
+
+        Parameters
+        ----------
+        t : array_like
+            Time since t = 0 (s), any shape, finite and not negative.
+
+        Returns
+        -------
+        numpy.ndarray
+            Rotation matrices from body to inertial axes, shape (*t.shape, 3, 3).
+
+        Raises
+        ------
+        ValueError
+            If a time is negative or not finite.
+        """
+        q = self._states(t)[..., :4]
+        q = q / np.linalg.norm(q, axis=-1, keepdims=True)
+        flat = Rotation.from_quat(q.reshape(-1, 4)).as_matrix()
+        return flat.reshape(*np.shape(t), 3, 3)
+
+    def angular_velocity(self, t: ArrayLike) -> np.ndarray:
+        """Body rate in inertial axes, R_n_b w, at `t`.
+
+        Parameters
+        ----------
+        t : array_like
+            Time since t = 0 (s), any shape, finite and not negative.
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), inertial axes, shape (*t.shape, 3).
+
+        Raises
+        ------
+        ValueError
+            If a time is negative or not finite.
+        """
+        states = self._states(t)
+        q = states[..., :4] / np.linalg.norm(states[..., :4], axis=-1, keepdims=True)
+        r_nb = Rotation.from_quat(q.reshape(-1, 4)).as_matrix().reshape(*np.shape(t), 3, 3)
+        return np.einsum("...ij,...j->...i", r_nb, states[..., 4:])
+
+    def relative_rate_bound(self) -> float:
+        """Bound on the rate relative to the Hill frame (rad/s), from the integral J.
+
+        The potential is at least 3/2 n^2 I_min - 1/2 n^2 I_max, so
+        |w_r| <= sqrt(2 (J - V_min) / I_min).
+        """
+        least, most = float(self.moments.min()), float(self.moments.max())
+        floor = 1.5 * self.n**2 * least - 0.5 * self.n**2 * most
+        return math.sqrt(max(2.0 * (self.jacobi - floor) / least, 0.0))
+
+    def relative_acceleration_bound(self) -> float:
+        """Bound on the derivative of the rate relative to the Hill frame (rad/s^2).
+
+        Euler's equations bound each component: dw_i/dt = (I_k - I_j)(3 n^2 o_j o_k - w_j w_k)
+        / I_i for (i, j, k) cyclic, with |o_j o_k| <= 1/2 for the unit radial vector and
+        |w_j w_k| <= |w|^2 / 2 <= (W + n)^2 / 2, W the relative rate bound. The orbit normal turns
+        in body axes at most at |w|, which adds n (W + n).
+        """
+        n, inertia = abs(self.n), self.moments
+        rate = self.relative_rate_bound() + n
+        spread = np.abs(np.roll(inertia, -1) - np.roll(inertia, 1))
+        body = spread * (1.5 * n**2 + 0.5 * rate**2) / inertia
+        return float(np.linalg.norm(body)) + n * rate
+
+
 def _align(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """A rotation matrix taking the unit vector `a` to the unit vector `b`."""
     axis = np.cross(a, b)
@@ -435,4 +646,4 @@ def _align(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return Rotation.from_rotvec(axis / s * math.atan2(s, c)).as_matrix()
 
 
-__all__ = ["TorqueFreeMotion", "principal_axes"]
+__all__ = ["GravityGradientMotion", "TorqueFreeMotion", "principal_axes"]

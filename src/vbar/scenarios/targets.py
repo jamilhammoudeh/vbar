@@ -5,7 +5,8 @@ A target mode gives the rotation from the target's body axes to the Hill frame a
 (`Passive`), a fixed attitude offset such as a torque-equilibrium attitude with a limit cycle
 (`FixedOffset`), inertially pointing (`InertialPointing`, whose axes turn at -n in the Hill
 frame), spinning about a body axis fixed in the Hill frame (`Tumbling`), a rigid body tumbling
-free of torques (`TorqueFree`) and a target that burns on a schedule
+free of torques (`TorqueFree`) or under the gravity-gradient torque (`GravityGradientTumble`)
+and a target that burns on a schedule
 (`Maneuvering`). `Misbriefed` tells agents one mode while the truth follows another. Body axes
 coincide with the Hill axes at zero attitude: a port on the -V-bar face has body position
 (0, -R, 0) and axis (0, -1, 0).
@@ -24,7 +25,7 @@ from scipy.spatial.transform import Rotation
 
 from ..dynamics import Dynamics
 from ..dynamics.bodies import EARTH, Body
-from ..dynamics.rigid_body import TorqueFreeMotion
+from ..dynamics.rigid_body import GravityGradientMotion, TorqueFreeMotion
 
 
 def rotation_z(angle: ArrayLike) -> np.ndarray:
@@ -828,6 +829,99 @@ class TorqueFree:
             Empty.
         """
         return ()
+
+
+@dataclass(frozen=True)
+class GravityGradientTumble(TorqueFree):
+    """The tumble of `TorqueFree` under the gravity-gradient torque of the target's circular orbit.
+
+    The parameters set the attitude and body rate at t = 0 exactly as for `TorqueFree`; from there
+    `vbar.dynamics.rigid_body.GravityGradientMotion` integrates Euler's equations with the torque
+    3 n^2 (o x I o) (Schaub and Junkins, eq. 4.132). A slow or librating dead stage feels the
+    torque within an orbit; a fast tumble only over many. The integration is made on first use at
+    the mean motion it is asked for, and the rate bounds come from the orbit-frame Jacobi integral.
+    """
+
+    name: ClassVar[str] = "gravity_gradient"
+    integrated: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    def _motion(self, n: float) -> GravityGradientMotion:
+        if n not in self.integrated:
+            self.integrated[n] = GravityGradientMotion(
+                self.moments,
+                self.motion.omega0,
+                Rotation.from_matrix(self.motion.r0).as_quat(),
+                n,
+            )
+        return self.integrated[n]
+
+    def matrix(self, t: ArrayLike, n: float) -> np.ndarray:
+        """R_z(-n t) R_nb(t) from the integrated attitude.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape, not negative.
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Body-to-Hill rotations, shape (*t.shape, 3, 3).
+        """
+        t = np.asarray(t, dtype=float)
+        return rotation_z(-n * t) @ self._motion(n).matrix(t)
+
+    def angular_velocity(self, t: ArrayLike, n: float) -> np.ndarray:
+        """R_z(-n t) R_nb w - n z from the integrated motion.
+
+        Parameters
+        ----------
+        t : array_like
+            Time (s), any shape, not negative.
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        numpy.ndarray
+            Angular velocity (rad/s), Hill axes, shape (*t.shape, 3).
+        """
+        t = np.asarray(t, dtype=float)
+        inertial = self._motion(n).angular_velocity(t)
+        inertial = np.einsum("...ij,...j->...i", rotation_z(-n * t), inertial)
+        return inertial - _about_z(np.full(t.shape, n))
+
+    def rate_bound(self, n: float) -> float:
+        """The bound from the Jacobi integral on the rate relative to the Hill frame.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        float
+            Bound on the rate relative to the Hill frame (rad/s).
+        """
+        return self._motion(n).relative_rate_bound()
+
+    def angular_acceleration_bound(self, n: float) -> float:
+        """The bound on the derivative of the rate relative to the Hill frame.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s).
+
+        Returns
+        -------
+        float
+            Bound on |d w / dt| in the Hill frame (rad/s^2).
+        """
+        return self._motion(n).relative_acceleration_bound()
 
 
 @dataclass(frozen=True)
@@ -1762,6 +1856,7 @@ def split_at(
 __all__ = [
     "BodyKeepOut",
     "FixedOffset",
+    "GravityGradientTumble",
     "InertialPointing",
     "LightingWindow",
     "Maneuvering",

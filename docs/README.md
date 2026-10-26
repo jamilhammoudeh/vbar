@@ -11,7 +11,7 @@ and how it is tested.
 | [relative-motion.md](relative-motion.md) | elliptic targets in the two-body model, Yamanaka-Ankersen, curvilinear Clohessy-Wiltshire, linearized two-body motion with J2, their error scalings |
 | [transition-matrices.md](transition-matrices.md) | transition and input matrices from the variational equations, STM adequacy, the modeling-error index |
 | [three-body.md](three-body.md) | the CR3BP and its constant sets, the libration-point, periodic linear and bicircular models, Richardson seeds, correctors, continuation and Floquet analysis |
-| [rigid-body.md](rigid-body.md) | principal axes, torque-free attitude in closed form (Jacobi elliptic rates, the precession angle as a third-kind integral), tumble parameters, rate bounds |
+| [rigid-body.md](rigid-body.md) | principal axes, torque-free attitude in closed form (Jacobi elliptic rates, the precession angle as a third-kind integral), tumble parameters, rate bounds, the gravity-gradient torque and its Jacobi integral |
 | [spacecraft.md](spacecraft.md) | thruster layouts and limits, the minimum impulse bit, mass and the rocket equation, constant-acceleration and constant-thrust drives, actuation delay and segments, execution error |
 | [sensors.md](sensors.md) | perfect navigation, white noise with an episode bias (`:nav1`), range-scaled errors in the sensor frame, time-correlated Gauss-Markov errors (`:nav2`) |
 | [constraints.md](constraints.md) | constraint margins, the keep-out sphere, speed and closing-speed limits, range-rate gate tables, the approach cone, Sun exclusion, passive-speed envelopes and the approach-zone ellipsoid, sampling and refinement inside a step, the Lipschitz certificate and its assumptions, violation intervals |

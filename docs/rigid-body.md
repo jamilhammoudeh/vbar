@@ -1,7 +1,8 @@
 # Rigid-body attitude
 
-Code: `vbar.dynamics.rigid_body`. It gives the attitude of a tumbling target, a rigid body free of
-torques, in closed form, for the target attitude modes of the scenarios.
+Code: `vbar.dynamics.rigid_body`. It gives the attitude of a tumbling target for the target
+attitude modes of the scenarios: a rigid body free of torques in closed form, and one under the
+gravity-gradient torque of its orbit by numerical integration.
 
 ## Principal axes
 
@@ -89,11 +90,43 @@ $\sqrt{A_1^2 + A_2^2 + A_3^2}$; `acceleration_bound()` bounds $|\dot{\boldsymbol
 equations, $\dot\omega_i = (I_j - I_k)\omega_j\omega_k / I_i$, with each $|\omega_j| \le A_j$. Both
 hold for all time and are within a factor 2 of the extremes on the test cases.
 
+## Gravity-gradient torque
+
+`GravityGradientMotion(moments, omega, attitude, n)` adds the gravity-gradient torque of a
+circular orbit, which a slow or dead target feels within an orbit and a fast tumble only over many.
+In the axes of the Hill frame, where the radial direction is $x$, the torque is
+$\mathbf L = 3n^2\,\hat{\mathbf o}\times I\hat{\mathbf o}$ with $\hat{\mathbf o}$ the radial unit
+vector in body axes (Schaub and Junkins, eq. 4.132; their orbit frame orders its axes along-track,
+normal, radial). The inertial frame coincides with the Hill frame at $t = 0$, so the radial
+direction in inertial axes is $(\cos nt, \sin nt, 0)$. Euler's equations
+$I\dot{\boldsymbol\omega} = \mathbf L - \boldsymbol\omega\times I\boldsymbol\omega$ and the
+quaternion kinematics are integrated with DOP853 at a relative tolerance of 1e-12, in fixed 600 s
+pieces from $t = 0$, so the attitude at a time does not depend on which times were asked for
+before it. Times before $t = 0$ and times that are not finite are refused.
+
+In the orbit frame the motion keeps the Jacobi integral
+
+$$
+J = \tfrac12\,\boldsymbol\omega_r\cdot I\boldsymbol\omega_r + \tfrac32 n^2\,\hat{\mathbf o}\cdot I\hat{\mathbf o}
+- \tfrac12 n^2\,\hat{\mathbf z}\cdot I\hat{\mathbf z},
+\qquad \boldsymbol\omega_r = \boldsymbol\omega - n\hat{\mathbf z},
+$$
+
+with $\hat{\mathbf z}$ the orbit normal in body axes. The potential is at least
+$\tfrac32 n^2 I_{\min} - \tfrac12 n^2 I_{\max}$, which bounds the rate relative to the Hill frame by
+$\sqrt{2(J - V_{\min})/I_{\min}}$ (`relative_rate_bound`), reached when the long axis is radial and
+the relative rate is about it. Euler's equations bound its derivative componentwise,
+$|\dot\omega_i| \le |I_k - I_j|\,(\tfrac32 n^2 + \tfrac12|\boldsymbol\omega|^2)/I_i$ for $(i, j, k)$
+cyclic, since $|\hat o_j\hat o_k| \le \tfrac12$ and $|\omega_j\omega_k| \le \tfrac12|\boldsymbol\omega|^2$,
+with $|\boldsymbol\omega|$ at most the relative bound plus $n$; the turning orbit normal adds
+$n|\boldsymbol\omega|$ (`relative_acceleration_bound`). The target mode `GravityGradientTumble` takes the same
+tumble parameters as `TorqueFree` and starts from the same state.
+
 ## Assumptions and limits
 
-- No torques: gravity gradient, drag, solar pressure and outgassing are left out. The
-  gravity-gradient pitch libration of a dead stage (Schaub and Junkins, section 4.4.3) needs a
-  numerical model.
+- The torque-free motion has no torques at all, and the gravity-gradient motion only that one:
+  drag, solar pressure and outgassing are left out, and the gravity gradient assumes a circular
+  orbit and a body small next to its orbit radius.
 - The body is rigid with no internal dissipation, so a tumble keeps its mode; real debris drifts
   toward a spin about the major axis over long times.
 - Moments are principal moments about the body axes; a full inertia tensor goes through
@@ -120,7 +153,14 @@ hold for all time and are within a factor 2 of the extremes on the test cases.
   and a prolate body, $D$ one part in a thousand either side of the separatrix ($m$ = 0.996),
   a small nutation, pure spins and rest, and over two periods for twelve random bodies and rates:
   attitudes agree to 1e-8 rad and rates to 1e-9 relative;
-- the tumble parameters recovered from `from_tumble`, and the separatrix refused.
+- the tumble parameters recovered from `from_tumble`, and the separatrix refused;
+- with $n = 0$ the gravity-gradient integration equals the closed form to 1e-8 rad, and on an
+  orbit it keeps its Jacobi integral to 1e-10 relative, with the rate and acceleration bounds
+  holding along it, the acceleration bound within ten times the largest spin-up, the rate bound
+  reached with the long axis radial, and a time's attitude the same whatever was asked before it;
+- a body held on the Hill axes and pitched by 0.2 or 2 deg librates about the orbit normal with the
+  period $2\pi / (n\sqrt{3(I_{yy} - I_{xx})/I_{zz}})$ of Schaub and Junkins eq. 4.158, lengthened by
+  the pendulum's $(2\theta_0)^2/16$, to 1e-6 (the next term, $11(2\theta_0)^4/3072$, is 8.5e-8 at 2 deg).
 
 ## Example
 
@@ -134,4 +174,19 @@ motion = TorqueFreeMotion.from_tumble((1000.0, 4200.0, 4700.0), 4600.0, np.radia
 print(round(motion.period, 1), motion.long_axis)
 attitude = motion.matrix([0.0, 60.0])
 print(np.allclose(attitude[1] @ (motion.moments * motion.omega(60.0)), motion.momentum))
+```
+
+```python
+import numpy as np
+
+from vbar.dynamics.rigid_body import GravityGradientMotion
+
+# A dead stage on a circular orbit, long axis radial, pitched 5 deg and turning with the orbit.
+n = 1.1e-3
+pitch = np.radians(5.0)
+motion = GravityGradientMotion(
+    (1000.0, 4200.0, 4700.0), (0.0, 0.0, n), (0.0, 0.0, np.sin(pitch / 2), np.cos(pitch / 2)), n
+)
+print(motion.relative_rate_bound(), motion.relative_acceleration_bound())
+print(motion.matrix(3600.0)[:, 0])
 ```

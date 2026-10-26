@@ -205,6 +205,9 @@ release may change the public API, and every such change is listed under Changed
 - `TorqueFree`, a target attitude mode for a rigid body tumbling free of torques, set by tumble
   parameters, its attitude stored inertially and seen from the turning Hill frame; its public
   description rebuilds the tumble.
+- `vbar.dynamics.rigid_body.GravityGradientMotion` and the target mode `GravityGradientTumble`: a
+  tumble under the gravity-gradient torque of a circular orbit, integrated numerically from the
+  briefed state, with rate bounds from the orbit-frame Jacobi integral.
 - The scenario kind `CaptureEnv` (`vbar.scenarios.tumbling`), with the turning capsule keep-out
   `RotatingCapsule`: reach a capture-ready state at a capture point fixed to a turning target,
   within a ball and a speed relative to the moving point, and hold it for a dwell.
