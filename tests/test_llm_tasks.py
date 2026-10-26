@@ -149,3 +149,18 @@ def test_a_model_flying_from_the_prompt_alone_succeeds_at_every_task_kind(name, 
     info = env._info()
     assert info["success"], info
     assert agent.usage()["parse_failures"] == 0
+
+
+def test_the_prompt_measures_the_observation_at_its_own_time():
+    from vbar.agents.briefing import situation
+
+    env = make("inertial-target")
+    obs, _ = env.reset(seed=2)
+    model = Coasting()
+    agent = LLMAgent(model)
+    agent.reset(env.agent_view())
+    agent.act(obs, {"time_s": 600.0})
+    later = situation(env.agent_view(), obs, {"time_s": 600.0})
+    # The port turns at -n, so its line differs from the one at t = 0.
+    assert later != situation(env.agent_view(), obs, {"time_s": 0.0})
+    assert later in model.prompts[0]

@@ -221,7 +221,8 @@ truth, and that fractions are converted to each action mode.
   reported where the scenario puts them (to the 1 cm rounding), and a pitched target's corridor
   lies along its port axis in Hill axes; the inspection coverage is the one in `info`; a thrust
   inhibit window is announced only while it lasts; a misbriefed target's briefing and situation
-  equal those of a scenario that flies the briefing.
+  equal those of a scenario that flies the briefing; a departure's distance along the port axis,
+  lateral offset, outward and lateral speeds and distance to the clear point are the observation's.
 
 `tests/test_llm_tasks.py`, for the agent:
 
@@ -231,7 +232,7 @@ truth, and that fractions are converted to each action mode.
   point and a capture speed and `keep_out` a keep-out radius (the run time assurance docking task
   has none, and the default prompt flies it); ball thrusters are described as a limit on the
   command's length; a misbriefed target's prompt equals the prompt of a scenario that flies the
-  briefing.
+  briefing; the prompt at t = 600 s holds the situation at 600 s, where a turning port has moved.
 - Behind the `slow` marker: a stand-in model that reads only the time, position and velocity
   printed in the prompt, and answers with the command of the reference controller of the scenario
   audit ([scenarios.md](scenarios.md)), succeeds on three drawn validation seeds of each of ten

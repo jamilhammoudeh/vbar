@@ -217,3 +217,23 @@ def test_the_comparison_tasks_entries_are_put_in_words():
     inspection = briefing(make("afrl-inspection").agent_view())
     assert "the planet's shadow is not modelled" in inspection
     assert "outside the planet's shadow" in briefing(make("inspection").agent_view())
+
+
+def test_a_departure_is_measured_outward_along_the_port_axis():
+    env = make("separation-flyaround")
+    obs, _ = env.reset(seed=3)
+    view = env.agent_view()
+    text = situation(view, obs, env.agent_info())
+    depth, lateral = numbers(line_of(text, "distance along the port axis"))
+    outward, sideways = numbers(line_of(text, "speed along the axis outward"))
+    (clear,) = numbers(line_of(text, "distance to the clear point"))
+    port, axis = np.array(view.goal["port"]), np.array(view.goal["port_axis"])
+    offset = obs[:3] - port
+    # Printed to 1 mm, 0.1 mm/s and 1 cm.
+    assert depth == pytest.approx(offset @ axis, abs=6e-4)
+    assert lateral == pytest.approx(np.linalg.norm(offset - (offset @ axis) * axis), abs=6e-4)
+    assert outward == pytest.approx(obs[3:6] @ axis, abs=6e-5) and outward > 0.0
+    assert sideways == pytest.approx(np.linalg.norm(obs[3:6] - (obs[3:6] @ axis) * axis), abs=6e-5)
+    assert clear == pytest.approx(
+        np.linalg.norm(obs[:3] - np.array(view.goal["hold_point"])), abs=6e-3
+    )
