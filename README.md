@@ -11,7 +11,7 @@ scenarios and are scored with the same metrics.
 
 ![The PD baseline in the target's Hill frame. From 400 m behind the target it flies straight to the hold point 100 m behind. From a seeded start 523 m ahead it flies through the 50 m keep-out zone, 14.4 m from the target at closest, before stopping at the hold point. Range and speed against time are shown below.](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/images/pd_approach.png)
 
-The PD baseline from two starts: a clear path to the hold point, and a seeded start with the target in the way.
+The PD baseline reaches the hold point from behind the target (blue) but flies through the keep-out zone from ahead of it (orange), closing to 14.4 m.
 
 **Status: early development (0.3).** The dynamics, spacecraft, sensor and constraint layers are
 validated (see [Tests](#tests)). Version 0.3 adds the metrics, agent tools (remote and ONNX
@@ -65,12 +65,14 @@ results = run_many(ApproachEnv(), PDAgent(), seeds=range(100))
 print(np.mean([r["captured"] for r in results]), np.mean([r["keep_out_violated"] for r in results]))
 ```
 
-The PD baseline reaches the hold point in every run and flies through the keep-out zone in every
-run, because it ignores the target. That gap is what safety filters and better controllers are
-measured against. In a clone of the repository, `python examples/v0_demo.py` shows both cases
-and saves a plot to `outputs/` (needs the `plot` extra).
+The PD baseline reaches the hold point and flies through the keep-out zone on every default seed,
+because it ignores the target. That gap is what safety filters and better controllers are measured
+against. In a clone of the repository, `python examples/v0_demo.py` shows both cases and saves a
+plot to `outputs/` (needs the `plot` extra).
 
 ![Animation of the PD baseline from seed 5 in the Hill frame. A marker leaves its start 523 m ahead of the target, crosses the 50 m keep-out zone with a readout showing time, range and speed, passes 14.4 m from the target, and stops at the hold point 100 m behind it.](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/images/pd_approach.gif)
+
+The orange run animated: it spends about 2.3 minutes inside the keep-out zone.
 
 `python examples/readme_figures.py` regenerates this animation and the figure above
 ([docs/viz.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/viz.md)).
