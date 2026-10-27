@@ -177,7 +177,8 @@ action in the view's action mode. Provided:
   a box layout or scaled onto the ball with its direction kept on a ball layout, and converted to
   the action mode (in thrust mode, the thrust at the initial mass). It ignores the keep-out zone,
   so it is the unfiltered baseline. A goal without a hold point (a docking port) is refused at
-  `reset` with a `ValueError`.
+  `reset` with a `ValueError`, and so, at construction, are an $\omega_n$ that is not positive and
+  finite and a $\zeta$ that is negative or not finite.
 - `DriftAgent`: no thrust.
 - `LQRAgent` and `LQGAgent`: a discrete linear-quadratic regulator to the hold point, and the same
   law on a steady-state Kalman filter estimate ([lqr.md](lqr.md), [lqg.md](lqg.md)).
