@@ -138,6 +138,30 @@ def scenario_summary(
     }
 
 
+def latest_results(results: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The last result of each run of each agent and filter, in the order they first appear.
+
+    A results file that is resumed after the code changed holds each run twice, once per
+    provenance; the later one is the current code's. Results of different agents or filters stay
+    apart, so `suite_report` still refuses a file that mixes them.
+
+    Parameters
+    ----------
+    results : sequence of mapping
+        Results with "scenario_id", "seed", "agent" and "filter", in file order.
+
+    Returns
+    -------
+    list of mapping
+        One result per (scenario_id, seed, agent, filter).
+    """
+    last: dict[tuple[Any, ...], Mapping[str, Any]] = {}
+    for result in results:
+        key = (result["scenario_id"], int(result["seed"]), result["agent"], result["filter"])
+        last[key] = result
+    return list(last.values())
+
+
 def suite_report(
     suite,
     results: Sequence[Mapping[str, Any]],
@@ -185,11 +209,11 @@ def suite_report(
     suite.require_complete(results, identifiers)
     wanted = {(sid, seed) for sid, seed, _ in suite.runs(identifiers)}
     kept = [r for r in results if (r["scenario_id"], int(r["seed"])) in wanted]
-    if len(kept) != len(wanted):
-        raise ValueError("a report takes one result per run; the results hold repeated runs")
     agents = {(r["agent"], r["filter"]) for r in kept}
     if len(agents) != 1:
         raise ValueError(f"a report covers one agent and filter, not {sorted(map(str, agents))}")
+    if len(kept) != len(wanted):
+        raise ValueError("a report takes one result per run; the results hold repeated runs")
     if any(r.get("provenance") is None for r in kept):
         raise ValueError("every run in a report needs its provenance")
     groups = by_scenario(kept)
@@ -268,4 +292,4 @@ def _cell(summary: Any) -> str:
     return "n/a"
 
 
-__all__ = ["default_summaries", "scenario_summary", "suite_report", "to_markdown"]
+__all__ = ["default_summaries", "latest_results", "scenario_summary", "suite_report", "to_markdown"]

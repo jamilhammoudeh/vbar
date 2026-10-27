@@ -124,3 +124,37 @@ def test_a_manifest_rebuilds_its_tables_without_flying_a_run_twice(tmp_path, mon
     assert written == [tmp_path / "crash.md"] and written[0].exists()
     reproduce(manifest)
     assert len(read_results(tmp_path / "crash.jsonl")) == 5
+
+
+def test_a_results_file_resumed_after_a_commit_is_reported_from_its_latest_runs(
+    tmp_path, monkeypatch
+):
+    from vbar.eval import provenance
+    from vbar.eval.report import latest_results
+    from vbar.scenarios import SUITES
+
+    monkeypatch.setitem(SUITES, SMALL.id, SMALL)
+    out = tmp_path / "pd.jsonl"
+    argv = ["run", "--suite", SMALL.id, "--agent", "eval_cases:Crashes", "--out", str(out)]
+    for revision in ("a" * 40, "b" * 40):
+        monkeypatch.setattr(
+            provenance, "source_revision", lambda revision=revision: (revision, False)
+        )
+        assert main(argv) == 0
+    results = read_results(out)
+    assert len(results) == 10
+    assert [r["provenance"] for r in latest_results(results)] == [
+        r["provenance"] for r in results[5:]
+    ]
+    assert main(["report", str(out), "--markdown", str(tmp_path / "pd.md")]) == 0
+
+
+def test_the_report_command_refuses_a_file_that_mixes_two_agents(tmp_path, monkeypatch):
+    from vbar.scenarios import SUITES
+
+    monkeypatch.setitem(SUITES, SMALL.id, SMALL)
+    out = tmp_path / "mixed.jsonl"
+    for agent in ("eval_cases:Crashes", "vbar.agents:DriftAgent"):
+        main(["run", "--suite", SMALL.id, "--agent", agent, "--out", str(out)])
+    with pytest.raises(ValueError, match="one agent"):
+        main(["report", str(out)])

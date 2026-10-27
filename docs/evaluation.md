@@ -165,7 +165,7 @@ cross-scenario IQM, and `by_tuning` keeps shared and per-scenario entries apart.
 `suite_report(suite, results)` first calls `Suite.require_complete`, then summarises each
 scenario: success as a rate with its Clopper-Pearson interval, performance metrics as the IQM with
 a bootstrap interval, safety metrics as their tails, never an IQM, plus the failure labels and the
-count of errors. It refuses results that mix agents or filters or hold a run twice. `to_markdown` renders the table.
+count of errors. It refuses results that mix agents or filters or hold a run twice. `latest_results` keeps the last result of each run, which the `report` command applies, since a results file resumed after a commit holds each run once per revision. `to_markdown` renders the table.
 From the command line:
 
 ```

@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ..scenarios import SUITES
-from .report import suite_report, to_markdown
+from .report import latest_results, suite_report, to_markdown
 from .results import read_results, to_json
 from .runner import run_suite
 
@@ -27,7 +27,7 @@ def _suite(suite_id: str):
 
 
 def _report(results_path: Path, suite_id: str | None, markdown: Path | None, out: Path | None):
-    results = read_results(results_path)
+    results = latest_results(read_results(results_path))
     if suite_id is None:
         suites = {r["suite"] for r in results}
         if len(suites) != 1 or None in suites:
