@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -174,6 +175,13 @@ def write_results(
     append : bool
         Append to the file (True) or replace it.
     """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if append and path.exists() and path.stat().st_size:
+        data = path.read_bytes()
+        if not data.endswith(b"\n"):
+            # A run killed mid-write leaves half a line; the run is flown again, so cut it off.
+            path.write_bytes(data[: data.rfind(b"\n") + 1])
     with open(path, "a" if append else "w", encoding="utf-8", newline="\n") as handle:
         for result in results:
             handle.write(encode(result) + "\n")
@@ -195,17 +203,22 @@ def read_results(path: str | Path) -> list[dict[str, Any]]:
     Raises
     ------
     ValueError
-        If a line is not a result; the message names the line.
+        If a line is not a result, except a last line cut off before its newline, which is
+        dropped with a warning; the message names the line.
     """
     out = []
     with open(path, encoding="utf-8") as handle:
-        for number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                out.append(decode(line))
-            except ValueError as error:
-                raise ValueError(f"{path}, line {number}: {error}") from error
+        lines = [(n, line) for n, line in enumerate(handle, start=1) if line.strip()]
+    for k, (number, line) in enumerate(lines):
+        try:
+            out.append(decode(line))
+        except ValueError as error:
+            cut = k == len(lines) - 1 and not line.endswith("\n")
+            if cut and isinstance(error, json.JSONDecodeError):
+                # A write killed midway leaves a last line with no newline; that run is flown again.
+                warnings.warn(f"{path}, line {number}: dropped a truncated last line", stacklevel=2)
+                break
+            raise ValueError(f"{path}, line {number}: {error}") from error
     return out
 
 

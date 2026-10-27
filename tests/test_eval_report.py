@@ -158,3 +158,37 @@ def test_the_report_command_refuses_a_file_that_mixes_two_agents(tmp_path, monke
         main(["run", "--suite", SMALL.id, "--agent", agent, "--out", str(out)])
     with pytest.raises(ValueError, match="one agent"):
         main(["report", str(out)])
+
+
+def test_results_go_into_a_folder_that_does_not_exist_yet(tmp_path):
+    from vbar.eval.results import write_results
+
+    path = tmp_path / "outputs" / "deeper" / "r.jsonl"
+    write_results(path, [])
+    assert path.parent.is_dir()
+
+
+def test_a_run_cut_off_mid_line_is_dropped_and_flown_again(tmp_path):
+    out = tmp_path / "pd.jsonl"
+    run_suite(SMALL, DriftAgent, task=ShortTask(), out=out)
+    whole = read_results(out)
+    text = out.read_text(encoding="utf-8")
+    out.write_text(text[: len(text) - 40], encoding="utf-8")
+    with pytest.warns(UserWarning, match="truncated"):
+        assert len(read_results(out)) == len(whole) - 1
+    with pytest.warns(UserWarning, match="truncated"):
+        again = run_suite(SMALL, DriftAgent, task=ShortTask(), out=out)
+    assert len(again) == len(whole)
+    assert len(read_results(out)) == len(whole)
+
+
+def test_a_corrupt_line_that_was_not_cut_off_is_refused(tmp_path):
+    out = tmp_path / "pd.jsonl"
+    run_suite(SMALL, DriftAgent, task=ShortTask(), out=out)
+    good = out.read_text(encoding="utf-8")
+    out.write_text("{bad\n" + good, encoding="utf-8")
+    with pytest.raises(ValueError, match="line 1"):
+        read_results(out)
+    out.write_text(good + "{bad\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="line 6"):
+        read_results(out)
