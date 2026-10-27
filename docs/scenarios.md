@@ -340,10 +340,11 @@ that `pytest -m slow` runs flies the first three validation seeds of every scena
 variants with references of their own and of the core suite, and the first validation seed of
 every other registered variant. The `:nav1` variants of the docking scenarios fly the docking
 reference on a Kalman filter of the observation, which waits at the standoff until the lateral
-estimate has settled, and so solves `docking:axis:nav1` on the audit's seeds. Six variants
+estimate has settled, and so solves `docking:axis:nav1` on the audit's seeds. Seven variants
 have no reference that succeeds on every seed yet, each marked in the test with its reason:
 `berthing-box:nav1`, `hst-rbar-grapple:nav1` (the boxes are below the navigation noise),
-`inertial-target:nav1`, `inertial-target:nav2` and `vbar-final-shuttle:nav1` (the filtered final
+`inertial-target:nav1`, `inertial-target:nav2`, `docking-offset:nav2` and
+`vbar-final-shuttle:nav1` (the filtered final
 leg still leaves the narrow or turning corridor on some seeds), and `inspection:inertial` (an
 inertially pointing target keeps one face lit, and free drift from its sunlit side can image
 it). Free drift reaches no other scenario's goal on the same seeds, even with the constraints

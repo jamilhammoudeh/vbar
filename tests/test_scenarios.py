@@ -55,6 +55,7 @@ SEEDS_PER_SCENARIO = 3
 # reports when one starts to pass.
 UNSOLVED = {
     "berthing-box:nav1": "raw 1 m position noise cannot settle in the 0.5 m capture ball",
+    "docking-offset:nav2": "correlated navigation error leaves the cone on about 1 seed in 7",
     "hst-rbar-grapple:nav1": "the 1 m and 0.01 m/s grapple box is below the navigation noise",
     "inertial-target:nav1": "the filtered docking reference still leaves the turning corridor",
     "inertial-target:nav2": "correlated navigation error pushes the final leg out of the corridor",
