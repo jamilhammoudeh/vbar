@@ -211,9 +211,23 @@ limits and how it is tested.
 | `ElevationTimedAgent`, `PilotAgent` | Space Shuttle elevation-timed burns and manual pulses | [shuttle-baselines.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/shuttle-baselines.md) |
 | `LambertAgent` | two-impulse targeting by Lambert's problem (`vbar.dynamics.lambert.lambert`) | [lambert.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/lambert.md) |
 | `MissionManagerAgent` | a timeline of modes with gates, contingencies and an abort | [mission-manager.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/mission-manager.md) |
+| `MPCAgent` (`vbar.agents.mpc`) | hold-point MPC with keep-out rows sampled within each step and an optional certified terminal set | [mpc.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/mpc.md) |
+| `NMPCAgent` (`vbar.agents.nmpc`) | nonlinear MPC by multiple shooting on a declared dynamics model | [nonlinear-mpc.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/nonlinear-mpc.md) |
+| `PiecewiseAffineMPCAgent` (`vbar.agents.mpc_pwa`) | box-constrained regulator solved once as a multiparametric QP, then a table lookup | [piecewise-affine-mpc.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/piecewise-affine-mpc.md) |
+| `FuelMPCAgent` (`vbar.agents.mpc_fuel`) | least 1-norm delta-v plan to rest at the hold point, planned again at every decision | [mpc-fuel.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/mpc-fuel.md) |
+| `ClfCbfAgent` (`vbar.agents.clf_cbf`) | one QP per decision with a Lyapunov decrease row and a keep-out barrier row | [clf-cbf.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/clf-cbf.md) |
 
 `Mutant(agent, kind, severity)` wraps any of them with one deliberate defect, to check that the
 metrics catch it ([mutants.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/mutants.md)).
+
+`vbar.oracles` gives what the baselines are scored against: certified fuel bounds from the primer
+vector and a finite-thrust dual bound (`FuelOracle`, `bounds_for`), primer-vector certificates, the
+minimum-time and passing-side oracles, and `OracleAgent` with `expert_dataset` for expert
+trajectories ([oracles.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/oracles.md),
+[oracle-certificates.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/oracle-certificates.md),
+[minimum-time-oracle.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/minimum-time-oracle.md),
+[passing-side-oracle.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/passing-side-oracle.md),
+[expert-datasets.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/expert-datasets.md)).
 
 ### LLM agents
 
