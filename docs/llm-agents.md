@@ -226,19 +226,23 @@ truth, and that fractions are converted to each action mode.
 
 `tests/test_llm_tasks.py`, for the agent:
 
-- The agent resets and flies two steps of every catalogue scenario and variant, and its first
-  prompt names the task.
-- A docking goal without its axial speed window is refused at reset; the hold fields need a hold
-  point and a capture speed and `keep_out` a keep-out radius (the run time assurance docking task
-  has none, and the default prompt flies it); ball thrusters are described as a limit on the
+- The agent resets and flies two steps of every catalogue scenario and variant and of every suite
+  entry, and its first prompt names the task.
+- The catalogue's task kinds are the five of `TASK_KEYS`; for each kind, a goal without any one of
+  its keys is refused at reset with that key named, and the full goal is accepted. The hold fields
+  need a hold point and a capture speed and `keep_out` a keep-out radius (the run time assurance
+  docking task has none, and the default prompt flies it); ball thrusters are described as a limit on the
   command's length; a misbriefed target's prompt equals the prompt of a scenario that flies the
   briefing; the prompt at t = 600 s holds the situation at 600 s, where a turning port has moved.
 - Behind the `slow` marker: a stand-in model that reads only the time, position and velocity
   printed in the prompt, and answers with the command of the reference controller of the scenario
-  audit ([scenarios.md](scenarios.md)), succeeds on three drawn validation seeds of each of ten
-  scenarios: a V-bar hold, docking on a still, lit, pitched and turning target, the run time
-  assurance task, berthing, a hold under a turning target, inspection and a departure past a
-  manoeuvring target, with no parse failure.
+  audit ([scenarios.md](scenarios.md)), succeeds on three drawn validation seeds of each of 21
+  scenarios, with no parse failure: every entry of the `core-v1` suite (the V-bar and R-bar holds,
+  `docking:axis`, the run time assurance docking task and inspection, each also with `:nav1`), the
+  comparison tasks `afrl-docking`, `afrl-inspection`, `spacegym-docking` and
+  `spacegym-rendezvous`, docking on a still, lit, pitched and turning target, berthing, a hold
+  under a turning target and a departure past a manoeuvring target. A test checks that these
+  flights include every task kind.
 
 ## Example
 

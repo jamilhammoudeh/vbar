@@ -4,7 +4,7 @@ every kind.
 
 The flights at the end run whole episodes through the agent on drawn validation seeds, with a
 stand-in model that reads its state from the prompt text and answers with a reference
-controller's command; they take most of half an hour and are marked `slow`.
+controller's command; they take most of an hour on one core and are marked `slow`.
 """
 
 import dataclasses
@@ -18,8 +18,10 @@ from test_briefing import every_scenario, line_of, numbers
 
 from vbar import run_episode
 from vbar.agents import LLMAgent, Reply, command_fraction
+from vbar.agents.briefing import TASK_KEYS
 from vbar.scenarios import InertialPointing, Misbriefed, get, make, seeds
 from vbar.scenarios.registry import entry_class
+from vbar.scenarios.suites import SUITES
 
 COAST = '{"ax": 0.0, "ay": 0.0, "az": 0.0}'
 OLD_TEMPLATE = (
@@ -46,7 +48,18 @@ class Coasting:
         return Reply(COAST)
 
 
-@pytest.mark.parametrize("name", every_scenario())
+def suite_entries():
+    return sorted({e.scenario for suite in SUITES.values() for e in suite.entries})
+
+
+def one_of_each_kind():
+    kinds = {}
+    for name in every_scenario():
+        kinds.setdefault(make(name).agent_view().goal["task"], name)
+    return kinds
+
+
+@pytest.mark.parametrize("name", sorted(set(every_scenario()) | set(suite_entries())))
 def test_the_llm_agent_flies_steps_of_every_catalogue_scenario(name):
     env = make(name, max_steps=2)
     model = Coasting()
@@ -55,10 +68,16 @@ def test_the_llm_agent_flies_steps_of_every_catalogue_scenario(name):
     assert TASK_LINES[env.agent_view().goal["task"]] in model.prompts[0]
 
 
-def test_a_goal_without_a_key_its_task_needs_is_refused_at_reset():
-    view = make("docking").agent_view()
-    goal = {k: v for k, v in view.goal.items() if k != "axial_speed_window"}
-    with pytest.raises(ValueError, match="the dock goal has no axial_speed_window"):
+def test_every_task_kind_of_the_catalogue_has_its_goal_keys():
+    assert set(one_of_each_kind()) == set(TASK_KEYS)
+
+
+@pytest.mark.parametrize(("task", "key"), [(t, k) for t in TASK_KEYS for k in TASK_KEYS[t]])
+def test_a_goal_without_a_key_its_task_needs_is_refused_at_reset(task, key):
+    view = make(one_of_each_kind()[task]).agent_view()
+    LLMAgent(Coasting()).reset(view)
+    goal = {k: v for k, v in view.goal.items() if k != key}
+    with pytest.raises(ValueError, match=f"the {task} goal has no {key}$"):
         LLMAgent(Coasting()).reset(dataclasses.replace(view, goal=goal))
 
 
@@ -119,21 +138,19 @@ class PromptPilot:
         return Reply(json.dumps({"ax": f[0], "ay": f[1], "az": f[2]}))
 
 
-# One scenario of each task kind, with the kinds' hard cases: a turning port, a pitched one, a
-# lighting window, the run time assurance task (no keep-out sphere), a berthing box, a hold below
-# a turning target, inspection, and a departure past a manoeuvring target.
-FLIGHTS = [
-    "approach-vbar",
-    "docking",
-    "docking:lit",
-    "docking-offset",
-    "inertial-target",
-    "docking-afrl",
-    "berthing-box",
-    "hst-rbar-grapple",
-    "inspection",
-    "separation-flyaround:reboost",
-]
+# Every scenario of the core suite, the comparison tasks, and the task kinds' hard cases: a
+# turning port, a pitched one, a lighting window, a berthing box, a hold below a turning target and
+# a departure past a manoeuvring target.
+FLIGHTS = sorted(
+    {e.scenario for e in SUITES["core-v1"].entries}
+    | {"afrl-docking", "afrl-inspection", "spacegym-docking", "spacegym-rendezvous"}
+    | {"docking", "docking:lit", "docking-offset", "inertial-target", "berthing-box"}
+    | {"hst-rbar-grapple", "separation-flyaround:reboost"}
+)
+
+
+def test_the_flights_cover_every_task_kind():
+    assert {make(name).agent_view().goal["task"] for name in FLIGHTS} == set(TASK_KEYS)
 
 
 @pytest.mark.slow
@@ -143,7 +160,7 @@ def test_a_model_flying_from_the_prompt_alone_succeeds_at_every_task_kind(name, 
     env = make(name)
     seed, agent_seed = seeds(name, "validation", 3).pairs()[index]
     env.reset(seed=seed)
-    pilot = PromptPilot(reference_for(name.split(":")[0]), env.agent_view())
+    pilot = PromptPilot(reference_for(name), env.agent_view())
     agent = LLMAgent(pilot)
     run_episode(env, agent, seed=seed, agent_seed=agent_seed)
     info = env._info()
