@@ -24,3 +24,5 @@ At the time of writing:
   onnx        Apache-2.0, optional "onnx" extra
   onnxruntime MIT, optional "onnx" extra (with protobuf, BSD-3-Clause, and flatbuffers,
               Apache-2.0)
+  rerun-sdk   MIT OR Apache-2.0, optional "replay" extra (with pyarrow, Apache-2.0, pillow,
+              MIT-CMU, attrs, MIT, psutil, BSD-3-Clause, and typing-extensions, PSF-2.0)
