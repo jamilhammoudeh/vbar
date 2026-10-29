@@ -15,7 +15,10 @@ A capture goal has `capture_point` (m, body axes), `capture_radius`, `capture_sp
 the capture predicate then measuring the speed relative to the point (Fehse, section 8.3.6).
 An inspection goal (`task` "inspect") is met when the coverage of the inspectable points reaches
 `coverage`; that needs the lighting and the target's true attitude, so it is read from the
-environment's verdict recorded in `Episode.outcome`.
+environment's verdict recorded in `Episode.outcome`. A departure goal (`task` "depart") has
+`clear_range` (m), `drift_horizon` (s) and `drift_radius` (m) and is met, as the departure judges
+it, at the first step boundary beyond the clear range from which the free drift stays clear; its
+hold point at the clear point gives the terminal errors and the progress.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from typing import Any
 import numpy as np
 from scipy.optimize import brentq
 
+from ..scenarios.departure import drift_minimum_range
 from ..scenarios.targets import body_point, body_point_velocity, briefed_mode
 from .episode import Episode
 from .stl import Signal, Trace, complement, negative_intervals
@@ -113,6 +117,22 @@ def hard_violated(ep: Episode) -> bool:
         for name in ep.hard
         if name in rec.segment.minima
     )
+
+
+def departure_time(ep: Episode) -> float | None:
+    """First step boundary (s) beyond the goal's clear range whose free drift stays clear, or None.
+
+    The departure's own rule: from the state at the boundary, the Clohessy-Wiltshire drift over
+    `drift_horizon` (s) never comes within `drift_radius` (m) of the target
+    (`vbar.scenarios.departure.drift_minimum_range`).
+    """
+    goal = ep.view.goal
+    for t, state in zip(ep.times[1:], ep.states[1:], strict=True):
+        if np.linalg.norm(state[:3]) < goal["clear_range"]:
+            continue
+        if drift_minimum_range(state, ep.view.n, goal["drift_horizon"]) >= goal["drift_radius"]:
+            return float(t)
+    return None
 
 
 def capture_time(ep: Episode) -> float | None:
@@ -265,7 +285,9 @@ def inspection_outcome(ep: Episode) -> Mapping[str, Any] | None:
 def completion_time(ep: Episode, trace: Trace | None = None) -> float | None:
     """When the goal is met (s), hard constraints aside, or None.
 
-    For a docking goal, the contact event within tolerance; for a hold goal with a `hold_time`,
+    For a departure goal, the first boundary beyond the clear range from which the free drift
+    stays clear (`departure_time`); for a docking goal, the contact event within tolerance; for a
+    hold goal with a `hold_time`,
     the end of the first dwell that long; otherwise the first step boundary inside the capture
     predicate.
     """
@@ -273,6 +295,8 @@ def completion_time(ep: Episode, trace: Trace | None = None) -> float | None:
     outcome = inspection_outcome(ep)
     if outcome is not None:
         return float(outcome["time_s"]) if outcome["met"] else None
+    if goal.get("task") == "depart":
+        return departure_time(ep)
     if docking(goal):
         event = contact(ep, trace)
         return event.t if event is not None and event.margin >= 0.0 else None

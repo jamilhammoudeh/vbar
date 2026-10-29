@@ -71,7 +71,7 @@ built for a metric (distance to the goal, the hold predicate, the contact plane)
 
 ## Mission (M1 to M10)
 
-The goal is the scenario's public goal, of one of three kinds.
+The goal is the scenario's public goal, of one of five kinds.
 
 - **Hold goal:** `hold_point` $\mathbf r_g$, `capture_radius` $R_{\text{cap}}$, `capture_speed`
   $v_{\text{cap}}$, optionally `goal_velocity` $\mathbf v_g$ (zero by default) and a dwell
@@ -104,13 +104,19 @@ The goal is the scenario's public goal, of one of three kinds.
   so the predicate reads $|\mathbf r - R\mathbf c| < R_{\text{cap}}$ and
   $|\mathbf v - \boldsymbol\omega\times R\mathbf c| < v_{\text{cap}}$, and the terminal errors and
   progress are taken from the point where it stands.
+- **Departure goal** (`task` "depart"): `clear_range` $R_{\text{clear}}$, `drift_horizon`
+  $T_d$ and `drift_radius` $R_d$, with the clear point on the port axis as a hold point. Met at
+  the first step boundary after t = 0 with $|\mathbf r| \ge R_{\text{clear}}$ from which the
+  free Clohessy-Wiltshire drift keeps a range of at least $R_d$ over $T_d$, the departure's own
+  rule (`drift_minimum_range`), so the metrics and the environment agree; the hold point gives
+  the terminal errors and the progress, and its capture ball no longer decides success.
 
 | ID | Name | Units | Definition |
 |---|---|---|---|
-| M1 | `success` | bool | the goal is met and no hard constraint's margin fell below zero, at the start or anywhere inside a step (the environment's certified in-step minima). Met means: contact within tolerance (docking); the coverage goal reached (inspection); a dwell of $T_{\text{hold}}$ (hold goal with a dwell); the capture predicate at some step boundary after t = 0 (otherwise) |
+| M1 | `success` | bool | the goal is met and no hard constraint's margin fell below zero, at the start or anywhere inside a step (the environment's certified in-step minima). Met means: contact within tolerance (docking); the coverage goal reached (inspection); beyond the clear range with a clear drift (departure); a dwell of $T_{\text{hold}}$ (hold goal with a dwell); the capture predicate at some step boundary after t = 0 (otherwise) |
 | M2 | `terminal_pos_error` | m | $\lvert\mathbf r - \mathbf r_g\rvert$ at the end ($\mathbf r_g$ the port for docking, where it stands) |
 | M3 | `terminal_vel_error` | m/s | $\lvert\mathbf v - \mathbf v_g\rvert$ at the end ($\mathbf v_g$ the port's velocity for docking) |
-| M4 | `time_to_complete` | s | when the goal is met: the contact time, the end of the first full dwell, or the first capturing step boundary; the episode length $T$ if never |
+| M4 | `time_to_complete` | s | when the goal is met: the contact time, the end of the first full dwell, the first clear departing step boundary, or the first capturing step boundary; the episode length $T$ if never |
 | M5 | `progress` | fraction | $\operatorname{clip}(1 - d_{\text{end}}/d_0, 0, 1)$, $d$ the distance to the goal |
 | M6 | `contact_lateral_error` | m | $\lvert\mathbf d - (\mathbf d\cdot\hat{\mathbf a})\hat{\mathbf a}\rvert$, $\mathbf d = \mathbf r - \mathbf p$, at contact |
 | M7 | `contact_axial_speed` | m/s | $-\mathbf u\cdot\hat{\mathbf a}$ at contact |

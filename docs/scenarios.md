@@ -269,10 +269,11 @@ drawn separation and moving out at the drawn speed, and must leave through a dep
 on the port axis. Success at a step boundary when the range exceeds `clear_range` and the free
 Clohessy-Wiltshire drift from that state never comes within the body radius over two orbits
 (`drift_minimum_range`, with the least range refined by a root of $\mathbf r \cdot \mathbf v$).
-The public goal names the clear point on the axis as a hold point with a wide capture ball and a
-capture speed no departure reaches (10 m/s), so the mission metrics score the arrival in the
-clear zone; the drift verdict is the scenario's own
-and is in `info["drift_margin_m"]`.
+The public goal carries `clear_range`, `drift_horizon` and `drift_radius` (the body radius), and
+the mission metrics apply the same rule to the recorded states; the drift margin is in
+`info["drift_margin_m"]`. The goal also names the clear point on the axis as a hold point with a
+wide capture ball and a capture speed no departure reaches (10 m/s), from which the metrics take
+the terminal errors and the progress.
 
 **Capture** (`CaptureEnv`, `tumbling-capture`). Reach a capture-ready state at an interface on a
 turning target and hold it. The state is defined at the capture interface, not at the centres of
@@ -420,8 +421,8 @@ Katz, Corso and Moss, *Algorithms for Validation*, section 8.1).
   misbriefed attitude cannot be detected from the relative state.
 - The goal's port and axis are their Hill-frame values at t = 0 as briefed; the environment and
   the mission metrics (contact, the terminal errors and progress) carry them on with the target's
-  true mode, so a misbriefed target is judged at its true port. The departure metric scores only
-  the arrival in the clear zone. The inspection's coverage needs the lighting and the target's
+  true mode, so a misbriefed target is judged at its true port. The departure's drift check uses
+  the Clohessy-Wiltshire model on every dynamics rung. The inspection's coverage needs the lighting and the target's
   true attitude, so the metrics read it from the environment's verdict recorded in the episode
   (`Episode.outcome`); an episode built without it cannot be scored.
 - The GO time of `closing` is public in the zone constraint; a GO revealed at the event needs the

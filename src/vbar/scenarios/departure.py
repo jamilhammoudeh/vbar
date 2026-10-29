@@ -1,11 +1,11 @@
 """Departure: leave the port through a departure corridor onto a non-returning path.
 
 Success at a step boundary when the range exceeds `clear_range` and the free drift from that
-state, over `drift_horizon`, never comes within `collision_radius` of the target, checked with
+state, over `drift_horizon`, never comes within the body radius of the target, checked with
 the Clohessy-Wiltshire transition matrix. The departure corridor is a cone on the port axis,
-active near the port. The public goal names the clear point on the axis as a hold point with a
-wide capture ball, so the mission metrics score the arrival in the clear zone; the drift check
-is the scenario's own and is reported in `info`.
+active near the port. The public goal carries the clear range, the drift horizon and the body
+radius as `drift_radius`, from which the mission metrics apply the same rule, and names the clear
+point on the axis as a hold point for the terminal errors; the drift margin is in `info`.
 """
 
 from __future__ import annotations
@@ -161,6 +161,7 @@ class DepartureEnv(ScenarioEnv):
             "capture_speed": 10.0,
             "clear_range": p.clear_range,
             "drift_horizon": self.horizon,
+            "drift_radius": p.body_radius,
         }
         if p.plume_range is not None:
             goal["plume_range"] = p.plume_range

@@ -100,7 +100,7 @@ def test_the_reference_controller_succeeds_and_the_metrics_agree(name, index):
     assert info["success"], info
     assert not info["keep_out_violated"]
     metrics = evaluate(episode, env.metric_settings())
-    # A departure's goal is a hold at its clear point, and the inspection is judged on its coverage.
+    # The metrics apply the departure's own rule and read the inspection's recorded coverage.
     assert metrics["success"] is True
     if base_name(name) in ("docking", "docking-offset", "inertial-target", "vbar-final-shuttle"):
         event = contact(episode)

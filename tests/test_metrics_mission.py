@@ -3,12 +3,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from metric_cases import DOCKING_GOAL, episode, pd_episode
+from scenario_references import reference_for
 from scipy.optimize import brentq
 
 from vbar.agents import DriftAgent, PDAgent
 from vbar.dynamics import EARTH, cw_stm, mean_motion
 from vbar.metrics import METRICS, contact, evaluate, mission_metrics, record_episode
-from vbar.scenarios import SCENARIOS, Fixed, InertialPointing, Misbriefed, Passive, make
+from vbar.scenarios import SCENARIOS, Fixed, InertialPointing, Misbriefed, Passive, make, seeds
+from vbar.scenarios.departure import drift_minimum_range
 from vbar.scenarios.registry import entry_class
 from vbar.scenarios.targets import body_point, body_point_velocity
 
@@ -274,6 +276,51 @@ def test_contact_range_is_judged_at_the_crossing_in_both(beside):
         # 5e-8 s later at 0.02 m/s closing, 2e-8 m further sideways at 0.38 m/s.
         assert event.t == pytest.approx(info["contact_time_s"], abs=1e-6)
         assert event.lateral_error == pytest.approx(info["contact_lateral_error_m"], abs=1e-6)
+
+
+def test_a_departure_is_met_where_its_free_drift_stays_clear():
+    # 320 m behind, beyond the 300 m clear range: drifting away at 1 m/s stays clear for two
+    # orbits, while the start velocity that drifts onto the target in 300 s reaches it within
+    # the horizon, as the departure's own drift check finds.
+    horizon = 2.0 * (2.0 * np.pi / N)
+    goal = {
+        "task": "depart",
+        "port": (0.0, -30.0, 0.0),
+        "port_axis": (0.0, -1.0, 0.0),
+        "hold_point": (0.0, -330.0, 0.0),
+        "capture_radius": 100.0,
+        "capture_speed": 10.0,
+        "clear_range": 300.0,
+        "drift_horizon": horizon,
+        "drift_radius": 30.0,
+    }
+    away = episode(goal=goal, start_state=(0.0, -320.0, 0.0, 0.0, -1.0, 0.0), max_steps=3)
+    phi = cw_stm(N, 300.0)
+    r0 = np.array([0.0, -320.0, 0.0])
+    v0 = -np.linalg.solve(phi[:3, 3:], phi[:3, :3] @ r0)
+    toward = episode(goal=goal, start_state=(*r0, *v0), max_steps=3)
+    assert drift_minimum_range(away.states[1], N, horizon) > 30.0
+    assert drift_minimum_range(toward.states[1], N, horizon) < 30.0
+    met, missed = mission_metrics(away), mission_metrics(toward)
+    assert met["success"] and met["time_to_complete"] == 10.0
+    # Toward the target the run ends inside the clear ball, which no longer decides.
+    assert np.linalg.norm(toward.states[-1, :3] - goal["hold_point"]) < 100.0
+    assert not missed["success"] and missed["time_to_complete"] == toward.duration
+
+
+@pytest.mark.parametrize("clear_radius", [2.0, 100.0])
+def test_departure_metrics_agree_with_the_environment_whatever_the_clear_ball(clear_radius):
+    # The reference leaves on the axis; with a 2 m ball it passes the clear point between
+    # samples, and with the 100 m ball it enters the ball at about 230 m, before the clear range.
+    spec = SCENARIOS["departure"]
+    spec = replace(spec, parameters={**spec.parameters, "clear_radius": clear_radius})
+    env = entry_class(spec)(spec)
+    seed, agent_seed = seeds("departure", "validation", 1).pairs()[0]
+    ep = record_episode(env, reference_for("departure", env.n), seed=seed, agent_seed=agent_seed)
+    info = env._info()
+    m = mission_metrics(ep)
+    assert info["success"] and m["success"]
+    assert m["time_to_complete"] == ep.duration
 
 
 def test_a_departure_goal_is_judged_at_its_clear_point_not_at_its_port():

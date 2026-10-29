@@ -8,7 +8,7 @@ group needed to detect a change of 10% of the mean (two-sided alpha 0.05, power 
 approximation, unpaired; paired runs on common seeds need fewer).
 
 ## M1 success (v2)
-- Definition: the goal is met (capture at a step boundary; a dwell of `hold_time`, at the moving capture point for a capture goal; contact with M10 >= 0) and no hard constraint's certified in-step minimum fell below zero. Truth.
+- Definition: the goal is met (capture at a step boundary; a dwell of `hold_time`, at the moving capture point for a capture goal; contact with M10 >= 0; for a departure, a step boundary beyond the clear range whose free drift stays clear) and no hard constraint's certified in-step minimum fell below zero. Truth.
 - Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: the headline completion rate.
 - Known-answer tests: PD from 400 m behind succeeds; rest on the V-bar hold point succeeds at 10 s; capture after flying through the keep-out zone fails; a hold that lasts 0.9 of the required dwell fails and 1.1 succeeds; contact at 0.08 m/s on axis succeeds, at 0.2 m/s fails; the Shuttle-ISS contact at 0.0344 m/s (Goodman, p. 244) succeeds in a 0.025 to 0.05 m/s window and fails in the probe-drogue window.
@@ -19,7 +19,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 - Reproducibility: exact (boolean) in `tests/golden/metrics_*.json`.
 - Power: PD succeeds from 40 of 40 starts behind the target and 0 of 40 in the spec's start box, where the target is in the way; a drop of 0.1 from the first rate needs 74 episodes per group.
 - Validity: not yet measured.
-- Changelog: v2, contact counts only within the goal's contact range of the port, follows a turning port with the true target mode, and measures speeds against the port's velocity, as the environment does; a capture goal's point is fixed to the target and carried by its true attitude mode; v1, first version.
+- Changelog: v2, contact counts only within the goal's contact range of the port, follows a turning port with the true target mode, and measures speeds against the port's velocity, as the environment does; a capture goal's point is fixed to the target and carried by its true attitude mode; a departure goal is met by the departure's own rule, the clear range and a clear free drift, not by its capture ball; v1, first version.
 
 ## M2 terminal_pos_error (v2)
 - Definition: |r - r_goal| at the end (m), r_goal the hold point or the port where it stands at the end. Truth.
@@ -50,7 +50,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 - Changelog: v2, for a docking goal the port is taken where it stands on the target's true attitude mode, with its velocity; a capture goal's point is fixed to the target and carried by its true attitude mode; v1, first version.
 
 ## M4 time_to_complete (v2)
-- Definition: when the goal is met (contact time, end of the first full dwell, first capturing step boundary), else T (s).
+- Definition: when the goal is met (contact time, end of the first full dwell, first clear departing step boundary, first capturing step boundary), else T (s).
 - Summary: interquartile mean across episodes.
 - Why it matters: speed of completion.
 - Known-answer tests: 10 s at the V-bar equilibrium; the closed-form crossing time for contact (1e-6 s); the required dwell for a hold that succeeds.
@@ -61,7 +61,7 @@ approximation, unpaired; paired runs on common seeds need fewer).
 - Reproducibility: 1e-9 relative.
 - Power: starts behind the target: SD 52.5 s about a mean of 616.2 s, 12 episodes per group for a 10% change; the spec's start box: SD 36.2 s about a mean of 700 s, 5 episodes per group for a 10% change.
 - Validity: not yet measured.
-- Changelog: v2, contact counts only within the goal's contact range of the port, follows a turning port with the true target mode, and measures speeds against the port's velocity, as the environment does; a capture goal's point is fixed to the target and carried by its true attitude mode; v1, first version.
+- Changelog: v2, contact counts only within the goal's contact range of the port, follows a turning port with the true target mode, and measures speeds against the port's velocity, as the environment does; a capture goal's point is fixed to the target and carried by its true attitude mode; a departure is met at its first clear departing step boundary; v1, first version.
 
 ## M5 progress (v2)
 - Definition: clip(1 - d_end / d_0, 0, 1), d the distance to the goal (the port where it stands).
