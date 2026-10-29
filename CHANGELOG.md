@@ -153,8 +153,7 @@ release may change the public API, and every such change is listed under Changed
   box, in 2-norm for a ball, at the final mass under the constant-thrust drive) as well as matching
   its dynamics rung; otherwise it is reported as a model bound, and the certified figure falls back
   to the impulsive bound when one is given. `Episode.drive` records the thrust drive from the
-  environment configuration. E3u is NaN for an infinite upper bound; E3, E3m, E3u, E3f and E3c are
-  at version 2, and the defaults reproduce version 1 exactly.
+  environment configuration.
 - `vbar.oracles`: the CW primer vector and a rigorous finite-thrust dual lower bound on the fuel of
   any admissible manoeuvre, with the dual norm of the thruster layout and a certificate that holds
   between grid points (`vbar.oracles.primer`); and the exact constrained infinite-horizon LQ value
@@ -200,6 +199,9 @@ release may change the public API, and every such change is listed under Changed
 - `summarize` and `unsafe_tail` report `n` and `missing` (the NaN values left out), and
   `summarize` raises for a NaN success, progress or composite score.
 - A2 `compute` (version 2) includes the agent's time in `reset`.
+- E3, E3m, E3u, E3f and E3c are at version 2. E3u is NaN for an infinite upper bound (0 in
+  version 1); with `FuelBounds.accel_limit` at its default, infinite, every other value is the
+  version 1 value.
 - Identifiers name a sensor subclass by its class, never by a built-in track name such as `nav1`;
   a custom `label` that takes a built-in name raises; an environment of another class than its
   spec names adds a `kind=` token.
