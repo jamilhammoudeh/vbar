@@ -10,15 +10,17 @@ quotes.
 Source: Ariba, Arzelier, Urbina and Louembet, "V-bar and R-bar glideslope guidance algorithms for
 fixed-time rendezvous: a linear programming approach", IFAC-PapersOnLine 49(17), 385-390 (2016),
 doi:10.1016/j.ifacol.2016.09.066, case 1, which the authors take from Hablani, Tapper and
-Dana-Bashian (Journal of Guidance, Control, and Dynamics 25(3), 2002).
+Dana-Bashian, "Guidance and relative navigation for autonomous rendezvous in a circular orbit",
+Journal of Guidance, Control, and Dynamics 25(3), 553-562 (2002), doi:10.2514/2.4916, p. 558.
 
 **The case.** A V-bar transfer from 500 m to 100 m behind the target, 20 m above it, from rest to
 rest in T = 540 s with N impulses at equal times, on a circular orbit at the rate the paper uses,
-0.001 rad/s. The paper's axes are x along-track, y out of plane and z toward the Earth (its
-equation 2: x'' = 2 z', z'' = 3 z - 2 x', y'' = -y), so its [x, y, z] is V-BAR's [-z, x, -y] in
-V-BAR's [x, y, z] ([frames.md](frames.md)): the start [-500, 0, -20] m becomes (20, -500, 0) m and
-the aim [-100, 0, -20] m becomes (20, -100, 0) m. Costs are the sum of the impulses' 1-norms, the
-paper's criterion.
+0.001 rad/s (Hablani et al. give 10 pulses over 9 min and about 0.001 rad/s at 400 km). The
+paper's axes are x along-track, y out of plane and z toward the Earth (its equation 2:
+x'' = 2 z', z'' = 3 z - 2 x', y'' = -y), so its [x, y, z] is V-BAR's [-z, x, -y] in V-BAR's
+[x, y, z] ([frames.md](frames.md)): the start [-500, 0, -20] m becomes (20, -500, 0) m and the aim
+[-100, 0, -20] m becomes (20, -100, 0) m. Costs are the sum of the impulses' 1-norms, the paper's
+criterion.
 
 **The LP glideslope** (`lp_glideslope(n, start, aim, duration, pulses, bound)`). Following the
 paper's section 3, the variables are the along-track positions at which the chaser is back on the
@@ -60,8 +62,10 @@ numbers belong to its rounded 0.001 rad/s.
   are not rebuilt.
 - The midpoint bound limits the deviation where a V-bar hump is highest on an arc that starts and
   ends on the line; the excursion is checked on the flown arcs.
-- The original paper of Hablani, Tapper and Dana-Bashian was not read; the case and its numbers
-  are Ariba et al.'s.
+- Hablani, Tapper and Dana-Bashian (2002) confirm the range (500 m to 100 m), the 10 pulses over
+  9 min and the rounded rate, though not the 20 m offset or the final rest, and give no
+  numeric two-impulse example: the two-impulse comparison (0.12 m/s, about 125 m) is Ariba et
+  al.'s own, and neither paper states its transfer time, so those rows stay not reproduced.
 
 ## Validation
 

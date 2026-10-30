@@ -617,9 +617,9 @@ ed.), at 500 km with a 10 s step
   (`test_twelve_pulses_from_far_behind_add_up_to_1_2_ft_per_s`); the gate never drops below the
   0.1 ft/s final rate of Table 25.8 (`test_pilot_gate_never_drops_below_0_1_ft_per_s`).
 
-**Hablani, Tapper and Dana-Bashian, "Guidance and control of an autonomous rendezvous
-spacecraft"** (*Journal of Guidance, Control, and Dynamics* 25(3), 2002), as reproduced in Yuan,
-Li and Wang (*Aerospace* 9, 242, 2022), eqs. 14 to 25
+**Hablani, Tapper and Dana-Bashian, "Guidance and relative navigation for autonomous rendezvous
+in a circular orbit"** (*Journal of Guidance, Control, and Dynamics* 25(3), 553-562, 2002), as
+reproduced in Yuan, Li and Wang (*Aerospace* 9, 242, 2022), eqs. 14 to 25
 
 - The glideslope profile $\dot\rho = a\rho + b$ arrives at $T = \ln(\dot\rho_T/\dot\rho_0)/a$,
   $1000\ln 11$ s from 200 m at -0.22 m/s to -0.02 m/s
@@ -689,7 +689,11 @@ Facts only, each cited in [reconstructions.md](reconstructions.md); none is an o
 ## Published results reproduced
 
 Ariba, Arzelier, Urbina and Louembet, IFAC-PapersOnLine 49(17), 385-390 (2016), case 1 (Hablani's
-V-bar scenario), rebuilt from the paper ([reproductions.md](reproductions.md)). `python -m
+V-bar scenario), rebuilt from the paper ([reproductions.md](reproductions.md)). The case, from
+500 m to 100 m behind the target in 10 pulses over 9 min (540 s), and the rate of about
+0.001 rad/s at 400 km are Hablani, Tapper and Dana-Bashian's (2002, p. 558). Their paper gives no
+numeric two-impulse example, so the two-impulse rows are Ariba et al.'s own, and neither paper
+states that transfer's time. `python -m
 vbar.reproductions` prints this table; `tests/test_reproductions.py` checks that it is the table
 below. "Matches" means V-BAR's number rounds to the paper's at the paper's printed digits.
 

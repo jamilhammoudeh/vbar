@@ -1,7 +1,8 @@
 """Glideslope guidance: the exponential range profile, its pulses and the agent that flies them.
 
-The law is that of Hablani, Tapper and Dana-Bashian, Guidance and control of an autonomous
-rendezvous spacecraft, JGCD 25(3), 2002, with the equations as reproduced in Yuan, Li and Wang,
+The law is that of Hablani, Tapper and Dana-Bashian, Guidance and relative navigation for
+autonomous rendezvous in a circular orbit, JGCD 25(3), 553-562, 2002, with the equations as
+reproduced in Yuan, Li and Wang,
 Aerospace 9, 242, 2022, eqs 14 to 25: the range to go follows rho_dot = a rho + b with
 a = (rho_dot0 - rho_dotT) / rho0 and b = rho_dotT, so
 rho(t) = (rho0 + b / a) exp(a t) - b / a and the arrival time is T = ln(rho_dotT / rho_dot0) / a.

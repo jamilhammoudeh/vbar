@@ -97,7 +97,8 @@ the keep-out zone is logged and flown; the metrics score what happened.
 ## Assumptions and limits
 
 - The paper of Hablani, Tapper and Dana-Bashian (*Journal of Guidance, Control, and Dynamics*
-  25(3), 2002) could not be consulted directly; the law and the pulse equations are taken as
+  25(3), 553-562, 2002) was consulted only for the case of [reproductions.md](reproductions.md);
+  the law and the pulse equations are taken as
   reproduced in Yuan, Li and Wang, *Aerospace* 9, 242 (2022), eqs 14 to 25, and in Wang, Li, Lin
   and Huo, *Aerospace* 8, 137 (2021). Yuan places pulses at arbitrary times and Wang at equal intervals
   $T/N$; the pulses here fall every `pulse_interval` with a shorter last segment, so that they

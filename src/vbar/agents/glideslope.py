@@ -4,8 +4,9 @@ The range to go rho along the fixed line from the aim point to the start follows
 rho_dot = a rho + b with a = (rho_dot0 - rho_dotT) / rho0 < 0 and b = rho_dotT < 0, so
 rho(t) = (rho0 + b / a) exp(a t) - b / a and the arrival time is T = ln(rho_dotT / rho_dot0) / a.
 Pulses place the chaser on the line at the profile's range, each segment's velocity coming from
-the CW transition matrices (Hablani, Tapper and Dana-Bashian, Guidance and control of an
-autonomous rendezvous spacecraft, Journal of Guidance, Control, and Dynamics 25(3), 2002, with
+the CW transition matrices (Hablani, Tapper and Dana-Bashian, Guidance and relative navigation
+for autonomous rendezvous in a circular orbit, Journal of Guidance, Control, and Dynamics 25(3),
+553-562, 2002, with
 the equations as reproduced in Yuan, Li and Wang, Aerospace 9, 242, 2022, eqs 14 to 25).
 """
 
