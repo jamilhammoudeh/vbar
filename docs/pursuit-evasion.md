@@ -273,6 +273,62 @@ print(reward, info["closest_approach"])
 The same agent and seed give the same episode on every run, whatever the number of workers; with
 the passive and normal-escape evaders the seed changes nothing.
 
+## KSPDG's import names
+
+`vbar.games.compat.install()` makes KSPDG's module paths import V-BAR's pe1 in the running
+process: `kspdg.agent_api.base_agent.KSPDGBaseAgent` is `BaseAgent`,
+`kspdg.agent_api.runner.AgentEnvRunner` is `AgentEnvRunner`, `kspdg.pe1.e3_envs.PE1_E3_I3_Env`
+is V-BAR's class of that name, and the top-level names such as `kspdg.PE1_E3_I3_V1` are the same
+classes, as in KSPDG v0.15.0's `src/kspdg/__init__.py`. The environments V-BAR does not rebuild
+still import, so a script that only names them keeps working, and building one raises
+`NotImplementedError` with the reason: lady-bandit-guard (`kspdg.lbg1`, LG0 to LG2), sun
+blocking (`kspdg.sb1`), the obfuscated `LBG1_LG3_I1_V1` to `LBG1_LG7_I2_V1`, and the 2022-05-16
+pe1 start. Any other `kspdg` module (`kspdg.utils`, for one) raises `ModuleNotFoundError`, and
+any other name `AttributeError`. `install` refuses when the real `kspdg` package is already
+imported; after it, every `kspdg` import in that process gets V-BAR's names until `uninstall()`.
+None of this imports or copies KSPDG.
+
+A KSPDG agent file then runs with no change at all:
+
+```
+python -m vbar.games.compat my_agent.py [args]
+```
+
+installs the names and runs the file as `__main__`, with its folder first on `sys.path` as
+`python my_agent.py` would. The names exist only in that process: worker processes the script
+starts (a `multiprocessing` pool, or `vbar.eval.run_jobs` with more than one worker) import the
+file again without them and fail, so such a script runs with one worker or imports V-BAR's own
+names (`vbar.games`). In a program or a notebook:
+
+```python
+from vbar.games import compat
+
+compat.install()
+
+from kspdg.agent_api.base_agent import KSPDGBaseAgent
+from kspdg.agent_api.runner import AgentEnvRunner
+from kspdg.pe1.e1_envs import PE1_E1_I3_Env
+
+
+class NaivePursuitAgent(KSPDGBaseAgent):
+    def get_action(self, observation):
+        return {"burn_vec": [1.0, 0, 0, 1.0], "vec_type": 0, "ref_frame": 0}
+
+
+runner = AgentEnvRunner(
+    agent=NaivePursuitAgent(),
+    env_cls=PE1_E1_I3_Env,
+    env_kwargs={"episode_timeout": 10.0},
+    runner_timeout=100,
+    debug=False,
+)
+print(runner.run()["agent_env_results"]["closest_approach"])
+compat.uninstall()
+```
+
+Agents that read the live game through kRPC (its Sun position or vessel frames) need the game,
+and agents that import poliastro need it installed; neither changes with the import names.
+
 ## Published agents
 
 `ClosestApproachAgent` is V-BAR's reimplementation of Jason Cheng's deterministic agent in
@@ -404,6 +460,19 @@ rerun the script to measure yours.
 - After 10 s of burning the evader's velocity differs from a passive twin's by the rocket-equation
   amount to 1e-3, along its velocity, and not at all with the pursuer burning; over the episode its
   semi-major axis rises by 20 km to 60 km. Every E4 start flies this evader.
+
+`tests/test_pursuit_compat.py`:
+
+- After `install`, KSPDG's module paths give V-BAR's base agent, runner, base environment and the
+  pe1 constants, and every scenario class under its `kspdg.pe1.e*_envs` module and its top-level
+  `_V1` name (enumerated from `SCENARIOS`).
+- Each environment V-BAR lacks imports, and building it, directly or through `AgentEnvRunner`,
+  raises `NotImplementedError` naming it and the reason; another module or name fails with a
+  message naming V-BAR's KSPDG names.
+- `install` refuses when `kspdg` itself is imported, adds one finder however often it runs, and
+  `uninstall` removes it and the alias modules.
+- A KSPDG agent script written as KSPDG's example runs as `__main__` through `main` with its
+  arguments and its folder first on `sys.path`.
 
 `tests/test_pursuit_closest_approach.py`:
 

@@ -347,6 +347,11 @@ release may change the public API, and every such change is listed under Changed
   Cheng's deterministic pe1 agent (github.com/ARCLab-MIT/kspdg) on V-BAR's Kepler propagation,
   with the original's predictor signature.
 
+- `vbar.games.compat`: KSPDG's module paths and names (`kspdg.agent_api.base_agent`,
+  `kspdg.pe1.e3_envs`, `kspdg.PE1_E3_I3_V1` and the rest of pe1) for V-BAR's classes once
+  `install()` runs, with `NotImplementedError` and the reason for lbg1, sb1 and LG3 to LG7, and
+  `python -m vbar.games.compat script.py` to run a KSPDG agent file as it is.
+
 ### Changed
 
 - `vbar.games.EvaderBot` is one method, `segment(t, r_p, v_p, r_e, v_e, previous, cause, rng)`,

@@ -17,7 +17,8 @@ and cited where they are used.
 Reimplemented from MIT-licensed code, without copying it:
   KSPDG, https://github.com/mit-ll/spacegym-kspdg, v0.15.0, commit 6251ca3
     Used in:  vbar.games: the pe1 problem definition (pe1_base.py, base_envs.py), the evader
-              rules of e1_envs.py to e4_envs.py, and the orbits of the pe1 mission saves
+              rules of e1_envs.py to e4_envs.py, the orbits of the pe1 mission saves, and the
+              module and class names of vbar.games.compat
   github.com/ARCLab-MIT/kspdg, commit a45e5c6
     Used in:  vbar.games.pursuers.ClosestApproachAgent and closest_approach, after Jason Cheng's
               arclab_mit/agents/extended_obs_agent/deterministic_agent.py and simulate.py
