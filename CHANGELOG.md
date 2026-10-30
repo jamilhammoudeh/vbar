@@ -260,6 +260,26 @@ release may change the public API, and every such change is listed under Changed
   `RuleSupervisor`, `LLMSupervisor` (with `parse_order` and `SUPERVISOR_PROMPT`) and
   `PolicySupervisor` on `supervisor_features`. `vbar.training.SupervisorEnv` lets a learner pick
   the commands.
+- `LLMAgent` flies every task kind: hold, berthing, docking, inspection and departure. The default
+  prompt describes the goal, the target's attitude mode and every public constraint in sentences
+  (`vbar.agents.briefing.briefing`) and measures the observation against them each step
+  (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
+  turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
+  `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
+- `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` take `--scenario` (a catalogue
+  name, variant or identifier) and write the scenario identifier into each result; the MCP
+  `describe_task` tool and the `start_episode` reply return the briefing, and each observation the
+  situation lines.
+- `--seeds-file` for both servers: seeds to repeat, one per line, kept out of the process list.
+- The supervisory command channel ([docs/supervision.md](docs/supervision.md)): `SupervisedAgent`
+  turns a supervisor's CONTINUE, GO, HOLD, RETREAT, CAM and THRUST_INHIBIT into set points for a
+  `SetpointTracker`, refusing and recording an order the validity mask does not allow, over the
+  ladder of rungs `ladder` cuts from a hold, berthing, docking or inspection goal. Supervisors:
+  `RuleSupervisor`, `LLMSupervisor` (with `parse_order` and `SUPERVISOR_PROMPT`) and
+  `PolicySupervisor` on `supervisor_features`. `vbar.training.SupervisorEnv` lets a learner pick
+  the commands. `SetpointTracker` flies a Kalman estimate on a noisy sensor (`sensor`,
+  `estimate`, `sensor_noise`) and holds the docking standoff until the lateral error is small
+  (`lateral_sigma`).
 
 ### Changed
 

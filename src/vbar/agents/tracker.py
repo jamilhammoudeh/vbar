@@ -7,19 +7,25 @@ vehicle speed, a gain times the distance and the public speed laws, and a PD hol
 within `capture_range` of the last point. Legs that would pass within `clearance` keep-out radii
 of the target go round it on a sphere. A docking leg stands off outside every approach cone, then
 descends the port axis at a speed in the mechanism's window; an orbit leg joins a circle about
-the target that turns with the Sun (Fehse 5.7.3 inspection). It reads only the `AgentView`, the
-observation and the time.
+the target that turns with the Sun (Fehse 5.7.3 inspection). Where the scenario's sensor is noisy
+the tracker flies on a Kalman estimate of the state and holds the standoff until the estimate is
+good enough across the port axis. It reads only the `AgentView`, the observation, the time and its
+own commands.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from numbers import Real
 
 import numpy as np
 
 from ..constraints import _VBAR_COAST
+from ..dynamics import cw_discrete
+from ..scenarios.registry import SCENARIOS, parse_id
 from ..scenarios.targets import rotation_z
+from ..spacecraft.sensors import GaussianNav
 from .base import AgentView, action_scale
 from .briefing import target_mode
 
@@ -48,6 +54,13 @@ _STIFF_GAIN = 0.2
 _WALK_ANGLE = 0.15
 _WALK_STEP = 0.35
 _DOCK_MARGIN = 10.0
+# Acceleration noise (m/s^2) of the filter's model. The Clohessy-Wiltshire model is exact, so this
+# only keeps the covariance from collapsing under rounding; the estimate then averages every fix.
+_PROCESS_FLOOR = 1e-9
+# Seconds added to the descent's duration at the window's middle speed to size the time that must
+# remain after the standoff for the descent to finish.
+_DESCENT_SLACK = 100.0
+_SENSOR_KEYS = {"sigma_pos", "sigma_vel"}
 
 
 def _laws(view: AgentView, rho: float) -> tuple[float, float]:
@@ -100,6 +113,45 @@ def _real(name: str, value, low: float, *, closed: bool = False, high: float = m
     if not (number >= low if closed else number > low) or number > high:
         raise ValueError(f"{name} out of range, got {value!r}")
     return number
+
+
+def _sensor_spec(sensor) -> tuple[float, float] | str | None:
+    """The `sensor` argument of the tracker as None, "scenario" or a pair of noise levels."""
+    if sensor is None:
+        return None
+    if isinstance(sensor, str):
+        if sensor != "scenario":
+            raise ValueError(f"sensor must be 'scenario', None or a mapping, got {sensor!r}")
+        return sensor
+    if not isinstance(sensor, Mapping):
+        raise ValueError(f"sensor must be 'scenario', None or a mapping, got {sensor!r}")
+    if set(sensor) != _SENSOR_KEYS:
+        raise ValueError(
+            f"sensor needs the keys {sorted(_SENSOR_KEYS)}, got {sorted(map(str, sensor))}"
+        )
+    return _real("sigma_pos", sensor["sigma_pos"], 0.0), _real(
+        "sigma_vel", sensor["sigma_vel"], 0.0
+    )
+
+
+def _catalogue_noise(identifier: str) -> tuple[float, float] | None:
+    """Position and velocity noise (m, m/s) of the catalogue sensor an identifier names."""
+    tokens = identifier.split(":")
+    settings = [t.split("=", 1)[0] for t in tokens if "=" in t]
+    # A changed sensor or spec is not the catalogue's; other settings (action mode, steps) leave
+    # the variant's sensor as it is.
+    if any(key in ("sensor", "spec", "kind") for key in settings):
+        return None
+    try:
+        name, variants, _ = parse_id(":".join(t for t in tokens if "=" not in t))
+    except (ValueError, KeyError):
+        return None
+    sensor = SCENARIOS[name].variant(*variants).config.get("sensor")
+    # Only white noise is modelled; a correlated sensor would make the filter overconfident.
+    if not isinstance(sensor, GaussianNav):
+        return None
+    sigma_pos, sigma_vel = float(sensor.sigma[0]), float(sensor.sigma[3])
+    return (sigma_pos, sigma_vel) if sigma_pos > 0.0 and sigma_vel > 0.0 else None
 
 
 def _cw_terms(state: np.ndarray, n: float) -> np.ndarray:
@@ -172,11 +224,29 @@ class SetpointTracker:
     hold_accel : float
         Fraction, at most 1, of the thruster acceleration that holding a place may cost against
         the tidal acceleration there; a supervised agent refuses a HOLD that costs more.
+    sensor : {"scenario", None} or mapping
+        The noise the navigation filter assumes. "scenario" reads the white noise of the
+        catalogue sensor the view's `scenario_id` names, at `reset`; None, or a scenario without
+        a noisy catalogue sensor, flies the raw observation. A mapping gives `sigma_pos` (m) and
+        `sigma_vel` (m/s), the 1-sigma noise per Hill axis, for any scenario.
+    lateral_sigma : float
+        Standard deviation (m) of the estimate across the port axis below which a docking leg
+        leaves the standoff for the descent.
 
     Raises
     ------
     ValueError
-        If a parameter is not a finite number in its range.
+        If a parameter is not a finite number in its range, or `sensor` is not one of the forms
+        above.
+
+    Notes
+    -----
+    The filter is a Kalman filter on the exact Clohessy-Wiltshire model
+    (`vbar.dynamics.cw_discrete`), fed the tracker's own commands as accelerations and updated
+    in the Joseph form on every `act`. It uses nothing from the environment: the noise comes from
+    the public catalogue or the mapping. The docking leg waits at the standoff until the
+    estimate's standard deviation across the port axis is below `lateral_sigma`, or until only
+    twice the descent's planned duration is left.
     """
 
     def __init__(
@@ -191,6 +261,8 @@ class SetpointTracker:
         speed_margin: float = 0.8,
         clearance: float = 1.2,
         hold_accel: float = 0.5,
+        sensor: str | Mapping[str, float] | None = "scenario",
+        lateral_sigma: float = 0.045,
     ):
         self.v_max = _real("v_max", v_max, 0.0)
         self.gain = _real("gain", gain, 0.0)
@@ -203,6 +275,20 @@ class SetpointTracker:
         self.hold_accel = _real("hold_accel", hold_accel, 0.0, high=1.0)
         if not math.isfinite(self.wn * self.wn) or not math.isfinite(2.0 * self.zeta * self.wn):
             raise ValueError("wn and zeta give a hold gain that is not finite")
+        self.lateral_sigma = _real("lateral_sigma", lateral_sigma, 0.0)
+        self._sensor = _sensor_spec(sensor)
+        self._noise: tuple[float, float] | None = None
+        self._x: np.ndarray | None = None
+
+    @property
+    def sensor_noise(self) -> tuple[float, float] | None:
+        """The (position m, velocity m/s) noise the filter assumes; None if it runs no filter."""
+        return self._noise
+
+    @property
+    def estimate(self) -> np.ndarray | None:
+        """Copy of the filter's state estimate (m, m/s, Hill); None before the first `act`."""
+        return None if self._x is None else self._x.copy()
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
         """Start an episode: read the public view and stop commanding.
@@ -259,6 +345,15 @@ class SetpointTracker:
         self._remaining = np.zeros(3)
         self._r_ref = np.zeros(3)
         self._v_ref = np.zeros(3)
+        self._noise = (
+            _catalogue_noise(view.scenario_id) if isinstance(self._sensor, str) else self._sensor
+        )
+        self._x = None
+        self._accel = np.zeros(3)
+        if self._noise is not None:
+            self._phi, self._gamma = cw_discrete(view.n, view.dt)
+            self._meas = np.diag([self._noise[0] ** 2] * 3 + [self._noise[1] ** 2] * 3)
+            self._process = _PROCESS_FLOOR**2 * self._gamma @ self._gamma.T
 
     def fly_to(self, point, kind: str = "hold", *, speed: float | None = None) -> None:
         """Fly to a point, going round the target if the straight leg passes too near it.
@@ -320,22 +415,59 @@ class SetpointTracker:
         return self._r_ref.copy(), self._v_ref.copy()
 
     def act(self, obs, t: float) -> np.ndarray:
-        """The command, in the view's action mode, for observation `obs` at time `t` (s)."""
+        """The command, in the view's action mode, for observation `obs` at time `t` (s).
+
+        With a navigation filter the control reads the filter's estimate of `obs`, which is
+        updated on every call whatever the mode.
+        """
         obs = np.asarray(obs, dtype=float)
-        v = obs[3:6]
+        if self._noise is not None:
+            obs = self._filter(obs[:6])
+        f = self._control(obs, t)
+        self._accel = f * self._a_max
+        return f * self._scale
+
+    def _filter(self, z: np.ndarray) -> np.ndarray:
+        """Kalman update with fix `z`, after the acceleration the last command held."""
+        if self._x is None:
+            self._x, self._cov = z.copy(), self._meas.copy()
+            return self._x
+        x = self._phi @ self._x + self._gamma @ self._accel
+        cov = self._phi @ self._cov @ self._phi.T + self._process
+        gain = np.linalg.solve(cov + self._meas, cov).T
+        # Joseph form keeps the covariance symmetric and positive as it shrinks.
+        keep = np.eye(6) - gain
+        self._x = x + gain @ (z - x)
+        self._cov = keep @ cov @ keep.T + gain @ self._meas @ gain.T
+        return self._x
+
+    def _ready(self, axis: np.ndarray, t: float) -> bool:
+        """Whether the final leg may leave the standoff: the estimate is good across the axis."""
+        if self._noise is None:
+            return True
+        # Only the descent's planned time left: waiting longer would not finish the docking.
+        leg = 0.5 * self._standoff / self._v_contact + _DESCENT_SLACK
+        if t > self._dt * self._view.max_steps - 2.0 * leg:
+            return True
+        across = np.eye(3) - np.outer(axis, axis)
+        lateral = across @ self._cov[:3, :3] @ across
+        return math.sqrt(float(np.trace(lateral))) < self.lateral_sigma
+
+    def _control(self, obs: np.ndarray, t: float) -> np.ndarray:
+        """Command as a fraction of a full command, for the state `obs` at time `t` (s)."""
         if self._mode == "coast":
             return np.zeros(3)
         if self._mode == "burn":
             return self._burn()
         if self._mode == "velocity":
-            a = -_cw_terms(obs, self._n) + self.k_v * (self._v_cmd - v)
+            a = -_cw_terms(obs, self._n) + self.k_v * (self._v_cmd - obs[3:6])
         elif self._mode == "orbit":
             a = self._orbit(obs, t)
         elif self._mode == "dock":
             a = self._descent(obs, t)
         else:
             a = self._follow(obs)
-        return self._fraction(a) * self._scale
+        return self._fraction(a)
 
     def _fraction(self, a: np.ndarray) -> np.ndarray:
         """Acceleration as a fraction of a full command, inside the thrust limit."""
@@ -350,7 +482,7 @@ class SetpointTracker:
         self._remaining = self._remaining - f * self._a_max * self._dt
         if float(np.linalg.norm(self._remaining)) < 1e-9:
             self._mode = "coast"
-        return f * self._scale
+        return f
 
     def _limit(self, r: np.ndarray, u: np.ndarray) -> float:
         """Speed (m/s) along unit direction `u` from `r` that the public laws allow."""
@@ -421,7 +553,7 @@ class SetpointTracker:
         port, axis, spin = self._port(t)
         standoff = port + self._standoff * axis
         if self._stage == "standoff":
-            if float(np.linalg.norm(standoff - r)) < ARRIVAL_RADIUS:
+            if float(np.linalg.norm(standoff - r)) < ARRIVAL_RADIUS and self._ready(axis, t):
                 self._stage = "final"
             else:
                 return self._standoff_leg(obs, port, axis, standoff, spin)

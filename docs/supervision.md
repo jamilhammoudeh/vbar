@@ -145,7 +145,7 @@ a command the mask refuses. The agent records `accepted=False` and the reason in
 ## Set-point tracker
 
 `SetpointTracker` turns a reference into a continuous command in the view's action mode and reads
-only the `AgentView`, the observation and the time. `reset` raises `ValueError` for a discrete or
+only the `AgentView`, the observation, the time and its own commands. `reset` raises `ValueError` for a discrete or
 burn-and-coast action mode. The command is the acceleration $\mathbf a$ as a fraction of the
 thruster limit: clipped per axis for box thrusters, scaled to unit length if longer for ball
 thrusters.
@@ -160,6 +160,8 @@ thrusters.
 | `speed_margin` | 0.8 | fraction of the public speed laws the demanded speed may use |
 | `clearance` | 1.2 | keep-out radii a leg must pass the target at |
 | `hold_accel` | 0.5 | fraction of the thruster limit that holding a place may cost against the tidal acceleration |
+| `sensor` | "scenario" | noise of the navigation filter: "scenario", None or `{"sigma_pos", "sigma_vel"}` |
+| `lateral_sigma` | 0.045 m | standard deviation across the port axis below which the descent starts |
 
 **Leg.** The acceleration cancels the natural Clohessy-Wiltshire acceleration and drives the
 velocity to the leg's (Fehse 3.3, 6.5):
@@ -202,6 +204,26 @@ lateral offset, $v_c$ the middle of the goal's axial speed window and $\boldsymb
 target's angular velocity; the port and axis turn with the target as its briefed attitude mode
 says (Fehse 5.3.1). The velocity loop gain is `k_v` while $d > 2$ m and 0.2 1/s inside, so the
 speed settles in the window.
+
+**Navigation filter.** On a noisy sensor the tracker flies on a Kalman estimate of the state
+instead of the raw observation; the supervisor and the `Situation` keep the raw observation. The
+filter is the Clohessy-Wiltshire transition (`vbar.dynamics.cw_discrete`) driven by the tracker's
+own commands as accelerations, with a $10^{-9}$ m/s$^2$ process noise floor against rounding and
+a Joseph-form update on every `act`, in every mode. Its noise is the white `sigma_pos` and
+`sigma_vel` of the catalogue sensor that the view's `scenario_id` names (read by `reset` through
+`parse_id`, so `:nav1` gives 1 m and 1 mm/s), or the mapping given as `sensor`; it runs no filter
+for an identifier outside the catalogue, a scenario without a Gaussian sensor, or `sensor=None`.
+The estimate is `SetpointTracker.estimate`. A docking leg holds the standoff until the estimate's
+standard deviation across the port axis is below `lateral_sigma`, or only twice the descent's
+planned time (half the standoff over the window's middle speed, plus 100 s) is left. Tests:
+`test_the_default_sensor_reads_the_noise_of_the_scenarios_variant`,
+`test_the_position_error_of_a_hold_falls_as_one_over_the_root_of_the_fixes`,
+`test_the_estimate_follows_a_manoeuvre_by_the_trackers_own_commands`,
+`test_two_runs_from_different_true_starts_fed_the_same_observations_agree_at_every_step`,
+`test_the_tracker_holds_the_standoff_while_the_lateral_sigma_is_above_the_limit`,
+`test_the_tracker_descends_without_waiting_when_only_the_descent_time_is_left`, and the `slow`
+flights `test_the_supervised_tracker_docks_on_the_noisy_axis_as_often_as_the_reference_and_cleanly`
+and `test_the_supervised_tracker_succeeds_on_as_many_other_noisy_runs_as_the_reference`.
 
 **Orbit** (kind "orbit"). The reference is the circle $\mathbf r_c(t) = R_z(-nt)\,\mathbf r_0$ with
 $\mathbf r_0$ the rung position, which turns at $-n$ about the orbit normal and so keeps its angle
