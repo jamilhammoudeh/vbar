@@ -38,9 +38,13 @@ evader's orbit tilted by 1e-4 deg.
 | `PE1_E3_I3_Env` | `vbar/PursuitEvasionE3I3-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m |
 
 `NormalEscapeEvader` is written for V-BAR from KSPDG's description of e3 ("heuristic evasion
-maneuvers") and the evasion distance and throttle in its public code (200 m, full throttle); it
-fires its eight forward nozzles (8000 N) along the angular momentum of its own orbit, stops when
-the range rises back through 200 m, and its propellant runs out like the pursuer's. The class names are KSPDG's, so a
+maneuvers") and its public code: it acts only while the pursuer is inside the 2200 m control range
+of KSPDG's pe1 (`CONTROL_RANGE`), where it points along the angular momentum of its own orbit and
+fires its eight forward nozzles (8000 N) while the range is below the evasion distance (200 m,
+full throttle), stopping when the range rises back through it. Outside the control range it
+changes nothing and keeps its last command, as KSPDG's does; with the default distances that is
+always nothing, but with an evasion distance wider than the control range a burn begun inside
+continues after the pursuer leaves. Its propellant runs out like the pursuer's. The class names are KSPDG's, so a
 KSPDG script needs only its imports changed; the LLM agents of Carrasco, Rodriguez-Fernandez and
 Linares (arXiv 2408.08676) were evaluated on PE1_I3_E3.
 
@@ -306,6 +310,9 @@ rerun the script to measure yours.
   rocket-equation amount to 1e-5.
 - The same seed flies the same episode with a random bot and another seed differs; a constructor
   seed holds for every reset, and without one each reset draws a different seed of 128 bits.
+- The normal-escape evader with a 2500 m evasion distance burns nothing until the pursuer is
+  inside 2200 m, then burns to the end of the episode, after the pursuer has left; its segment
+  choice follows the crossing that fired, not a fresh test of the range.
 - Each body-axis throttle (forward, right, down) pushes the evader along that axis with its
   thrust limit.
 - The Gymnasium seed and `fly`'s seed reach the evader's stream: equal seeds give equal episodes,

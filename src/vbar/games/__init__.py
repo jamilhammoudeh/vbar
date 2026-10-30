@@ -1,6 +1,6 @@
 """KSPDG-format games on two-body dynamics: the pe1 pursuit-evasion problem."""
 
-from .bots import EvaderBot, NormalEscapeEvader, PassiveEvader, Segment
+from .bots import CONTROL_RANGE, EvaderBot, NormalEscapeEvader, PassiveEvader, Segment
 from .envs import (
     GYMNASIUM_IDS,
     SCENARIOS,
@@ -22,6 +22,7 @@ from .runner import AgentEnvRunner, BaseAgent, fly
 from .vessels import PE1_VESSEL, Vessel
 
 __all__ = [
+    "CONTROL_RANGE",
     "CAPTURE_DIST",
     "EPISODE_TIMEOUT",
     "GYMNASIUM_IDS",

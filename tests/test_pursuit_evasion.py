@@ -349,7 +349,7 @@ def test_the_normal_escape_evader_thrusts_along_its_orbit_normal_inside_its_rang
     assert coast.throttle == (0.0, 0.0, 0.0) and burn.throttle == (1.0, 0.0, 0.0)
     assert burn.pointing == coast.pointing == "normal"
     # Each ends where the range crosses 200 m, and the crossing switches to the other.
-    ((g, rising),) = burn.triggers
+    (g, rising), _ = burn.triggers
     assert rising == 1 and g(near, v_e, r_e, v_e) == pytest.approx(-50.0)
     assert bot.segment(1.0, near, v_e, r_e, v_e, burn, 0, rng).throttle == coast.throttle
     assert bot.segment(1.0, far, v_e, r_e, v_e, coast, 0, rng).throttle == burn.throttle
@@ -362,7 +362,9 @@ def test_the_normal_escape_evader_thrusts_along_its_orbit_normal_inside_its_rang
 
 
 def test_the_evader_starts_escaping_when_the_pursuer_crosses_its_range():
-    env = PursuitEvasionEnv(evader=NormalEscapeEvader(evade_distance=2500.0), episode_timeout=30.0)
+    # A control range beyond the start, so the bot acts from the first step.
+    evader = NormalEscapeEvader(evade_distance=2500.0, control_range=3000.0)
+    env = PursuitEvasionEnv(evader=evader, episode_timeout=30.0)
     env.reset()
     crossed = None
     done = False
@@ -552,7 +554,8 @@ def test_the_evader_stops_thrusting_when_the_pursuer_leaves_its_range():
 
 def test_the_evader_stops_when_its_tank_runs_dry():
     vessel = Vessel(monopropellant=1.0)
-    env = PursuitEvasionEnv(evader=NormalEscapeEvader(evade_distance=3000.0), vessel=vessel)
+    evader = NormalEscapeEvader(evade_distance=3000.0, control_range=3500.0)
+    env = PursuitEvasionEnv(evader=evader, vessel=vessel)
     env.reset()
     info = env.step([0.0, 0.0, 0.0, 3.0])[3]
     assert info["evader_fuel_usage"] == pytest.approx(4.0, abs=1e-9)

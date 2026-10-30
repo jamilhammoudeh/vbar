@@ -338,6 +338,13 @@ release may change the public API, and every such change is listed under Changed
   thrust limits and per-axis propellant flow to the evader as to the pursuer.
   `NormalEscapeEvader(thrust=...)` is now `throttle`, in [0, 1] (1 is the former 8000 N).
 
+### Fixed
+
+- `vbar.games.NormalEscapeEvader` acts only while the pursuer is inside KSPDG's 2200 m evader
+  control range (`control_range`, `CONTROL_RANGE`) and keeps its last command outside it, as
+  KSPDG's e3 does; it burned at any range below its evasion distance. Episodes with the default
+  200 m evasion distance are unchanged.
+
 ## [0.4.0] - 2026-10-30
 
 ### Added

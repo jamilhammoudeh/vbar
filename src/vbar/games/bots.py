@@ -28,6 +28,9 @@ from .vessels import _number
 Switch = Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], float]
 POINTINGS = ("prograde", "normal")
 
+# KSPDG pe1_base.py, PARAMS.EVADER.CONTROL_RANGE: the pursuer range inside which e2 and e3 act.
+CONTROL_RANGE = 2200.0  # m
+
 
 @dataclass(frozen=True, kw_only=True)
 class Segment:
@@ -112,8 +115,10 @@ class PassiveEvader:
 class NormalEscapeEvader:
     """V-BAR's version of KSPDG's e3 evader: orbit-normal thrust when the pursuer is close.
 
-    The bot points forward along its orbit's angular momentum and fires `throttle` forward
-    while the pursuer's range is below `evade_distance`, else nothing.
+    While the pursuer is inside `control_range`, the bot points forward along its orbit's
+    angular momentum and fires `throttle` forward when the range is below `evade_distance`, else
+    nothing. Outside the control range it changes nothing and keeps what it last commanded, as
+    KSPDG's bot does; with an evasion distance inside the control range that is always nothing.
 
     Parameters
     ----------
@@ -121,34 +126,55 @@ class NormalEscapeEvader:
         Pursuer range (m) below which the bot thrusts; KSPDG's `evade_dist`.
     throttle : float
         Forward throttle in [0, 1] while evading; KSPDG's `evade_throttle`.
+    control_range : float
+        Pursuer range (m) inside which the bot acts; KSPDG's pe1 evader control range.
     """
 
     evade_distance: float = 200.0
     throttle: float = 1.0
+    control_range: float = CONTROL_RANGE
     name: str = "vbar-normal-escape-evader"
 
     def __post_init__(self):
         _number(self.evade_distance, "evade_distance")
         if not _number(self.throttle, "throttle", zero=True) <= 1.0:
             raise ValueError("throttle must be at most 1")
+        _number(self.control_range, "control_range")
 
     def _evade(self, r_p, v_p, r_e, v_e) -> float:
         return _range(r_p, v_p, r_e, v_e) - self.evade_distance
 
+    def _control(self, r_p, v_p, r_e, v_e) -> float:
+        return _range(r_p, v_p, r_e, v_e) - self.control_range
+
     def segment(self, t, r_p, v_p, r_e, v_e, previous, cause, rng) -> Segment:
-        if previous is None or cause is None:
-            evading = self._evade(r_p, v_p, r_e, v_e) < 0.0
+        fired = None if previous is None or cause is None else previous.triggers[cause]
+        if fired is None:
+            inside = self._control(r_p, v_p, r_e, v_e) < 0.0
+            evading = inside and self._evade(r_p, v_p, r_e, v_e) < 0.0
+        elif fired == (self._control, -1):
+            # Entering at the control range: below the evasion distance only if it is wider.
+            inside = True
+            evading = self.evade_distance >= self.control_range
         else:
-            # The range fell (-1) or rose (+1) through the evasion distance.
-            evading = previous.triggers[cause][1] == -1
+            inside = fired != (self._control, 1)
+            evading = fired == (self._evade, -1)
+        if not inside:
+            held = (0.0, 0.0, 0.0) if previous is None else previous.throttle
+            return Segment(throttle=held, pointing="normal", triggers=((self._control, -1),))
         if evading:
-            return Segment(
-                throttle=(self.throttle, 0.0, 0.0), pointing="normal", triggers=((self._evade, 1),)
-            )
-        return Segment(pointing="normal", triggers=((self._evade, -1),))
+            # With the evasion distance at or beyond the control range the burn lasts until the
+            # pursuer leaves that range; at equal distances both crossings coincide.
+            if self.evade_distance >= self.control_range:
+                ends: tuple[tuple[Switch, int], ...] = ((self._control, 1),)
+            else:
+                ends = ((self._evade, 1), (self._control, 1))
+            return Segment(throttle=(self.throttle, 0.0, 0.0), pointing="normal", triggers=ends)
+        return Segment(pointing="normal", triggers=((self._evade, -1), (self._control, 1)))
 
 
 __all__ = [
+    "CONTROL_RANGE",
     "POINTINGS",
     "EvaderBot",
     "NormalEscapeEvader",

@@ -6,7 +6,9 @@ import pytest
 
 from vbar.conventions import G0
 from vbar.games import (
+    CONTROL_RANGE,
     AgentEnvRunner,
+    NormalEscapeEvader,
     PE1_E3_I3_Env,
     PursuitEvasionEnv,
     PursuitEvasionGymEnv,
@@ -252,3 +254,50 @@ def test_fly_passes_its_seed_to_the_reset():
     ]
     assert runs[0]["evader_fuel_usage"] == runs[1]["evader_fuel_usage"]
     assert runs[0]["evader_fuel_usage"] != runs[2]["evader_fuel_usage"]
+
+
+@pytest.mark.parametrize("evade_distance", [CONTROL_RANGE, 2500.0])
+def test_the_normal_escape_evader_acts_only_inside_the_control_range(evade_distance):
+    # An evasion distance at or beyond the 2200 m control range: KSPDG's e3 does nothing until
+    # the pursuer is inside 2200 m and, once out again, changes nothing, so it keeps burning.
+    env = PursuitEvasionEnv(evader=NormalEscapeEvader(evade_distance=evade_distance))
+    env.reset()
+    rows, done = [], False
+    while not done:
+        throttle = 1.0 if env.t < 20.0 - 1e-9 else 0.0
+        observation, _, done, info = env.step([throttle, 0.0, 0.0, 1.0])
+        distance = float(np.linalg.norm(np.subtract(observation[9:12], observation[3:6])))
+        rows.append((observation[0], distance, info["evader_fuel_usage"]))
+    entered = next(i for i, row in enumerate(rows) if row[1] < CONTROL_RANGE)
+    # Nothing between 2500 m and 2200 m, where the old rule burned.
+    assert rows[0][1] > 2500.0 and all(fuel == 0.0 for _, _, fuel in rows[: entered - 1])
+    left = next(i for i, row in enumerate(rows) if i > entered and row[1] > CONTROL_RANGE)
+    assert rows[-1][1] > 10 * CONTROL_RANGE and left < len(rows) - 100
+    # One burn from the crossing (inside the step that ends below 2200 m) to the end.
+    burning = rows[-1][2] / FLOW
+    t_in = rows[entered][0]
+    assert 240.0 - t_in < burning < 240.0 - t_in + 1.0
+
+
+def test_the_normal_escape_evader_switches_on_which_crossing_fired():
+    bot = NormalEscapeEvader(evade_distance=500.0)
+    rng = np.random.default_rng(0)
+    r_e, v_e = np.array([7.5e5, 0.0, 0.0]), np.array([0.0, 2170.0, 0.0])
+    at = {d: r_e - [0.0, d, 0.0] for d in (300.0, 1000.0, 3000.0)}
+    outside = bot.segment(0.0, at[3000.0], v_e, r_e, v_e, None, None, rng)
+    assert outside.throttle == (0.0, 0.0, 0.0) and outside.triggers == ((bot._control, -1),)
+    coast = bot.segment(1.0, at[1000.0], v_e, r_e, v_e, outside, 0, rng)
+    assert coast.throttle == (0.0, 0.0, 0.0)
+    assert coast.triggers == ((bot._evade, -1), (bot._control, 1))
+    burn = bot.segment(2.0, at[300.0], v_e, r_e, v_e, coast, 0, rng)
+    assert burn.throttle == (1.0, 0.0, 0.0)
+    assert bot.segment(3.0, at[1000.0], v_e, r_e, v_e, burn, 0, rng).throttle == coast.throttle
+    # Leaving through the control range keeps the last command: thrust after a burn.
+    assert bot.segment(3.0, at[3000.0], v_e, r_e, v_e, burn, 1, rng).throttle == burn.throttle
+    assert bot.segment(3.0, at[3000.0], v_e, r_e, v_e, coast, 1, rng).throttle == coast.throttle
+    # Entering when the evasion distance is the wider one starts a burn at once.
+    wide = NormalEscapeEvader(evade_distance=2500.0)
+    held = wide.segment(0.0, at[3000.0], v_e, r_e, v_e, None, None, rng)
+    assert wide.segment(1.0, at[3000.0], v_e, r_e, v_e, held, 0, rng).throttle == burn.throttle
+    with pytest.raises(ValueError):
+        NormalEscapeEvader(control_range=0.0)
