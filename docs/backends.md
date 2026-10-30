@@ -22,7 +22,7 @@ from the constants.
   under one central body whose gravity is a degree-2 spherical-harmonic model holding only the
   normalized coefficient C20 = -J2 / sqrt(5), integrated with Basilisk's adaptive RKF78 at the
   relative and absolute `tolerance` inside each task step of `substep` seconds.
-- **Orekit** (CS GROUP, through orekit-jpype; Apache 2.0 licence): one `NumericalPropagator` per
+- **Orekit** (through orekit-jpype; Apache 2.0 licence): one `NumericalPropagator` per
   spacecraft in GCRF with a Dormand-Prince 8(5,3) integrator whose tolerances come from Orekit's
   rule for a position error of `tolerance` metres, under `NewtonianAttraction` and
   `J2OnlyPerturbation` about the frame's z axis.

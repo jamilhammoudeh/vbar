@@ -1,4 +1,4 @@
-"""Orekit (CS GROUP, through orekit-jpype) as an independent propagator.
+"""Orekit (through orekit-jpype) as an independent propagator.
 
 Each spacecraft is flown by its own `NumericalPropagator` in GCRF with a Dormand-Prince 8(5,3)
 integrator, whose tolerances come from Orekit's own rule for a position error `tolerance`, under
