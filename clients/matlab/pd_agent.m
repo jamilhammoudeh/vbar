@@ -4,6 +4,10 @@ function agent = pd_agent(wn, zeta)
 %   defaults 0.01 and 1 are those of vbar.agents.PDAgent. It commands fractions of the maximum
 %   acceleration, so it suits the "normalized" action mode only.
 %
+%   It flies to a hold point, so its reset raises the error vbar:pd_agent for a goal whose task is
+%   not "hold" or "berth" (a goal without a task is a hold), or that has no hold_point, as the
+%   Python agents do.
+%
 %   With a server started by  python -m vbar.agents.remote --port 5555 --seeds 0 1 2
 %       vbar_agent_client("127.0.0.1", 5555, pd_agent())
 
@@ -14,9 +18,24 @@ if nargin < 2
     zeta = 1;
 end
 agent.name = "matlab-pd";
-agent.reset = @(view, seed) struct("n", view.n, "hold", view.goal.hold_point(:), ...
-    "max_accel", view.max_accel);
+agent.reset = @(view, seed) start(view);
 agent.act = @(state, obs, info) deal(command(state, obs, wn, zeta), state);
+end
+
+function state = start(view)
+task = "hold";
+if isfield(view.goal, "task")
+    task = string(view.goal.task);
+end
+if ~any(task == ["hold", "berth"])
+    error("vbar:pd_agent", ...
+        "the MATLAB PD agent flies to a hold point and cannot fly the %s task", task);
+end
+if ~isfield(view.goal, "hold_point")
+    error("vbar:pd_agent", ...
+        "the MATLAB PD agent flies to a hold point and this goal has none");
+end
+state = struct("n", view.n, "hold", view.goal.hold_point(:), "max_accel", view.max_accel);
 end
 
 function u = command(state, obs, wn, zeta)

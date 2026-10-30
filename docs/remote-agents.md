@@ -179,8 +179,8 @@ the results file where the client cannot read them, and counts every seed it han
 - The host records `reset_s` for a slow reset, an immediate one, a client that leaves during the
   reset, a failed hello and a reset that fails in a later episode.
 - With MATLAB installed and `VBAR_TEST_MATLAB=1`, the MATLAB PD agent flies exactly the Python PD
-  agent's trajectories over two default episodes (checked on R2025a; not on CI, which has no
-  MATLAB).
+  agent's trajectories over two default episodes and refuses goals whose task is not a hold or a
+  berthing, or that have no hold point (checked on R2025a; not on CI, which has no MATLAB).
 
 `tests/test_mcp.py`:
 

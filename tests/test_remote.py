@@ -233,6 +233,81 @@ def test_matlab_pd_client_flies_the_python_pd_trajectories(tmp_path):
         matlab.wait(HANG)
 
 
+# Goals as jsondecode delivers them: the task is a char vector, a hold point a column or row.
+MATLAB_GOALS = {
+    "no_task": "struct('hold_point', [0; -100; 0])",
+    "hold": "struct('task', 'hold', 'hold_point', [0; -100; 0])",
+    "berth": "struct('task', 'berth', 'hold_point', [0, -100, 0])",
+    "inspect": "struct('task', 'inspect', 'points', 12)",
+    "dock": "struct('task', 'dock', 'hold_point', [0; -100; 0])",
+    "hold_without_hold_point": "struct('task', 'hold')",
+}
+
+
+@needs_matlab
+def test_matlab_pd_client_refuses_tasks_that_are_not_holds(tmp_path):
+    labels = ", ".join(f"'{label}'" for label in MATLAB_GOALS)
+    goals = ", ".join(MATLAB_GOALS.values())
+    script = tmp_path / "refusals.m"
+    script.write_text(
+        f"""addpath('{MATLAB_CLIENTS.as_posix()}');
+labels = {{{labels}}};
+goals = {{{goals}}};
+for k = 1:numel(labels)
+    view = struct('n', 1.1e-3, 'max_accel', 0.01, 'goal', goals{{k}});
+    try
+        agent = pd_agent();
+        agent.reset(view, 0);
+        fprintf('CASE %s OK\\n', labels{{k}});
+    catch err
+        fprintf('CASE %s REFUSED %s\\n', labels{{k}}, err.message);
+        fprintf('ID %s %s\\n', labels{{k}}, err.identifier);
+    end
+end
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    done = subprocess.run(
+        ["matlab", "-batch", f"run('{script.as_posix()}')"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=900,
+    )
+    outcome, identifier = {}, {}
+    for line in done.stdout.splitlines():
+        if line.startswith("CASE "):
+            _, label, status, *message = line.split(" ", 3)
+            outcome[label] = (status, "".join(message))
+        elif line.startswith("ID "):
+            _, label, name = line.split(" ", 2)
+            identifier[label] = name
+    shown = done.stdout + done.stderr
+    assert {label: status for label, (status, _) in outcome.items()} == {
+        "no_task": "OK",
+        "hold": "OK",
+        "berth": "OK",
+        "inspect": "REFUSED",
+        "dock": "REFUSED",
+        "hold_without_hold_point": "REFUSED",
+    }, shown
+    assert "cannot fly the inspect task" in outcome["inspect"][1], shown
+    assert "cannot fly the dock task" in outcome["dock"][1], shown
+    assert "this goal has none" in outcome["hold_without_hold_point"][1], shown
+    assert set(identifier) == {"inspect", "dock", "hold_without_hold_point"}, shown
+    assert set(identifier.values()) == {"vbar:pd_agent"}, shown
+
+
+def test_matlab_pd_client_source_checks_the_task():
+    # A smoke check for machines without MATLAB, which cannot run the refusal test above: it only
+    # notices that the check was deleted, not that it works.
+    source = (MATLAB_CLIENTS / "pd_agent.m").read_text(encoding="utf-8")
+    assert "view.goal.task" in source
+    assert "vbar:pd_agent" in source
+
+
 def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

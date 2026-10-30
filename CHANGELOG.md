@@ -646,6 +646,9 @@ release may change the public API, and every such change is listed under Changed
   `angular_velocity` (rad/s^2) that certifies predicates on points moving with the target.
 - The failure label T1 (version 2) has `returning_drift`, for a departure that reached its clear
   range only on free drifts that come back to the target, labelled a timeout or `other` before.
+- The MATLAB PD client `clients/matlab/pd_agent.m` raises the error `vbar:pd_agent` at reset for a
+  goal whose task is not a hold or a berthing, or that has no hold point, as the Python agents do;
+  it flew to the target's centre on an inspection goal.
 
 ### Fixed
 
