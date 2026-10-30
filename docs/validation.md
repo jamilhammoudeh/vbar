@@ -701,7 +701,7 @@ below. "Matches" means V-BAR's number rounds to the paper's at the paper's print
 | LP excursion, N = 2, 20 m bound | 13.8 | 13.82 | m | yes |  |
 | LP glideslope, N = 3, 20 m bound | 2.29 | 2.291 | m/s | yes |  |
 | LP excursion, N = 3, 20 m bound | 6.2 | 6.20 | m | yes |  |
-| LP glideslope, N = 4, 20 m bound | 2.3 | 2.30 | m/s | yes |  |
+| LP glideslope, N = 4, 20 m bound | 2.30 | 2.301 | m/s | yes |  |
 | LP excursion, N = 4, 20 m bound | 3.5 | 3.50 | m | yes |  |
 | LP glideslope, N = 10, 20 m bound | 2.31 | 2.312 | m/s | yes |  |
 | LP excursion, N = 10, 20 m bound | 0.56 | 0.561 | m | yes |  |

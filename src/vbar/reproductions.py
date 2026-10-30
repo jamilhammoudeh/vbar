@@ -43,10 +43,10 @@ ARIBA_CASE_ONE = AribaCase()
 
 @dataclass(frozen=True)
 class MatchRow:
-    """One published number, its V-BAR reproduction and how the two are related."""
+    """One published number as printed, its V-BAR reproduction and how the two are related."""
 
     quantity: str
-    paper: float
+    paper: str
     vbar: float
     unit: str
     note: str
@@ -144,14 +144,14 @@ def ariba_case_one(case: AribaCase = ARIBA_CASE_ONE) -> list[MatchRow]:
     rows = [
         MatchRow(
             "LP glideslope, N = 10, 1 m bound",
-            2.31,
+            "2.31",
             _cost(lp_glideslope(case.n, start, aim, case.duration, 10, 1.0)),
             "m/s",
             "rebuilt from sec. 3",
         )
     ]
-    lp_costs = (2.26, 2.29, 2.30, 2.31, 2.31)
-    lp_excursions = (13.8, 6.2, 3.5, 0.56, 0.15)
+    lp_costs = ("2.26", "2.29", "2.30", "2.31", "2.31")
+    lp_excursions = ("13.8", "6.2", "3.5", "0.56", "0.15")
     for pulses, cost, spread in zip((2, 3, 4, 10, 20), lp_costs, lp_excursions, strict=True):
         plan = lp_glideslope(case.n, start, aim, case.duration, pulses, 20.0)
         rows.append(
@@ -167,8 +167,8 @@ def ariba_case_one(case: AribaCase = ARIBA_CASE_ONE) -> list[MatchRow]:
             )
         )
     ratio = 10.0 ** brentq(lambda q: _cost(_standard(case, 10.0**q, 10)) - 8.09, -12.0, -0.01)
-    std_costs = (3.61, 4.76, 5.63, 8.09, 9.32)
-    std_excursions = (26.2, 16.2, 11.1, 2.67, 0.78)
+    std_costs = ("3.61", "4.76", "5.63", "8.09", "9.32")
+    std_excursions = ("26.2", "16.2", "11.1", "2.67", "0.78")
     for pulses, cost, spread in zip((2, 3, 4, 10, 20), std_costs, std_excursions, strict=True):
         plan = _standard(case, ratio, pulses)
         note = "rate ratio fitted here" if pulses == 10 else "prediction"
@@ -187,16 +187,18 @@ def ariba_case_one(case: AribaCase = ARIBA_CASE_ONE) -> list[MatchRow]:
     # The paper's two-impulse transfer is Fehse's tangential one, whose duration it does not
     # give; the transfer in the case's 540 s is a different manoeuvre, shown for scale.
     unknown = "not reproduced: the paper's transfer time is not stated; 540 s transfer shown"
-    rows.append(MatchRow("Two-impulse transfer", 0.12, _cost(pair), "m/s", unknown))
+    rows.append(MatchRow("Two-impulse transfer", "0.12", _cost(pair), "m/s", unknown))
     rows.append(
-        MatchRow("Two-impulse excursion", 125.0, excursion(case.n, start, pair), "m", unknown)
+        MatchRow("Two-impulse excursion", "125", excursion(case.n, start, pair), "m", unknown)
     )
     return rows
 
 
-def _decimals(value: float) -> int:
-    text = f"{value:g}"
-    return len(text.split(".")[1]) if "." in text else 0
+def _decimals(printed: str) -> int:
+    """Digits after the point of a number as printed; exponent notation is refused."""
+    if not printed or any(c not in "0123456789.-" for c in printed) or printed.count(".") > 1:
+        raise ValueError(f"paper values are plain decimals as printed, not {printed!r}")
+    return len(printed.split(".")[1]) if "." in printed else 0
 
 
 def matches(row: MatchRow) -> bool:
@@ -213,7 +215,7 @@ def matches(row: MatchRow) -> bool:
         True when |V-BAR - paper| is at most half a unit of the paper's last printed digit.
     """
     half = 0.5 * 10.0 ** -_decimals(row.paper)
-    return abs(row.vbar - row.paper) <= half * (1.0 + 1e-9)
+    return abs(row.vbar - float(row.paper)) <= half * (1.0 + 1e-9)
 
 
 def match_table(rows: list[MatchRow]) -> str:
@@ -237,7 +239,7 @@ def match_table(rows: list[MatchRow]) -> str:
         digits = _decimals(row.paper) + 1
         verdict = "yes" if matches(row) else "no"
         lines.append(
-            f"| {row.quantity} | {row.paper:g} | {row.vbar:.{digits}f} | {row.unit} | {verdict} "
+            f"| {row.quantity} | {row.paper} | {row.vbar:.{digits}f} | {row.unit} | {verdict} "
             f"| {row.note} |"
         )
     return "\n".join(lines)

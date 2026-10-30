@@ -140,9 +140,13 @@ def test_excursion_refuses_bad_inputs(args):
 def test_match_rule_reads_the_paper_digits():
     from vbar.reproductions import MatchRow
 
-    assert matches(MatchRow("a", 2.31, 2.3149, "m/s", ""))
-    assert not matches(MatchRow("a", 2.31, 2.3151, "m/s", ""))
-    assert matches(MatchRow("a", 125.0, 125.4, "m", ""))
+    assert matches(MatchRow("a", "2.31", 2.3149, "m/s", ""))
+    assert not matches(MatchRow("a", "2.31", 2.3151, "m/s", ""))
+    assert matches(MatchRow("a", "125", 125.4, "m", ""))
+    # A trailing zero is a printed digit: 2.30 asks for 2.295 to 2.305.
+    assert not matches(MatchRow("a", "2.30", 2.306, "m/s", ""))
+    with pytest.raises(ValueError):
+        matches(MatchRow("a", "1e-05", 1e-5, "m", ""))
 
 
 @pytest.mark.slow
