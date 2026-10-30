@@ -86,6 +86,22 @@ def test_sidereal_angle_at_j2000_is_the_iau_1982_value():
     assert float(gmst(13.0, gps_minus_utc_s=13.0)) == pytest.approx(math.radians(15.0 * hours))
 
 
+@pytest.mark.parametrize("day", [datetime.datetime(2019, 12, 3), datetime.datetime(2026, 1, 1, 6)])
+def test_sidereal_angle_matches_the_earth_rotation_angle_plus_precession(day):
+    # IERS Conventions (2010), eq 5.14, ERA = 2 pi (0.7790572732640 + 1.00273781191135448 Tu),
+    # and the equation of the origins' polynomial in Table 5.2e: GMST = ERA + 0.014506"
+    # + 4612.156534" t + 1.3915817" t^2, Tu in UT1 days and t in TT centuries since J2000.
+    # The IAU 1982 expression agrees to well under 1e-4 deg; a rate error of 1e-4 deg per day
+    # would show as 0.26 deg by 2019.
+    t_gps = gps_seconds(day)
+    tu = (t_gps - 18.0) / 86400.0
+    t = (t_gps + 51.184) / 86400.0 / 36525.0
+    era = 2.0 * math.pi * (0.7790572732640 + 1.00273781191135448 * tu)
+    arcsec = 0.014506 + 4612.156534 * t + 1.3915817 * t * t
+    expected = era + math.radians(arcsec / 3600.0)
+    assert abs(math.remainder(float(gmst(t_gps)) - expected, 2.0 * math.pi)) < math.radians(1e-4)
+
+
 def test_sidereal_angle_returns_after_one_sidereal_day():
     t0 = gps_seconds(datetime.datetime(2019, 12, 3))
     # 86164.0905 s is the mean sidereal day; the linear expression turns 360 deg in it.
