@@ -237,6 +237,8 @@ rerun the script to measure yours.
   flies the same trajectory; throttle above 1 saturates.
 - A tank that runs dry mid-burn stops the thrust there: the velocity change matches the rocket
   equation for exactly the propellant on board.
+- At a pass inside a 10 s step, the recorded range, relative speed and propellant used equal a
+  twin's stopped exactly at the pass, and the score equals the formula on them.
 - Capture ends the step at the capture distance to 1e-6 m; the closest approach of a pass inside a
   10 s step matches a run in 0.25 s steps to 1e-6 m and is 20 m below every 10 s step end.
 - `None` repeats the last action and coasts before the first; a KSPDG-shaped agent class runs

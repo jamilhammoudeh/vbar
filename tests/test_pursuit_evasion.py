@@ -547,3 +547,29 @@ def test_the_evader_stops_when_its_tank_runs_dry():
     assert info["evader_fuel_usage"] == pytest.approx(4.0, abs=1e-9)
     assert info["pursuer_fuel_usage"] == 0.0
     assert env.step([0.0, 0.0, 0.0, 3.0])[3]["evader_fuel_usage"] == info["evader_fuel_usage"]
+
+
+def test_the_score_uses_the_range_speed_fuel_and_time_at_the_closest_approach():
+    env = PursuitEvasionEnv(episode_timeout=90.0)
+    env.reset()
+    done = False
+    while not done:
+        throttle = 1.0 if env.t < 40.0 - 1e-9 else 0.0
+        _, reward, done, info = env.step([throttle, 0.0, 0.0, 10.0])
+    t = info["closest_approach_time"]
+    assert 40.0 < t < 90.0
+    # A twin flies the same 40 s burn and stops exactly at the pass.
+    twin = PursuitEvasionEnv(episode_timeout=90.0, min_step=1e-3)
+    twin.reset()
+    for _ in range(4):
+        twin.step([1.0, 0.0, 0.0, 10.0])
+    at_pass = twin.step([0.0, 0.0, 0.0, t - 40.0])[0]
+    d = relative_range(at_pass)
+    v = float(np.linalg.norm(np.subtract(at_pass[12:15], at_pass[6:9])))
+    # Both integrate the same arcs; their states agree near 1e-10 m.
+    assert info["closest_approach"] == pytest.approx(d, abs=1e-6)
+    assert info["closest_approach_speed"] == pytest.approx(v, rel=1e-9)
+    assert info["closest_approach_pursuer_fuel_usage"] == pytest.approx(40.0 * FLOW, rel=1e-12)
+    score = (0.1 * d) ** 2.0 + (0.5 * v) ** 1.5 + (0.1 * 40.0 * FLOW) ** 1.25 + 0.01 * t
+    assert info["weighted_score"] == pytest.approx(score, rel=1e-9)
+    assert reward == -info["weighted_score"]
