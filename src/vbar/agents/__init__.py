@@ -41,6 +41,7 @@ from .llm import (
     parse_belief,
     text_model,
 )
+from .llm_supervisor import SUPERVISOR_PROMPT, LLMSupervisor, parse_order
 from .lqg import LQGAgent, LQGConfig, bias_detectable, kalman_gain
 from .lqr import (
     LQRAgent,
@@ -156,4 +157,7 @@ __all__ = [
     "Supervisor",
     "ladder",
     "speed_cap",
+    "SUPERVISOR_PROMPT",
+    "LLMSupervisor",
+    "parse_order",
 ]
