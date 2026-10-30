@@ -16,9 +16,11 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.games`: KSPDG's pe1 pursuit-evasion problem on two-body dynamics around Kerbin, in
   KSPDG's observation list, action dictionary and four-value step: `PursuitEvasionEnv`, the
   scenarios `PE1_E1_I3_Env` and `PE1_E3_I3_Env` (KSPDG's I3 start against V-BAR's own
-  `PassiveEvader` and `NormalEscapeEvader`); `BaseAgent` and `AgentEnvRunner` with the
-  signatures of KSPDG's agent interface, so KSPDG agents run unchanged; the reference pursuers
-  `LineOfSightPursuer` and `VelocityMatchingPursuer`; `docs/pursuit-evasion.md`.
+  `PassiveEvader` and `NormalEscapeEvader`), registered as `vbar/PursuitEvasionE1I3-v1` and
+  `vbar/PursuitEvasionE3I3-v1` (`PursuitEvasionGymEnv`); `BaseAgent` and `AgentEnvRunner` with
+  the signatures of KSPDG's agent interface, so KSPDG agents run unchanged; `PursuitTask` for
+  `vbar.eval.run_jobs`; the reference pursuers `LineOfSightPursuer` and
+  `VelocityMatchingPursuer`; `docs/pursuit-evasion.md`.
 - `vbar.viz.screen_style`, a context manager that applies the screen style (`SCREEN_STYLE`) for
   README, documentation and report figures, and `SERIES_COLORS`, the three run colours in order.
 - `vbar.viz.trajectory_figure`: the Hill-frame view over range and speed panels sharing the time

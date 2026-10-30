@@ -1,16 +1,16 @@
 # Pursuit-evasion in KSPDG's format
 
-Code: `vbar.games` (`PursuitEvasionEnv`, `PE1_E1_I3_Env`, `PE1_E3_I3_Env`, `AgentEnvRunner`,
-`BaseAgent`, `fly`, the bots in `vbar.games.bots` and the
+Code: `vbar.games` (`PursuitEvasionEnv`, `PE1_E1_I3_Env`, `PE1_E3_I3_Env`, `PursuitEvasionGymEnv`,
+`AgentEnvRunner`, `BaseAgent`, `fly`, `PursuitTask`, the bots in `vbar.games.bots` and the
 reference pursuers in `vbar.games.pursuers`).
 
-KSPDG (github.com/mit-ll/spacegym-kspdg) poses spacecraft differential
-games inside Kerbal Space Program and flies agents through kRPC in real time. `vbar.games`
-rebuilds its pursuit-evasion problem pe1 from KSPDG's public definition on two-body dynamics, with
-the same observation list, action dictionary, step return and agent interface. An agent written
-for KSPDG runs unchanged, headless and faster than real time. The evader bots are
-V-BAR's own, written from KSPDG's one-line descriptions of its evaders; KSPDG's bots are not used
-or reproduced, so scores against them are not comparable with scores in KSPDG.
+KSPDG (github.com/mit-ll/spacegym-kspdg) poses spacecraft differential games inside Kerbal Space
+Program and flies agents through kRPC in real time. `vbar.games` rebuilds its pursuit-evasion
+problem pe1 from KSPDG's public definition on two-body dynamics, with the same observation list,
+action dictionary, step return and agent interface. An agent written for KSPDG runs unchanged,
+headless, faster than real time and in parallel. The evader bots are V-BAR's own, written from
+KSPDG's one-line descriptions of its evaders; KSPDG's bots are not used or reproduced, so scores
+against them are not comparable with scores in KSPDG.
 
 ## The problem
 
@@ -31,10 +31,10 @@ Two scenarios start from KSPDG's I3 conditions, read from its `pe1_i3_init.sfs` 
 both vessels on a 750 km circular equatorial orbit, the pursuer 0.2 deg (2618 m) behind, the
 evader's orbit tilted by 1e-4 deg.
 
-| Class | Evader |
-|---|---|
-| `PE1_E1_I3_Env` | `PassiveEvader`: never thrusts (KSPDG's e1 is "passive") |
-| `PE1_E3_I3_Env` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m |
+| Class | Gymnasium ID | Evader |
+|---|---|---|
+| `PE1_E1_I3_Env` | `vbar/PursuitEvasionE1I3-v1` | `PassiveEvader`: never thrusts (KSPDG's e1 is "passive") |
+| `PE1_E3_I3_Env` | `vbar/PursuitEvasionE3I3-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m |
 
 `NormalEscapeEvader` is written for V-BAR from KSPDG's description of e3 ("heuristic evasion
 maneuvers") and the evasion distance and throttle in its public code (200 m, full throttle); its
@@ -151,8 +151,50 @@ returns `{"agent_env_results": info}`, KSPDG's form, with `info` holding `is_epi
 `closest_approach`, `closest_approach_time`, `closest_approach_speed`,
 `closest_approach_pursuer_fuel_usage`, `pursuer_fuel_usage`, `evader_fuel_usage` and
 `weighted_score`, plus `steps` and `wall_s`. `enable_telemetry=True` only warns, as there is no
-telemetry stream. The game is deterministic: the same agent
-gives the same episode on every run.
+telemetry stream.
+
+For reinforcement learning, the Gymnasium environments take the same dictionary, return the
+observation as a float64 array, terminate at capture and truncate at the timeout. The action
+space has KSPDG's declared bounds (components in [-1, 1], durations up to 10 s); `step` also
+accepts thrusts in newtons and longer burns, which lie outside it:
+
+```python
+import gymnasium as gym
+import numpy as np
+
+import vbar  # noqa: F401  (registers the environments)
+
+env = gym.make("vbar/PursuitEvasionE3I3-v1", episode_timeout=20.0)
+observation, info = env.reset(seed=0)
+action = {"burn_vec": np.array([1.0, 0.0, 0.0, 1.0]), "ref_frame": 0, "vec_type": 0}
+terminated = truncated = False
+while not (terminated or truncated):
+    observation, reward, terminated, truncated, info = env.step(action)
+print(reward, info["closest_approach"])
+```
+
+The game is deterministic: the same agent gives the same episode on every run, whatever the
+number of workers, and the seed changes nothing.
+
+## Running many episodes
+
+`PursuitTask` makes the scenarios a task of the evaluation harness ([evaluation.md](evaluation.md)),
+so `run_jobs` flies them in parallel processes, appends results to a file and records each run's
+provenance. Success is a capture; the metrics are the score terms, the fuel used and the step count.
+
+```python
+from vbar.eval import Job, run_jobs
+from vbar.games import PursuitTask
+
+jobs = [Job("pe1-e1-i3", "validation", 0, 2**100, 2**101)]
+(result,) = run_jobs(jobs, "vbar.games.pursuers:VelocityMatchingPursuer", task=PursuitTask())
+print(result["metrics"]["success"], result["metrics"]["weighted_score"])
+```
+
+`LineOfSightPursuer` is the strategy of KSPDG's example agent (full forward thrust toward the
+evader).
+`VelocityMatchingPursuer` closes along the line of sight at 20 m/s, slowing in proportion to range
+inside 200 m; it captures the passive evader.
 
 ## Limits
 
@@ -185,6 +227,7 @@ gives the same episode on every run.
   10 s step matches a run in 0.25 s steps to 1e-6 m and is 20 m below every 10 s step end.
 - `None` repeats the last action and coasts before the first; a KSPDG-shaped agent class runs
   through `AgentEnvRunner` with KSPDG's arguments; the agent's list is a copy.
+- Both Gymnasium IDs pass `check_env`; parallel and serial runs give identical metrics.
 
 Sources: KSPDG v0.15.0 (commit 6251ca3): `src/kspdg/pe1/pe1_base.py` (observation, score, timeout,
 capture distance, thrusters, target-hold), `base_envs.py` (actions, frames), `agent_api/` (agent
