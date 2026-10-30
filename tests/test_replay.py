@@ -351,6 +351,16 @@ def test_running_series_equal_the_metrics_of_every_prefix_of_the_record(tmp_path
         )
 
 
+def test_a_successful_run_gets_an_outcome_event_only_when_the_card_says_so(tmp_path):
+    ep = episode(PDAgent(), start_state=CLEAR, max_steps=200)
+    card = evaluate(ep)
+    assert card["success"]
+    with_card = Recording(export_rrd(ep, tmp_path / "a.rrd", card=card))
+    assert with_card.timed["events/outcome"][0]["TextLog:text"] == ["success"]
+    without = Recording(export_rrd(ep, tmp_path / "b.rrd", card={}))
+    assert "events/outcome" not in without.timed
+
+
 def test_final_card_values_are_stored_with_their_units(blocked):
     ep, rec, card = blocked
     end = ep.times[-1]

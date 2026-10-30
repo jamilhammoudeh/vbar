@@ -457,6 +457,7 @@ def _log_card(stream, rr, ep: Episode, times: np.ndarray, card) -> None:
             rr.SeriesLines(names=[_series_label(path.split("/")[0])]),
             static=True,
         )
-    label = card.get("failure_label")
-    outcome = "success" if card.get("success") else f"not successful: {label}"
-    stream.log("events/outcome", rr.TextLog(outcome, level="INFO"))
+    # A card without a verdict (the caller passed {}) gets no outcome event.
+    if "success" in card:
+        outcome = "success" if card["success"] else f"not successful: {card.get('failure_label')}"
+        stream.log("events/outcome", rr.TextLog(outcome, level="INFO"))

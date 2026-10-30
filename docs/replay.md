@@ -70,7 +70,7 @@ and Scalars are 64-bit already, so the stored values read back equal to the reco
 | `events/violation/<name>` | one event per interval in which a constraint's margin is negative, at its start, with `start_s` and `end_s`; ERROR for a hard constraint, WARN for a soft one |
 | `events/filter/intervention` | a decision at which the filter changed the flown acceleration |
 | `events/filter/status` | a decision at which the filter's status was not "feasible" |
-| `events/outcome` | the verdict, at the end of the episode |
+| `events/outcome` | the verdict, at the end of the episode, when the card has one |
 | `card/<metric>` | metric values over the first $k$ steps, at the end of step $k$ |
 | `card/final/<metric>` | the final value of each finite numeric metric of the card, dictionaries by key, at the end of the episode |
 | `meta/episode` | scenario identifier, dynamics model, step length, action mode, package version |
