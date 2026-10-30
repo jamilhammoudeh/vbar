@@ -95,22 +95,32 @@ def _cone_strips(cone: ApproachCone, reach: float) -> list[np.ndarray]:
     return [ring(f) for f in _RINGS] + rulings
 
 
-def _numeric_leaves(card: Mapping[str, Any]) -> Iterator[tuple[str, float]]:
-    """Finite numbers in a metric card as (path, value); dictionaries nest, labels are left out."""
+def _numeric_leaves(card: Mapping[str, Any]) -> Iterator[tuple[tuple[str, ...], float]]:
+    """Finite numbers in a metric card as (key path, value); dictionaries nest, labels drop out."""
     for key, value in card.items():
         if isinstance(value, Mapping):
             for sub, number in _numeric_leaves(value):
-                yield f"{key}/{sub}", number
+                yield (str(key), *sub), number
         elif isinstance(value, bool | int | float | np.number) and np.isfinite(value):
-            yield str(key), float(value)
+            yield (str(key),), float(value)
 
 
-def _series_label(name: str) -> str:
-    info = METRICS.get(name)
-    return name if info is None else f"{info.id} {name} ({info.units})"
+def _series_label(parts: tuple[str, ...]) -> str:
+    """The legend entry of a metric series: identifier, name, constraint and unit."""
+    info = METRICS.get(parts[0])
+    if info is None:
+        return "/".join(parts)
+    label = f"{info.id} {'/'.join(parts)}"
+    # A margin has the unit of its constraint, which the catalogue cannot name.
+    return label if info.units == "per constraint" else f"{label} ({info.units})"
 
 
-def _running_card(ep: Episode) -> dict[str, np.ndarray]:
+def _entity(rr, *parts: str) -> str:
+    """An entity path from parts, each escaped so a constraint name cannot add or change levels."""
+    return "/".join(rr.escape_entity_path_part(part) for part in parts)
+
+
+def _running_card(ep: Episode) -> dict[tuple[str, ...], np.ndarray]:
     """Metric values over the first k steps for k = 1 .. steps, by the card's own names.
 
     Each series follows the definition of the metric in `vbar.metrics`, accumulated step by step,
@@ -118,10 +128,10 @@ def _running_card(ep: Episode) -> dict[str, np.ndarray]:
     of the record. Evaluating the metric on every prefix of the record gives the same numbers
     and takes time quadratic in the steps.
     """
-    series: dict[str, list[float]] = {}
+    series: dict[tuple[str, ...], list[float]] = {}
 
     def add(name: str, value: float) -> None:
-        series.setdefault(name, []).append(float(value))
+        series.setdefault((name,), []).append(float(value))
 
     view = ep.view
     box = view.thrust_limit == "box"
@@ -176,12 +186,12 @@ def _running_card(ep: Episode) -> dict[str, np.ndarray]:
             continue
         margins = [float(c.margin(ep.start, 0.0)), *(m.margin for m in minima if m is not None)]
         lowest = np.minimum.accumulate(margins)[1:]
-        series[f"min_margin/{c.name}"] = list(lowest)
-        series[f"violation_depth/{c.name}"] = list(np.maximum(0.0, -lowest))
-        series[f"violation_duration/{c.name}"] = [
+        series["min_margin", c.name] = list(lowest)
+        series["violation_depth", c.name] = list(np.maximum(0.0, -lowest))
+        series["violation_duration", c.name] = [
             sum(max(0.0, min(hi, t) - lo) for lo, hi in spans[c.name]) for t in ends
         ]
-    return {name: np.array(values) for name, values in series.items() if np.isfinite(values).any()}
+    return {key: np.array(values) for key, values in series.items() if np.isfinite(values).any()}
 
 
 def export_rrd(
@@ -276,7 +286,7 @@ def _log_scene(stream, rr, ep: Episode, states: np.ndarray, reach: float) -> Non
     for c in ep.constraints:
         if isinstance(c, KeepOut) and c.radius > 0.0:
             stream.log(
-                f"hill/constraints/{c.name}",
+                _entity(rr, "hill", "constraints", c.name),
                 rr.Ellipsoids3D(
                     centers=[[0.0, 0.0, 0.0]],
                     half_sizes=[[c.radius] * 3],
@@ -291,7 +301,7 @@ def _log_scene(stream, rr, ep: Episode, states: np.ndarray, reach: float) -> Non
         elif isinstance(c, ApproachCone):
             apex_reach = float(np.linalg.norm(states[:, :3] - np.asarray(c.apex), axis=1).max())
             stream.log(
-                f"hill/constraints/{c.name}",
+                _entity(rr, "hill", "constraints", c.name),
                 rr.LineStrips3D(
                     _cone_strips(c, max(apex_reach, reach)),
                     colors=[_rgba(INK_SECONDARY)],
@@ -412,7 +422,7 @@ def _log_events(stream, rr, ep: Episode, times: np.ndarray) -> None:
         for lo, hi in spans:
             stream.set_time("sim_time", duration=lo)
             stream.log(
-                f"events/violation/{name}",
+                _entity(rr, "events", "violation", name),
                 rr.TextLog(f"{name} violated for {hi - lo:.3g} s", level=level),
                 rr.AnyValues(start_s=[lo], end_s=[hi]),
             )
@@ -439,24 +449,21 @@ def _log_events(stream, rr, ep: Episode, times: np.ndarray) -> None:
 
 def _log_card(stream, rr, ep: Episode, times: np.ndarray, card) -> None:
     """The metric card: running values at every step end, then the final values at the last."""
-    for name, values in _running_card(ep).items():
-        path = f"card/{name}"
+    for parts, values in _running_card(ep).items():
+        path = _entity(rr, "card", *parts)
         stream.send_columns(
             path,
             [rr.TimeColumn("sim_time", duration=times[1:])],
             rr.Scalars.columns(scalars=values),
         )
-        stream.log(path, rr.SeriesLines(names=[_series_label(name.split("/")[0])]), static=True)
+        stream.log(path, rr.SeriesLines(names=[_series_label(parts)]), static=True)
     end = float(times[-1])
     stream.set_time("sim_time", duration=end)
     stream.set_time("step", sequence=len(ep.records))
-    for path, value in _numeric_leaves(card):
-        stream.log(f"card/final/{path}", rr.Scalars(value))
-        stream.log(
-            f"card/final/{path}",
-            rr.SeriesLines(names=[_series_label(path.split("/")[0])]),
-            static=True,
-        )
+    for parts, value in _numeric_leaves(card):
+        path = _entity(rr, "card", "final", *parts)
+        stream.log(path, rr.Scalars(value))
+        stream.log(path, rr.SeriesLines(names=[_series_label(parts)]), static=True)
     # A card without a verdict (the caller passed {}) gets no outcome event.
     if "success" in card:
         outcome = "success" if card["success"] else f"not successful: {card.get('failure_label')}"

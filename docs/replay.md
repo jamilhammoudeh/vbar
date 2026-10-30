@@ -75,7 +75,9 @@ and Scalars are 64-bit already, so the stored values read back equal to the reco
 | `card/final/<metric>` | the final value of each finite numeric metric of the card, dictionaries by key, at the end of the episode |
 | `meta/episode` | scenario identifier, dynamics model, step length, action mode, package version |
 
-Series carry their metric identifier and unit in their name, for example `E1 delta_v (m/s)`.
+Series carry their metric identifier, constraint and unit in their name, for example
+`E1 delta_v (m/s)`. Constraint names are escaped in entity paths, so a name with a slash or a
+space stays one level.
 
 An arrow's drawn length is the command as a fraction of a full command times `arrow_m`, by
 default a tenth of the chaser's greatest range, so the arrows are visible beside the path. The

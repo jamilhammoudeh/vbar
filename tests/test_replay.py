@@ -361,6 +361,22 @@ def test_a_successful_run_gets_an_outcome_event_only_when_the_card_says_so(tmp_p
     assert "events/outcome" not in without.timed
 
 
+def test_constraint_names_cannot_add_or_change_entity_levels(tmp_path):
+    import rerun as rr
+
+    names = ("zone/inner", "keep out")
+    extra = tuple(KeepOut(80.0 + 10.0 * k, name=name) for k, name in enumerate(names))
+    ep = episode(PDAgent(), start_state=BLOCKED, max_steps=40, extra=extra, soft=names)
+    rec = Recording(export_rrd(ep, tmp_path / "n.rrd", card={}))
+    for name in names:
+        part = rr.escape_entity_path_part(name)
+        assert recorded_violations(ep, name)
+        assert f"events/violation/{part}" in rec.timed
+        assert f"card/min_margin/{part}" in rec.timed
+        assert f"hill/constraints/{part}" in rec.static
+    assert "events/violation/zone" not in rec.timed and "events/violation/keep" not in rec.timed
+
+
 def test_final_card_values_are_stored_with_their_units(blocked):
     ep, rec, card = blocked
     end = ep.times[-1]
