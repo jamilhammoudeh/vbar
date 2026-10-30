@@ -2,7 +2,14 @@ import numpy as np
 import pytest
 from scipy.optimize import brentq
 
-from vbar.constraints import KeepOut, ZoneEntry, segment_minimum, violation_intervals
+from vbar.constraints import (
+    KeepOut,
+    SpeedLimit,
+    ZoneEntry,
+    node_minimum,
+    segment_minimum,
+    violation_intervals,
+)
 from vbar.dynamics import EARTH, CWDynamics, cw_states, cw_stm, mean_motion
 from vbar.scenarios.registry import make
 
@@ -157,3 +164,30 @@ def test_a_pass_between_two_samples_is_found_and_its_violation_reported(samples)
     assert found.margin <= true_min + ko.resolution
     assert len(spans) == 1
     assert spans[0] == pytest.approx((entry, exit_), abs=1e-6)
+
+
+def on_the_boundary(constraint, state):
+    """`node_minimum` over two nodes of a plant that sits exactly on the constraint's boundary."""
+    return node_minimum(constraint, np.array([0.0, 1.0]), np.tile(state, (2, 1)))
+
+
+def test_a_node_on_the_boundary_is_not_certified_clear_by_its_own_rounding():
+    # The 30-40-50 m and 60-80-100 km triangles have exact ranges, so the margins are exactly zero
+    # and only the allowance, 3 eps (range + radius), puts the bound below them.
+    near = on_the_boundary(KeepOut(50.0), np.array([30.0, 40.0, 0.0, 0.0, 0.0, 0.0]))
+    far = on_the_boundary(KeepOut(1e5), np.array([6e4, 8e4, 0.0, 0.0, 0.0, 0.0]))
+    assert near.margin == 0.0 and far.margin == 0.0
+    assert -1e-12 < near.lower_bound < 0.0
+    assert far.lower_bound == pytest.approx(2000.0 * near.lower_bound, rel=1e-12)
+
+
+def test_a_speed_limit_node_on_the_limit_is_not_certified_clear_by_its_own_rounding():
+    found = on_the_boundary(SpeedLimit(0.2, 0.0), np.array([1.0, 0.0, 0.0, 0.2, 0.0, 0.0]))
+    assert found.margin == 0.0
+    assert -1e-15 < found.lower_bound < 0.0
+
+
+def test_a_node_clear_by_a_metre_stays_certified_clear():
+    found = on_the_boundary(KeepOut(50.0), np.array([51.0, 0.0, 0.0, 0.0, 0.0, 0.0]))
+    assert found.margin == 1.0
+    assert 1.0 - 1e-12 < found.lower_bound < 1.0

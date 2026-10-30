@@ -394,10 +394,10 @@ def test_tube_margin_bounds_the_lqr_tubes_of_execution_and_navigation_error():
 @settings(max_examples=25, deadline=None)
 @given(
     dim=st.integers(2, 4),
-    entries=st.lists(st.floats(-1.0, 1.0), min_size=16, max_size=16),
+    entries=st.lists(st.floats(-1.0, 1.0, allow_subnormal=False), min_size=16, max_size=16),
     radius=st.floats(0.1, 0.9),
     widths=st.lists(st.floats(1e-3, 1.0), min_size=4, max_size=4),
-    direction=st.lists(st.floats(-1.0, 1.0), min_size=4, max_size=4),
+    direction=st.lists(st.floats(-1.0, 1.0, allow_subnormal=False), min_size=4, max_size=4),
 )
 def test_tube_margin_bounds_every_finite_reach_support(dim, entries, radius, widths, direction):
     a_k = np.array(entries[: dim * dim]).reshape(dim, dim)

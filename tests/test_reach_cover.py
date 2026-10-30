@@ -378,7 +378,7 @@ def halved_box():
     "burn",
     [
         {"accel": radial(1e-3), "burn_time": 0.0},
-        # D2: a burn changes only the centres, by Gamma terms that vanish for a zero acceleration.
+        # A burn changes only the centres, by Gamma terms that vanish for a zero acceleration.
         {"accel": np.zeros(3), "burn_time": 600.0},
     ],
 )
