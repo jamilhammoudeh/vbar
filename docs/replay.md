@@ -34,8 +34,7 @@ print(path)
 `examples/replay_demo.py` does the same with the full metric card and writes
 `outputs/pd_approach.rrd`; open it with `rerun outputs/pd_approach.rrd`. `card` is the episode's
 metrics as `vbar.metrics.evaluate` returns them; without it `export_rrd` evaluates the episode
-itself, which is the slow part of an export (35 s for a 333-step episode on a loaded machine,
-against about 2 s for 70 steps); pass the card when it is already computed. `settings` passes the scenario's declared
+itself, which is the slow part of an export; pass the card when it is already computed. `settings` passes the scenario's declared
 `MetricSettings` to that evaluation. `arrow_m` is the length in
 metres at which a full command is drawn.
 
@@ -118,7 +117,7 @@ definition here appear in `card/final`.
   chaser's greatest distances from its apex and from the target.
 - The goal's hold point and port are drawn where the briefing puts them at $t = 0$.
 - The trail is written in full at every step, so a file grows with the square of the number of
-  steps (measured: 1.2 MB at 333 steps).
+  steps.
 - The trail joins the states at decisions with straight lines; the curve inside a step is not
   drawn, though the violation intervals inside it are found on it.
 - The command arrow uses the initial mass (`max_accel`), as the metrics do, so under a
@@ -134,11 +133,13 @@ definition here appear in `card/final`.
   drawn single-precision positions agree to one part in 1e6;
 - times agree with the record to 1 ns;
 - violation events start and end at the intervals the record holds, computed independently in the
-  test, and a run that never enters the zone has none;
+  test; a run that never enters the zone has none; intervals that touch across a step boundary
+  join, and a half-second gap keeps them apart;
 - the corridor's vertices lie on the declared cone to the single-precision accuracy;
 - filter events fall on the decisions where the record shows the command changed, whatever the
   filter reports;
-- the series end at the full card's values;
+- the series equal the metric functions on prefixes of the record, including prefixes that end
+  inside a violation, and end at the full card's values;
 - exporting changes neither the episode nor its metrics;
 - no seed is written to the file.
 

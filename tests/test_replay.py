@@ -18,6 +18,7 @@ from vbar.constraints import ApproachCone, KeepOut  # noqa: E402
 from vbar.metrics import evaluate, record_episode  # noqa: E402
 from vbar.metrics.efficiency import efficiency_metrics  # noqa: E402
 from vbar.metrics.filter import filter_metrics  # noqa: E402
+from vbar.metrics.safety import safety_metrics  # noqa: E402
 from vbar.replay import export_rrd  # noqa: E402
 from vbar.safety import FilteredAgent, FilterResult  # noqa: E402
 from vbar.scenarios import make  # noqa: E402
@@ -333,22 +334,52 @@ def test_running_filter_metrics_end_at_the_full_cards_values(tmp_path):
         assert series[-1] == card[name], name
 
 
+def same(a, b):
+    return a == b or (math.isnan(a) and math.isnan(b))
+
+
 def test_running_series_equal_the_metrics_of_every_prefix_of_the_record(tmp_path):
     ep = episode(FilteredAgent(PDAgent(), CloseFilter()), start_state=BLOCKED, max_steps=40)
     rec = Recording(export_rrd(ep, tmp_path / "p.rrd", card={}))
-    for k in (1, 2, 7, 23, len(ep.records)):
+
+    def series(name):
+        return rec.column(f"card/{name}", "Scalars:scalars")[:, 0]
+
+    # Steps 27 to 29 end inside the keep-out sphere, so those prefixes hold a violation in progress.
+    assert any(r.segment.violations.get("keep_out") for r in ep.records[26:29])
+    for k in (1, 2, 7, 23, 27, 28, 30, len(ep.records)):
         prefix = replace(ep, records=ep.records[:k], terminated=False, truncated=False)
         metrics = {**efficiency_metrics(prefix), **filter_metrics(prefix)}
         for name in ("delta_v", "delta_v_axes", "propellant_mass", "burn_count", "duty_cycle"):
-            assert rec.column(f"card/{name}", "Scalars:scalars")[k - 1, 0] == metrics[name], (
-                name,
-                k,
-            )
-        assert rec.column("card/chatter", "Scalars:scalars")[k - 1, 0] == metrics["chatter"]
-        assert (
-            rec.column("card/intervention_rate", "Scalars:scalars")[k - 1, 0]
-            == metrics["intervention_rate"]
-        )
+            assert series(name)[k - 1] == metrics[name], (name, k)
+        assert series("chatter")[k - 1] == metrics["chatter"]
+        assert series("intervention_rate")[k - 1] == metrics["intervention_rate"]
+        assert same(series("intervention_size")[k - 1], metrics["intervention_size"]), k
+        safety = safety_metrics(prefix)
+        assert series("min_margin/keep_out")[k - 1] == safety["min_margin"]["keep_out"], k
+        assert series("violation_depth/keep_out")[k - 1] == safety["violation_depth"]["keep_out"]
+        # The metric rebuilds the trajectory between samples; the record has the environment's own.
+        assert series("violation_duration/keep_out")[k - 1] == pytest.approx(
+            safety["violation_duration"]["keep_out"], rel=1e-6, abs=1e-9
+        ), k
+
+
+def with_violations(ep, per_step):
+    """The episode with `per_step` as each step's keep-out violation intervals."""
+    records = tuple(
+        replace(r, segment=replace(r.segment, violations={"keep_out": spans}))
+        for r, spans in zip(ep.records, per_step, strict=True)
+    )
+    return replace(ep, records=records)
+
+
+def test_violations_join_across_a_step_boundary_and_not_across_a_gap(tmp_path):
+    ep = episode(PDAgent(), start_state=BLOCKED, max_steps=4)
+    # The second interval starts 0.5 ns after the first ends; the third is half a second later.
+    spans = [((1.0, 2.0),), ((2.0 + 5e-10, 3.0),), ((3.5, 3.9),), ()]
+    rec = Recording(export_rrd(with_violations(ep, spans), tmp_path / "j.rrd", card={}))
+    rows = rec.timed["events/violation/keep_out"]
+    assert [(r["start_s"][0], r["end_s"][0]) for r in rows] == [(1.0, 3.0), (3.5, 3.9)]
 
 
 def test_a_successful_run_gets_an_outcome_event_only_when_the_card_says_so(tmp_path):
