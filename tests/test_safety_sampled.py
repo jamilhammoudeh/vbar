@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 from hypothesis import given, settings
@@ -195,3 +197,15 @@ def test_line_search_need_not_find_the_largest_accepted_theta_when_acceptance_is
     assert found.theta == 409 / 4096
     assert window(0.65)
     assert found.theta < 0.6
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_held_segment_bound_refuses_a_sample_count_that_is_not_finite(value):
+    with pytest.raises(ValueError):
+        held_segment_bound(*CASES[0], value, R, N)
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_line_search_refuses_an_iteration_count_that_is_not_finite(value):
+    with pytest.raises(ValueError):
+        line_search(Scripted(lambda theta: True), U_C, BETA, iterations=value)

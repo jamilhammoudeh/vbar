@@ -319,7 +319,15 @@ def public_spec(constraint: Constraint) -> dict[str, Any]:
 
 
 class BaseEnv(gym.Env):
-    """Gymnasium environment shared by all scenarios; subclasses fill in the scenario hooks."""
+    """Gymnasium environment shared by all scenarios; subclasses fill in the scenario hooks.
+
+    Raises
+    ------
+    ValueError
+        At construction, if `dt` is not positive, the action mode or an observation channel is
+        unknown, or the dynamics model steps at a fixed interval (`euler1`) and `dt` is not one
+        or more whole steps of it.
+    """
 
     metadata = {"render_modes": []}
     scenario_name = "base"
@@ -341,8 +349,14 @@ class BaseEnv(gym.Env):
         )
         self.n = self.dynamics.n
         step_s = getattr(self.dynamics, "step_s", None)
-        if step_s is not None and abs(config.dt / step_s - round(config.dt / step_s)) > 1e-9:
-            raise ValueError(f"dt must be a whole number of {step_s} s steps on {config.dynamics}")
+        if step_s is not None:
+            steps = config.dt / step_s
+            # Under half a step rounds to zero steps within the tolerance, and the clock would
+            # run while the plant stood still.
+            if round(steps) < 1 or abs(steps - round(steps)) > 1e-9:
+                raise ValueError(
+                    f"dt must be one or more whole {step_s} s steps on {config.dynamics}"
+                )
         self.spacecraft = Spacecraft(
             max_accel=config.max_accel,
             layout=config.thrust_limit,

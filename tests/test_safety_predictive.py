@@ -457,3 +457,10 @@ def test_predicted_state_through_pending_commands_is_the_true_state(delay_s, lay
 def test_reset_refuses_a_delay_that_disagrees_with_the_pending_slots(declared, delay_s, channels):
     with pytest.raises(ValueError):
         ready(PredictiveFilter(delay_s=declared), delay_s=delay_s, observation_channels=channels)
+
+
+@pytest.mark.parametrize("name", ["horizon", "row_samples"])
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_construction_refuses_a_count_that_is_not_finite(name, value):
+    with pytest.raises(ValueError):
+        PredictiveFilter(**{name: value})

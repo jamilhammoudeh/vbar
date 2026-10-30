@@ -12,6 +12,7 @@ from .agents.base import agent_generator
 from .metrics.episode import FilterPair, record_pair
 from .metrics.filter import paired_filter_metrics
 from .safety import FilteredAgent
+from .scenarios.base import check_count
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -187,7 +188,7 @@ def run_pairs(
     seeds, agent_seeds : sequence of int, optional
         One episode seed and one agent seed per pair; drawn (128 bits) when not given.
     count : int, optional
-        The number of pairs when `seeds` is not given.
+        The number of pairs when `seeds` is not given, at least 1.
 
     Returns
     -------
@@ -199,12 +200,13 @@ def run_pairs(
     Raises
     ------
     ValueError
-        If neither `seeds` nor `count` is given, or a pair is refused by `record_pair`.
+        If neither `seeds` nor `count` is given, `count` is not an integer of at least 1, or a
+        pair is refused by `record_pair`.
     """
     if seeds is None:
         if count is None:
             raise ValueError("give seeds or count")
-        seeds = [None] * int(count)
+        seeds = [None] * check_count("count", count, 1)
     seeds = list(seeds)
     if agent_seeds is None:
         agent_seeds = [None] * len(seeds)

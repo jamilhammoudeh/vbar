@@ -852,8 +852,8 @@ class CamBarrier:
     Raises
     ------
     ValueError
-        If a parameter is out of range or not finite, or `grid` and `t_cap` are refused by
-        `PassiveBarrier`.
+        If a parameter is out of range or not finite, `steps` or `samples` is not a whole number
+        (infinity and NaN included), or `grid` and `t_cap` are refused by `PassiveBarrier`.
 
     Notes
     -----
@@ -891,10 +891,15 @@ class CamBarrier:
         dt = _positive(self.dt, "dt")
         accel = _vector3(self.accel, "accel")
         steps = self.steps
-        if isinstance(steps, bool) or int(steps) != steps or steps < 1:
+        if isinstance(steps, bool) or not math.isfinite(steps) or int(steps) != steps or steps < 1:
             raise ValueError("steps must be a positive integer")
         samples = self.samples
-        if isinstance(samples, bool) or int(samples) != samples or samples < 2:
+        if (
+            isinstance(samples, bool)
+            or not math.isfinite(samples)
+            or int(samples) != samples
+            or samples < 2
+        ):
             raise ValueError("samples must be an integer of at least 2")
         drift = PassiveBarrier(radius=radius, n=n, grid=self.grid, t_cap=self.t_cap, terminal=True)
         phi, gamma = cw_discrete(n, dt)

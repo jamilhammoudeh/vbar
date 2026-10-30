@@ -192,6 +192,17 @@ def test_run_pairs_flies_one_pair_per_seed_and_scores_them():
     assert {"safety_dv_cost", "filter_dependence", "unnecessary_intervention_rate_paired"} <= set(m)
 
 
+@pytest.mark.parametrize("count", [0, -3, 1.7, float("nan"), float("inf")])
+def test_run_pairs_refuses_a_count_that_is_not_a_positive_integer(count):
+    with pytest.raises(ValueError):
+        run_pairs(noisy_env(max_steps=3), PDAgent, Quiet(), count=count)
+
+
+def test_run_pairs_flies_a_single_pair_when_count_is_one():
+    pairs, _ = run_pairs(noisy_env(max_steps=3), PDAgent, Quiet(), count=1)
+    assert len(pairs) == 1
+
+
 def test_guarded_scenario_pairs_keep_their_soft_constraints():
     env = GuardedApproach(ApproachConfig(start_state=HOLD, max_steps=2), soft=("keep_out",))
     pair = record_pair(env, PDAgent, Quiet(), seed=SEED, agent_seed=AGENT_SEED)

@@ -369,7 +369,8 @@ safety_filter, seed=None, agent_seed=None)` (in `vbar.metrics`) flies it twice a
   as a remote service, can still tell the runs apart after the first intervention.
 
 `vbar.runner.run_pairs(env, make_agent, safety_filter, seeds=None, agent_seeds=None, count=None)`
-flies one pair per seed and returns the pairs with `paired_filter_metrics` over them.
+flies one pair per seed and returns the pairs with `paired_filter_metrics` over them. `count` is
+an integer of at least 1; anything else raises `ValueError`.
 
 F8p judges the unfiltered run against every hard constraint by its certified in-step minima, as M1
 does, and ignores soft ones. It complements F8, which judges each active decision's own command

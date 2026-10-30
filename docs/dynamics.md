@@ -103,13 +103,15 @@ The rung is $h$ = 1 s; `EulerCWDynamics(n, step_s=h)` takes another step for com
 `step_s` is a class attribute (1.0) that the continuous models do not have. The plant is the
 sequence of nodes $\mathbf x_j$ and has no state between them: interpolating with CW would give
 a curve whose derivative is not the velocity. So `advance` refuses a duration that is not a
-whole number of steps and returns the $k + 1$ nodes of a $k$-step segment whatever `n_samples`
-asks for, and `state_in_last_segment(tau)` raises `ValueError` unless `tau` is a node.
+whole number of steps, a nonzero one included that is within $10^{-9}$ s of zero steps (the clock
+would run while the state stood still), and returns the $k + 1$ nodes of a $k$-step segment
+whatever `n_samples` asks for, and `state_in_last_segment(tau)` raises `ValueError` unless `tau`
+is a node.
 
 **Environment.** The environment keeps its own `dt` and flies it as `dt` / 1 s Euler substeps,
 so `dt`, an actuation delay and a coast must be whole seconds. Building an environment whose
-`dt` is not a whole number of steps raises `ValueError`; a delay or coast off the nodes raises
-in `advance`. When
+`dt` is not a whole number of at least one step raises `ValueError`, and so does a mean motion
+that is not positive and finite; a delay or coast off the nodes raises in `advance`. When
 the dynamics model has `step_s`, `_fly` checks each constraint at the nodes only and ignores
 `violation_samples`: `node_minimum` gives the lowest node margin, and its certified bound is that
 margin less the allowance for rounding in the margin itself (no propagation enters, since a node

@@ -40,6 +40,13 @@ def test_counts_and_limits_of_the_shared_config_are_checked(overrides):
         make("approach-vbar", **overrides)
 
 
+@pytest.mark.parametrize("dt", [1e-10, 5e-10])
+def test_a_decision_step_shorter_than_one_euler_step_is_refused(dt):
+    # The clock would advance each step and the state would stay where it was.
+    with pytest.raises(ValueError):
+        make("docking-afrl-paper", dt=dt)
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

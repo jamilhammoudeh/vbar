@@ -77,7 +77,7 @@ release may change the public API, and every such change is listed under Changed
   and off, with the same episode and agent seeds, a new agent per run, the unfiltered run through
   the pass-through filter and the order drawn at random, returned as a `FilterPair`; and F8p
   `unnecessary_intervention_rate_paired`, the share of active decisions in episodes whose
-  unfiltered run broke no hard constraint.
+  unfiltered run broke no hard constraint. `run_pairs` takes `count` as an integer of at least 1.
 - `vbar.safety.InfeasibilityProof` and `FilterResult.proof`: an "infeasible_certified" step of
   `CbfFilter` carries the Farkas certificate of its rows under the thrust limit, each row in its
   own SI units, and
@@ -131,7 +131,8 @@ release may change the public API, and every such change is listed under Changed
   keeps outside the keep-out for all time; the backup is zero thrust where free drift is
   certified and the CAM elsewhere, the set is kept by it, and the certificate is "nominal"
   (error sets are refused). `vbar.metrics.passive.cam_direction` gives the unit CAM direction of
-  a goal, which `cam_impulses` and the filter share.
+  a goal, which `cam_impulses` and the filter share. `CamBarrier` raises `ValueError` for `steps`
+  or `samples` that is not a whole number in range, infinity and NaN included.
 - `drift_cover` takes `accel` and `burn_time`: a box of starts carried through a held collision
   avoidance burn and then free drift, with a certified in-step bound during the burn.
 - `benchmarks/filter_audit.py` audits, searches and covers the CAM and predictive filters too
@@ -172,7 +173,9 @@ release may change the public API, and every such change is listed under Changed
 - The `euler1` dynamics rung, `vbar.dynamics.EulerCWDynamics`: Clohessy-Wiltshire
   stepped by forward Euler in 1 s steps, defined only at its nodes. Environments on it check
   constraints at the nodes (`vbar.constraints.node_minimum`, `node_violations`); `Trace`,
-  `passive_metrics` and `evaluate` raise `ValueError` for its episodes.
+  `passive_metrics` and `evaluate` raise `ValueError` for its episodes. The plant refuses a mean
+  motion that is not positive and finite, an infinite or NaN duration and a nonzero duration of
+  no whole step, and an environment refuses a `dt` under one step.
 - The `docking-afrl-paper` scenario (v1) and its `:code` variant, registered as
   `vbar/DockingAfrlPaper-v1` and `vbar/DockingAfrlPaperCode-v1`: the run time assurance docking
   benchmark as published, on the `euler1` rung.

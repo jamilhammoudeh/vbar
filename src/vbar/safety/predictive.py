@@ -140,10 +140,10 @@ class PredictiveFilter(_HeldCommandFilter):
     Raises
     ------
     ValueError
-        If a parameter is out of range, the mode or the backup is unknown, a parameter is
-        given to a mode that does not use it, error sets are given with the cam backup or
-        the finite-horizon mode, or `exceedance` and `per_draw_level` are not given together
-        with an error set.
+        If a parameter is out of range, `horizon` or `row_samples` is not a finite integer, the
+        mode or the backup is unknown, a parameter is given to a mode that does not use it, error
+        sets are given with the cam backup or the finite-horizon mode, or `exceedance` and
+        `per_draw_level` are not given together with an error set.
 
     Notes
     -----
@@ -272,9 +272,19 @@ class PredictiveFilter(_HeldCommandFilter):
             raise ValueError("the cam backup makes no claim under error sets")
         if self.bounded and mode == "finite-horizon":
             raise ValueError("error sets need the terminal or the soft mode")
-        if isinstance(horizon, bool) or int(horizon) != horizon or horizon < 1:
+        if (
+            isinstance(horizon, bool)
+            or not math.isfinite(horizon)
+            or int(horizon) != horizon
+            or horizon < 1
+        ):
             raise ValueError("horizon must be an integer of at least 1")
-        if isinstance(row_samples, bool) or int(row_samples) != row_samples or row_samples < 2:
+        if (
+            isinstance(row_samples, bool)
+            or not math.isfinite(row_samples)
+            or int(row_samples) != row_samples
+            or row_samples < 2
+        ):
             raise ValueError("row_samples must be an integer of at least 2")
         if settings is not None and not isinstance(settings, IPMSettings):
             raise ValueError("settings must be an IPMSettings")

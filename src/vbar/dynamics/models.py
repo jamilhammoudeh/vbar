@@ -115,13 +115,15 @@ class EulerCWDynamics:
     Raises
     ------
     ValueError
-        If `step_s` is not positive and finite.
+        If `n` or `step_s` is not positive and finite.
     """
 
     name = "euler1"
     step_s = 1.0
 
     def __init__(self, n: float, step_s: float = 1.0):
+        if not (np.isfinite(n) and n > 0.0):
+            raise ValueError("n must be positive and finite")
         if not (np.isfinite(step_s) and step_s > 0.0):
             raise ValueError("step_s must be positive and finite")
         self.n = n
@@ -135,8 +137,12 @@ class EulerCWDynamics:
         self._nodes = None
 
     def _steps(self, duration: float) -> int:
+        if not np.isfinite(duration):
+            raise ValueError(f"duration {duration!r} s is not a whole number of steps")
         k = round(duration / self.step_s)
-        if k < 0 or abs(duration - k * self.step_s) > _NODE_TOL:
+        # A nonzero duration that rounds to no step would run the clock with the state standing
+        # still, so only an exact zero may take zero steps.
+        if k < 0 or abs(duration - k * self.step_s) > _NODE_TOL or (k == 0 and duration != 0.0):
             raise ValueError(f"duration {duration!r} s is not a whole number of steps")
         return k
 
@@ -165,7 +171,8 @@ class EulerCWDynamics:
         Raises
         ------
         ValueError
-            If `duration` is not a whole number of steps.
+            If `duration` is infinite or NaN, is not a whole number of steps, or is nonzero and
+            within the node tolerance of zero steps.
         """
         accel = np.array(accel_hill, dtype=float)
         k = self._steps(duration)

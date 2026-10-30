@@ -83,7 +83,8 @@ def held_segment_bound(
     Raises
     ------
     ValueError
-        If an argument is malformed or out of range.
+        If an argument is malformed or out of range, `m` included when it is not a finite
+        integer.
 
     Notes
     -----
@@ -101,7 +102,7 @@ def held_segment_bound(
     x = _finite(x, (6,), "x")
     u = _finite(u, (3,), "u")
     dt = _positive(dt, "dt")
-    if isinstance(m, bool) or int(m) != m or m < 2:
+    if isinstance(m, bool) or not math.isfinite(m) or int(m) != m or m < 2:
         raise ValueError("m must be an integer of at least 2")
     m = int(m)
     keep_out = KeepOut(_positive(radius, "radius"))
@@ -202,7 +203,8 @@ def line_search(
     Raises
     ------
     ValueError
-        If `u_c` or `beta` is not three finite numbers or `iterations` is negative.
+        If `u_c` or `beta` is not three finite numbers or `iterations` is not a finite
+        nonnegative integer.
 
     Notes
     -----
@@ -212,7 +214,12 @@ def line_search(
     """
     u_c = _finite(u_c, (3,), "u_c")
     beta = _finite(beta, (3,), "beta")
-    if isinstance(iterations, bool) or int(iterations) != iterations or iterations < 0:
+    if (
+        isinstance(iterations, bool)
+        or not math.isfinite(iterations)
+        or int(iterations) != iterations
+        or iterations < 0
+    ):
         raise ValueError("iterations must be a nonnegative integer")
     if accept(u_c):
         return LineSearch(u_c, 1.0, 1)

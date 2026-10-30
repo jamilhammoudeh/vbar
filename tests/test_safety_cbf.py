@@ -1146,3 +1146,10 @@ def test_a_solver_failed_step_carries_no_certificate(monkeypatch):
     result = filt.filter(x.copy(), np.array([0.0, -1.0, 0.0]))
     assert result.status == "solver_failed" and result.recovering is False
     assert result.certificate is None and result.certificate_horizon is None
+
+
+@pytest.mark.parametrize("name", ["samples", "iterations"])
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_backup_filter_refuses_a_count_that_is_not_finite(name, value):
+    with pytest.raises(ValueError):
+        BackupFilter(barrier="passive", **{name: value})

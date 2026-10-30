@@ -1063,9 +1063,10 @@ class BackupFilter(_HeldCommandFilter):
     Raises
     ------
     ValueError
-        If a parameter is out of range, the projection candidate is asked for a barrier other
-        than the passive one, the cam barrier is asked for with error sets, or `exceedance`
-        and `per_draw_level` are not given together with an error set.
+        If a parameter is out of range, `samples` or `iterations` is not a finite integer, the
+        projection candidate is asked for a barrier other than the passive one, the cam barrier
+        is asked for with error sets, or `exceedance` and `per_draw_level` are not given together
+        with an error set.
 
     Notes
     -----
@@ -1139,9 +1140,19 @@ class BackupFilter(_HeldCommandFilter):
             exceedance=exceedance,
             per_draw_level=per_draw_level,
         )
-        if isinstance(samples, bool) or int(samples) != samples or samples < 2:
+        if (
+            isinstance(samples, bool)
+            or not math.isfinite(samples)
+            or int(samples) != samples
+            or samples < 2
+        ):
             raise ValueError("samples must be an integer of at least 2")
-        if isinstance(iterations, bool) or int(iterations) != iterations or iterations < 0:
+        if (
+            isinstance(iterations, bool)
+            or not math.isfinite(iterations)
+            or int(iterations) != iterations
+            or iterations < 0
+        ):
             raise ValueError("iterations must be a nonnegative integer")
         self.barrier = barrier
         self.candidate = candidate

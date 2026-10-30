@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 
@@ -93,11 +95,31 @@ def test_euler_one_step_error_falls_fourfold_when_the_step_halves():
     assert 3.9 <= error(1.0) / error(0.5) <= 4.1
 
 
-@pytest.mark.parametrize("duration", [0.5, 2.5, 1.0 + 1e-6])
+@pytest.mark.parametrize("duration", [0.5, 2.5, 1.0 + 1e-6, math.inf, -math.inf, math.nan])
 def test_euler_advance_refuses_a_partial_step(duration):
     dyn = started(euler(N), X0)
     with pytest.raises(ValueError):
         dyn.advance(ACCEL, duration)
+
+
+@pytest.mark.parametrize("n", [math.nan, math.inf, -1.0, 0.0])
+def test_euler_plant_refuses_a_mean_motion_that_is_not_positive_and_finite(n):
+    with pytest.raises(ValueError):
+        euler(n)
+
+
+@pytest.mark.parametrize("duration", [1e-10, 5e-10])
+def test_euler_advance_refuses_a_duration_that_is_no_step_at_all(duration):
+    # Within the node tolerance of zero steps, so the clock would run while the state stood still.
+    dyn = started(euler(N), X0)
+    with pytest.raises(ValueError):
+        dyn.advance(ACCEL, duration)
+
+
+def test_euler_advance_of_exactly_zero_keeps_the_start_as_its_one_node():
+    state, nodes = started(euler(N), X0).advance(ACCEL, 0.0, n_samples=1)
+    np.testing.assert_array_equal(state, X0)
+    np.testing.assert_array_equal(nodes, X0[None, :])
 
 
 def test_euler_state_exists_only_at_the_nodes():
