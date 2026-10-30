@@ -10,6 +10,9 @@ release may change the public API, and every such change is listed under Changed
 
 ### Added
 
+- `vbar.agents.glideslope_lp.lp_glideslope`: the minimum-fuel V-bar glideslope by linear programming of
+  Ariba, Arzelier, Urbina and Louembet (2016); `vbar.reproductions` rebuilds their case 1 and prints
+  the match table (`python -m vbar.reproductions`); `docs/reproductions.md` documents it.
 - `vbar.replay.export_rrd` and the optional extra `replay`: writes a recorded episode as a Rerun
   `.rrd` file in the Hill frame with SI units, with the chaser and target, a trail, the keep-out
   spheres and approach corridors, the hold point or port, the command, filtered command and flown

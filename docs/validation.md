@@ -686,6 +686,41 @@ Facts only, each cited in [reconstructions.md](reconstructions.md); none is an o
 - Kawano et al., J. JSASS 50(578) (2002), and Oda, i-SAIRAS 2001: the 520 m V-bar start from ahead,
   the 2 m holding point held about 15 min, the 550 km orbit and the 2.5 t chaser of `recon-ets7`.
 
+## Published results reproduced
+
+Ariba, Arzelier, Urbina and Louembet, IFAC-PapersOnLine 49(17), 385-390 (2016), case 1 (Hablani's
+V-bar scenario), rebuilt from the paper ([reproductions.md](reproductions.md)). `python -m
+vbar.reproductions` prints this table; `tests/test_reproductions.py` checks that it is the table
+below. "Matches" means V-BAR's number rounds to the paper's at the paper's printed digits.
+
+<!-- ariba-case-one begin -->
+| Quantity | Paper | V-BAR | Unit | Matches | Note |
+|---|---|---|---|---|---|
+| LP glideslope, N = 10, 1 m bound | 2.31 | 2.312 | m/s | yes | rebuilt from sec. 3 |
+| LP glideslope, N = 2, 20 m bound | 2.26 | 2.262 | m/s | yes |  |
+| LP excursion, N = 2, 20 m bound | 13.8 | 13.82 | m | yes |  |
+| LP glideslope, N = 3, 20 m bound | 2.29 | 2.291 | m/s | yes |  |
+| LP excursion, N = 3, 20 m bound | 6.2 | 6.20 | m | yes |  |
+| LP glideslope, N = 4, 20 m bound | 2.3 | 2.30 | m/s | yes |  |
+| LP excursion, N = 4, 20 m bound | 3.5 | 3.50 | m | yes |  |
+| LP glideslope, N = 10, 20 m bound | 2.31 | 2.312 | m/s | yes |  |
+| LP excursion, N = 10, 20 m bound | 0.56 | 0.561 | m | yes |  |
+| LP glideslope, N = 20, 20 m bound | 2.31 | 2.313 | m/s | yes |  |
+| LP excursion, N = 20, 20 m bound | 0.15 | 0.140 | m | no |  |
+| Standard glideslope, N = 2 | 3.61 | 3.612 | m/s | yes | prediction |
+| Standard excursion, N = 2 | 26.2 | 26.21 | m | yes | prediction |
+| Standard glideslope, N = 3 | 4.76 | 4.760 | m/s | yes | prediction |
+| Standard excursion, N = 3 | 16.2 | 16.23 | m | yes | prediction |
+| Standard glideslope, N = 4 | 5.63 | 5.629 | m/s | yes | prediction |
+| Standard excursion, N = 4 | 11.1 | 11.09 | m | yes | prediction |
+| Standard glideslope, N = 10 | 8.09 | 8.090 | m/s | yes | rate ratio fitted here |
+| Standard excursion, N = 10 | 2.67 | 2.668 | m | yes | prediction |
+| Standard glideslope, N = 20 | 9.32 | 9.306 | m/s | no | prediction |
+| Standard excursion, N = 20 | 0.78 | 0.778 | m | yes | prediction |
+| Two-impulse transfer | 0.12 | 2.117 | m/s | no | not reproduced: the paper's transfer time is not stated; 540 s transfer shown |
+| Two-impulse excursion | 125 | 52.7 | m | no | not reproduced: the paper's transfer time is not stated; 540 s transfer shown |
+<!-- ariba-case-one end -->
+
 ## Agreement with Basilisk and Orekit
 
 V-BAR's two-body plus J2 rung, Basilisk 2.12 and Orekit 13.1 fly the same initial inertial states

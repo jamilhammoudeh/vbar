@@ -54,4 +54,5 @@ and how it is tested.
 | [minimum-time-oracle.md](minimum-time-oracle.md) | minimum-time oracle: the fewest held steps into the capture ball for box thrusters, a verified plan, and a primer-vector proof that each smaller step is out of reach |
 | [passing-side-oracle.md](passing-side-oracle.md) | passing-side oracle: fuel bounds when the target lies in the way, keep-out halfspaces per side of approach, plans verified against the keep-out sphere between samples, and the side-free lower bound |
 | [expert-datasets.md](expert-datasets.md) | the oracle expert agent and expert trajectory datasets: open-loop flight of the verified fuel plan, NPZ files with a dataset card, byte-for-byte regeneration from validation seeds, and the generation script |
+| [reproductions.md](reproductions.md) | published results rebuilt from their papers: Ariba et al.'s LP glideslope and Hablani's standard glideslope on their V-bar case, the axis mapping, what matches and what does not |
 | [validation.md](validation.md) | what the tests check, the published examples they reproduce, and the sources of the methods |

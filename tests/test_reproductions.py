@@ -1,0 +1,162 @@
+"""Published results rebuilt from their papers: Ariba et al. (2016), case 1.
+
+The match table in docs/validation.md is the output of `python -m vbar.reproductions`; the test
+that compares them builds every row and is behind the `slow` marker.
+"""
+
+import math
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from vbar.agents.glideslope_lp import lp_glideslope
+from vbar.agents.planning import Impulse
+from vbar.dynamics import cw_stm
+from vbar.reproductions import ARIBA_CASE_ONE, ariba_case_one, excursion, match_table, matches
+
+DOCS = Path(__file__).parent.parent / "docs" / "validation.md"
+CASE = ARIBA_CASE_ONE
+
+
+def fly(n, start, plan):
+    """States just before each impulse and the final state, flying the plan on exact CW arcs."""
+    state = np.concatenate([np.asarray(start, dtype=float), np.zeros(3)])
+    before = []
+    for k, impulse in enumerate(plan):
+        before.append(state.copy())
+        state = state + np.concatenate([np.zeros(3), impulse.dv])
+        if k + 1 < len(plan):
+            state = cw_stm(n, plan[k + 1].t - impulse.t) @ state
+    return np.array(before), state
+
+
+def test_case_one_axes_map_from_the_paper_to_the_hill_frame():
+    # The paper's x is along-track, z points to the Earth and y completes the frame, so
+    # V-BAR's [x, y, z] is [-z_p, x_p, -y_p].
+    def hill(paper):
+        x_p, y_p, z_p = paper
+        return (-z_p, x_p, -y_p)
+
+    assert hill((-500.0, 0.0, -20.0)) == CASE.start
+    assert hill((-100.0, 0.0, -20.0)) == CASE.aim
+
+
+def test_lp_plan_flies_the_line_and_stops_at_the_aim():
+    plan = lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 10, 1.0)
+    assert len(plan) == 11
+    np.testing.assert_allclose([p.t for p in plan], np.linspace(0.0, CASE.duration, 11))
+    before, final = fly(CASE.n, CASE.start, plan)
+    # Every impulse is taken on the V-bar line 20 m above the target; the flight ends at rest.
+    np.testing.assert_allclose(before[:, 0], 20.0, atol=1e-9)
+    np.testing.assert_allclose(final, [*CASE.aim, 0.0, 0.0, 0.0], atol=1e-9)
+    for k in range(10):
+        mid = cw_stm(CASE.n, 27.0) @ (before[k] + np.concatenate([np.zeros(3), plan[k].dv]))
+        assert abs(mid[0] - 20.0) <= 1.0 + 1e-9
+
+
+def test_lp_case_one_cost_is_the_published_value():
+    plan = lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 10, 1.0)
+    cost = sum(float(np.sum(np.abs(p.dv))) for p in plan)
+    # Ariba et al. (2016), sec. 5: 2.31 m/s for N = 10 and a 1 m bound.
+    assert cost == pytest.approx(2.31, abs=0.005)
+
+
+def test_the_published_cost_belongs_to_the_rounded_orbital_rate():
+    # The paper rounds the 400 km rate to 0.001 rad/s; at the exact rate the cost is 2.43 m/s.
+    from vbar.dynamics import R_EARTH, mean_motion
+
+    n = mean_motion(R_EARTH + 400e3)
+    plan = lp_glideslope(n, CASE.start, CASE.aim, CASE.duration, 10, 1.0)
+    assert sum(float(np.sum(np.abs(p.dv))) for p in plan) == pytest.approx(2.43, abs=0.005)
+
+
+def test_the_midpoint_bound_is_active_near_its_threshold():
+    # At N = 10 the free optimum bows 0.5615 m off the line at mid-arc: a 0.55 m bound cannot be
+    # met, and a 0.57 m bound is met by the flown arcs, sampled finely.
+    with pytest.raises(ValueError, match="bound"):
+        lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 10, 0.55)
+    plan = lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 10, 0.57)
+    assert excursion(CASE.n, np.asarray(CASE.start), plan, samples=2000) <= 0.57 + 1e-9
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"start": (20.0, -500.0, 1.0)},
+        {"aim": (21.0, -100.0, 0.0)},
+        {"start": (20.0, -500.0)},
+        {"start": (math.nan, -500.0, 0.0)},
+        {"n": 0.0},
+        {"duration": -1.0},
+        {"bound": math.inf},
+        {"pulses": 0},
+        {"pulses": 2.0},
+        {"pulses": True},
+        {"n": True},
+    ],
+)
+def test_lp_glideslope_refuses_bad_settings(kwargs):
+    settings = {
+        "n": CASE.n,
+        "start": CASE.start,
+        "aim": CASE.aim,
+        "duration": CASE.duration,
+        "pulses": 10,
+        "bound": 1.0,
+    } | kwargs
+    with pytest.raises(ValueError):
+        lp_glideslope(**settings)
+
+
+def test_an_impossible_bound_is_reported():
+    # One arc from rest 400 m along the V-bar bows far more than a millimetre off the line.
+    with pytest.raises(ValueError, match="bound"):
+        lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 1, 1e-3)
+
+
+PLAN = (Impulse(0.0, np.array([0.0, 0.1, 0.0])), Impulse(60.0, np.array([0.0, -0.1, 0.0])))
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (math.nan, CASE.start, PLAN),
+        (-1e-3, CASE.start, PLAN),
+        (True, CASE.start, PLAN),
+        (1e-3, (math.nan, 0.0, 0.0), PLAN),
+        (1e-3, (1.0, 2.0), PLAN),
+        (1e-3, CASE.start, ()),
+        (1e-3, CASE.start, (PLAN[1], PLAN[0])),
+        (1e-3, CASE.start, (Impulse(0.0, np.array([math.inf, 0.0, 0.0])),)),
+        (1e-3, CASE.start, PLAN, 1),
+    ],
+)
+def test_excursion_refuses_bad_inputs(args):
+    with pytest.raises(ValueError):
+        excursion(*args)
+
+
+def test_match_rule_reads_the_paper_digits():
+    from vbar.reproductions import MatchRow
+
+    assert matches(MatchRow("a", 2.31, 2.3149, "m/s", ""))
+    assert not matches(MatchRow("a", 2.31, 2.3151, "m/s", ""))
+    assert matches(MatchRow("a", 125.0, 125.4, "m", ""))
+
+
+@pytest.mark.slow
+def test_docs_table_is_the_regenerated_table():
+    rows = ariba_case_one()
+    text = DOCS.read_text(encoding="utf-8")
+    begin, end = "<!-- ariba-case-one begin -->\n", "<!-- ariba-case-one end -->"
+    quoted = text.split(begin)[1].split(end)[0].strip()
+    assert quoted == match_table(rows)
+    # Which rows reproduce is part of the claim, so a change shows here too.
+    missed = [row.quantity for row in rows if not matches(row)]
+    assert missed == [
+        "LP excursion, N = 20, 20 m bound",
+        "Standard glideslope, N = 20",
+        "Two-impulse transfer",
+        "Two-impulse excursion",
+    ]
