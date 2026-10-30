@@ -39,7 +39,11 @@ class FilteredEnv(gym.Wrapper):
     ValueError
         For an action mode that is not continuous.
     TypeError
-        At `step`, when the filter returns anything but a `FilterResult`.
+        At `step`, when the filter returns anything but a `FilterResult`, or a field of the
+        result is not of its exact type.
+    ValueError
+        At `step`, when the filter's action is not numeric, not finite or not of the command's
+        shape, or the rebuilt result fails the checks of `FilterResult`.
     """
 
     def __init__(self, env: gym.Env, safety_filter):

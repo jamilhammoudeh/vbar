@@ -207,6 +207,12 @@ release may change the public API, and every such change is listed under Changed
   `(safety_filter, obs, command)` and sets the result's `compute_s` to the measured wall time,
   whatever the filter reported, so F6 and F6p are version 2. `PassThroughFilter.filter` returns
   `FilterResult(action, intervened=False)`.
+- `run_filter`, `FilteredAgent` and `FilteredEnv` check a filter's result inside the timed region:
+  every field must have its exact type (`TypeError` otherwise; a numpy scalar, a subclass, or an
+  int where a float is expected, such as `slack=0`, are refused), and the action must be numeric,
+  finite and of the command's shape (`ValueError` otherwise). The result is rebuilt from those
+  plain values, so the recorded action is a copy the filter cannot write to later. Return plain
+  `bool`, `str`, `float` and `int` values and float arrays, for example `slack=0.0`.
 - A constraint's `second_order_bounds(states, h, speed, accel, jerk=None)` takes a bound on the
   jerk; the speed, closing-speed and gate-table limits define it, so their refinement nearly
   stops. `min_margin_bound` (S1b) is version 3 for these bounds, and the golden metric fixtures

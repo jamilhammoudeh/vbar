@@ -199,16 +199,94 @@ class FilterResult:
             raise TypeError("proof must be an InfeasibilityProof")
 
 
+# The exact type each field of a filter's result must have. A subclass or a numpy scalar runs its
+# own code when it is converted or compared, which would move the filter's work past the clock.
+_NONE = type(None)
+_PLAIN_FIELDS: dict[str, tuple[type, ...]] = {
+    "intervened": (bool, np.bool_),
+    "status": (str,),
+    "slack": (float,),
+    "conflicting": (tuple,),
+    "compute_s": (float,),
+    "prep_s": (float, _NONE),
+    "feedback_s": (float, _NONE),
+    "active": (bool, np.bool_),
+    "recovering": (bool, np.bool_, _NONE),
+    "fallback_level": (int, _NONE),
+    "certificate": (str, _NONE),
+    "certificate_horizon": (float, _NONE),
+    "iterations": (int, _NONE),
+}
+_NUMBER_TYPES = (bool, int, float)
+
+
+def _require_exact(value, kinds: tuple[type, ...], name: str) -> None:
+    # `is` on the types, since comparing them with `in` would run a metaclass's `__eq__`.
+    if not any(type(value) is kind for kind in kinds):
+        expected = " or ".join(sorted({kind.__name__ for kind in kinds}))
+        raise TypeError(f"filter result {name} is {type(value).__name__}, expected {expected}")
+
+
+def _float_array(value, name: str) -> np.ndarray:
+    """A new float array of `value`, converted here so that the conversion is timed.
+
+    The copy is explicit because an `__array__` may ignore copy=True and hand back a buffer the
+    filter keeps writing to. The dtype is read before any float conversion, since astype parses
+    strings and bytes; an object array, which numpy makes of integers beyond 64 bits, passes only
+    when every element is exactly a bool, int or float.
+    """
+    try:
+        array = np.asarray(value)
+        kind = array.dtype.kind
+        if kind in "biuf" or (
+            kind == "O"
+            and all(any(type(item) is plain for plain in _NUMBER_TYPES) for item in array.flat)
+        ):
+            return array.astype(float)
+    except (TypeError, ValueError, OverflowError) as err:
+        raise ValueError(f"filter {name} does not convert to floats") from err
+    # Complex is refused, not cast: astype drops the imaginary part and only warns.
+    what = "complex" if kind == "c" else "not numeric"
+    raise ValueError(f"filter {name} is {what}")
+
+
+def _plain_proof(proof) -> InfeasibilityProof:
+    _require_exact(proof, (InfeasibilityProof,), "proof")
+    _require_exact(proof.layout, (str,), "proof layout")
+    _require_exact(proof.a_max, (float,), "proof a_max")
+    _require_exact(proof.names, (tuple,), "proof names")
+    for name in proof.names:
+        _require_exact(name, (str,), "proof name")
+    return InfeasibilityProof(
+        normals=_float_array(proof.normals, "proof normals"),
+        bounds=_float_array(proof.bounds, "proof bounds"),
+        multipliers=_float_array(proof.multipliers, "proof multipliers"),
+        layout=proof.layout,
+        a_max=proof.a_max,
+        names=proof.names,
+    )
+
+
 def run_filter(safety_filter, obs: np.ndarray, command: np.ndarray) -> tuple[FilterResult, float]:
     """The filter's decision on `command` and its measured wall time.
 
     A filter with a `prepare()` method has it called first, with no arguments, then
     `filter(obs, action)`. One clock runs from the lookup of `prepare` to the return of `filter`
     without a gap: `prep_s` covers the lookup and the `prepare` call, `feedback_s` the copies of
-    the inputs, the `filter` call and, for a filter without `prepare`, the lookup. The filter gets
-    those copies, so it cannot rewrite the caller's command or observation. The measured times
-    replace whatever the filter reported, so a filter cannot report its latency lower or higher
-    than it was. Work done outside these calls, in `reset` or on another thread, is not measured.
+    the inputs, the `filter` call, the conversion and checks of the returned result and, for a
+    filter without `prepare`, the lookup. The filter gets those copies, so it cannot rewrite the
+    caller's command or observation. The measured times replace whatever the filter reported, so a
+    filter cannot report its latency lower or higher than it was, nor defer its work to an object
+    in the result that computes when it is converted or compared. Inside the clock every field of
+    the result is checked for its exact type, never a subclass and, for the float and int fields,
+    never a numpy scalar; the flags may be `bool` or `numpy.bool_`. The action and the arrays of a
+    proof become new float arrays, and the result is rebuilt from those plain values, so it holds
+    nothing left to compute and nothing the filter can write to later.
+
+    The clock measures the filter's calls, the conversion of what it returns and the release of
+    the objects it returns and does not keep, so their finalizers are timed. Work a filter does
+    outside them, in `reset`, on another thread or in the finalizer of an object it keeps or leaves
+    in a reference cycle, is not measured; time an untrusted filter in its own process.
 
     Parameters
     ----------
@@ -223,34 +301,66 @@ def run_filter(safety_filter, obs: np.ndarray, command: np.ndarray) -> tuple[Fil
     Returns
     -------
     FilterResult
-        The filter's result with `prep_s` the wall time of `prepare` (None without it),
-        `feedback_s` that of `filter` and `compute_s` their sum (s).
+        The filter's result as plain values, with `action` a float array of the command's shape,
+        the flags `bool`, `prep_s` the wall time of `prepare` (None without it), `feedback_s` that
+        of `filter` and `compute_s` their sum (s).
     float
         The same `compute_s` (s).
 
     Raises
     ------
     TypeError
-        If the filter returns anything but a `FilterResult`, a bare action or a subclass
-        included; a subclass could rewrite the measured times when the result is rebuilt.
+        If the filter returns anything but a `FilterResult`, a subclass included; a subclass could
+        compute in the reads of its fields. Also if a field of the result, or the layout, `a_max`
+        or names of its proof, is not of its exact type, or its proof is not an
+        `InfeasibilityProof` itself.
     ValueError
-        If the result fails the checks of `FilterResult`, which the rebuild runs again, so a
-        field written past them after construction is caught.
+        If the action or an array of the proof is not numeric (its dtype is not boolean, integer
+        or float: a string, bytes, a complex value, a mixed list, or an object array with an
+        element that is not a plain bool, int or float), does not convert to floats (a dict) or
+        holds an integer too large for a float; if the action is not finite or not of the
+        command's shape; or if the rebuilt result fails the checks of `FilterResult`.
     """
     t0 = time.perf_counter()
     prepare = getattr(safety_filter, "prepare", None)
     prep_s = None
     if prepare is not None:
         prepare()
+        # Released inside the clock, so its finalizer is timed when the filter does not keep it.
+        del prepare
         t1 = time.perf_counter()
         prep_s = t1 - t0
         t0 = t1
     out = safety_filter.filter(np.array(obs, dtype=float), np.array(command, dtype=float))
-    feedback_s = time.perf_counter() - t0
     if type(out) is not FilterResult:
         raise TypeError(f"filter returned {type(out).__name__}, expected FilterResult")
+    fields = {}
+    for name, kinds in _PLAIN_FIELDS.items():
+        fields[name] = getattr(out, name)
+        _require_exact(fields[name], kinds, name)
+    for name in fields["conflicting"]:
+        _require_exact(name, (str,), "conflicting name")
+    for flag in ("intervened", "active", "recovering"):
+        if fields[flag] is not None:
+            fields[flag] = bool(fields[flag])
+    action = _float_array(out.action, "action")
+    if action.shape != np.shape(command):
+        raise ValueError(f"filter action has shape {action.shape}, expected {np.shape(command)}")
+    if not np.all(np.isfinite(action)):
+        raise ValueError("filter action is not finite")
+    proof = None if out.proof is None else _plain_proof(out.proof)
+    # The measured times cannot go in before the clock stops, so they are set on this copy of
+    # plain values after it.
+    plain = FilterResult(action=action, proof=proof, **fields)
+    # The last reference to what the filter returned. Letting go here runs the finalizers of the
+    # parts it does not keep inside the clock, not when the frame ends after it.
+    del out
+    feedback_s = time.perf_counter() - t0
     compute_s = feedback_s if prep_s is None else prep_s + feedback_s
-    return replace(out, prep_s=prep_s, feedback_s=feedback_s, compute_s=compute_s), compute_s
+    return (
+        replace(plain, prep_s=prep_s, feedback_s=feedback_s, compute_s=compute_s),
+        compute_s,
+    )
 
 
 class PassThroughFilter:
@@ -268,10 +378,16 @@ class PassThroughFilter:
 class FilteredAgent:
     """Agent + safety filter, presented as a single agent.
 
-    After each `act`, `last_command` is the agent's own command, `last_result` the filter's
-    `FilterResult` and `last_filter_s` the filter's measured wall time, `prepare` included (s);
-    `interventions` counts the decisions the filter reported as `intervened` and `decisions` all
-    of them.
+    After each `act`, `last_command` is the agent's own command, `last_result` the `FilterResult`
+    that `run_filter` rebuilt from the filter's and `last_filter_s` the filter's measured wall
+    time, `prepare` included (s); `interventions` counts the decisions the filter reported as
+    `intervened` and `decisions` all of them. Only the rebuilt plain values are read, never the
+    filter's own objects, so what the filter returns cannot compute after the clock has stopped.
+    The clock measures the filter's calls and the conversion of what it returns; work it does
+    outside them, on another thread or in the finalizer of an object it keeps or leaves in a
+    reference cycle, is not measured,
+    so an untrusted filter is timed in its own process; the finalizers of objects it returns and
+    does not keep are timed.
 
     Parameters
     ----------
@@ -286,9 +402,12 @@ class FilteredAgent:
     ValueError
         At `reset`, for an action mode that is not continuous.
     TypeError
-        At `act`, when the filter returns anything but a `FilterResult`.
+        At `act`, when the filter returns anything but a `FilterResult` or a field of it is not of
+        its exact type (see `run_filter`).
     ValueError
-        At `act`, when the filter's result fails the checks of `FilterResult`.
+        At `act`, when the filter's result fails the checks of `FilterResult` or its action is
+        not numeric, is too large for a float, or is not a finite float array of the command's
+        shape (see `run_filter`).
     """
 
     def __init__(self, agent, safety_filter):
@@ -316,7 +435,7 @@ class FilteredAgent:
         self.last_command = raw
         self.last_result = result
         self.last_filter_s = elapsed
-        return np.asarray(result.action, dtype=float)
+        return result.action
 
 
 __all__ = [

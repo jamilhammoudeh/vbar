@@ -609,11 +609,31 @@ around any agent with `FilteredAgent`.
   filter has one, then `filter`, and sets `prep_s` and `feedback_s` of the `FilterResult` to the
   two measured wall times and `compute_s` to their sum (s), whatever the filter reported. One
   clock runs without a gap from the lookup of `prepare`, which counts toward `prep_s`, to the
-  return of `filter`. Without `prepare`, `prep_s` is None and `compute_s` equals `feedback_s`,
-  which then includes the lookup. An exception in `prepare` propagates and `filter` is not
-  called, and a result of a `FilterResult` subclass raises `TypeError`. Work moved into
-  `prepare` still counts in `compute_s`, which the filter metrics read; work done in `reset` or
-  on another thread is not measured.
+  return of `filter`, the conversion of everything it returns and the checks of the result.
+  Inside that clock every field of the `FilterResult` is checked for its exact type, never a
+  subclass: `intervened`, `active` and `recovering` are `bool` or `numpy.bool_`, `status` and
+  `certificate` are `str`, `conflicting` is a `tuple` of `str`, and the float and int fields are
+  `float` and `int` (a numpy scalar, or an int where a float is expected, is refused), with None
+  allowed where the field is optional. A `proof` is None or an `InfeasibilityProof` itself, with
+  `str`, `float` and `tuple` fields of exact type. A wrong type raises `TypeError`. The action and
+  the arrays of a proof become new float arrays, which a filter that keeps writing to a buffer it
+  returned cannot change. Each is first converted without a dtype and refused with `ValueError`
+  unless that dtype is boolean, integer or float, so text such as `"1"` or `b"1"` is never parsed
+  as a number; an object array, which numpy builds from integers beyond 64 bits, passes only when
+  every element is exactly a `bool`, `int` or `float`. An integer too large for a float (`10**309`)
+  and a value that does not convert (a dict, a complex value) raise `ValueError` too, as does an
+  action that is not finite or not of the command's shape. The result is then rebuilt from these
+  plain values, running the checks of `FilterResult` on them, and `FilteredAgent` reads only the
+  rebuilt result, so nothing is left to compute once the clock has stopped. The filter's own
+  result is released before the clock stops, so the finalizers of what it returned and does not
+  keep, such as a wrapper around the action or an attribute added to the result, are timed.
+  Without `prepare`, `prep_s` is None and `compute_s` equals `feedback_s`, which then includes
+  the lookup. An exception in `prepare` propagates and `filter` is not called, and a result of a
+  `FilterResult` subclass raises `TypeError`. Work moved into `prepare` still counts in
+  `compute_s`, which the filter metrics read. F6 measures the filter's calls, the conversion of
+  what it returns and the release of what it returns and does not keep; work a filter does outside
+  them, in `reset`, on another thread or in the finalizer of an object it keeps or leaves in a
+  reference cycle, is not measured, so an untrusted filter is timed in its own process.
 
 ### Exponential barrier filter
 
