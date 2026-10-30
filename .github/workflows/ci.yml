@@ -67,6 +67,7 @@ jobs:
           python-version: "3.15"
       - run: python -m pip install -e .
       - run: python benchmarks/steps.py
+      - run: python benchmarks/pursuit_evasion.py
 
   oldest-dependencies:
     runs-on: ubuntu-latest
