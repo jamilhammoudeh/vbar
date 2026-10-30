@@ -313,6 +313,13 @@ def test_a_port_axis_that_is_not_a_nonzero_3_vector_is_refused(name, axis):
         ("inspection", "coverage", 0.0),
         ("inspection", "sun_exclusion", 4.0),
         ("inspection", "points", 0),
+        ("inspection", "points", 2.5),
+        ("inspection", "sun_direction", (0.0, 0.0, 0.0)),
+        ("approach-vbar", "passive_exclusion", -1.0),
+        ("approach-vbar", "waypoints", ((0.0, -100.0),)),
+        ("approach-vbar", "thrust_inhibit", ((-5.0, 10.0),)),
+        ("docking", "hold", (-10.0, 60.0)),
+        ("docking", "hold", (10.0, -1.0)),
         ("separation-flyaround", "clear_range", -10.0),
     ],
 )
@@ -325,10 +332,20 @@ def test_a_goal_entry_of_the_wrong_shape_or_sign_is_refused(name, key, value):
         check_goal(dataclasses.replace(view, goal={**view.goal, key: value}))
 
 
-@pytest.mark.parametrize("key", ["hold_time", "sun_direction", "out_of_bounds", "commit_radius"])
-def test_an_optional_goal_entry_the_briefing_prints_must_be_finite(key):
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("hold_time", math.nan),
+        ("sun_direction", (math.nan, 0.0, 0.0)),
+        ("out_of_bounds", math.nan),
+        ("commit_radius", math.nan),
+        ("passive_exclusion", math.nan),
+        ("hold", (math.nan, 10.0)),
+        ("waypoints", ((math.nan, 0.0, 0.0),)),
+    ],
+)
+def test_an_optional_goal_entry_the_briefing_prints_must_be_finite(key, value):
     view = make("approach-vbar").agent_view()
-    value = (math.nan, 0.0, 0.0) if key == "sun_direction" else math.nan
     with pytest.raises(ValueError, match=f"{key} must be numeric and finite"):
         check_goal(dataclasses.replace(view, goal={**view.goal, key: value}))
 

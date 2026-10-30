@@ -54,11 +54,14 @@ template uses none of the hold fields, so it flies every task kind.
 
 `vbar.agents.briefing` turns the public view into words. `briefing(view)` describes the goal of
 each task kind from its keys (`TASK_KEYS`, which `check_goal(view)` requires). `check_goal` also
-refuses any numeric entry the briefing prints that is not finite numbers of the right shape and
-sign (3-vectors for points and directions, a nonzero port axis, an axial speed window with
-0 <= low < high, positive radii, limits and ranges, a coverage in (0, 1], a Sun exclusion angle in
-[0, pi]), and `target_mode` a mode parameter that is not a single finite number or a zero spin
-axis:
+refuses a numeric goal entry the briefing puts in a sentence that is not finite numbers of the
+right shape and sign: 3-vectors for points and directions, a nonzero port axis and Sun
+direction, an axial speed window with 0 <= low < high, positive radii, limits and ranges, a
+positive whole number of points, a coverage in (0, 1], a Sun exclusion angle in [0, pi], burn and
+waypoint lists of 3-vectors, a station-keeping point at a positive distance with a dwell of 0 or
+more, and inhibit windows that start at or after 0.
+`target_mode` refuses a mode parameter that is not a single finite number, and a zero spin axis.
+An entry the briefing does not know is printed as it is. The task keys:
 
 | Task | Keys | Sentence |
 |---|---|---|

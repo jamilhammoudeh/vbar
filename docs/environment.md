@@ -206,10 +206,10 @@ action in the view's action mode. Provided:
   ...}` of fractions, which it converts to the action mode. An unparseable reply is logged as a
   parse failure and the spacecraft coasts. Its prompt, tokens, cost and the rest are on
   [llm-agents.md](llm-agents.md). `reset` raises `ValueError` for a goal it cannot describe (a key
-  its task needs is missing, a numeric entry it prints is not finite numbers of the right shape and
-  sign, or the target mode is unknown, misses a parameter or has one that is not a finite number), an action mode that takes
-  no continuous command, or a prompt template field the goal cannot fill. Any other goal entry or
-  constraint is described as it is.
+  its task needs is missing, a numeric entry it puts in a sentence is not finite numbers of the
+  right shape and sign, or the target mode is unknown, misses a parameter or has one that is not a
+  finite number), an action mode that takes no continuous command, or a prompt template field the
+  goal cannot fill. Any other goal entry or constraint is described as it is.
 - `FilteredAgent(agent, safety_filter)` (`vbar.safety`): wraps an agent with a filter that has
   `reset(view)` and `filter(obs, action)`. The filter gets copies of the observation and the
   agent's command and returns a `FilterResult`; anything else, a bare action included, raises

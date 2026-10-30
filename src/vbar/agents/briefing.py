@@ -393,9 +393,10 @@ def _constraint_text(spec: Mapping[str, Any], mode: TargetMode, n: float) -> str
 
 
 # The shape and sign of every numeric goal entry the briefing prints: "vector" a 3-vector,
-# "window" (low, high) with 0 <= low < high, "vectors" and "spans" lists of 3-vectors and of
-# (start, end) pairs, "positive" > 0, "nonnegative" >= 0, "fraction" in (0, 1], "angle" in
-# [0, pi] rad.
+# "window" (low, high) with 0 <= low < high, "standoff" (distance > 0, dwell >= 0), "vectors"
+# and "spans" lists of 3-vectors and of (start, end) pairs with 0 <= start <= end, "positive"
+# > 0, "count" a positive integer, "nonnegative" >= 0, "fraction" in (0, 1], "angle" in [0, pi]
+# rad. A Sun direction must also be nonzero.
 _GOAL_FORMS = {
     "hold_point": "vector",
     "port": "vector",
@@ -403,6 +404,8 @@ _GOAL_FORMS = {
     "sun_direction": "vector",
     "axial_speed_window": "window",
     "cam_impulses": "vectors",
+    "waypoints": "vectors",
+    "hold": "standoff",
     "thrust_inhibit": "spans",
     "capture_radius": "positive",
     "capture_speed": "positive",
@@ -413,12 +416,13 @@ _GOAL_FORMS = {
     "max_range": "positive",
     "clear_range": "positive",
     "drift_horizon": "positive",
-    "points": "positive",
+    "points": "count",
     "contact_range": "positive",
     "out_of_bounds": "positive",
     "hold_time": "nonnegative",
     "commit_radius": "nonnegative",
     "plume_range": "nonnegative",
+    "passive_exclusion": "nonnegative",
     "coverage": "fraction",
     "sun_exclusion": "angle",
 }
@@ -431,19 +435,23 @@ def _goal_entry(task: str, key: str, value: Any) -> None:
     if form in ("vectors", "spans") and np.size(np.asarray(value, dtype=object)) == 0:
         return
     x = _finite(where, key, value)
-    shapes = {"vector": (3,), "window": (2,)}
+    shapes = {"vector": (3,), "window": (2,), "standoff": (2,)}
     if form in shapes and x.shape != shapes[form]:
         raise ValueError(f"the {where} {key} must have shape {shapes[form]}, got {value!r}")
     if form in ("vectors", "spans") and (
         x.ndim != 2 or x.shape[1] != (3 if form == "vectors" else 2)
     ):
         raise ValueError(f"the {where} {key} has the wrong shape, got {value!r}")
-    if form not in ("vector", "window", "vectors", "spans") and x.shape != ():
+    if form not in ("vector", "window", "standoff", "vectors", "spans") and x.shape != ():
         raise ValueError(f"the {where} {key} must be a number, got {value!r}")
     if form == "window":
         bad = not 0.0 <= x[0] < x[1]
+    elif form == "standoff":
+        bad = not (x[0] > 0.0 and x[1] >= 0.0)
     elif form == "spans":
-        bad = bool(np.any(x[:, 0] > x[:, 1]))
+        bad = bool(np.any(x[:, 0] < 0.0) or np.any(x[:, 0] > x[:, 1]))
+    elif form == "count":
+        bad = not (x > 0.0 and x == np.floor(x))
     elif form == "positive":
         bad = not x > 0.0
     elif form == "nonnegative":
@@ -454,6 +462,8 @@ def _goal_entry(task: str, key: str, value: Any) -> None:
         bad = not 0.0 <= x <= math.pi
     else:
         bad = False
+    if key == "sun_direction" and not np.linalg.norm(x) > 0.0:
+        bad = True
     if bad:
         raise ValueError(f"the {where} {key} is out of range, got {value!r}")
 
