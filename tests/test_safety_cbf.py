@@ -22,6 +22,7 @@ from vbar.safety.barriers import (
     braking_deceleration,
 )
 from vbar.safety.cbf import BackupFilter, CbfFilter
+from vbar.safety.tightening import BoxError
 from vbar.scenarios.approach import ApproachConfig, ApproachEnv
 from vbar.solvers.qp import ActuatorSet, Rows, project
 from vbar.spacecraft import PerfectNav
@@ -431,8 +432,31 @@ def test_backup_declaration_lists_a_nominal_certificate(barrier, name):
     assert d.backup and d.safe_set and d.barriers
 
 
-def test_backup_declaration_with_an_execution_error_is_bounded_w():
-    assert ready(braking(execution=2e-4)).declaration.certificate == "bounded-W"
+ERROR_SETS = {
+    "execution": {"execution": 2e-4},
+    "model": {"model_error": 2e-4},
+    "navigation": {"navigation": BoxError(r_pos=1.0, r_vel=0.01)},
+}
+
+
+def test_braking_declaration_without_error_sets_is_nominal():
+    declaration = ready(braking()).declaration
+    assert declaration.certificate == "nominal"
+    assert declaration.counts_toward_certification is True
+
+
+@pytest.mark.parametrize("kw", ERROR_SETS.values(), ids=ERROR_SETS)
+def test_braking_declaration_with_an_error_set_makes_no_certified_claim(kw):
+    assert ready(braking(**kw)).declaration.certificate is None
+
+
+@pytest.mark.parametrize("kw", ERROR_SETS.values(), ids=ERROR_SETS)
+def test_braking_step_inside_the_set_under_an_error_set_carries_no_certificate(kw):
+    filt = ready(braking(**kw))
+    assert filt.contains(FAR)
+    result = filt.filter(FAR.copy(), np.zeros(3))
+    assert result.status == "feasible" and result.recovering is False
+    assert result.certificate is None and result.certificate_horizon is None
 
 
 # Clipping onto the actuator set comes before the filter and is never an intervention.
@@ -1000,7 +1024,7 @@ def test_braking_filter_with_a_declared_execution_error_absorbs_a_persistent_pus
     flight = fly(filt, Reckless(), x0, 10.0, 30, push=2e-4)
     assert flight.worst >= -DEPTH
     assert all(r.status == "feasible" for r in flight.results)
-    assert all(r.certificate in ("bounded-W", None) for r in flight.results)
+    assert all(r.certificate is None for r in flight.results)
 
 
 # Truth isolation: a filter sees the view and the observations, never the environment.

@@ -199,7 +199,9 @@ def test_falsifier_finds_ignored_execution_set():
     assert caught.score < -1.0
     assert caught.run.violations > 0
     clean = search(real, env, CLOSE, budget=10)
-    assert clean.verdict == "none_found"
+    # Braking issues no certificate under error sets, so a run without a violation is "uncovered".
+    assert clean.verdict == "uncovered"
+    assert clean.run.violations == 0
     assert clean.score >= -1.0
 
 
@@ -342,10 +344,11 @@ def test_bounded_falsifier_reports_an_uncovered_decision():
     coast = scripted_search(((1000.0, False), (None, False)))
     assert coast.run.uncovered == 0
     assert coast.verdict == "none_found"
+    # Braking under error sets certifies nothing, so its thrusting decisions are all uncovered.
     real, _ = burn_filters()
     env = ApproachEnv(
         ApproachConfig(execution=ExecutionError(bound=LEVEL, **BURN), max_steps=STEPS)
     )
     clean = search(real, env, CLOSE, budget=10)
-    assert clean.run.uncovered == 0
-    assert clean.verdict == "none_found"
+    assert clean.run.uncovered > 0
+    assert clean.verdict == "uncovered"

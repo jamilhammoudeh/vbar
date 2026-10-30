@@ -14,12 +14,12 @@ real thruster. The episode-level exceedance is p = 1e-3, and each filter's per-d
 b = `per_draw_level(p, D)`, D = `tightening.episode_draws` of its models over 360 steps. Each
 filter declares the sets `tightening.declared_errors` derives from the model parameters at b.
 
-Filters: `BackupFilter` with the free-drift and the braking barrier and `PredictiveFilter` in
-its terminal mode, under navigation and execution error, named "free drift", "braking" and
-"predictive"; `CbfFilter` at poles 0.06 1/s (gamma 0.06 1/s, v_cap 0.1 m/s) and 0.03 1/s
-(gamma 0.03 1/s, v_cap 0.2 m/s), named "ecbf p 0.06" and "ecbf p 0.03", under execution error
-alone, since its rows take no navigation set: no claim under navigation error. The cam filter
-makes no claim under errors and is only listed. `--filters` picks some of them, all by default.
+Filters: `BackupFilter` with the free-drift barrier and `PredictiveFilter` in its terminal mode,
+under navigation and execution error, named "free drift" and "predictive"; `CbfFilter` at poles
+0.06 1/s (gamma 0.06 1/s, v_cap 0.1 m/s) and 0.03 1/s (gamma 0.03 1/s, v_cap 0.2 m/s), named
+"ecbf p 0.06" and "ecbf p 0.03", under execution error alone, since its rows take no navigation
+set: no claim under navigation error. The braking and cam backup filters make no certified claim
+under errors and are only listed. `--filters` picks some of them, all by default.
 `--grid` sets the free-drift sample spacing (s) the free-drift and predictive filters declare,
 their own default (5 s) when not given.
 
@@ -80,7 +80,6 @@ NAV1 = {
 BURN = {"scale_sigma": 0.01, "noise_sigma": 0.005}
 FILTERS = {
     "free drift": lambda **sets: BackupFilter(barrier="passive", **sets),
-    "braking": lambda **sets: BackupFilter(barrier="braking", **sets),
     "predictive": lambda **sets: PredictiveFilter(mode="terminal", **sets),
     "ecbf p 0.06": lambda **sets: CbfFilter(poles=(0.06, 0.06), gamma=0.06, v_cap=0.1, **sets),
     "ecbf p 0.03": lambda **sets: CbfFilter(poles=(0.03, 0.03), gamma=0.03, v_cap=0.2, **sets),
@@ -89,7 +88,11 @@ FILTERS = {
 EXECUTION_ONLY = ("ecbf p 0.06", "ecbf p 0.03")
 # The filters whose declared set is checked by free drift sampled `grid` s apart.
 GRIDDED = ("free drift", "predictive")
-NO_CLAIM = {"cam": "no claim under errors"}
+# Filters that are listed and never audited: a declaration under error sets certifies nothing.
+NO_CLAIM = {
+    "braking": "no certified claim under errors",
+    "cam": "no claim under errors",
+}
 PARTS = ("audit", "falsify", "gaussian")
 # (label, box, nominal) of each bounded audit; a None box is the scenario's start box and a None
 # nominal the PD agent.
@@ -134,6 +137,8 @@ def kinds(name):
 
 
 def claim(name):
+    if name in NO_CLAIM:
+        return "no claim"
     return "uncertified" if name in EXECUTION_ONLY else "certified"
 
 

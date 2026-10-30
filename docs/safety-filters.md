@@ -772,6 +772,12 @@ the boundary.
   predicted shortfall in m as `slack`.
   When a declared error set has a positive exceedance, such as an ellipsoid from
   `EllipsoidError.from_gaussian`, the kind is "chance-epsilon" instead of "bounded-W".
+- The braking backup makes no certified claim under error sets, whichever kind: its declaration
+  has `certificate` None and so has every step, because the bounded-error benchmark failed it on
+  fresh seeds. It still tightens its checks by the declared sets, and without error sets its
+  certificate is "nominal". Its declaration keeps `counts_toward_certification` True, so the
+  audit accepts it for refusals and start sets, and a bounded audit counts each of its burns as
+  uncovered.
 - With a `navigation` set and the free-drift barrier the set is set-valued. With $Z_E$ the
   zonotope of `tightening.error_zonotope` (the box itself; for two balls the box of their radii;
   for an ellipsoid the generators $P$, both outer bounds), a state is in the set when
@@ -794,7 +800,7 @@ the boundary.
 
 | Outcome | `active` | `fallback_level` | `certificate`, `certificate_horizon` | `iterations` |
 |---|---|---|---|---|
-| Candidate accepted, $\theta = 1$ | False | 0 | "nominal", inf; with error sets "bounded-W" and the horizon below | 1 |
+| Candidate accepted, $\theta = 1$ | False | 0 | "nominal", inf; with error sets "bounded-W" and the horizon below, except braking: None, None | 1 |
 | $0 < \theta < 1$ | True | 0 | as above | 13 |
 | Backup, $\theta = 0$ | True | 2 | as above | 13 |
 | Recovering | True if $\theta < 1$ | 0 or 2 | None, None | 1 or 13 |
@@ -804,7 +810,7 @@ the boundary.
 The status is "feasible" in every row but the last, which is "solver_failed". When recovering,
 `slack` is the predicted violation of the returned action, $\max(0, f_s - \text{bound},
 f_b - h(x_1))$ in m. Without error sets the horizon is inf for both barriers; with them it is
-`t_cap` for free drift and inf for braking.
+`t_cap` for free drift, and the braking backup carries no certificate.
 
 The set-valued check at the V-bar hold, with velocity errors on either side of the 1.4148 mm/s
 threshold:
@@ -1493,7 +1499,7 @@ values change no check: each filter decides on its sets alone.
 | Filter | Under navigation error | Under execution error |
 |---|---|---|
 | `BackupFilter(barrier="passive")`, free drift | "bounded-W" up to `t_cap` | "bounded-W" up to `t_cap` |
-| `BackupFilter(barrier="braking")` | "bounded-W", horizon inf | "bounded-W", horizon inf |
+| `BackupFilter(barrier="braking")` | no certified claim: checks tightened, certificate None | no certified claim: checks tightened, certificate None |
 | `PredictiveFilter(mode="terminal")` | "bounded-W" up to $4\pi/n$, open loop ($K = 0$) | "bounded-W" up to $4\pi/n$, open loop ($K = 0$) |
 | `CbfFilter` | no claim under navigation error: a set raises `ValueError` | buffer raised and speed rows lowered for $\delta a_{\max}$; no certificate, judged by the audit |
 | `BackupFilter(barrier="cam")` | no claim under errors: error sets raise `ValueError` | no claim under errors |
@@ -1544,8 +1550,10 @@ braking = BackupFilter(
 braking.reset(view)
 declaration = braking.declaration
 print(declaration.exceedance, round(declaration.per_draw_level, 3))  # 0.001 5.138
-print(declaration.certificate, braking.contains_start(start))  # bounded-W True
+print(declaration.certificate, braking.contains_start(start))  # None True
 ```
+
+The braking filter's declaration under these sets has no certificate, as does each of its steps.
 
 ### Assumptions and limits
 
@@ -1858,8 +1866,8 @@ been reset yet: a reset filter holds its view, which does not pickle.
 - Inside the set, an infeasible or "solver_failed" decision fails the audit wherever it
   happens, also after the state has left the set.
 - Coverage takes the last certificate's horizon as given. For a free-drift certificate a coast
-  is the certified motion; for the braking and predictive filters the certified motion
-  thrusts, so a covered coast rests on the coverage rule, not on the certificate.
+  is the certified motion; for the predictive filter the certified motion thrusts, so a covered
+  coast rests on the coverage rule, not on the certificate.
 - $D$ counts a burn's draws at every decision, so for runs that coast it is an upper bound and
   the checked $b$ errs on the large side.
 - With no violating run of $N$ the 95% upper end is $1 - 0.025^{1/N}$, about $3.7/N$: 0.0037
@@ -1914,8 +1922,8 @@ bounded = ApproachEnv(ApproachConfig(**truncated, max_steps=steps))
 found = audit_filter(braking(), bounded, errors="bounded", starts=4, box=near, seed=seed)
 print(found.errors, found.exceedance, round(found.per_draw_level, 3), found.draws)
 # bounded 0.001 4.149 30
-# Two runs pass the 0.3 m/s speed cap, leave the braking region and thrust uncertified.
-print(found.violations, found.uncertified, found.uncovered, found.passed)  # 0 0 2 False
+# The braking filter issues no certificate under error sets, so its burns are uncovered.
+print(found.violations, found.uncertified, found.uncovered, found.passed)  # 0 0 12 False
 
 untruncated = {"sensor": GaussianNav(**nav), "execution": ExecutionError(**burn)}
 gaussian = ApproachEnv(ApproachConfig(**untruncated, max_steps=steps))
@@ -1961,9 +1969,10 @@ those two.
 `:nav1` navigation (`GaussianNav`, 1 m and 1 mm/s per axis) and an `ExecutionError` with scale
 sigma 0.01 and noise sigma 0.005, a test setting rather than a thruster model, at $p = 10^{-3}$
 and $b$ = `per_draw_level(p, D)`, D = 3600 under both errors and 1440 under execution error
-alone. The free-drift, braking and predictive (terminal mode) filters fly both errors; the two
+alone. The free-drift and predictive (terminal mode) filters fly both errors; the two
 exponential-barrier filters, which take no navigation set, fly execution error only and make no
-claim under navigation error; the cam filter makes no claim under errors and is only listed.
+claim under navigation error; the braking and cam filters make no certified claim under errors
+and are only listed, never audited.
 Each filter declares the sets `declared_errors` derives at its $b$. `--parts audit` flies
 `--starts` starts (1000) under "bounded" errors from the scenario's start box with the PD
 nominal and near the keep-out with the inward nominal, and asserts each passes; `--parts

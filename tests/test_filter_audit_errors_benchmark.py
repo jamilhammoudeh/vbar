@@ -37,21 +37,32 @@ def test_full_run_sizes_are_1000_starts_budget_and_runs_at_exceedance_1e_3(bench
 
 
 def test_covered_filters_and_their_error_kinds(bench):
-    assert set(bench.FILTERS) == {
-        "free drift",
-        "braking",
-        "predictive",
-        "ecbf p 0.06",
-        "ecbf p 0.03",
-    }
+    assert set(bench.FILTERS) == {"free drift", "predictive", "ecbf p 0.06", "ecbf p 0.03"}
     assert set(bench.EXECUTION_ONLY) == {"ecbf p 0.06", "ecbf p 0.03"}
-    assert bench.NO_CLAIM == {"cam": "no claim under errors"}
-    assert set(bench.parser().parse_args([]).filters) == {*bench.FILTERS, "cam"}
+    assert set(bench.NO_CLAIM) == {"braking", "cam"}
+    assert set(bench.parser().parse_args([]).filters) == {*bench.FILTERS, "braking", "cam"}
+
+
+@pytest.mark.parametrize("name", ["braking", "cam"])
+def test_filter_without_a_claim_under_errors_is_listed_and_never_audited(
+    bench, monkeypatch, capsys, name
+):
+    ran = []
+    for part in ("audit", "falsify", "gaussian"):
+        monkeypatch.setattr(bench, part, lambda *a, part=part, **k: ran.append(part))
+    monkeypatch.setattr(sys, "argv", ["filter_audit_errors.py", "--filters", name])
+    bench.main()
+    assert ran == []
+    assert bench.NO_CLAIM[name] in capsys.readouterr().out
+
+
+def test_braking_line_does_not_claim_a_certificate_under_errors(bench):
+    assert bench.claim("braking") != "certified"
 
 
 def test_navigation_is_the_nav1_sensor_truncated(bench):
     nav1 = get("approach-vbar:nav1").config["sensor"]
-    sensor, execution = bench.models("braking", bound=5.0)
+    sensor, execution = bench.models("free drift", bound=5.0)
     assert isinstance(sensor, GaussianNav)
     assert list(sensor.sigma) == list(nav1.sigma)
     assert list(sensor.bias_sigma) == list(nav1.bias_sigma)
@@ -66,7 +77,7 @@ def test_ecbf_runs_without_navigation_error(bench):
 
 def test_draw_counts_over_360_steps(bench):
     # Per step 6 navigation draws and 3 + 1 execution draws; the ecbf lines have no navigation.
-    assert bench.truncation("braking") == (per_draw_level(1e-3, 3600), 3600)
+    assert bench.truncation("free drift") == (per_draw_level(1e-3, 3600), 3600)
     assert bench.truncation("ecbf p 0.03") == (per_draw_level(1e-3, 1440), 1440)
 
 
@@ -88,7 +99,7 @@ def test_uncertified_line_passes_with_every_decision_uncovered(bench, name):
         assert not bench.passed(name, audited(uncovered=1800, **{count: 1}))
 
 
-@pytest.mark.parametrize("name", ["free drift", "braking", "predictive"])
+@pytest.mark.parametrize("name", ["free drift", "predictive"])
 def test_certified_line_fails_on_one_uncovered_decision(bench, name):
     assert bench.claim(name) == "certified"
     assert bench.passed(name, audited())
@@ -123,9 +134,9 @@ SEARCHES = {
 @pytest.mark.parametrize(
     ("name", "verdict", "ok"),
     [
-        ("braking", "none_found", True),
-        ("braking", "uncovered", False),
-        ("braking", "violation", False),
+        ("free drift", "none_found", True),
+        ("free drift", "uncovered", False),
+        ("free drift", "violation", False),
         ("ecbf p 0.06", "none_found", True),
         ("ecbf p 0.06", "uncovered", True),
         ("ecbf p 0.06", "violation", False),

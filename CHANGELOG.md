@@ -49,7 +49,9 @@ release may change the public API, and every such change is listed under Changed
   speed limit, and the declared safe set adds `execution + model_error` to the thrust budget;
   `BackupFilter`, free-drift or braking backup filters that check each held step on the
   exact CW solution and search toward the backup, with "nominal" or "bounded-W" certificates
-  (without error sets the free-drift set is invariant under drift, so every step inside it is
+  (the braking filter under error sets still tightens its checks but makes no certified claim:
+  its declaration and steps carry no certificate, and it still counts toward certification;
+  without error sets the free-drift set is invariant under drift, so every step inside it is
   feasible; the braking filter accepts a step only when it ends in the braking set, or no
   further out of it when it starts outside, and refuses an explicit `a_b` above
   `braking_deceleration`; a backup step that leaves the set from inside is "solver_failed", and
@@ -141,8 +143,8 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.safety.CERTIFICATE_KINDS` ("nominal", "bounded-W", "chance-epsilon",
   "finite-horizon"): `FilterResult` and `FilterDeclaration` raise `ValueError` for a
   certificate outside it or for a kind and a horizon not given together, and `run_filter`
-  checks the result again after the filter returns it. A backup filter whose declared error
-  set has a positive exceedance certifies "chance-epsilon".
+  checks the result again after the filter returns it. A free-drift backup filter whose declared
+  error set has a positive exceedance certifies "chance-epsilon".
 - `PredictiveFilter` modes "finite-horizon" and "soft" (exact-penalty slacks, never counted toward
   certification), the braking backup as the recovery outside the declared set, `backup="cam"`
   ("predictive-cam-n10"), and a check of the pending command's wait against `delay_s`.
@@ -167,7 +169,8 @@ release may change the public API, and every such change is listed under Changed
   whether every estimate within the navigation set of a true state lies in the declared set.
 - `benchmarks/filter_audit_errors.py`: the filter audit, the falsification search and the
   Gaussian exceedance rates under truncated `:nav1` navigation and execution errors, one line
-  per filter and part with p, the per-draw level and the draw count.
+  per filter and part with p, the per-draw level and the draw count; the braking and cam filters
+  make no certified claim under errors and are listed, never audited.
 - `benchmarks/predictive_comparison.py`, comparing the predictive, barrier and free-drift filters
   on the filter metrics and on passes where the barrier filter's keep-out row is infeasible.
 - The `euler1` dynamics rung, `vbar.dynamics.EulerCWDynamics`: Clohessy-Wiltshire

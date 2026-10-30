@@ -1084,9 +1084,12 @@ class BackupFilter(_HeldCommandFilter):
     `braking_deceleration` admits for braking; the free-drift backup is returned inside the set
     without the check, and a braking backup that fails it there is reported as "solver_failed"
     with no certificate. With error sets the free-drift set is certified up to t_cap only and
-    recursive feasibility is not claimed. The certificate is "bounded-W" with error sets and
-    "chance-epsilon" when the navigation set is an ellipsoid with a positive exceedance, since
-    the error leaves it with that probability per draw.
+    recursive feasibility is not claimed. The free-drift certificate is "bounded-W" with error
+    sets and "chance-epsilon" when the navigation set is an ellipsoid with a positive exceedance,
+    since the error leaves it with that probability per draw. The braking backup makes no
+    certified claim under error sets, whichever kind: its declaration and its steps carry no
+    certificate, because the bounded-error benchmark failed it on fresh seeds. It still tightens
+    its checks by the declared sets, and without error sets it is "nominal".
 
     With a navigation set E and the passive barrier the set is that of the estimate x_hat whose
     whole error set drifts clear: `vbar.reach.drift_clearance` of the zonotope x_hat + Z_E, with
@@ -1175,8 +1178,10 @@ class BackupFilter(_HeldCommandFilter):
         return self.navigation is not None or self.da_max > 0.0
 
     @property
-    def _certificate(self) -> str:
-        """The kind of guarantee of a step decided inside the set."""
+    def _certificate(self) -> str | None:
+        """The kind of guarantee of a step decided inside the set, None for no claim."""
+        if self.barrier == "braking" and self.bounded:
+            return None
         # An ellipsoid left with a stated probability bounds the error only with that chance.
         if isinstance(self.navigation, EllipsoidError) and self.navigation.exceedance > 0.0:
             return "chance-epsilon"
@@ -1505,8 +1510,8 @@ class BackupFilter(_HeldCommandFilter):
             The filtered action in the view's action mode. `iterations` counts the checks of the
             line search, `fallback_level` is 2 when the backup itself is returned, and
             `certificate` with `certificate_horizon` state the guarantee of a step decided
-            inside the set (None when recovering). When recovering, `slack` is the predicted
-            violation of the returned action, m.
+            inside the set (None when recovering, and for the braking backup under error sets).
+            When recovering, `slack` is the predicted violation of the returned action, m.
 
         Raises
         ------
@@ -1575,7 +1580,7 @@ class BackupFilter(_HeldCommandFilter):
                 # check gets no certificate, and its shortfall is reported.
                 slack, certified = shortfall, False
         certificate, horizon = None, None
-        if inside and certified:
+        if inside and certified and self._certificate is not None:
             certificate = self._certificate
             horizon = math.inf
             if isinstance(barrier, PassiveBarrier) and not barrier.terminal:
