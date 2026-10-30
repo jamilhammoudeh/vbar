@@ -1,5 +1,6 @@
 import json
 import re
+import time
 
 import numpy as np
 import pytest
@@ -352,3 +353,31 @@ def test_llm_agent_refuses_modes_without_a_continuous_command(mode):
     environment = ApproachEnv(ApproachConfig(action_mode=mode, max_steps=2))
     with pytest.raises(ValueError, match=f"'{mode}' takes no continuous command"):
         run_episode(environment, LLMAgent(text_model(lambda prompt: ANSWER.text)))
+
+
+def test_an_action_object_holding_a_nested_value_is_read():
+    reply = '{"ax": 0.5, "ay": -0.25, "az": 0, "note": {"why": "brake {gently}"}}'
+    assert np.array_equal(parse_action(reply), [0.5, -0.25, 0.0])
+
+
+def test_an_action_after_prose_braces_or_before_deep_brackets_is_read():
+    action = '{"ax": 0.1, "ay": 0, "az": 0}'
+    assert parse_action("{ " * 7 + action) is not None
+    assert parse_action("{ " * 8 + action) is None
+    assert parse_action(action + " " + "[" * 100) is not None
+
+
+def test_a_hostile_reply_is_parsed_in_linear_time():
+    # The old lazy regex took time quadratic in the number of opening braces (about 100 s for
+    # 65,000); each of the eight tries now stops where its value closes or nests too deep.
+    start = time.perf_counter()
+    for reply in ("{" * 200_000, '{"a": "' + "x" * 2_000_000, "[" * 200_000):
+        assert parse_action(reply) is None
+    assert time.perf_counter() - start < 60.0
+
+
+def test_the_depth_check_stops_as_soon_as_a_value_nests_too_deep():
+    from vbar.agents.llm import MAX_JSON_DEPTH, _depth_from
+
+    assert _depth_from("{" * 1000, 0) == MAX_JSON_DEPTH + 1
+    assert _depth_from('{"a": [[1]]} ' + "[" * 1000, 0) == 3

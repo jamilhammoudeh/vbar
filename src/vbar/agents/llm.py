@@ -259,6 +259,59 @@ def first_json(text: str, pattern: str = r"\{.*?\}") -> Any:
         return None
 
 
+# Opening braces of a reply tried in turn for its first object; prose before the object may hold
+# the others. Each try reads at most to where its value closes or nests too deep.
+OBJECT_STARTS = 8
+_DECODER = json.JSONDecoder()
+
+
+def _depth_from(text: str, start: int) -> int:
+    """Deepest nesting of the JSON value that opens at `start`, read up to where it closes, or
+    MAX_JSON_DEPTH + 1 as soon as it nests deeper."""
+    depth = peak = 0
+    in_string = escaped = False
+    for ch in text[start:]:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            peak = max(peak, depth)
+            if peak > MAX_JSON_DEPTH:
+                break
+        elif ch in "]}":
+            depth -= 1
+            if depth <= 0:
+                break
+    return peak
+
+
+def first_object(text: str) -> dict[str, Any] | None:
+    """The first JSON object in `text` that opens at one of its first `OBJECT_STARTS` braces,
+    nested values included, or None. An object nested deeper than MAX_JSON_DEPTH is skipped."""
+    if not isinstance(text, str):
+        return None
+    start = text.find("{")
+    for _ in range(OBJECT_STARTS):
+        if start < 0:
+            return None
+        if _depth_from(text, start) <= MAX_JSON_DEPTH:
+            try:
+                value, _ = _DECODER.raw_decode(text, start)
+            except (ValueError, RecursionError):
+                value = None
+            if isinstance(value, dict):
+                return value
+        start = text.find("{", start + 1)
+    return None
+
+
 def parse_belief(text: str) -> dict[str, Any] | None:
     """The first JSON object in a reply with a finite number `range_m` and a boolean `closing`.
 
@@ -302,7 +355,9 @@ def belief_matches(belief: Mapping[str, Any] | None, obs: np.ndarray) -> bool:
 
 def parse_action(text: str) -> np.ndarray | None:
     """Extract {"ax":..,"ay":..,"az":..} from a model reply. Returns None on failure."""
-    data = first_json(text)
+    data = first_object(text)
+    if data is None:
+        return None
     try:
         a = np.array([float(data["ax"]), float(data["ay"]), float(data["az"])])
     except REPLY_ERRORS:

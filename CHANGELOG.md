@@ -629,6 +629,12 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
+- `LLMAgent` read a reply's action with a pattern that stopped at the first closing brace, so an
+  action object holding a nested value was a parse failure, and the search took time quadratic in
+  the reply's opening braces. `parse_action` now decodes the first object that opens at one of the
+  reply's first eight braces (`vbar.agents.llm.first_object`), nested values included; a brace in
+  prose or a malformed object before the action is skipped, so parse failures (A4) can be fewer
+  than an earlier version counted on the same replies.
 - The `pending_commands` channel echoed a command clipped at the true action scale, which in `accel`
   mode with the thrust drive, or `thrust` mode with the acceleration drive, moves with the mass, so
   a saturated command gave away the mass and each burn's delivered delta-v; a command dropped by the
@@ -656,8 +662,6 @@ release may change the public API, and every such change is listed under Changed
   `drift_radius`.
 - F10 `stall_time` (version 2) counted a whole step for a decision whose step a contact cut short,
   so a slow docking with an active safety row read up to one step too long.
-
-### Fixed
 
 - `ToolServer`'s `describe_task` and predictions used the view of the environment as built, not of
   the episode being flown, so on scenarios that draw their goal at each reset (a docking port's
