@@ -28,6 +28,7 @@ from typing import Any
 
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.optimize import brentq
 
 from ..dynamics.bodies import KERBIN, Body
 from ..dynamics.kepler import state_from_elements
@@ -515,16 +516,32 @@ class PursuitEvasionEnv:
                 # A whole step of a few seconds is a small fraction of the 36-minute orbit, so
                 # trying it in one integrator step usually succeeds and saves the warm-up steps.
                 first_step=stop - self.t,
+                dense_output=True,
             )
             if solution.status < 0:
                 raise RuntimeError(f"integration failed: {solution.message}")
-            for t_event, y_event in zip(solution.t_events[1], solution.y_events[1], strict=True):
+            minima = list(zip(solution.t_events[1], solution.y_events[1], strict=True))
+            t_end, y_end = float(solution.t[-1]), solution.y[:, -1].copy()
+            captured = bool(solution.t_events[0].size)
+            for k, (t_min, y_min) in enumerate(minima):
+                if capture(t_min, y_min) < 0.0:
+                    # A fast pass can dip under the capture distance and out again inside one
+                    # integrator step, where the crossing event sees no change of sign; the
+                    # range minimum is found, and the crossing is the root before it. Every
+                    # earlier minimum of this solve lies above the capture distance, so the
+                    # range stays above it from the start until the descent to this minimum.
+                    path = solution.sol
+                    t_end = float(brentq(lambda t, path=path: capture(t, path(t)), start, t_min))
+                    y_end = path(t_end)
+                    minima = minima[:k]
+                    captured = True
+                    break
+            for t_event, y_event in minima:
                 self._sample(t_event, y_event)
-            y_end = solution.y[:, -1].copy()
-            self.t = float(solution.t[-1])
+            self.t = t_end
             self._y = y_end
             self._sample(self.t, y_end)
-            if solution.t_events[0].size:
+            if captured:
                 self.done = self.captured = True
             if pursuer_thrusts and solution.t_events[2].size:
                 self._empty[0] = True

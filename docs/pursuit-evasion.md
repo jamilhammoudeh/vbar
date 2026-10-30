@@ -39,12 +39,13 @@ periapsis, longitude of the ascending node, mean anomaly at epoch 0), with the s
 | I3 | 750 km circle, 0.2 deg behind | 750 km circle tilted 1e-4 deg | 2618 m |
 | I4 | ellipse, a = 754500.2 m, e = 0.0073, inclined 1 deg, another period | the I3 evader | 2660 m |
 
-KSPDG describes them as "elliptical and circular orbits with a tangential conjunction",
-"inclined orbits with an unactuated conjunction", "about 3 km apart in the same circular orbit"
-and "inclined, out of phase, unsynchronized periods". Each start is flown against each evader; a
-class is named for both, as in KSPDG (`PE1_E3_I2_Env` is evader e3 from start I2), and the
-classes of one evader share a parent (`PE1_E1_ParentEnv`, `PE1_E3_ParentEnv`). The e3 classes
-take KSPDG's `evade_dist` and `evade_throttle` arguments.
+With the 5 m capture distance, a pursuer that only coasts captures the passive evader from I1 at
+121.6 s. KSPDG describes the starts as "elliptical and circular orbits with a tangential
+conjunction", "inclined orbits with an unactuated conjunction", "about 3 km apart in the same
+circular orbit" and "inclined, out of phase, unsynchronized periods". Each start is flown against
+each evader; a class is named for both, as in KSPDG (`PE1_E3_I2_Env` is evader e3 from start I2),
+and the classes of one evader share a parent (`PE1_E1_ParentEnv`, `PE1_E3_ParentEnv`). The e3
+classes take KSPDG's `evade_dist` and `evade_throttle` arguments.
 
 | Classes | Gymnasium IDs | Evader |
 |---|---|---|
@@ -54,13 +55,13 @@ take KSPDG's `evade_dist` and `evade_throttle` arguments.
 `NormalEscapeEvader` is written for V-BAR from KSPDG's description of e3 ("heuristic evasion
 maneuvers") and its public code: it acts only while the pursuer is inside the 2200 m control range
 of KSPDG's pe1 (`CONTROL_RANGE`), where it points along the angular momentum of its own orbit and
-fires its eight forward nozzles (8000 N) while the range is below the evasion distance (200 m,
-full throttle), stopping when the range rises back through it. Outside the control range it
-changes nothing and keeps its last command, as KSPDG's does; with the default distances that is
-always nothing, but with an evasion distance wider than the control range a burn begun inside
-continues after the pursuer leaves. Its propellant runs out like the pursuer's. The class names are KSPDG's, so a
-KSPDG script needs only its imports changed; the LLM agents of Carrasco, Rodriguez-Fernandez and
-Linares (arXiv 2408.08676) were evaluated on PE1_I3_E3.
+fires its eight forward nozzles (8000 N) while the range is below the evasion distance (200 m, full
+throttle), stopping when the range rises back through it. Outside the control range it changes
+nothing and keeps its last command, as KSPDG's does; with the default distances that is always
+nothing, but with an evasion distance wider than the control range a burn begun inside continues
+after the pursuer leaves. Its propellant runs out like the pursuer's. The class names are KSPDG's,
+so a KSPDG script needs only its imports changed; the LLM agents of Carrasco, Rodriguez-Fernandez
+and Linares (arXiv 2408.08676) were evaluated on PE1_I3_E3.
 
 ## Observation
 
@@ -134,7 +135,8 @@ index of the trigger that fired (None at the start and at `until`) and `rng` is 
 evader stream. A bot decides a switch from `cause` rather than by testing its triggers again,
 because at the located crossing they are zero to rounding. A bot that keeps changing segment
 without letting time pass (1000 segments in a row each ending within a microsecond of its start)
-raises `RuntimeError` instead of hanging the episode, and one that returns anything but a `Segment` raises `TypeError`.
+raises `RuntimeError` instead of hanging the episode, and one that returns anything but a
+`Segment` raises `TypeError`.
 
 ```python
 from dataclasses import dataclass
@@ -182,7 +184,9 @@ under two-body gravity with Kerbin's $\mu$ = 3.5316e12 m^3/s^2 (no oblateness, a
 thrust; their 14 states (positions, velocities, masses) are
 integrated together with DOP853 at relative tolerance 1e-12, which keeps positions near 7.5e5 m
 accurate to about a micrometre. Events found by root finding on the integrator's dense output end
-or mark a segment: capture (range falls through the capture distance), each local minimum of
+or mark a segment: capture (range falls through the capture distance; a fast pass that dips
+under it and out again within one integrator step shows as a range minimum below it, and the
+crossing before that minimum is then found by Brent's method), each local minimum of
 range (range rate rising through zero), a tank running dry, and the end of an evader segment.
 The closest approach is therefore found between steps, not only at step ends; KSPDG samples it
 when each step ends, so for the same trajectory V-BAR's $d$ is never larger.
@@ -323,10 +327,12 @@ rerun the script to measure yours.
 - The start ranges are 4510 m (I1), 456.8 m (I2) and 2660 m (I4) to 1 m.
 - I1: the pursuer's apoapsis is the evader's radius to 0.1 m, and an unpowered coast passes within
   0.2 m at 121.7 s. I2: the start range equals the chord 2 r sin(u) sin(di / 2) to 1e-12, and an
-  unpowered coast meets again within 0.1 m at 178/360 of a period, 1073.75 s. I4: the pursuer's semi-major
-  axis, eccentricity and inclination recovered from its state by energy and angular momentum
-  match the save.
+  unpowered coast meets again within 0.1 m at 178/360 of a period, 1073.75 s. I4: the pursuer's
+  semi-major axis, eccentricity and inclination recovered from its state by energy and angular
+  momentum match the save.
 - Every scenario class flies its start and its evader.
+- A fast pass (the I1 coast at 36 m/s) is captured at the capture distance to 1e-6 m at the same
+  instant, to 1e-6 s, whether it is flown in 10 s or 0.5 s steps.
 
 `tests/test_pursuit_bots.py`:
 

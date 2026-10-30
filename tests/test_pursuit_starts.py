@@ -136,3 +136,20 @@ def test_the_e3_classes_take_kspdg_evasion_arguments():
     assert env.evader.evade_distance == 300.0 and env.evader.throttle == 0.5
     with pytest.raises(ValueError):
         SCENARIOS["pe1-e3-i2"](evade_throttle=2.0)
+
+
+@pytest.mark.parametrize("step", [10.0, 0.5])
+def test_a_fast_pass_inside_one_step_is_captured_at_the_capture_distance(step):
+    # The I1 coast closes at 36 m/s and passes within 0.2 m: in a 10 s step the range falls
+    # under 5 m and rises out again between two integrator steps.
+    env = PursuitEvasionEnv(initial="i1")
+    env.reset()
+    done = False
+    while not done:
+        observation, reward, done, info = env.step([0.0, 0.0, 0.0, step])
+    distance = float(np.linalg.norm(np.subtract(observation[9:12], observation[3:6])))
+    assert env.captured and reward == -info["weighted_score"]
+    assert distance == pytest.approx(5.0, abs=1e-6)
+    assert info["closest_approach"] == pytest.approx(5.0, abs=1e-6)
+    # The same instant whatever the step: the crossing is located, not sampled.
+    assert observation[0] == pytest.approx(121.6001905, abs=1e-6)

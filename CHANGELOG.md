@@ -349,6 +349,8 @@ release may change the public API, and every such change is listed under Changed
   control range (`control_range`, `CONTROL_RANGE`) and keeps its last command outside it, as
   KSPDG's e3 does; it burned at any range below its evasion distance. Episodes with the default
   200 m evasion distance are unchanged.
+- `vbar.games.PursuitEvasionEnv` captures a fast pass whose range dips under the capture distance
+  and out again within one integrator step; it was missed, and the episode flew on.
 
 ## [0.4.0] - 2026-10-30
 
