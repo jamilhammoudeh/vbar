@@ -297,7 +297,8 @@ Units converted from ft and ft/s; mean motion at 185 n.mi. where the book flies 
 
 The reward library ([rewards.md](rewards.md)), the training interfaces
 ([training.md](training.md)) and the agent tools ([agents.md](agents.md),
-[llm-agents.md](llm-agents.md)) are checked against the cases below.
+[llm-agents.md](llm-agents.md)) and the supervisory commands ([supervision.md](supervision.md)) are
+checked against the cases below.
 
 **Bradtke and Duff, "Reinforcement learning methods for continuous-time Markov decision
 problems"** (NIPS 1995)
@@ -325,6 +326,13 @@ ed., 2018), sec. 3.4
 
 - Page 92: the LLM agent's transfer tool refuses durations where Clohessy-Wiltshire targeting is
   singular (a half orbit in the test) and arrives at its target otherwise.
+
+**Fehse, *Automated Rendezvous and Docking of Spacecraft*** (Cambridge University Press, 2003),
+for the set-point tracker of the supervisory commands ([supervision.md](supervision.md))
+
+- Sec. 3.3: holding at rest at $(x, y, z)$ takes the acceleration $-(3n^2x, 0, -n^2z)$, and flying
+  at a commanded velocity $(v_x, v_y, v_z)$ from $x = z = 0$ takes $-(2nv_y, -2nv_x, 0)$; the
+  tracker's commands equal these to a relative 1e-12.
 
 **Sign-convention self-check**: the PD agent passes in every
 continuous mode, ISS-style axes and a flipped radial axis are caught.
