@@ -9,7 +9,9 @@ is KSPDG's declared one, not the game's part physics.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -19,6 +21,21 @@ NOZZLE_THRUST = 1000.0  # N
 RCS_ISP = 240.0  # s
 # KSP's monopropellant density, 0.004 t per unit; kRPC reports amounts in units.
 MONOPROPELLANT_KG = 4.0
+
+
+def _number(value: Any, name: str, *, zero: bool = False) -> float:
+    """`value` as a float, refused unless it is a real number, finite and positive (or zero)."""
+    if isinstance(value, bool | np.bool_) or not isinstance(
+        value, int | float | np.integer | np.floating
+    ):
+        raise ValueError(f"{name} must be a number")
+    try:
+        number = float(value)
+    except OverflowError:
+        raise ValueError(f"{name} must be finite") from None
+    if not math.isfinite(number) or number < 0.0 or (number == 0.0 and not zero):
+        raise ValueError(f"{name} must be {'non-negative' if zero else 'positive'} and finite")
+    return number
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -52,19 +69,15 @@ class Vessel:
     isp: float = RCS_ISP
 
     def __post_init__(self):
-        limits = (*self.max_thrust_positive, *self.max_thrust_negative)
-        values = (self.dry_mass, self.monopropellant, self.isp, *limits)
-        if len(limits) != 6 or not all(np.isfinite(values)):
-            raise ValueError("vessel values must be finite, with three thrust limits each way")
-        if (
-            self.dry_mass <= 0.0
-            or self.isp <= 0.0
-            or self.monopropellant < 0.0
-            or min(limits) < 0.0
-        ):
-            raise ValueError(
-                "vessel masses, propellant, isp and thrust limits must not be negative"
-            )
+        _number(self.dry_mass, "dry_mass")
+        _number(self.isp, "isp")
+        _number(self.monopropellant, "monopropellant", zero=True)
+        for name in ("max_thrust_positive", "max_thrust_negative"):
+            limits = getattr(self, name)
+            if not isinstance(limits, tuple | list) or len(limits) != 3:
+                raise ValueError(f"{name} must be three thrust limits")
+            for limit in limits:
+                _number(limit, name, zero=True)
 
     @property
     def wet_mass(self) -> float:

@@ -33,7 +33,7 @@ from ..dynamics.bodies import KERBIN, Body
 from ..dynamics.kepler import state_from_elements
 from .bots import EvaderBot, PassiveEvader
 from .frames import body_axes, ntw_axes
-from .vessels import MONOPROPELLANT_KG, PE1_VESSEL, Vessel
+from .vessels import MONOPROPELLANT_KG, PE1_VESSEL, Vessel, _number
 
 log = logging.getLogger(__name__)
 
@@ -207,18 +207,21 @@ class PursuitEvasionEnv:
     ):
         if initial not in INITIAL_CONDITIONS:
             raise ValueError(f"initial must be one of {sorted(INITIAL_CONDITIONS)}")
-        for name, value in (
-            ("episode_timeout", episode_timeout),
-            ("capture_dist", capture_dist),
-            ("min_step", min_step),
-        ):
-            if isinstance(value, bool) or not (math.isfinite(value) and value > 0.0):
-                raise ValueError(f"{name} must be positive and finite")
-        self.initial = initial
+        self.episode_timeout = _number(episode_timeout, "episode_timeout")
+        self.capture_dist = _number(capture_dist, "capture_dist")
+        self.min_step = _number(min_step, "min_step")
+        # A shorter step could leave the mission clock unchanged, and an agent that only coasts
+        # would then never reach the timeout.
+        if self.min_step < 1e-6 or self.min_step <= 8 * math.ulp(self.episode_timeout):
+            raise ValueError("min_step is too short to advance the mission clock")
         self.evader = evader if evader is not None else PassiveEvader()
-        self.episode_timeout = float(episode_timeout)
-        self.capture_dist = float(capture_dist)
-        self.min_step = float(min_step)
+        if not all(callable(getattr(self.evader, m, None)) for m in ("mode", "force", "switch")):
+            raise TypeError("evader must have mode, force and switch methods")
+        if not isinstance(vessel, Vessel):
+            raise TypeError("vessel must be a Vessel")
+        if not isinstance(body, Body):
+            raise TypeError("body must be a Body")
+        self.initial = initial
         self.body = body
         self.vessel = vessel
         self.debug = debug

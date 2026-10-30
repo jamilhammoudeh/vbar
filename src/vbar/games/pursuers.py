@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from .runner import BaseAgent
+from .vessels import _number
 
 
 class LineOfSightPursuer(BaseAgent):
@@ -23,9 +24,7 @@ class LineOfSightPursuer(BaseAgent):
 
     def __init__(self, burn: float = 1.0, debug: bool = False) -> None:
         super().__init__(debug=debug)
-        if not (np.isfinite(burn) and burn >= 0.0):
-            raise ValueError("burn must not be negative")
-        self.burn = float(burn)
+        self.burn = _number(burn, "burn", zero=True)
 
     def get_action(self, observation):
         return {"burn_vec": [1.0, 0.0, 0.0, self.burn], "ref_frame": 0, "vec_type": 0}
@@ -61,10 +60,10 @@ class VelocityMatchingPursuer(BaseAgent):
         debug: bool = False,
     ) -> None:
         super().__init__(debug=debug)
-        values = (speed, slow_range, gain, burn)
-        if not all(np.isfinite(values)) or min(values) <= 0.0:
-            raise ValueError("speed, slow_range, gain and burn must be positive and finite")
-        self.speed, self.slow_range, self.gain, self.burn = (float(x) for x in values)
+        self.speed = _number(speed, "speed")
+        self.slow_range = _number(slow_range, "slow_range")
+        self.gain = _number(gain, "gain")
+        self.burn = _number(burn, "burn")
 
     def get_action(self, observation):
         obs = np.asarray(observation, dtype=float)

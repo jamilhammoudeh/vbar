@@ -21,6 +21,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import Any
 
+from .vessels import _number
+
 # What an agent's environment does before the agent's first action: coast for one shortest step.
 _COAST = {"burn_vec": [0.0, 0.0, 0.0, 0.0], "ref_frame": 0}
 
@@ -65,8 +67,8 @@ def fly(env: Any, agent: Any, runner_timeout: float | None = None) -> dict[str, 
     dict
         The last `info`, with "steps" (number of steps) and "wall_s" (wall-clock seconds).
     """
-    if runner_timeout is not None and not runner_timeout > 0.0:
-        raise ValueError("runner_timeout must be positive")
+    if runner_timeout is not None:
+        _number(runner_timeout, "runner_timeout")
     started = time.perf_counter()
     observation, info = env.reset()
     action = None
@@ -114,6 +116,12 @@ class AgentEnvRunner:
     ) -> None:
         if not callable(getattr(agent, "get_action", None)):
             raise TypeError("agent must have a get_action(observation) method")
+        if not callable(env_cls):
+            raise TypeError("env_cls must be an environment class")
+        if env_kwargs is not None and not isinstance(env_kwargs, Mapping):
+            raise TypeError("env_kwargs must be a mapping or None")
+        if runner_timeout is not None:
+            _number(runner_timeout, "runner_timeout")
         self.agent = agent
         self.env_cls = env_cls
         self.env_kwargs = dict(env_kwargs or {})

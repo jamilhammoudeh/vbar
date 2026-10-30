@@ -303,10 +303,24 @@ def test_a_malformed_action_is_refused_and_changes_nothing(action):
         {"min_step": float("inf")},
         {"min_step": True},
         {"initial": "i9"},
+        {"capture_dist": True},
+        {"episode_timeout": "240"},
+        # Too short for the clock to move: 1e-17 s anywhere, 1e-3 s against a 1e15 s timeout.
+        {"min_step": 1e-17},
+        {"min_step": 1e-3, "episode_timeout": 1e15},
     ],
 )
 def test_bad_settings_are_refused(kwargs):
     with pytest.raises(ValueError):
+        PursuitEvasionEnv(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"evader": object()}, {"evader": "bot"}, {"vessel": "x"}, {"vessel": None}, {"body": None}],
+)
+def test_objects_of_the_wrong_kind_are_refused(kwargs):
+    with pytest.raises(TypeError):
         PursuitEvasionEnv(**kwargs)
 
 
@@ -418,6 +432,24 @@ def test_none_repeats_the_last_action_and_coasts_before_the_first():
     assert runs[2]["pursuer_fuel_usage"] == pytest.approx(4.8 * FLOW, rel=1e-12)
 
 
+@pytest.mark.parametrize("timeout", [-1.0, 0.0, float("nan"), "x", True])
+def test_a_bad_runner_timeout_is_refused_before_the_episode_starts(timeout):
+    with pytest.raises(ValueError, match="runner_timeout"):
+        AgentEnvRunner(LineOfSightPursuer(), PursuitEvasionEnv, None, runner_timeout=timeout)
+    env = PursuitEvasionEnv()
+    with pytest.raises(ValueError, match="runner_timeout"):
+        fly(env, LineOfSightPursuer(), runner_timeout=timeout)
+    with pytest.raises(RuntimeError, match="reset"):
+        env.get_observation()
+
+
+def test_the_runner_refuses_an_environment_that_is_not_a_class():
+    with pytest.raises(TypeError, match="env_cls"):
+        AgentEnvRunner(LineOfSightPursuer(), 5, None)
+    with pytest.raises(TypeError, match="env_kwargs"):
+        AgentEnvRunner(LineOfSightPursuer(), PursuitEvasionEnv, [("episode_timeout", 5.0)])
+
+
 def test_the_runner_stops_at_its_wall_clock_timeout():
     results = fly(PursuitEvasionEnv(), LineOfSightPursuer(), runner_timeout=1e-9)
     assert results["steps"] == 1 and not results["is_episode_done"]
@@ -473,6 +505,14 @@ def test_an_empty_tank_stops_the_thrust_at_that_instant():
         lambda: VelocityMatchingPursuer(speed=0.0),
         lambda: VelocityMatchingPursuer(gain=float("inf")),
         lambda: NormalEscapeEvader(evade_distance=-5.0),
+        lambda: NormalEscapeEvader(evade_distance=True),
+        lambda: Vessel(dry_mass=True),
+        lambda: Vessel(dry_mass=10**400),
+        lambda: LineOfSightPursuer(burn=-(10**400)),
+        lambda: Vessel(isp="240"),
+        lambda: Vessel(max_thrust_positive=(8000.0, True, 4000.0)),
+        lambda: LineOfSightPursuer(burn=True),
+        lambda: VelocityMatchingPursuer(speed=True),
     ],
 )
 def test_bad_vessels_bots_and_pursuers_are_refused(build):

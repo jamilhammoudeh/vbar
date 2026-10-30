@@ -107,8 +107,11 @@ frame or vector type) raises `ValueError` and leaves the episode as it was.
 
 Simulated time advances only inside `step`. A step lasts the burn duration or `min_step` (0.1 s by
 default), whichever is longer, coasting after a shorter burn, and stops early at capture or the
-timeout. Both vessels are point masses under two-body gravity with Kerbin's $\mu$ = 3.5316e12
-m^3/s^2 (no oblateness, as in KSP) plus thrust; their 14 states (positions, velocities, masses) are
+timeout. `min_step` must be at least 1e-6 s and long enough to move the clock at the timeout, so
+every step advances time; settings that are not positive finite numbers, and an evader, vessel or
+body of the wrong kind, are refused when the environment is built. Both vessels are point masses
+under two-body gravity with Kerbin's $\mu$ = 3.5316e12 m^3/s^2 (no oblateness, as in KSP) plus
+thrust; their 14 states (positions, velocities, masses) are
 integrated together with DOP853 at relative tolerance 1e-12, which keeps positions near 7.5e5 m
 accurate to about a micrometre. Events found by root finding on the integrator's dense output end
 or mark a segment: capture (range falls through the capture distance), each local minimum of

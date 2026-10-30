@@ -20,6 +20,8 @@ from typing import Protocol
 
 import numpy as np
 
+from .vessels import _number
+
 Switch = Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], float]
 
 
@@ -81,10 +83,8 @@ class NormalEscapeEvader:
     name: str = "vbar-normal-escape-evader"
 
     def __post_init__(self):
-        if not (np.isfinite(self.evade_distance) and self.evade_distance > 0.0):
-            raise ValueError("evade_distance must be positive and finite")
-        if not (np.isfinite(self.thrust) and self.thrust >= 0.0):
-            raise ValueError("thrust must not be negative")
+        _number(self.evade_distance, "evade_distance")
+        _number(self.thrust, "thrust", zero=True)
 
     def _range(self, r_p, v_p, r_e, v_e) -> float:
         return float(np.linalg.norm(r_e - r_p)) - self.evade_distance
