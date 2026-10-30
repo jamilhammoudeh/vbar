@@ -54,7 +54,8 @@ class PursuitEvasionGymEnv(gym.Env):
 
     The observation is the KSPDG observation as a float64 array of 15; the action is KSPDG's
     dictionary (`burn_vec`, `ref_frame`, `vec_type`). An episode terminates at capture and is
-    truncated at the timeout. The game is deterministic, so the seed changes nothing.
+    truncated at the timeout. The seed of `reset` seeds the evader's random stream; without one,
+    the stream's seed is drawn from `np_random`, so a seeded first reset fixes every later one.
 
     Parameters
     ----------
@@ -89,7 +90,7 @@ class PursuitEvasionGymEnv(gym.Env):
         Parameters
         ----------
         seed : int, optional
-            Seeds `np_random`; the game itself draws nothing.
+            Seeds `np_random` and the evader's random stream.
         options : dict, optional
             Unused, as Gymnasium allows.
 
@@ -99,7 +100,9 @@ class PursuitEvasionGymEnv(gym.Env):
         info : dict
         """
         super().reset(seed=seed)
-        observation, info = self.game.reset()
+        if seed is None:
+            seed = int.from_bytes(self.np_random.bytes(16), "little")
+        observation, info = self.game.reset(seed=seed)
         return np.array(observation), info
 
     def step(self, action):
@@ -125,8 +128,9 @@ class PursuitEvasionGymEnv(gym.Env):
 class PursuitTask:
     """The pe1 scenarios as a task of the evaluation harness (`vbar.eval.run_jobs`).
 
-    Agents are KSPDG-format (`get_action(observation)`). The game is deterministic, so the
-    seeds of a job are recorded but change nothing. Success is a capture.
+    Agents are KSPDG-format (`get_action(observation)`). A job's seed seeds the evader's random
+    stream; KSPDG agents draw nothing, so its agent seed is recorded but unused. Success is a
+    capture.
 
     Parameters
     ----------
@@ -144,7 +148,7 @@ class PursuitTask:
 
     def record(self, env: Any, agent: Any, seed: int, agent_seed: int) -> dict[str, Any]:
         """One episode flown by `fly`; returns its last info."""
-        return fly(env, agent)
+        return fly(env, agent, seed=seed)
 
     def score(self, env: Any, episode: Mapping[str, Any]) -> dict[str, Any]:
         """The KSPDG score terms of the episode, its step count and whether it captured."""

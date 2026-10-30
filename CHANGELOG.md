@@ -11,6 +11,11 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.agents.glideslope_lp.lp_glideslope`: the minimum-fuel V-bar glideslope by linear programming of
   Ariba, Arzelier, Urbina and Louembet (2016); `vbar.reproductions` rebuilds their case 1 and prints
   the match table (`python -m vbar.reproductions`); `docs/reproductions.md` documents it.
+- `vbar.games`: `Segment`, the stretch of an evader bot's flight with constant body-axis throttles,
+  a pointing (prograde or orbit normal), an end time and end triggers; `axes_along`; a `seed`
+  for `PursuitEvasionEnv` and its `reset`, feeding the evader's random stream (a fresh 128-bit
+  seed when none is given, kept in `seed`), passed on by `fly(..., seed=...)`, `PursuitTask` and
+  the Gymnasium environments' `reset(seed=...)`.
 - `vbar.flightdata`: flown orbits replayed through the relative-motion models (`replay`, `hill_states`,
   `earth_fixed_to_inertial`, `gmst`, `sun_direction`, `error_envelope`, a GRACE-FO Level-1B reader and
   an excerpt format), and `TwoBodyDynamics.reset_inertial`. A GRACE-FO excerpt of 2019-12-03
@@ -325,6 +330,13 @@ release may change the public API, and every such change is listed under Changed
   read as a number.
 - `PDAgent` raises `ValueError` for a `wn` that is not positive and finite or a `zeta` that is
   negative or not finite, gains that used to give NaN commands.
+
+### Changed
+
+- `vbar.games.EvaderBot` is one method, `segment(t, r_p, v_p, r_e, v_e, previous, cause, rng)`,
+  returning a `Segment`, in place of `mode`, `force` and `switch`; the game applies the vessel's
+  thrust limits and per-axis propellant flow to the evader as to the pursuer.
+  `NormalEscapeEvader(thrust=...)` is now `throttle`, in [0, 1] (1 is the former 8000 N).
 
 ## [0.4.0] - 2026-10-30
 

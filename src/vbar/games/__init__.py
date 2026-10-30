@@ -1,6 +1,6 @@
 """KSPDG-format games on two-body dynamics: the pe1 pursuit-evasion problem."""
 
-from .bots import EvaderBot, NormalEscapeEvader, PassiveEvader
+from .bots import EvaderBot, NormalEscapeEvader, PassiveEvader, Segment
 from .envs import (
     GYMNASIUM_IDS,
     SCENARIOS,
@@ -9,7 +9,7 @@ from .envs import (
     PursuitEvasionGymEnv,
     PursuitTask,
 )
-from .frames import body_axes, ntw_axes
+from .frames import axes_along, body_axes, ntw_axes
 from .pursuit import (
     CAPTURE_DIST,
     EPISODE_TIMEOUT,
@@ -38,7 +38,9 @@ __all__ = [
     "PursuitEvasionEnv",
     "PursuitEvasionGymEnv",
     "PursuitTask",
+    "Segment",
     "Vessel",
+    "axes_along",
     "body_axes",
     "fly",
     "ntw_axes",

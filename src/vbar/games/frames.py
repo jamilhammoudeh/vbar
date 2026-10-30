@@ -75,10 +75,40 @@ def body_axes(
     ValueError
         If the two positions coincide.
     """
+    x, y, z = (float(c) for c in r)
+    lx, ly, lz = (float(a) - b for a, b in zip(r_target, (x, y, z), strict=True))
+    return axes_along((x, y, z), (lx, ly, lz))
+
+
+def axes_along(
+    r: Sequence[float] | np.ndarray, forward: Sequence[float] | np.ndarray
+) -> np.ndarray:
+    """Rows forward, right, down of a vessel at `r` whose forward axis points along `forward`.
+
+    Down is the part of -r perpendicular to forward, or of the inertial -z axis when forward is
+    radial, as in `body_axes`.
+
+    Parameters
+    ----------
+    r : array_like, shape (3,)
+        Position (m), body-centred inertial.
+    forward : array_like, shape (3,)
+        The forward direction, any nonzero length, inertial.
+
+    Returns
+    -------
+    numpy.ndarray, shape (3, 3)
+        Unit axes forward, right, down as rows, in inertial coordinates.
+
+    Raises
+    ------
+    ValueError
+        If `forward` is zero.
+    """
     # Plain float arithmetic: this runs inside the integrator's derivative, where small numpy
     # calls cost more than the arithmetic.
     x, y, z = (float(c) for c in r)
-    lx, ly, lz = (float(a) - b for a, b in zip(r_target, (x, y, z), strict=True))
+    lx, ly, lz = (float(c) for c in forward)
     distance = math.sqrt(lx * lx + ly * ly + lz * lz)
     if not distance > 0.0:
         raise ValueError("the body frame needs a target away from the vessel")
@@ -95,4 +125,4 @@ def body_axes(
     return np.array([(fx, fy, fz), right, (dx, dy, dz)])
 
 
-__all__ = ["REF_FRAMES", "body_axes", "ntw_axes"]
+__all__ = ["REF_FRAMES", "axes_along", "body_axes", "ntw_axes"]

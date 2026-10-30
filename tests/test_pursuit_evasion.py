@@ -308,6 +308,10 @@ def test_a_malformed_action_is_refused_and_changes_nothing(action):
         # Too short for the clock to move: 1e-17 s anywhere, 1e-3 s against a 1e15 s timeout.
         {"min_step": 1e-17},
         {"min_step": 1e-3, "episode_timeout": 1e15},
+        {"seed": -1},
+        {"seed": 1.5},
+        {"seed": True},
+        {"seed": "7"},
     ],
 )
 def test_bad_settings_are_refused(kwargs):
@@ -339,15 +343,22 @@ def test_the_normal_escape_evader_thrusts_along_its_orbit_normal_inside_its_rang
     bot = NormalEscapeEvader()
     r_e, v_e = I3_EVADER.state(KERBIN.mu)
     near, far = r_e - [0.0, 150.0, 0.0], r_e - [0.0, 250.0, 0.0]
-    assert bot.mode(far, v_e, r_e, v_e) == 0
-    assert bot.mode(near, v_e, r_e, v_e) == 1
-    assert not bot.force(0, near, v_e, r_e, v_e).any()
-    h = np.cross(r_e, v_e)
-    assert np.allclose(bot.force(1, near, v_e, r_e, v_e), 8000.0 * h / np.linalg.norm(h))
+    rng = np.random.default_rng(0)
+    coast = bot.segment(0.0, far, v_e, r_e, v_e, None, None, rng)
+    burn = bot.segment(0.0, near, v_e, r_e, v_e, None, None, rng)
+    assert coast.throttle == (0.0, 0.0, 0.0) and burn.throttle == (1.0, 0.0, 0.0)
+    assert burn.pointing == coast.pointing == "normal"
+    # Each ends where the range crosses 200 m, and the crossing switches to the other.
+    ((g, rising),) = burn.triggers
+    assert rising == 1 and g(near, v_e, r_e, v_e) == pytest.approx(-50.0)
+    assert bot.segment(1.0, near, v_e, r_e, v_e, burn, 0, rng).throttle == coast.throttle
+    assert bot.segment(1.0, far, v_e, r_e, v_e, coast, 0, rng).throttle == burn.throttle
     with pytest.raises(ValueError):
         NormalEscapeEvader(evade_distance=0.0)
     with pytest.raises(ValueError):
-        NormalEscapeEvader(thrust=float("nan"))
+        NormalEscapeEvader(throttle=float("nan"))
+    with pytest.raises(ValueError):
+        NormalEscapeEvader(throttle=1.5)
 
 
 def test_the_evader_starts_escaping_when_the_pursuer_crosses_its_range():

@@ -8,9 +8,10 @@ KSPDG (github.com/mit-ll/spacegym-kspdg) poses spacecraft differential games ins
 Program and flies agents through kRPC in real time. `vbar.games` rebuilds its pursuit-evasion
 problem pe1 from KSPDG's public definition on two-body dynamics, with the same observation list,
 action dictionary, step return and agent interface. An agent written for KSPDG runs unchanged,
-headless, faster than real time and in parallel. The evader bots are V-BAR's own, written from
-KSPDG's one-line descriptions of its evaders; KSPDG's bots are not used or reproduced, so scores
-against them are not comparable with scores in KSPDG.
+headless, faster than real time and in parallel. The evader bots are V-BAR's versions of KSPDG's
+public evaders, written from their source (`pe1/e1_envs.py` and `e3_envs.py`, MIT licence) without
+copying it; they fly the same rules on V-BAR's model, and the differences that remain are listed
+under [Limits](#limits). No V-BAR episode has yet been compared with one flown in the game.
 
 ## The problem
 
@@ -37,9 +38,9 @@ evader's orbit tilted by 1e-4 deg.
 | `PE1_E3_I3_Env` | `vbar/PursuitEvasionE3I3-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m |
 
 `NormalEscapeEvader` is written for V-BAR from KSPDG's description of e3 ("heuristic evasion
-maneuvers") and the evasion distance and throttle in its public code (200 m, full throttle); its
-thrust is 8000 N along the angular momentum of its own orbit, it stops when the range rises back
-through 200 m, and its propellant runs out like the pursuer's. The class names are KSPDG's, so a
+maneuvers") and the evasion distance and throttle in its public code (200 m, full throttle); it
+fires its eight forward nozzles (8000 N) along the angular momentum of its own orbit, stops when
+the range rises back through 200 m, and its propellant runs out like the pursuer's. The class names are KSPDG's, so a
 KSPDG script needs only its imports changed; the LLM agents of Carrasco, Rodriguez-Fernandez and
 Linares (arXiv 2408.08676) were evaluated on PE1_I3_E3.
 
@@ -97,11 +98,60 @@ dry, on a smaller `Vessel`, stops the thrust at that instant.
 
 The pursuer holds its forward axis on the evader, as KSPDG's pursuer does with SAS in target
 mode. KSP leaves the roll about that axis to SAS; V-BAR fixes it so that down is the part of the
-direction to Kerbin's centre across the line of sight. The evader turns its forward axis to its
-thrust, so its limit is 8000 N.
+direction to Kerbin's centre across the line of sight.
 
 A malformed action (wrong shape, a number that is not finite, a negative duration, an unknown
 frame or vector type) raises `ValueError` and leaves the episode as it was.
+
+## Evader bots
+
+An evader bot flies a sequence of segments (`vbar.games.Segment`). In a segment its throttles
+along its forward, right and down axes are constant, and its forward axis points prograde (along
+its inertial velocity) or along its orbit normal (its angular momentum), with down toward Kerbin
+as for the pursuer; the evader is the same vessel as the pursuer, with the same thrust limits and
+per-axis propellant flow. A segment ends at a mission time (`until`) or where a function of the
+two vessels' states crosses zero in a given direction (`triggers`), and the game then asks the bot
+for the next one with `segment(t, r_p, v_p, r_e, v_e, previous, cause, rng)`, where `cause` is the
+index of the trigger that fired (None at the start and at `until`) and `rng` is the episode's
+evader stream. A bot decides a switch from `cause` rather than by testing its triggers again,
+because at the located crossing they are zero to rounding. A bot that keeps changing segment
+without letting time pass (1000 segments in a row each ending within a microsecond of its start)
+raises `RuntimeError` instead of hanging the episode, and one that returns anything but a `Segment` raises `TypeError`.
+
+```python
+from dataclasses import dataclass
+
+from vbar.games import PursuitEvasionEnv, Segment
+
+
+@dataclass(frozen=True)
+class ShortBurn:
+    """Full forward thrust prograde for the first 2.5 s, then nothing."""
+
+    name: str = "short-burn"
+
+    def segment(self, t, r_p, v_p, r_e, v_e, previous, cause, rng):
+        if t < 2.5:
+            return Segment(throttle=(1.0, 0.0, 0.0), pointing="prograde", until=2.5)
+        return Segment()
+
+
+env = PursuitEvasionEnv(evader=ShortBurn(), seed=1)
+env.reset()
+for _ in range(3):
+    observation, reward, done, info = env.step([0.0, 0.0, 0.0, 1.0])
+print(info["evader_fuel_usage"])  # 2.5 s of 8000 N at 240 s: about 8.50 kg
+```
+
+## Seeds
+
+The evader's random stream is drawn from the episode seed: `reset(seed=...)`, else the
+`seed` given to the environment's constructor (then every reset replays the same episode), else
+a fresh 128-bit seed from the operating system. The seed used is kept in `env.seed`. The
+Gymnasium environment passes its `reset(seed=...)` on, and without one draws the stream's seed
+from its `np_random`; `fly(env, agent, seed=...)` and `PursuitTask` pass theirs on too. Nothing the
+agent receives is derived from the seed other than the observation itself. The passive and
+normal-escape bots draw nothing, so their episodes do not depend on it.
 
 ## Time and integration
 
@@ -115,7 +165,7 @@ thrust; their 14 states (positions, velocities, masses) are
 integrated together with DOP853 at relative tolerance 1e-12, which keeps positions near 7.5e5 m
 accurate to about a micrometre. Events found by root finding on the integrator's dense output end
 or mark a segment: capture (range falls through the capture distance), each local minimum of
-range (range rate rising through zero), a tank running dry, and the evader bot switching modes.
+range (range rate rising through zero), a tank running dry, and the end of an evader segment.
 The closest approach is therefore found between steps, not only at step ends; KSPDG samples it
 when each step ends, so for the same trajectory V-BAR's $d$ is never larger.
 
@@ -176,8 +226,8 @@ while not (terminated or truncated):
 print(reward, info["closest_approach"])
 ```
 
-The game is deterministic: the same agent gives the same episode on every run, whatever the
-number of workers, and the seed changes nothing.
+The same agent and seed give the same episode on every run, whatever the number of workers; with
+the passive and normal-escape evaders the seed changes nothing.
 
 ## Running many episodes
 
@@ -214,14 +264,15 @@ rerun the script to measure yours.
 
 - Two-body point masses: no KSP physics engine, part physics, reaction-wheel slew or roll
   dynamics; the pursuer points at the evader exactly.
+- The evaders point exactly and at once, on simulated time; KSPDG's turn under SAS or the
+  autopilot in game time, so they fire before they finish turning.
 - Lockstep time: a slow agent loses no simulated time, unlike in KSPDG, where game time runs on
   while it decides.
 - The episode starts at mission time 0 at the I3 orbits; KSPDG loads the save and pauses about 3 s
   of game time before the first observation.
 - `vec_type` takes 0 and 1; KSPDG declares a third value it does not define. Burn durations above
   10 s are accepted, as KSPDG does not enforce its declared bound.
-- Only the I3 start and the e1 and e3 evaders exist so far; scores against V-BAR's evaders are not
-  comparable with KSPDG's.
+- Only the I3 start and the e1 and e3 evaders exist so far.
 
 ## Validation
 
@@ -244,6 +295,23 @@ rerun the script to measure yours.
 - `None` repeats the last action and coasts before the first; a KSPDG-shaped agent class runs
   through `AgentEnvRunner` with KSPDG's arguments; the agent's list is a copy.
 - Both Gymnasium IDs pass `check_env`; parallel and serial runs give identical metrics.
+
+`tests/test_pursuit_bots.py`:
+
+- The I3 episode of `VelocityMatchingPursuer` against the normal-escape evader matches the one
+  recorded with vbar 0.4.0 (closest approach, both vessels' propellant and the score) to 1e-9.
+- A segment ending at 2.5 s inside a 1 s step uses exactly 2.5 s of full forward flow; lateral
+  throttles draw each axis's flow (8000 + 4000 + 2000 N at 240 s); a forward burn pointed prograde
+  or along the orbit normal changes the evader's velocity along that direction by the
+  rocket-equation amount to 1e-5.
+- The same seed flies the same episode with a random bot and another seed differs; a constructor
+  seed holds for every reset, and without one each reset draws a different seed of 128 bits.
+- Each body-axis throttle (forward, right, down) pushes the evader along that axis with its
+  thrust limit.
+- The Gymnasium seed and `fly`'s seed reach the evader's stream: equal seeds give equal episodes,
+  and unseeded Gymnasium resets follow from the last seeded one.
+- Malformed segments and seeds are refused; a bot that never lets time pass, or re-arms the
+  trigger that just fired, raises instead of hanging.
 
 Sources: KSPDG v0.15.0 (commit 6251ca3): `src/kspdg/pe1/pe1_base.py` (observation, score, timeout,
 capture distance, thrusters, target-hold), `base_envs.py` (actions, frames), `agent_api/` (agent

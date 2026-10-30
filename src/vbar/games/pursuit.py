@@ -3,7 +3,8 @@
 The pursuer and the evader orbit a central body (Kerbin by default) as point masses under
 two-body gravity. The pursuer's agent commands RCS throttles or thrusts in its body frame, the
 inertial frame or its NTW frame for a burn duration, as KSPDG's `burn_vec` actions do; the
-evader is flown by one of V-BAR's bots (`vbar.games.bots`). The pursuer holds its forward axis
+evader is flown by one of V-BAR's bots (`vbar.games.bots`), which draws any random choice from
+the episode seed. The pursuer holds its forward axis
 on the evader, as KSPDG's pursuer does under target-hold, and its body throttles are held for
 the burn while that axis turns.
 
@@ -28,11 +29,10 @@ from typing import Any
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from ..conventions import G0
 from ..dynamics.bodies import KERBIN, Body
 from ..dynamics.kepler import state_from_elements
-from .bots import EvaderBot, PassiveEvader
-from .frames import body_axes, ntw_axes
+from .bots import EvaderBot, PassiveEvader, Segment
+from .frames import axes_along, body_axes, ntw_axes
 from .vessels import MONOPROPELLANT_KG, PE1_VESSEL, Vessel, _number
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,10 @@ CAPTURE_DIST = 5.0  # m, KSPDG pe1 DEFAULT_CAPTURE_DIST
 # Positions are near 7.5e5 m, so this keeps integration error near a micrometre.
 _RTOL = 1e-12
 _ATOL = 1e-9
+# A bot whose segments end this many times in a row, each this soon after it began, is looping:
+# re-arming a trigger at its own crossing advances the clock by rounding steps (about 1e-13 s).
+_MAX_SHORT_SEGMENTS = 1000
+_SHORT_SEGMENT = 1e-6  # s
 
 OBSERVATION = (
     "mission_elapsed_time",
@@ -123,6 +127,14 @@ def _choice(value: Any, choices: range, name: str) -> int:
     return int(value)
 
 
+def _seed(value: Any) -> int:
+    if isinstance(value, bool | np.bool_) or not isinstance(value, int | np.integer):
+        raise ValueError("seed must be an integer")
+    if value < 0:
+        raise ValueError("seed must not be negative")
+    return int(value)
+
+
 def parse_action(action: Any) -> tuple[np.ndarray, float, int, int]:
     """The vector, burn duration, frame and vector type of a KSPDG action.
 
@@ -179,6 +191,10 @@ class PursuitEvasionEnv:
         Initial conditions; "i3" (both vessels on one circular orbit, about 2.6 km apart).
     evader : EvaderBot, optional
         The evader's bot; `PassiveEvader()` by default.
+    seed : int, optional
+        Seed of the evader's random stream for every reset that is not given one. Without it,
+        each such reset draws a fresh 128-bit seed from the operating system. The seed used is
+        kept in `seed`.
     episode_timeout : float
         Mission elapsed time (s) at which the episode ends.
     capture_dist : float
@@ -198,6 +214,7 @@ class PursuitEvasionEnv:
         *,
         initial: str = "i3",
         evader: EvaderBot | None = None,
+        seed: int | None = None,
         episode_timeout: float = EPISODE_TIMEOUT,
         capture_dist: float = CAPTURE_DIST,
         min_step: float = 0.1,
@@ -215,8 +232,10 @@ class PursuitEvasionEnv:
         if self.min_step < 1e-6 or self.min_step <= 8 * math.ulp(self.episode_timeout):
             raise ValueError("min_step is too short to advance the mission clock")
         self.evader = evader if evader is not None else PassiveEvader()
-        if not all(callable(getattr(self.evader, m, None)) for m in ("mode", "force", "switch")):
-            raise TypeError("evader must have mode, force and switch methods")
+        if not callable(getattr(self.evader, "segment", None)):
+            raise TypeError("evader must have a segment method")
+        self._fixed_seed = None if seed is None else _seed(seed)
+        self.seed: int | None = None
         if not isinstance(vessel, Vessel):
             raise TypeError("vessel must be a Vessel")
         if not isinstance(body, Body):
@@ -228,14 +247,26 @@ class PursuitEvasionEnv:
         self._y: np.ndarray | None = None
         self._closest: dict[str, float] = {}
 
-    def reset(self) -> tuple[list[float], dict[str, Any]]:
+    def reset(self, seed: int | None = None) -> tuple[list[float], dict[str, Any]]:
         """Start the episode at the initial conditions.
+
+        Parameters
+        ----------
+        seed : int, optional
+            Seed of the evader's random stream; by default the constructor's, else a fresh
+            128-bit seed. The seed used is kept in `seed`.
 
         Returns
         -------
         observation : list of float
         info : dict
         """
+        if seed is not None:
+            seed = _seed(seed)
+        elif self._fixed_seed is not None:
+            seed = self._fixed_seed
+        else:
+            seed = int(np.random.SeedSequence().entropy)  # type: ignore[arg-type]
         pursuer, evader = INITIAL_CONDITIONS[self.initial]
         r_p, v_p = pursuer.state(self.body.mu)
         r_e, v_e = evader.state(self.body.mu)
@@ -244,7 +275,10 @@ class PursuitEvasionEnv:
         self.t = 0.0
         self.done = False
         self.captured = False
-        self._mode = self.evader.mode(r_p, v_p, r_e, v_e)
+        self.seed = seed
+        self._rng = np.random.default_rng(seed)
+        self._segment: Segment | None = None
+        self._next_segment(self._y, None)
         self._empty = [False, False]
         self._closest = {}
         self._sample(self.t, self._y)
@@ -347,13 +381,34 @@ class PursuitEvasionEnv:
                 "t": float(t),
             }
 
-    def _rhs(self, throttle: np.ndarray, mode: int, pursuer_thrusts: bool, evader_thrusts: bool):
+    def _next_segment(self, y: np.ndarray, cause: int | None) -> None:
+        segment = self.evader.segment(
+            self.t, y[0:3], y[3:6], y[6:9], y[9:12], self._segment, cause, self._rng
+        )
+        if not isinstance(segment, Segment):
+            raise TypeError("an evader bot must return a Segment")
+        self._segment = segment
+
+    def _change_segment(self, y: np.ndarray, cause: int | None, changes: int, start: float) -> int:
+        """Take the bot's next segment; count the segments in a row that ended almost at once."""
+        changes = changes + 1 if self.t - start < _SHORT_SEGMENT else 0
+        if changes > _MAX_SHORT_SEGMENTS:
+            raise RuntimeError("the evader bot keeps changing segment with no time passing")
+        self._next_segment(y, cause)
+        return changes
+
+    def _rhs(self, throttle: np.ndarray, pursuer_thrusts: bool, evader_thrusts: bool):
         mu = self.body.mu
         vessel = self.vessel
-        bot = self.evader
         thrust_body = vessel.thrust(throttle)
         flow = vessel.mass_flow(thrust_body)
         thrust = thrust_body.tolist()
+        segment = self._segment
+        assert segment is not None
+        thrust_e_body = vessel.thrust(np.array(segment.throttle))
+        flow_e = vessel.mass_flow(thrust_e_body)
+        thrust_e = thrust_e_body.tolist()
+        prograde = segment.pointing == "prograde"
 
         def rhs(t, y):
             xp, yp, zp, vxp, vyp, vzp, xe, ye, ze, vxe, vye, vze, m_p, m_e = y.tolist()
@@ -370,10 +425,18 @@ class PursuitEvasionEnv:
                     ) / m_p
                 dm_p = -flow
             if evader_thrusts:
-                force = bot.force(mode, y[0:3], y[3:6], y[6:9], y[9:12])
+                if prograde:
+                    forward = (vxe, vye, vze)
+                else:
+                    forward = (ye * vze - ze * vye, ze * vxe - xe * vze, xe * vye - ye * vxe)
+                axes = axes_along((xe, ye, ze), forward)
                 for i in range(3):
-                    a_e[i] += force[i] / m_e
-                dm_e = -float(np.linalg.norm(force)) / (vessel.isp * G0)
+                    a_e[i] += (
+                        axes[0, i] * thrust_e[0]
+                        + axes[1, i] * thrust_e[1]
+                        + axes[2, i] * thrust_e[2]
+                    ) / m_e
+                dm_e = -flow_e
             return np.array([vxp, vyp, vzp, *a_p, vxe, vye, vze, *a_e, dm_p, dm_e])
 
         return rhs
@@ -382,16 +445,21 @@ class PursuitEvasionEnv:
         """Advance `duration` s (less at capture or timeout) holding the pursuer's throttles."""
         end = min(self.t + duration, self.episode_timeout)
         dry = self.vessel.dry_mass
+        changes = 0
         while not self.done and self.t < end:
             y = self._state()
             # The crossing event cannot see a range that is already inside the capture distance.
             if np.linalg.norm(y[6:9] - y[0:3]) < self.capture_dist:
                 self.done = self.captured = True
                 break
+            segment = self._segment
+            assert segment is not None
+            if segment.until <= self.t:
+                changes = self._change_segment(y, None, changes, self.t)
+                continue
+            stop = min(end, segment.until)
             pursuer_thrusts = bool(np.any(throttle != 0.0)) and not self._empty[0]
-            probe = self.evader.force(self._mode, y[0:3], y[3:6], y[6:9], y[9:12])
-            evader_thrusts = bool(np.any(probe != 0.0)) and not self._empty[1]
-            switch = self.evader.switch(self._mode)
+            evader_thrusts = any(x != 0.0 for x in segment.throttle) and not self._empty[1]
 
             def capture(t, y):
                 return np.linalg.norm(y[6:9] - y[0:3]) - self.capture_dist
@@ -411,18 +479,18 @@ class PursuitEvasionEnv:
             evader_empty.terminal = evader_thrusts  # type: ignore[attr-defined]
             pursuer_empty.direction = evader_empty.direction = -1  # type: ignore[attr-defined]
             events = [capture, closing, pursuer_empty, evader_empty]
-            if switch is not None:
-                g, direction, _ = switch
+            for g, direction in segment.triggers:
 
-                def bot_switch(t, y, g=g):
+                def trigger(t, y, g=g):
                     return g(y[0:3], y[3:6], y[6:9], y[9:12])
 
-                bot_switch.terminal = True  # type: ignore[attr-defined]
-                bot_switch.direction = direction  # type: ignore[attr-defined]
-                events.append(bot_switch)
+                trigger.terminal = True  # type: ignore[attr-defined]
+                trigger.direction = direction  # type: ignore[attr-defined]
+                events.append(trigger)
+            start = self.t
             solution = solve_ivp(
-                self._rhs(throttle, self._mode, pursuer_thrusts, evader_thrusts),
-                (self.t, end),
+                self._rhs(throttle, pursuer_thrusts, evader_thrusts),
+                (self.t, stop),
                 y,
                 method="DOP853",
                 rtol=_RTOL,
@@ -430,7 +498,7 @@ class PursuitEvasionEnv:
                 events=events,
                 # A whole step of a few seconds is a small fraction of the 36-minute orbit, so
                 # trying it in one integrator step usually succeeds and saves the warm-up steps.
-                first_step=end - self.t,
+                first_step=stop - self.t,
             )
             if solution.status < 0:
                 raise RuntimeError(f"integration failed: {solution.message}")
@@ -446,8 +514,13 @@ class PursuitEvasionEnv:
                 self._empty[0] = True
             if evader_thrusts and solution.t_events[3].size:
                 self._empty[1] = True
-            if switch is not None and solution.t_events[4].size:
-                self._mode = switch[2]
+            if self.done:
+                continue
+            fired = [i for i, e in enumerate(solution.t_events[4:]) if e.size]
+            if fired:
+                changes = self._change_segment(y_end, fired[0], changes, start)
+            elif self.t >= segment.until:
+                changes = self._change_segment(y_end, None, changes, start)
 
 
 def weighted_score(d: float, v: float, f: float, t: float) -> float:
