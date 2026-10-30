@@ -19,6 +19,8 @@ from typing import Any
 
 import numpy as np
 
+from .stats import _whole
+
 SCHEMA_VERSION = 1
 FIELDS = (
     "schema",
@@ -122,13 +124,14 @@ def encode(result: Mapping[str, Any]) -> str:
     Raises
     ------
     ValueError
-        If a schema field is missing or an unknown one is present.
+        If a schema field is missing or an unknown one is present, or a seed is not a whole
+        number of at least 0 (numpy integers are accepted, text is not).
     """
     missing = [f for f in FIELDS if f not in result]
     extra = [f for f in result if f not in FIELDS]
     if missing or extra:
         raise ValueError(f"result fields differ from schema {SCHEMA_VERSION}: {missing or extra}")
-    seeds = {"seed": str(int(result["seed"])), "agent_seed": str(int(result["agent_seed"]))}
+    seeds = {name: str(_whole(name, result[name], 0)) for name in ("seed", "agent_seed")}
     fields = {**result, **seeds}
     return json.dumps(to_json(fields), sort_keys=True, allow_nan=False)
 
@@ -149,16 +152,30 @@ def decode(line: str) -> dict[str, Any]:
     Raises
     ------
     ValueError
-        If the line is not a result of a schema this version reads.
+        If the line is not a result of a schema this version reads, a field is missing, `metrics`
+        is not an object, or a seed is neither decimal text nor a JSON integer of at least 0.
     """
     raw = json.loads(line)
     if not isinstance(raw, dict) or raw.get("schema") != SCHEMA_VERSION:
         raise ValueError(f"not a schema {SCHEMA_VERSION} result")
+    missing = [f for f in FIELDS if f not in raw]
+    if missing:
+        raise ValueError(f"result lacks fields {missing}")
+    if not isinstance(raw["metrics"], dict):
+        raise ValueError("metrics must be an object")
     # Only numbers are written as text, so only the numeric fields are read back from it.
     result = {k: from_json(v) if k in ("metrics", "wall_s") else v for k, v in raw.items()}
-    result["seed"] = int(raw["seed"])
-    result["agent_seed"] = int(raw["agent_seed"])
+    for name in ("seed", "agent_seed"):
+        result[name] = _seed(name, raw[name])
     return result
+
+
+def _seed(name: str, value: Any) -> int:
+    """A seed read from a result line: decimal text or a JSON integer, at least 0."""
+    # Digits only: int() would also take signs, spaces and underscores.
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        value = int(value)
+    return _whole(name, value, 0)
 
 
 def write_results(

@@ -178,6 +178,20 @@ python -m vbar.eval reproduce reproduce.toml
 results and table go. `reproduce` flies only what the results files lack and rewrites every table,
 so one command regenerates all of them.
 
+## Inputs
+
+The statistics raise `ValueError` for a NaN score (the message names the scenario where there is
+one), a NaN `performance_profile` threshold, a bootstrap statistic that is NaN on the data or on a
+resample, and two paired scores that are the same infinity; infinite scores are allowed. Counts
+(`reps`, `n`, `repeats`, the counts of `mcnemar`, seeds, a `Job`'s index, `configurations_tried`, a
+training run's steps and violations) must be integers in range: numpy integers pass, floats (even
+`100.0`) and bools do not. `compare_rates` and `clopper_pearson` are the exception: they read a
+whole float such as `3.0` as its integer. `confidence`, `level`, `coverage` and `alpha` lie in (0, 1), `p` in
+[0, 1], and `widen` is finite and positive. A result line needs every schema field, an object for
+`metrics` and a seed that is decimal text or a JSON integer of at least 0, or `read_results` raises
+`ValueError` naming the line. A `Job` takes integer seeds, and `encode` writes them from integers
+only; decimal text is read by `decode` but not accepted by `encode`.
+
 ## Assumptions and limits
 
 - Wall-clock metrics (latency, compute, filter time) differ between repeats of a run;
@@ -198,3 +212,4 @@ Clopper-Pearson cases of Kochenderfer et al. section 14.1, the conformal risk.
 `tests/test_eval_coverage.py`: the coverage table's cells and a narrowed interval failing it.
 `tests/test_eval_report.py`: complete reports, refusals, the command line and the manifest.
 `tests/test_eval_learned.py`: the learned-agent rules. `tests/test_eval_domain.py`: the toy domain.
+Each module's `test_hostile_*` test runs the refusals of the Inputs section.

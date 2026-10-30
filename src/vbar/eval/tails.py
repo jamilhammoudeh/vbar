@@ -21,7 +21,7 @@ from numpy.typing import ArrayLike
 from scipy.stats import binom
 
 from ..metrics import clopper_pearson, unsafe_tail
-from .stats import _check, _generator, _percentile
+from .stats import _check, _generator, _percentile, _unit, _whole
 
 
 def tolerance_order(n: int, coverage: float, confidence: float) -> int | None:
@@ -34,7 +34,7 @@ def tolerance_order(n: int, coverage: float, confidence: float) -> int | None:
     Parameters
     ----------
     n : int
-        Number of runs.
+        Number of runs, at least 0.
     coverage : float
         Fraction of the population the bound must lie under, in (0, 1).
     confidence : float
@@ -49,10 +49,12 @@ def tolerance_order(n: int, coverage: float, confidence: float) -> int | None:
     Raises
     ------
     ValueError
-        If `coverage` or `confidence` is outside (0, 1).
+        If `n` is not a whole number of at least 0, or `coverage` or `confidence` is outside
+        (0, 1).
     """
-    if not (0.0 < coverage < 1.0 and 0.0 < confidence < 1.0):
-        raise ValueError("coverage and confidence must lie between 0 and 1")
+    n = _whole("n", n, 0)
+    _unit("coverage", coverage)
+    _unit("confidence", confidence)
     if n < 1:
         return None
     ranks = np.arange(1, n + 1)
@@ -70,7 +72,7 @@ def conformal_coverage_risk(n: int, coverage: float) -> float:
     Parameters
     ----------
     n : int
-        Number of calibration runs.
+        Number of calibration runs, at least 1.
     coverage : float
         Target coverage, in (0, 1).
 
@@ -78,7 +80,14 @@ def conformal_coverage_risk(n: int, coverage: float) -> float:
     -------
     float
         P(Binomial(n, 1 - coverage) <= rank - 1).
+
+    Raises
+    ------
+    ValueError
+        If `n` is not a whole number of at least 1 or `coverage` is outside (0, 1).
     """
+    n = _whole("n", n, 1)
+    _unit("coverage", coverage)
     rank = math.floor((1.0 - coverage) * (n + 1))
     return float(binom.cdf(rank - 1, n, 1.0 - coverage))
 
@@ -141,10 +150,12 @@ def tail_summary(
     Raises
     ------
     ValueError
-        If `worse` is unknown or no value is finite or infinite (all NaN, or none).
+        If `worse` is unknown, `level` or `confidence` is outside (0, 1), `reps` is below 100, or
+        no value is finite or infinite (all NaN, or none).
     """
     if worse not in ("low", "high"):
         raise ValueError(f"unknown side {worse!r}, expected low or high")
+    _unit("level", level)
     _check(reps, confidence)
     x = np.asarray(values, dtype=float).ravel()
     tail = unsafe_tail(x, worse, level)
@@ -206,8 +217,9 @@ def compare_rates(
     Raises
     ------
     ValueError
-        If a count is impossible, or `require_resolved` and the difference is smaller than the
-        interval width.
+        If a count is not a finite whole number, a count of runs is 0, a count of successes is
+        negative or above its runs, `confidence` is outside (0, 1), or `require_resolved` and the
+        difference is smaller than the interval width.
     """
     interval_a = clopper_pearson(successes_a, n_a, confidence)
     interval_b = clopper_pearson(successes_b, n_b, confidence)

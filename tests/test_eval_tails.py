@@ -12,7 +12,7 @@ from hypothesis import strategies as st
 from scipy.stats import binom, norm
 
 from vbar.eval.tails import compare_rates, conformal_coverage_risk, tail_summary, tolerance_order
-from vbar.metrics import unsafe_tail
+from vbar.metrics import clopper_pearson, unsafe_tail
 
 
 def bounds(interval):
@@ -257,6 +257,12 @@ def test_more_calibration_runs_do_not_remove_the_conformal_risk():
     assert conformal_coverage_risk(10_000, 0.95) > 0.45
 
 
+def test_whole_floats_read_as_their_integers_in_the_rate_functions():
+    # Both predate the integer checks of the other statistics and keep reading 3.0 as 3.
+    assert clopper_pearson(3.0, 10.0) == clopper_pearson(3, 10)
+    assert compare_rates(3.0, 10.0, 4.0, 10.0) == compare_rates(3, 10, 4, 10)
+
+
 def test_compare_rates_uses_clopper_pearson_intervals():
     found = compare_rates(90, 100, 3, 10_000)
     # Algorithms for Decision Making, section 14.1: 90 of 100 and 3 failures in 10000.
@@ -333,3 +339,92 @@ def test_the_bootstrap_tail_means_are_the_unsafe_tail_of_each_resample(values, w
     expected = np.array([unsafe_tail(row, worse)["tail_mean"] for row in rows])
     # Two summation orders over the same values: equal to rounding, not bit for bit.
     np.testing.assert_allclose(found, expected, rtol=1e-12, atol=1e-12)
+
+
+RUNS = np.arange(1.0, 101.0)
+BOOTSTRAP = {"reps": 100, "rng": 0}
+TAIL = {"values": RUNS, "worse": "low", **BOOTSTRAP}
+# Numpy's own "cannot convert float NaN to integer" does not say what was wrong with the input.
+NOT_WHOLE = "whole|finite|integers"
+KNOWN = {"n": 100, "coverage": 0.95, "confidence": 0.95}
+RATES = {"successes_a": 3, "n_a": 10, "successes_b": 4, "n_b": 10}
+
+
+def hostile(function, label, match=None, **arguments):
+    return pytest.param(function, arguments, match, id=f"{function.__name__}-{label}")
+
+
+@pytest.mark.parametrize(
+    "function, arguments, match",
+    [
+        hostile(tail_summary, "level-nan", "level", **{**TAIL, "level": np.nan}),
+        hostile(tail_summary, "level-0", "level", **{**TAIL, "level": 0.0}),
+        hostile(tail_summary, "level-1", "level", **{**TAIL, "level": 1.0}),
+        hostile(tail_summary, "level-negative", "level", **{**TAIL, "level": -0.1}),
+        hostile(tail_summary, "level-above-1", "level", **{**TAIL, "level": 1.5}),
+        hostile(tail_summary, "confidence-nan", **{**TAIL, "confidence": np.nan}),
+        hostile(tail_summary, "confidence-0", **{**TAIL, "confidence": 0.0}),
+        hostile(tail_summary, "confidence-1", **{**TAIL, "confidence": 1.0}),
+        hostile(tail_summary, "reps-50", **{**TAIL, "reps": 50}),
+        hostile(tail_summary, "only-nan-values", **{**TAIL, "values": [np.nan, np.nan]}),
+        hostile(tail_summary, "unknown-side", **{**TAIL, "worse": "worst"}),
+        *[
+            hostile(tolerance_order, f"n-{label}", n=n, coverage=0.95, confidence=0.95)
+            for label, n in (
+                ("fractional", 100.5),
+                ("nan", np.nan),
+                ("negative", -1),
+                ("true", True),
+            )
+        ],
+        *[
+            hostile(tolerance_order, f"{name}-{label}", **{**KNOWN, name: value})
+            for name in ("coverage", "confidence")
+            for label, value in (("nan", np.nan), ("0", 0.0), ("1", 1.0))
+        ],
+        *[
+            hostile(conformal_coverage_risk, f"n-{label}", n=n, coverage=0.95)
+            for label, n in (("0", 0), ("negative", -5), ("fractional", 10.5), ("nan", np.nan))
+        ],
+        *[
+            hostile(conformal_coverage_risk, f"coverage-{label}", n=100, coverage=coverage)
+            for label, coverage in (("nan", np.nan), ("0", 0.0), ("1", 1.0), ("negative", -0.5))
+        ],
+        *[
+            hostile(compare_rates, f"{name}-{label}", match, **{**RATES, name: value})
+            for name in RATES
+            for label, value, match in (
+                ("inf", np.inf, NOT_WHOLE),
+                ("minus-inf", -np.inf, NOT_WHOLE),
+                ("nan", np.nan, NOT_WHOLE),
+                ("fractional", 2.5, None),
+                ("negative", -1, None),
+            )
+        ],
+        hostile(compare_rates, "n_a-0", **{**RATES, "n_a": 0}),
+        hostile(compare_rates, "n_b-0", **{**RATES, "n_b": 0}),
+        *[
+            hostile(compare_rates, f"confidence-{label}", **RATES, confidence=value)
+            for label, value in (("nan", np.nan), ("0", 0.0), ("1", 1.0))
+        ],
+    ],
+)
+def test_hostile_tail_inputs_are_refused(function, arguments, match):
+    with pytest.raises(ValueError, match=match):
+        function(**arguments)
+
+
+def test_numpy_integers_count_runs_in_the_tail_functions():
+    assert tolerance_order(np.int64(100), 0.95, 0.95) == tolerance_order(100, 0.95, 0.95)
+    assert conformal_coverage_risk(np.int64(100), 0.95) == conformal_coverage_risk(100, 0.95)
+    found = compare_rates(np.int64(30), np.int64(60), np.int64(20), np.int64(60))
+    assert found == compare_rates(30, 60, 20, 60)
+
+
+def test_no_runs_give_no_tolerance_bound():
+    assert tolerance_order(0, 0.95, 0.95) is None
+
+
+def test_nan_among_finite_values_is_counted_not_refused():
+    found = tail_summary([1.0, 2.0, np.nan, 4.0, 5.0], "low", reps=100, rng=0)
+    assert (found["n"], found["missing"]) == (4, 1)

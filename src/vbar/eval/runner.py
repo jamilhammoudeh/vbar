@@ -22,6 +22,7 @@ from typing import Any
 from ..safety import FilteredAgent
 from .provenance import environment, provenance_fields, provenance_hash
 from .results import SCHEMA_VERSION, read_results, write_results
+from .stats import _whole
 from .task import SpaceTask, Task
 
 Factory = Callable[[], Any] | str
@@ -43,6 +44,12 @@ class Job:
         Episode and agent seeds.
     suite : str, optional
         The suite identifier the job belongs to.
+
+    Raises
+    ------
+    ValueError
+        If `scenario` is empty or `scenario` or `split` is not text, or `index`, `seed` or
+        `agent_seed` is not a whole number of at least 0.
     """
 
     scenario: str
@@ -51,6 +58,15 @@ class Job:
     seed: int
     agent_seed: int
     suite: str | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.scenario, str) or not self.scenario:
+            raise ValueError("scenario must be a name")
+        if not isinstance(self.split, str):
+            raise ValueError("split must be a name")
+        # Python integers, since gymnasium seeds its generator only from an int.
+        for name in ("index", "seed", "agent_seed"):
+            object.__setattr__(self, name, _whole(name, getattr(self, name), 0))
 
 
 def resolve(factory: Factory | None) -> Callable[[], Any] | None:

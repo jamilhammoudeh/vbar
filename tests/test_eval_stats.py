@@ -5,6 +5,7 @@ NeurIPS 2021.
 """
 
 import dataclasses
+import math
 
 import numpy as np
 import pytest
@@ -20,6 +21,7 @@ from vbar.eval.stats import (
     performance_profile,
     probability_of_improvement,
     stratified_bootstrap,
+    summary_interval,
 )
 
 scores = st.lists(
@@ -295,3 +297,109 @@ def test_the_paired_difference_interval_is_reproducible_and_brackets_the_estimat
 def test_the_paired_difference_refuses_unpaired_runs(x, y):
     with pytest.raises(ValueError):
         paired_difference(x, y, reps=100, rng=0)
+
+
+CLEAN = {"approach-vbar": [1.0, 2.0, 3.0, 4.0], "inspection": [2.0, 3.0, 5.0]}
+NAN_RUN = {"approach-vbar": [1.0, 2.0, 3.0, 4.0], "inspection": [2.0, np.nan, 5.0]}
+INF_RUN = {"approach-vbar": [1.0, 2.0, 3.0, 4.0], "inspection": [2.0, np.inf, 5.0]}
+CHEAP = {"reps": 100, "rng": 0}
+BOOTSTRAPS = [
+    (stratified_bootstrap, {"samples": CLEAN, "statistic": aggregate_iqm}),
+    (probability_of_improvement, {"x": CLEAN, "y": CLEAN}),
+    (paired_difference, {"x": CLEAN, "y": CLEAN}),
+    (summary_interval, {"values": [1.0, 2.0, 3.0]}),
+]
+BAD_SETTINGS = [
+    ("reps-99", {"reps": 99}),
+    ("reps-a-float", {"reps": 100.0}),
+    ("reps-true", {"reps": True}),
+    ("reps-nan", {"reps": np.nan}),
+    ("confidence-0", {"confidence": 0.0}),
+    ("confidence-1", {"confidence": 1.0}),
+    ("confidence-nan", {"confidence": np.nan}),
+    ("confidence-1.5", {"confidence": 1.5}),
+]
+
+
+def hostile(function, label, match=None, **arguments):
+    return pytest.param(function, arguments, match, id=f"{function.__name__}-{label}")
+
+
+def nan_when_a_run_repeats(resampled):
+    # The data has no repeated run, so only resamples give NaN.
+    runs = resampled["a"].tolist()
+    return math.nan if len(set(runs)) < len(runs) else 0.0
+
+
+@pytest.mark.parametrize(
+    "function, arguments, match",
+    [
+        hostile(iqm, "nan-among-finite", values=[1.0, np.nan, 3.0]),
+        hostile(iqm, "only-nan", values=[np.nan]),
+        hostile(aggregate_iqm, "nan-score", "inspection", samples=NAN_RUN),
+        hostile(
+            stratified_bootstrap,
+            "nan-score",
+            "inspection",
+            samples=NAN_RUN,
+            statistic=aggregate_iqm,
+            **CHEAP,
+        ),
+        hostile(
+            stratified_bootstrap,
+            "nan-score-with-another-statistic",
+            "inspection",
+            samples=NAN_RUN,
+            statistic=pooled_mean,
+            **CHEAP,
+        ),
+        hostile(
+            stratified_bootstrap,
+            "statistic-nan-on-a-resample",
+            samples={"a": np.arange(8.0)},
+            statistic=nan_when_a_run_repeats,
+            **CHEAP,
+        ),
+        hostile(
+            stratified_bootstrap,
+            "statistic-nan-on-the-data",
+            "on the data",
+            samples={"a": np.arange(8.0)},
+            statistic=lambda resampled: math.nan,
+            **CHEAP,
+        ),
+        hostile(performance_profile, "nan-score", "inspection", samples=NAN_RUN, taus=[0.0, 2.0]),
+        hostile(performance_profile, "nan-threshold", samples=CLEAN, taus=[0.0, np.nan]),
+        hostile(probability_of_improvement, "nan-in-x", "inspection", x=NAN_RUN, y=CLEAN, **CHEAP),
+        hostile(probability_of_improvement, "nan-in-y", "inspection", x=CLEAN, y=NAN_RUN, **CHEAP),
+        hostile(paired_difference, "nan-in-x", "inspection", x=NAN_RUN, y=CLEAN, **CHEAP),
+        hostile(paired_difference, "nan-in-y", "inspection", x=CLEAN, y=NAN_RUN, **CHEAP),
+        hostile(paired_difference, "inf-minus-inf", "inspection", x=INF_RUN, y=INF_RUN, **CHEAP),
+        hostile(summary_interval, "nan-score", values=[1.0, np.nan, 3.0], **CHEAP),
+        *[
+            hostile(function, label, **{**CHEAP, **base, **setting})
+            for function, base in BOOTSTRAPS
+            for label, setting in BAD_SETTINGS
+        ],
+    ],
+)
+def test_hostile_statistics_inputs_are_refused(function, arguments, match):
+    with pytest.raises(ValueError, match=match):
+        function(**arguments)
+
+
+def test_infinite_scores_are_accepted_by_the_iqm_and_the_bootstrap():
+    assert iqm([np.inf, np.inf, np.inf, 1.0]) == np.inf
+    assert iqm([-np.inf, -np.inf, -np.inf, 1.0]) == -np.inf
+    runs = {"a": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, np.inf]}
+    found = stratified_bootstrap(runs, aggregate_iqm, **CHEAP)
+    assert found.estimate == 3.5
+    assert not math.isnan(found.lower) and not math.isnan(found.upper)
+    largest = stratified_bootstrap({"a": [0.0, 1.0, np.inf]}, lambda s: np.max(s["a"]), **CHEAP)
+    assert largest.estimate == np.inf and largest.upper == np.inf
+    assert not math.isnan(largest.lower)
+
+
+def test_infinite_thresholds_and_scores_are_accepted_by_the_profile():
+    np.testing.assert_array_equal(performance_profile(CLEAN, [-np.inf, np.inf]), [1.0, 0.0])
+    np.testing.assert_allclose(performance_profile(INF_RUN, [10.0]), [1.0 / 6.0], rtol=1e-12)

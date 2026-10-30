@@ -17,7 +17,7 @@ import numpy as np
 from scipy.stats import binom, trim_mean
 
 from ..metrics import clopper_pearson
-from .stats import Interval, _check, _generator, _percentile
+from .stats import Interval, _check, _generator, _percentile, _unit, _whole
 
 
 @dataclass(frozen=True)
@@ -31,12 +31,25 @@ class Coverage:
     repeats : int
         Repeats run.
     confidence : float
-        The intervals' stated level.
+        The intervals' stated level, in (0, 1).
+
+    Raises
+    ------
+    ValueError
+        If `repeats` is not a whole number of at least 1, `covered` is not a whole number between
+        0 and `repeats`, or `confidence` is outside (0, 1).
     """
 
     covered: int
     repeats: int
     confidence: float
+
+    def __post_init__(self):
+        _whole("repeats", self.repeats, 1)
+        _whole("covered", self.covered, 0)
+        if self.covered > self.repeats:
+            raise ValueError("covered cannot exceed repeats")
+        _unit("confidence", self.confidence)
 
     @property
     def rate(self) -> float:
@@ -69,15 +82,14 @@ def mcnemar(only_a: int, only_b: int) -> float:
     Raises
     ------
     ValueError
-        If a count is negative or not whole.
+        If a count is negative or not a whole number.
     """
-    for count in (only_a, only_b):
-        if count != int(count) or count < 0:
-            raise ValueError("the discordant counts are whole numbers, not negative")
-    total = int(only_a + only_b)
+    only_a = _whole("only_a", only_a, 0)
+    only_b = _whole("only_b", only_b, 0)
+    total = only_a + only_b
     if total == 0:
         return 1.0
-    low = min(int(only_a), int(only_b))
+    low = min(only_a, only_b)
     return float(min(1.0, 2.0 * binom.cdf(low, total, 0.5)))
 
 
@@ -101,11 +113,11 @@ def rate_coverage(
     p : float
         True success rate, in [0, 1].
     n : int
-        Runs per experiment.
+        Runs per experiment, at least 1.
     repeats : int
-        Experiments.
+        Experiments, at least 1.
     confidence : float
-        The interval's level.
+        The interval's level, in (0, 1).
     rng : numpy.random.Generator or int, optional
         Generator or seed.
 
@@ -113,7 +125,17 @@ def rate_coverage(
     -------
     Coverage
         How often the interval held `p`.
+
+    Raises
+    ------
+    ValueError
+        If `p` is outside [0, 1], `n` or `repeats` is not a whole number of at least 1, or
+        `confidence` is outside (0, 1).
     """
+    _unit("p", p, "[]")
+    _whole("n", n, 1)
+    _whole("repeats", repeats, 1)
+    _unit("confidence", confidence)
     gen = _generator(rng)
     counts = gen.binomial(n, p, size=repeats)
     # One interval per possible count, n + 1 of them, rather than one per repeat.
@@ -156,8 +178,14 @@ def iqm_coverage(
     -------
     Coverage
         How often the interval held 2.
+
+    Raises
+    ------
+    ValueError
+        If `n` or `repeats` is not a whole number of at least 1, `reps` is below 100,
+        `confidence` is outside (0, 1), or `widen` is not finite and positive.
     """
-    _check(reps, confidence)
+    _check_study(n, repeats, reps, confidence, widen)
     gen = _generator(rng)
     samples = 2.0 + gen.standard_normal((repeats, n))
     return _covered(_bootstrap_iqm_rows(samples, reps, confidence, gen), 2.0, widen, confidence)
@@ -199,8 +227,14 @@ def paired_coverage(
     -------
     Coverage
         How often the interval held 0.3.
+
+    Raises
+    ------
+    ValueError
+        As `iqm_coverage`, and if `shared` is outside [0, 1).
     """
-    _check(reps, confidence)
+    _check_study(n, repeats, reps, confidence, widen)
+    _unit("shared", shared, "[)")
     gen = _generator(rng)
     seed_part = math.sqrt(shared) * gen.standard_normal((repeats, n))
     own = math.sqrt(1.0 - shared)
@@ -208,6 +242,15 @@ def paired_coverage(
     b = 2.0 + seed_part + own * gen.standard_normal((repeats, n))
     # The difference is symmetric about 0.3, so its IQM is 0.3.
     return _covered(_bootstrap_iqm_rows(a - b, reps, confidence, gen), 0.3, widen, confidence)
+
+
+def _check_study(n: int, repeats: int, reps: int, confidence: float, widen: float) -> None:
+    """Refuse the settings the two bootstrap studies share, before any draw."""
+    _whole("n", n, 1)
+    _whole("repeats", repeats, 1)
+    _check(reps, confidence)
+    if not (math.isfinite(widen) and widen > 0.0):
+        raise ValueError("widen must be finite and positive")
 
 
 def _covered(bounds: np.ndarray, truth: float, widen: float, confidence: float) -> Coverage:
@@ -253,7 +296,18 @@ def mcnemar_false_positives(
     -------
     Interval
         The false-positive rate and its Clopper-Pearson interval.
+
+    Raises
+    ------
+    ValueError
+        If `p` or `shared` is outside [0, 1], `n` or `repeats` is not a whole number of at least
+        1, or `alpha` is outside (0, 1).
     """
+    _unit("p", p, "[]")
+    _whole("n", n, 1)
+    _whole("repeats", repeats, 1)
+    _unit("alpha", alpha)
+    _unit("shared", shared, "[]")
     gen = _generator(rng)
     common = gen.random((repeats, n)) < p
     same = gen.random((repeats, n)) < shared

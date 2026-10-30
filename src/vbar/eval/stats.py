@@ -60,11 +60,13 @@ def iqm(values: ArrayLike) -> float:
     Raises
     ------
     ValueError
-        If there are no values.
+        If there are no values or one is NaN. Infinite values are allowed.
     """
     x = np.asarray(values, dtype=float).ravel()
     if len(x) == 0:
         raise ValueError("the interquartile mean needs at least one value")
+    if np.isnan(x).any():
+        raise ValueError("the scores hold NaN")
     return float(trim_mean(x, 0.25))
 
 
@@ -76,6 +78,8 @@ def _strata(samples: Samples, name: str = "samples") -> dict[str, np.ndarray]:
         values = np.asarray(samples[key], dtype=float).ravel()
         if len(values) == 0:
             raise ValueError(f"scenario {key!r} has no runs")
+        if np.isnan(values).any():
+            raise ValueError(f"scenario {key!r} has NaN scores")
         out[key] = values
     return out
 
@@ -96,7 +100,7 @@ def aggregate_iqm(samples: Samples) -> float:
     Raises
     ------
     ValueError
-        If there is no scenario or a scenario has no runs.
+        If there is no scenario, a scenario has no runs or a score is NaN.
     """
     strata = _strata(samples)
     return iqm(np.concatenate(list(strata.values())))
@@ -106,11 +110,27 @@ def _generator(rng: np.random.Generator | int | None) -> np.random.Generator:
     return rng if isinstance(rng, np.random.Generator) else np.random.default_rng(rng)
 
 
+def _whole(name: str, value: Any, low: int) -> int:
+    """`value` as an int, refused unless it is an integer (not a bool) of at least `low`."""
+    if isinstance(value, bool) or not isinstance(value, int | np.integer) or value < low:
+        raise ValueError(f"{name} must be a whole number of at least {low}")
+    return int(value)
+
+
+def _unit(name: str, value: Any, ends: str = "()") -> None:
+    """Refuse `value` unless it is a number in the unit interval; `ends` is "()", "[)" or "[]"."""
+    if isinstance(value, bool) or not isinstance(value, int | float | np.integer | np.floating):
+        raise ValueError(f"{name} must be a number")
+    low, high = ends[0], ends[1]
+    above = value >= 0.0 if low == "[" else value > 0.0
+    below = value <= 1.0 if high == "]" else value < 1.0
+    if not (above and below):
+        raise ValueError(f"{name} must lie in {low}0, 1{high}")
+
+
 def _check(reps: int, confidence: float) -> None:
-    if isinstance(reps, bool) or not isinstance(reps, int | np.integer) or reps < 100:
-        raise ValueError("the bootstrap needs at least 100 resamples")
-    if not 0.0 < confidence < 1.0:
-        raise ValueError("confidence must lie between 0 and 1")
+    _whole("reps", reps, 100)
+    _unit("confidence", confidence)
 
 
 def _percentile(values: np.ndarray, confidence: float) -> tuple[float, float]:
@@ -154,14 +174,17 @@ def stratified_bootstrap(
     Raises
     ------
     ValueError
-        If a scenario has no runs, there is none, `reps` is below 100 or `confidence` is outside
-        (0, 1).
+        If a scenario has no runs, there is none, a score is NaN, `reps` is below 100,
+        `confidence` is outside (0, 1), or `statistic` gives NaN on the data or on a resample.
+        Infinite scores are allowed.
     """
     strata = _strata(samples)
     _check(reps, confidence)
     gen = _generator(rng)
     draws = {k: gen.integers(0, len(v), size=(reps, len(v))) for k, v in strata.items()}
     estimate = float(statistic(strata))
+    if np.isnan(estimate):
+        raise ValueError("the statistic is NaN on the data")
     if statistic is aggregate_iqm:
         # The same draws, applied to every resample at once.
         pooled = np.concatenate([strata[k][draws[k]] for k in strata], axis=1)
@@ -171,6 +194,8 @@ def stratified_bootstrap(
             [statistic({k: strata[k][draws[k][r]] for k in strata}) for r in range(reps)],
             dtype=float,
         )
+    if np.isnan(values).any():
+        raise ValueError("the statistic is NaN on a resample")
     lower, upper = _percentile(values, confidence)
     return Interval(estimate, lower, upper)
 
@@ -190,9 +215,17 @@ def performance_profile(samples: Samples, taus: ArrayLike) -> np.ndarray:
     numpy.ndarray
         One fraction per threshold, the mean over scenarios of the fraction of their runs with a
         score strictly above it.
+
+    Raises
+    ------
+    ValueError
+        If there is no scenario, a scenario has no runs, or a score or a threshold is NaN.
+        Infinite scores and thresholds are allowed.
     """
     strata = _strata(samples)
     thresholds = np.asarray(taus, dtype=float).ravel()
+    if np.isnan(thresholds).any():
+        raise ValueError("the thresholds hold NaN")
     fractions = [np.mean(v[None, :] > thresholds[:, None], axis=1) for v in strata.values()]
     return np.mean(fractions, axis=0)
 
@@ -243,7 +276,8 @@ def probability_of_improvement(
     Raises
     ------
     ValueError
-        If the scenarios differ or one has no runs.
+        If the scenarios differ, one has no runs, a score is NaN, `reps` is below 100 or
+        `confidence` is outside (0, 1).
     """
     a, b = _paired_strata(x, y)
     _check(reps, confidence)
@@ -289,12 +323,18 @@ def paired_difference(
     Raises
     ------
     ValueError
-        If the scenarios differ or a scenario's runs are not paired one to one.
+        If the scenarios differ, a scenario's runs are not paired one to one, a score is NaN or
+        two paired scores are the same infinity.
     """
     a, b = _paired_strata(x, y)
     if any(len(a[k]) != len(b[k]) for k in a):
         raise ValueError("paired runs need the same number of runs per scenario")
-    differences = {k: a[k] - b[k] for k in a}
+    # The NaN of an infinity minus itself is refused below, with its own message.
+    with np.errstate(invalid="ignore"):
+        differences = {k: a[k] - b[k] for k in a}
+    for k, difference in differences.items():
+        if np.isnan(difference).any():
+            raise ValueError(f"scenario {k!r} pairs equal infinite scores")
     return stratified_bootstrap(differences, aggregate_iqm, reps, confidence, rng)
 
 
@@ -318,6 +358,12 @@ def summary_interval(
     -------
     Interval
         The IQM and its interval.
+
+    Raises
+    ------
+    ValueError
+        If there are no values, one is NaN, `reps` is below 100 or `confidence` is outside
+        (0, 1).
     """
     return stratified_bootstrap({"runs": values}, aggregate_iqm, reps, confidence, rng)
 

@@ -409,14 +409,16 @@ release may change the public API, and every such change is listed under Changed
   `spacegym-rendezvous`; the dispersions `AngleShell` and `LimitedSpeed`; `HoldParams.out_of_bounds`
   and `end_on_arrival`; `InspectionParams.shadow` and `out_of_bounds`.
 - `vbar.eval`, the evaluation harness: the suite runner (`run_suite`, `run_jobs`) with resumable
-  JSON-lines results, a provenance hash per run and the `Task` interface.
+  JSON-lines results, a provenance hash per run and the `Task` interface; a result line with a
+  missing field or a bad seed, and a job with a bad seed or index, are refused.
 - `vbar.eval.stats` and `vbar.eval.tails`: the IQM, stratified bootstrap, performance profiles,
   probability of improvement and paired differences; safety tails with order-statistic intervals
-  and tolerance bounds, and rate comparisons that refuse unresolved claims.
+  and tolerance bounds, and rate comparisons that refuse unresolved claims; NaN scores, fractional
+  counts and probabilities outside their range are refused.
 - `vbar.eval.coverage`: coverage of the scoring intervals on synthetic outcomes, and McNemar's
-  exact test.
+  exact test; the studies refuse impossible sizes and probabilities before drawing.
 - `vbar.eval.learned`: learned-agent entries (`LearnedEntry`, `TrainingRun`), training runs as the
-  unit, failed runs never replaced.
+  unit, failed runs never replaced; counts and seeds must be whole numbers.
 - `vbar.eval.report` and the command line `python -m vbar.eval run | report | reproduce`: suite
   reports that refuse a partial suite, and `reproduce.toml`, which rebuilds every published table.
 - `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
