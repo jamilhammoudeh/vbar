@@ -28,6 +28,7 @@ from .elements import (
 )
 from .glideslope import GlideslopeAgent, GlideslopeProfile, glideslope_profile, glideslope_pulses
 from .lambert import LambertAgent
+from .learned_supervisor import PolicySupervisor, supervisor_features
 from .llm import (
     LLMAgent,
     Price,
@@ -160,4 +161,6 @@ __all__ = [
     "SUPERVISOR_PROMPT",
     "LLMSupervisor",
     "parse_order",
+    "PolicySupervisor",
+    "supervisor_features",
 ]
