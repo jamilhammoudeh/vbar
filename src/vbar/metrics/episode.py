@@ -216,8 +216,11 @@ def record_pair(
         The scenario, built with ``training=False``; `reset` rebuilds every random stream from the
         seed, so both runs start from the same state with the same noise.
     make_agent : callable
-        Returns a new agent on each call. Each run gets its own, so nothing the agent remembers
-        from one run reaches the other.
+        Returns a new agent on each call. Each run gets its own instance and its own random
+        generator, seeded alike. State kept outside the instance, in a class attribute, a module
+        global or a file, is shared by the two runs, which also share the episode's start and
+        noise, so an agent that stores what it saw in one run can recover the start of the other.
+        A pair run in one process cannot isolate such state.
     safety_filter : SafetyFilter
         The filter of the on run.
     seed, agent_seed : int, optional

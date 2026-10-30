@@ -355,9 +355,12 @@ safety_filter, seed=None, agent_seed=None)` (in `vbar.metrics`) flies it twice a
 - Both runs use the same episode seed and agent seed, drawn with 128 bits when not given and
   refused when equal, so they start from the same state with the same navigation noise and the
   same agent stream.
-- `make_agent` is called once per run and must return a new object each time, so nothing the
-  agent remembers from one run reaches the other; a factory that returns the same object twice
-  is refused.
+- `make_agent` is called once per run and must return a new object each time, so the two runs
+  share neither the instance nor its random generator (both are seeded alike); a factory that
+  returns the same object twice is refused. State kept outside the instance (a class attribute,
+  a module global, a file) is shared by the two runs, which also share the episode's start and
+  noise, so an agent that stores what it saw in one run can recover the start of the other. A
+  pair run in one process cannot isolate such state.
 - Both runs go through `FilteredAgent`, the unfiltered one with `PassThroughFilter`, so the agent
   is called the same way in both and every record carries a filter result.
 - The order of the two runs is drawn at random and recorded in `first`. Until the filter first

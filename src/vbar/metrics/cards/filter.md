@@ -68,7 +68,7 @@ power figures need real filters and are not given.
 - Convergence: inherits E1's.
 - Invariance: run order.
 - Mutation detection: a filter that wastes fuel raises it.
-- Anti-gaming: pairing by seed removes start-state luck; both runs go through the same filter wrapper (the off run with the pass-through filter), each with a new agent object, in an order drawn at random, so the agent sees the same inputs in both runs until the first intervention.
+- Anti-gaming: pairing by seed removes start-state luck; both runs go through the same filter wrapper (the off run with the pass-through filter), each with a new agent object, in an order drawn at random, so the agent sees the same inputs in both runs until the first intervention. The runs share the process: an agent that keeps what it saw outside its instance (a class attribute, a module global, a file) can carry it into the other run.
 - Reproducibility: 1e-9 relative.
 - Power: not given.
 - Validity: not yet measured.
