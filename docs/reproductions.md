@@ -68,8 +68,8 @@ numbers belong to its rounded 0.001 rad/s.
 
 - The case's axes map from the paper's frame to V-BAR's as stated.
 - The LP plan, flown on exact CW arcs, takes every impulse on the line 20 m above the target, keeps
-  every midpoint within the bound and ends at rest at the aim; its N = 10, 1 m cost is 2.31 m/s;
-  at N = 10 a 0.55 m bound cannot be met and a 0.57 m bound is met by the flown arcs; settings off
+  every midpoint within the bound and ends at rest at the aim; its N = 10, 1 m cost is 2.31 m/s; at
+  N = 10 a 0.5614 m bound cannot be met and a 0.5616 m bound is met by the flown arcs; settings off
   the V-bar line or out of range are refused and an impossible bound is reported. `excursion`
   refuses bad inputs.
 - Slow: the table in [validation.md](validation.md) is exactly what `python -m vbar.reproductions`

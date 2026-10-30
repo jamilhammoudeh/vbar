@@ -72,12 +72,12 @@ def test_the_published_cost_belongs_to_the_rounded_orbital_rate():
 
 
 def test_the_midpoint_bound_is_active_near_its_threshold():
-    # At N = 10 the free optimum bows 0.5615 m off the line at mid-arc: a 0.55 m bound cannot be
-    # met, and a 0.57 m bound is met by the flown arcs, sampled finely.
+    # At N = 10 the free optimum bows 0.5615 m off the line at mid-arc: a bound 0.1 mm under that
+    # cannot be met, and one 0.1 mm over it is met by the flown arcs, sampled finely.
     with pytest.raises(ValueError, match="bound"):
-        lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 10, 0.55)
-    plan = lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 10, 0.57)
-    assert excursion(CASE.n, np.asarray(CASE.start), plan, samples=2000) <= 0.57 + 1e-9
+        lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 10, 0.5614)
+    plan = lp_glideslope(CASE.n, CASE.start, CASE.aim, CASE.duration, 10, 0.5616)
+    assert excursion(CASE.n, np.asarray(CASE.start), plan, samples=2000) <= 0.5616 + 1e-9
 
 
 @pytest.mark.parametrize(
