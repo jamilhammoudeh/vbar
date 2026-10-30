@@ -362,6 +362,29 @@ class TwoBodyDynamics:
         self._sol = None
         self._step = None
 
+    def reset_inertial(self, target: ArrayLike, chaser: ArrayLike) -> None:
+        """Start from given inertial states instead of the configured orbit.
+
+        `n`, `altitude` and `inclination` keep the configured orbit's values.
+
+        Parameters
+        ----------
+        target, chaser : array_like
+            Inertial [r, v] (m, m/s), shape (6,), in the body-centred frame with z along the
+            spin axis that the gravity and perturbation models use.
+
+        Raises
+        ------
+        ValueError
+            If a state does not have six finite entries.
+        """
+        states = [np.array(s, dtype=float) for s in (target, chaser)]
+        if any(s.shape != (6,) or not np.all(np.isfinite(s)) for s in states):
+            raise ValueError("target and chaser must be six finite numbers each")
+        self._y = np.concatenate([states[0], states[1] - states[0]])
+        self._sol = None
+        self._step = None
+
     def _gravity(self, r: np.ndarray) -> np.ndarray:
         return gravity(r, self.body, self.j2)
 

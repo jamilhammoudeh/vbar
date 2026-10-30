@@ -657,6 +657,20 @@ Li and Wang (*Aerospace* 9, 242, 2022), eqs. 14 to 25
 - KSP's resource definitions (`ResourcesGeneric.cfg`): monopropellant density 0.004 t per unit.
 - Carrasco, Rodriguez-Fernandez and Linares (arXiv 2408.08676, 2024): the PE1_I3_E3 scenario as
   the one their LLM agents were evaluated on.
+
+## Flight data
+
+- GRACE-FO (2019), GRACEFO_L1B_ASCII_GRAV_JPL_RL04, ver. 4, PO.DAAC, doi:10.5067/GFL1B-ASJ04 (CC0):
+  GNV1B orbits and the KBR1B range of 3 December 2019, excerpted every 120 s over 16 h. The J2 and
+  J2-plus-drag rungs stay inside an error bound stated before the run over ten orbits, the GPS range
+  agrees with the K-band range to 1.3 mm RMS, and CW is off by more than 10 km within an orbit at the
+  182 km separation ([flight-data.md](flight-data.md), `tests/test_flightdata.py`).
+- GRACE-FO Level-1 Data Product User Handbook (2019): the file format, frames and time scale, and
+  the launch mass and front area used for the drag rung.
+- Montenbruck and Gill, Satellite Orbits (2000), eqs 3.43 and 3.44: the low-precision Sun direction,
+  checked at the December 2019 solstice, March 2020 equinox and June 2020 solstice (US Naval
+  Observatory times) to 0.05 deg in declination.
+
 ## Public reports behind the mission reconstructions
 
 Facts only, each cited in [reconstructions.md](reconstructions.md); none is an operator's data.

@@ -346,7 +346,10 @@ Also included, each documented in [docs/](https://github.com/jamilhammoudeh/vbar
   (`vbar.dynamics.periodic_orbits`);
 - Kepler propagation for any conic (`vbar.dynamics.kepler`), conversion between states and
   classical elements for elliptic orbits, and J2 secular rates with a first-order mean-osculating
-  element map (`vbar.dynamics.mean_elements`).
+  element map (`vbar.dynamics.mean_elements`);
+- a replay of flown orbits through these models (`vbar.flightdata`): GRACE-FO's two satellites on
+  3 December 2019, 182 km apart, stay inside an error bound stated before the run over ten orbits
+  on the J2 and drag rungs, a check of the nonlinear models, not of Clohessy-Wiltshire.
 
 Earth uses the WGS 84 constants; a Kerbin body with KSP's values is available for comparison with
 KSPDG.
@@ -408,11 +411,11 @@ with a `:nominal` variant without the failure
 
 How each part is built, with its equations, methods, assumptions and limits, is in
 [docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part:
-frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
-spacecraft, sensors, faults, constraints, the environment, scenarios, reconstructions, metrics,
-rewards, training interfaces, the vectorized environment, agent tools, LLM agents, remote agents,
-policy export, solvers, the evaluation harness, the external propagators, the classical baselines,
-pursuit-evasion in KSPDG's format and validation.
+frames, dynamics, perturbations, relative-motion models, flight-data replay, transition matrices,
+three-body models, spacecraft, sensors, faults, constraints, the environment, scenarios,
+reconstructions, metrics, rewards, training interfaces, the vectorized environment, agent tools,
+LLM agents, remote agents, policy export, solvers, the evaluation harness, the external propagators,
+the classical baselines, pursuit-evasion in KSPDG's format and validation.
 
 ## Tests
 

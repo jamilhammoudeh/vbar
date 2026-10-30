@@ -23,6 +23,11 @@ release may change the public API, and every such change is listed under Changed
   the signatures of KSPDG's agent interface, so KSPDG agents run unchanged; `PursuitTask` for
   `vbar.eval.run_jobs`; the reference pursuers `LineOfSightPursuer` and
   `VelocityMatchingPursuer`; `docs/pursuit-evasion.md`.
+- `vbar.flightdata`: flown orbits replayed through the relative-motion models (`replay`, `hill_states`,
+  `earth_fixed_to_inertial`, `gmst`, `sun_direction`, `error_envelope`, a GRACE-FO Level-1B reader and
+  an excerpt format), and `TwoBodyDynamics.reset_inertial`. A GRACE-FO excerpt of 2019-12-03
+  (doi:10.5067/GFL1B-ASJ04, CC0) checks the two-body, J2 and drag rungs over ten orbits against a bound
+  stated before the run; `docs/flight-data.md` documents it.
 - Mission reconstructions from public reports, `recon-progress-m34`, `recon-ets7` and `recon-dart`
   (Gymnasium `vbar/ReconProgressM34-v0`, `vbar/ReconEts7-v0`, `vbar/ReconDart-v0`), each with a
   `:nominal` variant without its failure; `docs/reconstructions.md` documents them.
