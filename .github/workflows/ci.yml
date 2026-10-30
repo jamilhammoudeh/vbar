@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.15"
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev,replay]"
       - run: python -m pytest -q --cov=vbar --cov-report=term-missing:skip-covered --cov-fail-under=95
 
   benchmark:
@@ -87,6 +87,17 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install -e ".[dev,onnx]" pip-licenses
       - run: python -m pytest -q tests/test_policy.py tests/test_onnx_export.py
+      - run: pip-licenses --from=mixed --partial-match --fail-on="GPL;General Public License;UNKNOWN"
+
+  replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev,replay]" pip-licenses
+      - run: python -m pytest -q tests/test_replay.py tests/test_extra_replay.py tests/test_docs.py
       - run: pip-licenses --from=mixed --partial-match --fail-on="GPL;General Public License;UNKNOWN"
 
   licenses:
