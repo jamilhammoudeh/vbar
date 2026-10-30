@@ -30,7 +30,7 @@ Activations (`vbar.faults`):
 | Activation | Active |
 |---|---|
 | `Always()` | for the whole episode (the default) |
-| `Window(start_s, end_s)` | at decision times t with start_s <= t < end_s |
+| `Window(start_s, end_s)` | at decision times t with start_s <= t < end_s, an edge within rounding of a decision counting as reached there |
 | `After(condition)` | from the first step in which `condition` holds, for the rest of the episode |
 | `Until(condition)` | until the first step in which `condition` holds |
 | `Intermittent(probability, within)` | at each decision with `probability` while `within` is active |

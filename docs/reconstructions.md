@@ -18,7 +18,8 @@ controller can be scored with and without it, and each failure is built from the
 All three use Clohessy-Wiltshire dynamics by default and the hold-point task
 ([scenarios.md](scenarios.md)): reach a point near the target, stay inside its capture ball below
 its capture speed for the dwell, and never enter the keep-out sphere. Entering it ends the
-episode (`terminate_on_violation`), since in each event it stands for hitting the target.
+episode at the end of that step (`terminate_on_violation`), since in each event it stands for
+hitting the target; the chaser may have passed through by then, and the record keeps the entry.
 
 ## Progress M-34 and Mir
 
@@ -153,10 +154,10 @@ scenario over drawn seeds:
 
 Which design choice would have caught each failure, as far as these runs show:
 
-- Progress M-34: range and range rate. With them the same controller holds on every seed; the
-  line of sight and its rate alone do not show a closing speed, and the controller flies into the
-  station. Doing nothing was safer than flying blind, as the post-event simulations Ellis cites
-  found: the arc aimed 1000 m behind the station misses it.
+- Progress M-34: range and range rate. With them the same controller holds on all 20 validation
+  seeds; the line of sight and its rate alone do not show a closing speed, and the controller
+  flies into the station. Doing nothing was safer than flying blind, as the post-event
+  simulations Ellis cites found: the arc aimed about 1000 m behind the station misses it.
 - DART: an independent velocity source. A controller that differences its position readings is
   not fooled by the bias; one that trusts the biased velocity never reaches its hold point. The
   real collision also needed the estimator's resets (not modelled), so these runs do not
