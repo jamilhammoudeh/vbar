@@ -495,3 +495,16 @@ def test_a_whole_number_period_and_an_integer_penalty_are_accepted():
     env.reset(seed=SEED)
     env.step(int(Command.CONTINUE))
     assert env.unwrapped.steps == 12
+
+
+@pytest.mark.parametrize("action", [1.7, 1.0, "1", True, np.bool_(True), 7, -1, None, [1]])
+def test_an_action_that_is_not_an_integer_command_is_refused_before_anything_is_flown(action):
+    env = SupervisorEnv(make("approach-vbar"))
+    env.reset(seed=3)
+    before = env.base.state.copy()
+    with pytest.raises(ValueError, match="integer command"):
+        env.step(action)
+    assert np.array_equal(env.base.state, before)
+    # The refusal changed nothing: integer commands, Python or numpy, are still accepted.
+    env.step(np.int64(int(Command.CONTINUE)))
+    env.step(int(Command.CONTINUE))

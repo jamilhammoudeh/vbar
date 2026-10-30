@@ -217,6 +217,8 @@ class SupervisorEnv(gym.Wrapper):
     def step(self, action):
         if self._agent is None:
             raise RuntimeError("reset the environment before stepping")
+        if isinstance(action, (bool, np.bool_)) or not self.action_space.contains(action):
+            raise ValueError(f"the action must be an integer command in 0 to 6, got {action!r}")
         command = Command(int(action))
         refused = not self._situation.mask[command]
         cast(_Relay, self._agent.supervisor).command = command
