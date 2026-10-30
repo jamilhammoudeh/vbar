@@ -1,7 +1,9 @@
 """Without the replay extra, the export names the command that installs it."""
 
 import re
+import runpy
 import sys
+from pathlib import Path
 
 import pytest
 from metric_cases import episode
@@ -10,6 +12,7 @@ from vbar.agents import PDAgent
 from vbar.replay import export_rrd
 
 INSTALL = re.escape('pip install "vbar[replay]"')
+DEMO = Path(__file__).resolve().parents[1] / "examples" / "replay_demo.py"
 
 
 def test_export_without_rerun_names_the_install_command(monkeypatch, tmp_path):
@@ -31,3 +34,11 @@ def test_importing_the_module_does_not_need_rerun(monkeypatch):
     monkeypatch.setitem(sys.modules, "rerun", None)
     monkeypatch.delitem(sys.modules, "vbar.replay")
     import vbar.replay  # noqa: F401
+
+
+def test_demo_without_rerun_names_the_install_command(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(sys.modules, "rerun", None)
+    with pytest.raises(ImportError, match=f"needs rerun: {INSTALL}"):
+        runpy.run_path(str(DEMO))
+    assert not list(tmp_path.rglob("*.rrd"))
