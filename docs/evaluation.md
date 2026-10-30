@@ -63,7 +63,8 @@ One JSON object per episode (schema 1):
 |---|---|
 | `schema`, `task`, `suite` | schema version, the task's name, the suite identifier |
 | `scenario`, `scenario_id`, `split`, `index` | entry name with variants, identifier flown, seed split, index in the split |
-| `seed`, `agent_seed` | the seeds, as decimal strings: 128-bit integers do not survive JSON readers that parse numbers as doubles |
+| `seed`, `agent_seed` | the seeds, as decimal strings: 128-bit integers do not survive JSON readers that parse numbers as doubles; null on the test split |
+| `seed_digest`, `agent_seed_digest` | keyed digests of the two seeds, 64 hex digits; null only for a split with no key, never on the test split |
 | `agent`, `filter` | names; `filter` is null without one |
 | `metrics`, `failure_label`, `error` | the task's score; the label of a failed run; the exception of a crashed one |
 | `provenance`, `environment`, `wall_s` | the run's hash, the software and machine it ran on, its wall time |
@@ -72,6 +73,70 @@ The files are strict JSON: NaN and infinite metric values are written as the str
 `"inf"` and `"-inf"` and read back as floats by `read_results`. `save_trajectories(path, episodes)`
 stores the true states, times, observations and commands of recorded episodes in a compressed
 `.npz` file keyed by provenance hash; `load_trajectories` reads them back.
+
+## The hidden test split
+
+The seeds of the test split are secret: whoever knows one can rebuild that episode's start state
+([scenarios.md](scenarios.md#seeds)). Result files are published, so the lines of the test split
+hold no seed:
+
+- `seed` and `agent_seed` are written as null, whatever the result held in memory, and
+  `read_results` returns None for them. Null is read only for the test split; in any other split
+  it is a refused line. A test split result needs both digests, each 64 lowercase hex digits, when
+  it is written and when it is read.
+- No other field may hold a secret either. An exception message can carry the seeds of the run
+  that raised it, or the key, so in the `error` text of a test split result they are replaced by
+  `<hidden>`, in decimal and in hexadecimal (8 characters or more, any case). Anywhere else in
+  the line, the hidden key in `VBAR_HIDDEN_SEED_KEY` or either seed makes `encode` raise
+  `ValueError` before anything is written. Only those two spellings are searched for: a seed
+  written in another base, with digit groups or encoded is not found. This stops a publication,
+  not a theft: an agent that
+  runs in the harness's own process can read the key from the environment. Run submitted agents in
+  a process of their own, started without the key in its environment, such as a remote agent
+  ([remote-agents.md](remote-agents.md)).
+- `seed_digest` and `agent_seed_digest` name the run instead. `seed_digest(split, seed, index,
+  stream="episode")` in `vbar.scenarios.seeds` is the HMAC-SHA256, keyed with the split's key, of
+  the text `vbar seed digest|<stream>|<index>|<seed>`; the agent seed uses the stream `"agent"`.
+  `run_job` stores both digests in every result of every split, and leaves them None where the
+  split has no key (a custom split name). Without the key a guessed seed cannot be tested against
+  a digest.
+- The provenance hash covers the seeds one way, and a 128-bit seed cannot be searched for, so it
+  reveals nothing. Resuming works on a test split file as on any other.
+
+A maintainer checks a published file with the hidden key in `VBAR_HIDDEN_SEED_KEY`. A line belongs
+to the run of the suite whose seed it holds or, where its seed is null, whose digest it holds, so
+`Suite.require_complete` and `suite_report` accept the published lines of `core-test-v1` as they
+accept the lines of `core-v1`, and `latest_results` identifies a run by its digest where the seed
+is null. A line whose digest matches no run of the suite belongs to none, so a file with an altered
+digest is refused as missing that run. The message about a missing run of a test split entry
+names the scenario and the index in the entry, never the seed. The same check, line by line:
+
+```python
+from vbar.scenarios import seeds
+from vbar.scenarios.seeds import seed_digest
+
+for result in results:
+    seed = seeds(result["scenario"], result["split"], result["index"] + 1).seed(result["index"])
+    assert result["seed_digest"] == seed_digest(result["split"], seed, result["index"])
+```
+
+The block runs on the validation results flown above; on a published test file, whose lines hold
+no seed, it is the same with the key set.
+
+The seeds themselves are kept privately. If the environment variable `VBAR_HIDDEN_SEED_LOG`
+(`HIDDEN_LOG_VARIABLE` in `vbar.scenarios.seeds`) names a file, `write_results`, and with it
+`run_jobs`, `run_suite` and `python -m vbar.eval run`, first appends one JSON line per test split
+result to it: `suite`, `scenario_id`, `split`, `index`, `seed` and `agent_seed` as decimal strings,
+and both digests. Nothing is written when the variable is unset or empty or the result is of
+another split. The file only grows, and a write that cannot open it raises before the result's
+line is written, so no private record is lost. It belongs next to the hidden key in the
+maintainers' private storage, never beside the published results; `write_results` refuses a log
+that is the results file itself. A run killed between the log and
+the results file is flown again and logged twice.
+
+`save_trajectories` stores the true states of the episodes, and the start state of a hidden
+episode follows from them. Trajectory files of the test split are as secret as the seeds and are
+not published.
 
 ## Provenance
 
@@ -191,9 +256,11 @@ training run's steps and violations) must be integers in range: numpy integers p
 `100.0`) and bools do not. `compare_rates` and `clopper_pearson` are the exception: they read a
 whole float such as `3.0` as its integer. `confidence`, `level`, `coverage` and `alpha` lie in (0, 1), `p` in
 [0, 1], and `widen` is finite and positive. A result line needs every schema field, an object for
-`metrics` and a seed that is decimal text or a JSON integer of at least 0, or `read_results` raises
-`ValueError` naming the line. A `Job` takes integer seeds, and `encode` writes them from integers
-only; decimal text is read by `decode` but not accepted by `encode`.
+`metrics` and a seed that is decimal text or a JSON integer of at least 0 (null for the test split),
+or `read_results` raises `ValueError` naming the line. A `Job` takes integer seeds, and `encode`
+writes them from integers only; decimal text is read by `decode` but not accepted by `encode`.
+On the test split `encode` takes a seed that is None or a whole number of at least 0 and refuses
+any other, since it could not search for it.
 
 ## Assumptions and limits
 
@@ -211,6 +278,9 @@ only; decimal text is read by `decode` but not accepted by `encode`.
 `tests/test_eval_runner.py`: serial and parallel results agree; an interrupted run resumes
 without flying a run twice; a crashing agent is recorded, not dropped; the provenance hash changes
 with every field it covers; 128-bit seeds and non-finite metrics survive the file.
+`tests/test_eval_hidden_split.py`: the digest against a standard-library HMAC and fixed vectors,
+test split files holding no seed or key in decimal or hexadecimal, the private log, resuming, and
+complete, partial and altered reports from published lines.
 `tests/test_eval_stats.py`, `tests/test_eval_tails.py`: the IQM and the stratified bootstrap
 against hand cases and their invariances, the Mann-Whitney identity of the probability of
 improvement, the order-statistic and tolerance ranks and their coverage by simulation, the

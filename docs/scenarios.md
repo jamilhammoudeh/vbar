@@ -2,8 +2,8 @@
 
 Code: `vbar.scenarios.spec` (`ScenarioSpec`, the dispersion types, `Observation`,
 `per_draw_level`), `vbar.scenarios.registry` (`SCENARIOS`, `make`, `register`, `parse_id`,
-`gymnasium_id`, tags, plugins), `vbar.scenarios.seeds` (`seeds`, `SeedSplit`),
-`vbar.scenarios.suites` (`Suite`, `SUITES`), `vbar.scenarios.targets` (target attitude modes and
+`gymnasium_id`, tags, plugins), `vbar.scenarios.seeds` (`seeds`, `SeedSplit`, `seed_digest`),
+`vbar.scenarios.suites` (`Suite`, `SUITES`, `match_runs`), `vbar.scenarios.targets` (target attitude modes and
 the constraints that follow them), `vbar.scenarios.scenario` (`ScenarioEnv`, identifiers), the
 scenario kinds `vbar.scenarios.hold`, `docking`, `inspection`, `berthing`, `departure`, and the
 catalogue `vbar.scenarios.catalog`. Every scenario is built on the base environment of
@@ -89,14 +89,17 @@ of the scenario with each and keep the one whose first observation matches its o
 public key with the agent label until it reproduces its own stream, and in either case know the
 true state at every step ([environment.md](environment.md)). Public splits are for development and
 for numbers reported as development results; scored comparisons use the test split, whose seeds
-neither search finds without the key.
+neither search finds without the key. Its seeds are not published either: result lines of the
+test split hold `seed_digest(split, seed, index)`, an HMAC of the seed under the split's key,
+instead ([evaluation.md](evaluation.md#the-hidden-test-split)).
 
 ## Suites
 
 A `Suite` is a versioned list of entries (scenario with variants, split, number of seeds);
 `runs()` lists every (scenario identifier, seed, agent seed) and `missing(results)` the runs a
 report lacks, and `require_complete(results)` refuses a report that lacks any, so a suite is
-reported in full or not at all. The core suite carries the headline benchmark: `core-v1` is
+reported in full or not at all. A result belongs to a run by its seed or, if it has none, by its
+`seed_digest`. The core suite carries the headline benchmark: `core-v1` is
 `approach-vbar`, `approach-rbar`, `docking:axis`, `docking-afrl` and `inspection`, each without and
 with `:nav1`, on 100 validation seeds per entry, and `core-test-v1` the same ten entries on 100
 hidden test seeds each. The rest of the catalogue stays available outside it. Also built in:

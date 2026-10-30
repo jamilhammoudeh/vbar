@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from ..metrics import clopper_pearson
+from ..scenarios.suites import match_runs
 from .provenance import combined_hash
 from .runner import by_scenario
 from .stats import summary_interval
@@ -145,20 +146,30 @@ def latest_results(results: Sequence[Mapping[str, Any]]) -> list[Mapping[str, An
     provenance; the later one is the current code's. Results of different agents or filters stay
     apart, so `suite_report` still refuses a file that mixes them.
 
+    A result whose seed is None, as in a published file of the test split, is identified by its
+    "seed_digest".
+
     Parameters
     ----------
     results : sequence of mapping
-        Results with "scenario_id", "seed", "agent" and "filter", in file order.
+        Results with "scenario_id", "seed" (and "seed_digest" where the seed may be None),
+        "agent" and "filter", in file order.
 
     Returns
     -------
     list of mapping
-        One result per (scenario_id, seed, agent, filter).
+        One result per (scenario_id, seed or seed_digest, agent, filter).
+
+    Raises
+    ------
+    KeyError
+        If a result lacks one of those fields.
     """
     last: dict[tuple[Any, ...], Mapping[str, Any]] = {}
     for result in results:
-        key = (result["scenario_id"], int(result["seed"]), result["agent"], result["filter"])
-        last[key] = result
+        seed = result["seed"]
+        run = result["seed_digest"] if seed is None else int(seed)
+        last[(result["scenario_id"], run, result["agent"], result["filter"])] = result
     return list(last.values())
 
 
@@ -178,7 +189,8 @@ def suite_report(
         The suite; results missing any of its runs are refused.
     results : sequence of mapping
         Results with "scenario", "scenario_id", "seed", "agent", "filter", "metrics",
-        "failure_label", "error" and "provenance".
+        "failure_label", "error" and "provenance", and "seed_digest" where "seed" may be None,
+        as in a published file of the test split (`vbar.scenarios.suites.match_runs`).
     summaries : mapping, optional
         Metric name to summary kind; the V-BAR catalogue by default.
     reps : int
@@ -199,7 +211,10 @@ def suite_report(
     ------
     ValueError
         If a run of the suite is missing or repeated, the results mix agents or filters, or a run
-        has no provenance.
+        has no provenance. The message about a missing run of the test split names its index, not
+        its seed.
+    KeyError
+        If a result lacks a field listed above.
     """
     identifiers = None
     if task is not None:
@@ -207,12 +222,12 @@ def suite_report(
             e.scenario: task.identity(task.make(e.scenario))["scenario_id"] for e in suite.entries
         }
     suite.require_complete(results, identifiers)
-    wanted = {(sid, seed) for sid, seed, _ in suite.runs(identifiers)}
-    kept = [r for r in results if (r["scenario_id"], int(r["seed"])) in wanted]
+    positions = match_runs(suite, results, identifiers)
+    kept = [r for r, position in zip(results, positions, strict=True) if position is not None]
     agents = {(r["agent"], r["filter"]) for r in kept}
     if len(agents) != 1:
         raise ValueError(f"a report covers one agent and filter, not {sorted(map(str, agents))}")
-    if len(kept) != len(wanted):
+    if len(kept) != len(suite.runs(identifiers)):
         raise ValueError("a report takes one result per run; the results hold repeated runs")
     if any(r.get("provenance") is None for r in kept):
         raise ValueError("every run in a report needs its provenance")

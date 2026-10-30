@@ -402,7 +402,9 @@ release may change the public API, and every such change is listed under Changed
 - Every scenario goal carries `cam_impulses`, the abort set the abort metrics check.
 - The core suite `core-v1` (the V-bar and R-bar approaches, `docking:axis`, `docking-afrl` and the
   inspection, each with and without `:nav1`, 100 validation seeds each) and `core-test-v1` (the
-  same on the hidden test split); `Suite.require_complete` refuses a partial report.
+  same on the hidden test split, whose result lines hold the keyed digest `seed_digest` of each
+  seed instead of the seed, matched to their runs by `Suite.missing` and `match_runs`);
+  `Suite.require_complete` refuses a partial report.
 - `DriftingVelocity`, a start-velocity dispersion that excludes slowly drifting orbits.
 - Comparison tasks rebuilt from their papers: `afrl-docking` and `afrl-inspection` (the AFRL
   safe-autonomy deep-RL docking and illuminated inspection tasks) and `spacegym-docking` and
@@ -411,7 +413,9 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.eval`, the evaluation harness: the suite runner (`run_suite`, `run_jobs`) with resumable
   JSON-lines results, a provenance hash per run (covering a digest of local edits to tracked
   source files, so a resumed run is not served results of other edits) and the `Task` interface; a result line with a
-  missing field or a bad seed, and a job with a bad seed or index, are refused.
+  missing field or a bad seed, and a job with a bad seed or index, are refused; the seeds of the
+  test split are never written to a result file, a line that would hold them or the hidden key is
+  refused, and `VBAR_HIDDEN_SEED_LOG` names the private file they are appended to instead.
 - `vbar.eval.stats` and `vbar.eval.tails`: the IQM, stratified bootstrap, performance profiles,
   probability of improvement and paired differences; safety tails with order-statistic intervals
   and tolerance bounds, and rate comparisons that refuse unresolved claims; NaN scores, fractional
