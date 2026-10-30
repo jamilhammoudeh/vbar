@@ -271,8 +271,9 @@ def test_vbars_arc_accepts_a_list_of_times_with_a_repeated_sample():
     [
         [thrust(0.0, 10.0), thrust(9.5, 5.0)],
         [thrust(0.0, 10.0), thrust(10.0 - 1e-6, 5.0)],
+        [thrust(0.0, 10.0), thrust(10.0 - 2e-9, 5.0)],
     ],
-    ids=["half-a-second", "a-microsecond"],
+    ids=["half-a-second", "a-microsecond", "two-nanoseconds"],
 )
 def test_burns_that_overlap_are_refused(burns):
     with pytest.raises(ValueError):
@@ -283,12 +284,20 @@ def test_burns_that_overlap_are_refused(burns):
     "burns",
     [
         [thrust(0.0, 10.0), thrust(10.0 - 1e-12, 5.0)],
+        [thrust(0.0, 10.0), thrust(10.0 - 5e-10, 5.0)],
         [thrust(0.0, 10.0), thrust(10.0, 5.0), thrust(15.0, 5.0)],
         [thrust(20.0, 5.0), thrust(0.0, 10.0), thrust(10.0, 5.0)],
         [thrust(0.0, 10.0), thrust(11.0, 5.0)],
         [],
     ],
-    ids=["rounding-overlap", "touching-chain", "listed-out-of-order", "gap", "none"],
+    ids=[
+        "rounding-overlap",
+        "half-a-nanosecond",
+        "touching-chain",
+        "listed-out-of-order",
+        "gap",
+        "none",
+    ],
 )
 def test_burns_that_do_not_overlap_are_accepted(burns):
     common.check_burns(burns)

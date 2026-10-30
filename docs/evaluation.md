@@ -116,12 +116,14 @@ Statistical Precipice", NeurIPS 2021:
 with a known rate or mean, builds the interval a report would, and counts how often it covers the
 truth over 1000 repeats (`rate_coverage`, `iqm_coverage`, `paired_coverage`, and
 `mcnemar_false_positives` for two equal controllers). The table, by number of runs, is in
-[validation.md](validation.md): the bootstrap intervals hold from 20 runs per cell, the exact rate
-intervals at every count, and McNemar's test stays under 5% false positives.
+[validation.md](validation.md): the bootstrap intervals hold at 20, 50 and 100 runs per cell and
+fall short at 5 (in the table's run also, narrowly, at 10), the exact rate intervals cover at least
+95% at every number of runs from 1 to 200 on the rates tested, and McNemar's test calls equal
+controllers different in at most 5% of repeats at 5, 10, 20, 50 and 100 runs.
 
 The normal-approximation interval is never used: for rare events its lower end falls below zero
 (3 failures in 10,000 runs give -3.9e-5; Kochenderfer, Wheeler and Wray, *Algorithms for Decision
-Making*, 2022, section 14.1), where the Clopper-Pearson interval is (6.19e-5, 8.77e-4).
+Making*, 2022, section 14.1), where the Clopper-Pearson interval is (6.19e-5, 8.76e-4).
 
 ## Safety tails
 
@@ -213,7 +215,11 @@ with every field it covers; 128-bit seeds and non-finite metrics survive the fil
 against hand cases and their invariances, the Mann-Whitney identity of the probability of
 improvement, the order-statistic and tolerance ranks and their coverage by simulation, the
 Clopper-Pearson cases of Kochenderfer et al. section 14.1, the conformal risk.
-`tests/test_eval_coverage.py`: the coverage table's cells and a narrowed interval failing it.
+`tests/test_eval_coverage.py`: the coverage table's cells at 50 and 100 runs and a narrowed
+interval failing it. `tests/test_eval_documented_figures.py`: the other figures this page and
+validation.md quote: the bootstrap coverage at 5 and 20 runs, McNemar's false-positive rate from 5
+to 100 runs, the exact rate interval's coverage from 1 to 200 runs, the documented defaults and the
+safety-tail figures.
 `tests/test_eval_report.py`: complete reports, refusals, the command line and the manifest.
 `tests/test_eval_learned.py`: the learned-agent rules. `tests/test_eval_domain.py`: the toy domain.
 Each module's `test_hostile_*` test runs the refusals of the Inputs section.

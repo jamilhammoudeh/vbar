@@ -812,13 +812,16 @@ run when the extras are installed).
 ## Coverage of the scoring intervals
 
 Synthetic outcomes with a known truth, 1000 experiments per cell, each interval at 95%
-(`benchmarks/coverage_table.py`; the cells at 50 and 100 runs and the narrowed interval are
-asserted in `tests/test_eval_coverage.py`). An interval holds when its coverage is within three
-binomial standard errors (2.1 points) of 95%. Success and keep-out rates use Clopper-Pearson;
+(`benchmarks/coverage_table.py`). `tests/test_eval_coverage.py` asserts that the IQM and paired
+intervals hold at 50 and 100 runs and that the narrowed interval fails;
+`tests/test_eval_documented_figures.py` asserts that they hold at 20 runs and fall short at 5, that
+McNemar's rate is at most 5% at every size, and that the exact rate intervals cover at least 95%
+at every number of runs from 1 to 200. An interval holds when its coverage is at most three
+binomial standard errors (2.1 points) below 95%. Success and keep-out rates use Clopper-Pearson;
 the continuous metric (normal, mean 2, sd 1) and the paired difference (two controllers sharing
 90% of each seed's variance, true difference 0.3) use the percentile bootstrap of the IQM with
 1000 resamples; McNemar's exact test compares two equal controllers (success 0.8) flown on the
-same seeds.
+same seeds, with probability 0.5 that a seed gives both one outcome (`shared=0.5`).
 
 | Runs per cell | Success 0.9 | Keep-out 0.05 | IQM | Paired difference | McNemar false positives |
 |---|---|---|---|---|---|
@@ -828,11 +831,14 @@ same seeds.
 | 50 | 0.976 | 0.992 | 0.938 | 0.945 | 0.014 |
 | 100 | 0.962 | 0.987 | 0.948 | 0.954 | 0.034 |
 
-The exact rate intervals cover at every count (they are conservative); the bootstrap intervals
-fall short below 20 runs, so a leaderboard row needs at least 20 runs per cell for its IQM
-interval to mean what it says, and the default of 100 holds with room. McNemar's false-positive
-rate stays below 5% at every count. An IQM interval narrowed to 0.7 of its width covers 0.849 at
-100 runs, so the test catches an interval that is too narrow.
+The exact rate intervals cover at least 95% at every number of runs from 1 to 200 on the rates
+tested (0.001 to 0.999), so the success columns are conservative. The bootstrap intervals fall
+short at 5 runs (and, narrowly, at 10 in the table's run) and hold at 20, 50 and 100, so a
+leaderboard row needs at least 20 runs per cell for its IQM interval to mean what it says; the
+default of 100 holds with room. McNemar's false-positive rate is at most 5% at 5, 10, 20, 50 and 100 runs. An IQM interval
+narrowed to 0.7 of its width falls well below 95% at 100 runs (0.849 in the table's run) and
+fails the coverage test, so the test catches an interval that is too narrow.
+
 ## Examples behind the oracles
 
 The tests of the primer-vector certificates ([oracle-certificates.md](oracle-certificates.md),
