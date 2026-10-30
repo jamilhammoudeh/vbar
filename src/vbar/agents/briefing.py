@@ -66,6 +66,32 @@ def _deg(angle: float) -> str:
     return f"{math.degrees(float(angle)):.4g} deg"
 
 
+def _finite(where: str, key: str, value: Any) -> np.ndarray:
+    """`value` as finite floats, refusing booleans, text and non-finite numbers."""
+    array = np.asarray(value) if not isinstance(value, Mapping) else np.asarray(None)
+    if array.dtype.kind not in "iuf" or not np.all(np.isfinite(array)):
+        raise ValueError(f"the {where} {key} must be numeric and finite, got {value!r}")
+    return array.astype(float)
+
+
+def _mode_numbers(mode: str, description: Mapping[str, Any]) -> None:
+    """Refuse a mode parameter that is not a finite number, or a zero spin axis."""
+    for key in ("pitch", "limit_cycle_amplitude", "limit_cycle_period", "phase", "rate"):
+        if key in description:
+            _finite(f"{mode} target mode's", key, description[key])
+    if "axis" in description:
+        axis = _finite(f"{mode} target mode's", "axis", description["axis"])
+        if axis.shape != (3,) or not np.linalg.norm(axis) > 0.0:
+            raise ValueError(f"the {mode} target mode's axis must be a nonzero 3-vector")
+    for burn in description.get("burns", ()):
+        try:
+            start, duration, accel = burn
+        except (TypeError, ValueError):
+            raise ValueError(f"a burn is (start, duration, acceleration), got {burn!r}") from None
+        for key, value in (("start", start), ("duration", duration), ("acceleration", accel)):
+            _finite("burn's", key, value)
+
+
 def target_mode(description: Mapping[str, Any]) -> TargetMode:
     """The target attitude mode a goal's "target" entry describes.
 
@@ -83,10 +109,11 @@ def target_mode(description: Mapping[str, Any]) -> TargetMode:
     Raises
     ------
     ValueError
-        If the mode is not one of passive, fixed_offset, inertial, tumbling or maneuvering, or
-        a parameter it needs is missing.
+        If the mode is not one of passive, fixed_offset, inertial, tumbling or maneuvering, a
+        parameter it needs is missing, or a parameter is not a finite number.
     """
     mode = description.get("mode", "passive")
+    _mode_numbers(mode, description)
     try:
         if mode == "maneuvering":
             attitude = target_mode(_attitude_of(description))
@@ -374,12 +401,20 @@ def check_goal(view: AgentView) -> None:
     Raises
     ------
     ValueError
-        If the goal of a known task lacks a key the task needs, or its target mode is unknown.
+        If the goal of a known task lacks a key the task needs, one of those keys is not finite
+        numbers, its port axis is zero, or its target mode is unknown or has a parameter that is
+        not a finite number.
     """
     task = view.goal.get("task", "hold")
     missing = [k for k in TASK_KEYS.get(task, ()) if k not in view.goal]
     if missing:
         raise ValueError(f"the {task} goal has no {', '.join(missing)}")
+    for key in TASK_KEYS.get(task, ()):
+        _finite(f"{task} goal's", key, view.goal[key])
+    if "port_axis" in TASK_KEYS.get(task, ()):
+        axis = np.asarray(view.goal["port_axis"], dtype=float)
+        if axis.shape != (3,) or not np.linalg.norm(axis) > 0.0:
+            raise ValueError(f"the {task} goal's port_axis must be a nonzero 3-vector")
     target_mode(view.goal.get("target", {"mode": "passive"}))
 
 

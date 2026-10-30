@@ -53,7 +53,9 @@ template uses none of the hold fields, so it flies every task kind.
 ### Briefing and situation
 
 `vbar.agents.briefing` turns the public view into words. `briefing(view)` describes the goal of
-each task kind from its keys (`TASK_KEYS`, which `check_goal(view)` requires):
+each task kind from its keys (`TASK_KEYS`, which `check_goal(view)` requires as finite numbers, with
+a port axis that is a nonzero 3-vector; `target_mode` refuses a mode parameter that is not a finite number and a zero
+spin axis):
 
 | Task | Keys | Sentence |
 |---|---|---|

@@ -58,6 +58,8 @@ def test_an_unknown_goal_entry_constraint_and_task_are_still_shown():
 def test_a_goal_without_a_key_its_task_needs_is_refused_naming_the_key(task):
     goal = {"task": task, "target": {"mode": "passive"}}
     goal.update({key: 1.0 for key in TASK_KEYS[task]})
+    if "port_axis" in goal:
+        goal["port_axis"] = (0.0, -1.0, 0.0)
     check_goal(view_with(goal))
     for key in TASK_KEYS[task]:
         partial = {k: v for k, v in goal.items() if k != key}
@@ -237,3 +239,51 @@ def test_a_departure_is_measured_outward_along_the_port_axis():
     assert clear == pytest.approx(
         np.linalg.norm(obs[:3] - np.array(view.goal["hold_point"])), abs=6e-3
     )
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        {"mode": "inertial", "phase": math.nan},
+        {"mode": "inertial", "phase": "abc"},
+        {"mode": "inertial", "phase": True},
+        {"mode": "fixed_offset", "pitch": "x"},
+        {"mode": "fixed_offset", "pitch": 0.1, "limit_cycle_period": math.inf},
+        {"mode": "tumbling", "axis": (0.0, 0.0, 1.0), "rate": math.inf, "phase": 0.0},
+        {"mode": "tumbling", "axis": (0.0, 0.0, 0.0), "rate": 0.01, "phase": 0.0},
+        {"mode": "tumbling", "axis": (0.0, 1.0), "rate": 0.01, "phase": 0.0},
+        {"mode": "tumbling", "axis": (1e-300, 0.0, 0.0), "rate": 0.01, "phase": 0.0},
+        {"mode": "maneuvering", "burns": ((0.0, 10.0, (0.0, math.nan, 0.0)),)},
+        {"mode": "maneuvering", "burns": ((0.0, 10.0),)},
+    ],
+)
+def test_a_target_mode_with_a_parameter_that_is_not_a_finite_number_is_refused(description):
+    with pytest.raises(ValueError, match="numeric and finite|nonzero 3-vector|a burn is"):
+        target_mode(description)
+
+
+@pytest.mark.parametrize(
+    ("name", "key", "value"),
+    [
+        ("docking", "lateral_limit", math.nan),
+        ("docking", "axial_speed_window", (0.05, math.inf)),
+        ("docking", "port", "front"),
+        ("approach-vbar", "capture_speed", None),
+        ("inspection", "coverage", -math.inf),
+        ("separation-flyaround", "clear_range", True),
+    ],
+)
+def test_a_goal_entry_its_task_needs_that_is_not_a_finite_number_is_refused(name, key, value):
+    view = make(name).agent_view()
+    check_goal(view)
+    with pytest.raises(ValueError, match=f"{key} must be numeric and finite"):
+        check_goal(dataclasses.replace(view, goal={**view.goal, key: value}))
+
+
+@pytest.mark.parametrize("name", ["docking", "separation-flyaround"])
+# A norm that underflows to zero divides by zero in the situation lines as an exact zero does.
+@pytest.mark.parametrize("axis", [(0.0, 0.0, 0.0), (1e-300, 0.0, 0.0), (0.0, 1.0)])
+def test_a_port_axis_that_is_not_a_nonzero_3_vector_is_refused(name, axis):
+    view = make(name).agent_view()
+    with pytest.raises(ValueError, match="port_axis must be a nonzero 3-vector"):
+        check_goal(dataclasses.replace(view, goal={**view.goal, "port_axis": axis}))
