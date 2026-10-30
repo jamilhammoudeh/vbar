@@ -14,6 +14,7 @@ The model is `complete(messages, tools) -> Reply | str`, as for `vbar.agents.LLM
 
 from __future__ import annotations
 
+import json
 import math
 import string
 import time
@@ -24,12 +25,56 @@ import numpy as np
 from .base import AgentView
 from .briefing import briefing
 from .briefing import situation as situation_text
-from .llm import Model, Price, as_reply, first_json
+from .llm import MAX_JSON_DEPTH, Model, Price, as_reply
 from .supervision import MODES, Command, Order, Rung, Situation
 
-# Longer replies are refused before parsing: `first_json` takes time quadratic in the number of
-# opening braces, about a second for 8,000 of them, and an order is a few hundred characters.
+# Longer replies are refused before parsing; an order is a few hundred characters.
 MAX_REPLY_CHARS = 8192
+# A reply's first few objects are tried; prose that opens a brace before the order costs one each.
+_OBJECT_STARTS = 8
+_DECODER = json.JSONDecoder()
+
+
+def _depth_from(text: str, start: int) -> int:
+    """Deepest nesting of the JSON value that opens at `start`, up to where it closes."""
+    depth = peak = 0
+    in_string = escaped = False
+    for ch in text[start:]:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            peak = max(peak, depth)
+        elif ch in "]}":
+            depth -= 1
+            if depth <= 0:
+                break
+    return peak
+
+
+def _first_object(text: str) -> dict[str, Any] | None:
+    """The first JSON object in `text` among its first few opening braces, nesting included."""
+    start = text.find("{")
+    for _ in range(_OBJECT_STARTS):
+        if start < 0:
+            return None
+        if _depth_from(text, start) <= MAX_JSON_DEPTH:
+            try:
+                value, _ = _DECODER.raw_decode(text, start)
+            except (ValueError, RecursionError):
+                value = None
+            if isinstance(value, dict):
+                return value
+        start = text.find("{", start + 1)
+    return None
+
 
 SUPERVISOR_PROMPT = """You supervise the approach of a chaser spacecraft to a target spacecraft. A
 controller flies the chaser to the reference your last command set. You do not thrust; you give
@@ -141,7 +186,9 @@ def _vector(value: Any) -> tuple[float, float, float] | None:
 def parse_order(text: str, mode: str) -> Order | None:
     """The order in a model's reply, or None when the reply holds no usable one.
 
-    The first JSON object in the reply counts, wherever it stands in the prose around it. Its
+    The first JSON object in the reply counts, nested values included, if it opens at one of the
+    reply's first eight "{"; prose before it may hold the others, and an object nested more than
+    `vbar.agents.llm.MAX_JSON_DEPTH` levels deep is skipped. Its
     "command" must be the name of a `Command`, in any case and with surrounding blanks; a number
     or another spelling is not a command. In "waypoint" mode a GO also needs a "point" of three
     finite numbers (m, Hill) and a finite "speed" (m/s), in "velocity" mode a "velocity" of three
@@ -172,8 +219,8 @@ def parse_order(text: str, mode: str) -> Order | None:
         raise ValueError(f"mode must be one of {', '.join(MODES)}, got {mode!r}")
     if not isinstance(text, str) or len(text) > MAX_REPLY_CHARS:
         return None
-    data = first_json(text)
-    if not isinstance(data, dict):
+    data = _first_object(text)
+    if data is None:
         return None
     name = data.get("command")
     if not isinstance(name, str) or not name.isascii():

@@ -29,7 +29,7 @@ from supervision_support import Flight, plain_step
 
 from vbar.agents import agent_generator
 from vbar.agents.briefing import TASK_KEYS, briefing, situation
-from vbar.agents.llm import Price, RecordedModel, ReplayError, ReplayModel, Reply
+from vbar.agents.llm import MAX_JSON_DEPTH, Price, RecordedModel, ReplayError, ReplayModel, Reply
 from vbar.agents.llm_supervisor import (
     MAX_REPLY_CHARS,
     SUPERVISOR_PROMPT,
@@ -177,6 +177,21 @@ def test_a_reason_is_kept_and_defaults_to_empty():
     order = parse_order(reply_of("HOLD", reason="closing too fast"), "ladder")
     assert order.command == HOLD and order.reason == "closing too fast"
     assert parse_order(reply_of("HOLD"), "ladder").reason == ""
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("reason", [3, 2.5, True, ["closing", "fast"], None], ids=repr)
+def test_a_reason_that_is_not_a_string_gives_an_order_with_an_empty_reason(reason, mode):
+    extra = DESTINATION[mode] if mode != "ladder" else {}
+    order = parse_order(reply_of("GO", reason=reason, **extra), mode)
+    assert isinstance(order, Order) and order.command == GO
+    assert order.reason == ""
+
+
+def test_a_reason_that_is_an_object_gives_an_order_with_an_empty_reason():
+    order = parse_order(reply_of("HOLD", reason={"why": "closing"}), "ladder")
+    assert isinstance(order, Order) and order.command == HOLD
+    assert order.reason == ""
 
 
 def test_fields_that_belong_to_another_mode_are_ignored():
@@ -901,3 +916,23 @@ def test_the_prompt_of_a_misbriefed_target_is_the_prompt_of_its_briefing():
             obs = env.step(agent.act(obs, env.agent_info()))[0]
         prompts.append(model.prompts)
     assert prompts[0] == prompts[1] and len(prompts[0]) == 12
+
+
+@pytest.mark.parametrize(("prose_braces", "found"), [(7, True), (8, False)])
+def test_an_order_is_read_only_within_the_first_eight_opening_braces(prose_braces, found):
+    text = "{ " * prose_braces + reply_of("GO")
+    order = parse_order(text, "ladder")
+    assert (order is not None and order.command == Command.GO) is found
+
+
+@pytest.mark.parametrize(("depth", "found"), [(MAX_JSON_DEPTH, True), (MAX_JSON_DEPTH + 1, False)])
+def test_an_order_nested_deeper_than_the_json_limit_is_not_read(depth, found):
+    # The order object itself is one level; its reason holds the rest.
+    reason = "[" * (depth - 1) + "]" * (depth - 1)
+    text = '{"command": "GO", "reason": ' + reason + "}"
+    assert (parse_order(text, "ladder") is not None) is found
+
+
+def test_deep_brackets_after_the_order_do_not_hide_it():
+    order = parse_order(reply_of("GO") + " " + "[" * (MAX_JSON_DEPTH + 10), "ladder")
+    assert order is not None and order.command == Command.GO
