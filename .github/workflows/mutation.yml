@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+permissions:
+  contents: read
+
 jobs:
   mutation:
     # Mirrors used for pre-merge CI would otherwise run this weekly on their own minutes.
