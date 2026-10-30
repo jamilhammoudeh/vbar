@@ -18,7 +18,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from ..bodies import Body
-from .common import Burn, check_aligned, inertial_accel
+from .common import Burn, check_aligned, check_propagation, inertial_accel
 
 INSTALL = 'pip install "vbar[basilisk]"'
 
@@ -63,7 +63,8 @@ def propagate(
     target, chaser : array_like
         Initial inertial [r, v] (m, m/s), shape (6,).
     times : array_like
-        Sample times (s) from the start, increasing, each a multiple of `substep`.
+        Sample times (s) from the start, non-negative and in time order, each a multiple of
+        `substep`; a time may repeat.
     body : Body
         Central body: its GM, equatorial radius and J2.
     j2 : bool
@@ -87,10 +88,13 @@ def propagate(
     ImportError
         If Basilisk is not installed.
     ValueError
-        If a time or a burn edge is not a whole number of substeps.
+        If a state is not six finite numbers, `times` is empty, not 1-D, not finite, negative or
+        not in time order, `tolerance`, `substep` or `mass` is not a finite positive number,
+        `burns` has an element that is not a `Burn`, one that starts before t = 0 or two that
+        overlap, or a time or a burn edge is not a whole number of substeps.
     """
+    x_t, x_c, samples = check_propagation(target, chaser, times, burns, tolerance, substep, mass)
     ext, grav_effector, spacecraft, integrators, base, macros, grav_bodies = _modules()
-    samples = np.asarray(times, dtype=float)
     steps = np.round(samples / substep).astype(int)
     if not np.allclose(steps * substep, samples, rtol=0.0, atol=1e-9):
         raise ValueError("sample times must be whole numbers of substeps")
@@ -112,8 +116,7 @@ def propagate(
         model.maxDeg = 2
         planet.gravityModel = model
     hubs, kept = [], []
-    for name, state in (("target", target), ("chaser", chaser)):
-        x = np.asarray(state, dtype=float)
+    for name, x in (("target", x_t), ("chaser", x_c)):
         hub = spacecraft.Spacecraft()
         hub.ModelTag = name
         hub.hub.mHub = mass

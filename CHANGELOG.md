@@ -424,7 +424,8 @@ release may change the public API, and every such change is listed under Changed
   `record_episode` from the environment's true target mode; never part of what an agent sees.
 - `vbar.dynamics.backends`: Basilisk and Orekit as independent propagators of the two-body plus J2
   rung (the optional extras `basilisk` and `orekit`), and the agreement table against them
-  (`benchmarks/agreement_table.py`).
+  (`benchmarks/agreement_table.py`). The propagators refuse malformed states, sample times,
+  tolerances and overlapping burns before the extra is imported.
 - `relative_acceleration` in `vbar.dynamics`: the Hill-frame acceleration of a coasting chaser
   from the target's inertial state, with or without J2, for model-based controllers.
 - `vbar.agents.lqr` design functions: discrete LQR by the discrete Riccati equation, the exact

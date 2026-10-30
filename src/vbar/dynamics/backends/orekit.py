@@ -19,7 +19,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from ..bodies import Body
-from .common import Burn, check_aligned, inertial_accel
+from .common import Burn, check_aligned, check_propagation, inertial_accel
 
 INSTALL = 'pip install "vbar[orekit]" and a Java runtime on JAVA_HOME'
 # High enough that a burn's propellant is below the mass's rounding.
@@ -110,7 +110,8 @@ def propagate(
     target, chaser : array_like
         Initial inertial [r, v] (m, m/s), shape (6,).
     times : array_like
-        Sample times (s) from the start, increasing; with burns, whole numbers of `substep`.
+        Sample times (s) from the start, non-negative and in time order (a time may repeat); with
+        burns, whole numbers of `substep`.
     body : Body
         Central body: its GM, equatorial radius and J2.
     j2 : bool
@@ -134,11 +135,13 @@ def propagate(
     ImportError
         If orekit-jpype or a Java runtime is missing.
     ValueError
-        If burns are given and a time or a burn edge is not a whole number of substeps.
+        If a state is not six finite numbers, `times` is empty, not 1-D, not finite, negative or
+        not in time order, `tolerance`, `substep` or `mass` is not a finite positive number,
+        `burns` has an element that is not a `Burn`, one that starts before t = 0 or two that
+        overlap, or burns are given and a time or a burn edge is not a whole number of substeps.
     """
+    x_t, x_c, samples = check_propagation(target, chaser, times, burns, tolerance, substep, mass)
     o = _orekit()
-    samples = np.asarray(times, dtype=float)
-    x_t, x_c = np.asarray(target, dtype=float), np.asarray(chaser, dtype=float)
     epoch = o["epoch"]
     if not burns:
         out = []

@@ -35,6 +35,15 @@ substep: an error second order in the angle the frame turns in a substep. Basili
 an `extForceTorque` force on a hub of `mass`; Orekit as a `ConstantThrustManeuver` in inertial
 attitude with a specific impulse of 1e12 s, so the mass does not change.
 
+Both `propagate` functions and `vbar_arc` check their arguments first and raise `ValueError`
+before the extra is imported, so the checks need neither tool installed. They refuse a state that
+is not six finite real numbers, sample times that are empty, not 1-D, not finite, negative or not
+in time order (a repeated time is fine), a `tolerance`, `substep`, `mass` or (for `vbar_arc`)
+`rtol` that is not a finite positive number, and burns that are not `Burn` objects, start before
+t = 0 or overlap by more than 1e-9 s; burns that touch are accepted, in any order. Overlapping
+burns are refused because only one acceleration can act at a time, and the backends and `vbar_arc`
+would not pick the same one.
+
 `hill_states(target, chaser, body, j2)` turns the inertial states back into Hill relative states
 with the same conversion V-BAR uses (`vbar.conventions.inertial_to_hill`, the frame's rate from the
 target's gravity), so every tool's output is compared in one frame by one formula.
@@ -82,7 +91,8 @@ assert ours.shape == (7, 6) and math.isclose(ours[0, 1], -1000.0)
 
 `tests/test_backends.py` (no extras needed): the shared conversion returns V-BAR's own Hill
 states, the held direction is turned to the hold's middle, V-BAR's arc splits at burn edges, an
-episode's burns are its thrusting segments, and a missing extra names its install command.
+episode's burns are its thrusting segments, malformed input and overlapping burns are refused
+before the extra is imported, and a missing extra names its install command.
 `tests/test_backends_external.py` (each with its extra): a one-orbit coast at 1 km agrees to
 1e-4 m, the tolerance set before any run from the integrators' settings, and a burn replay agrees
 to 1e-3 m with a residual that falls by more than a factor of three when the substep halves.
