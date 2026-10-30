@@ -138,7 +138,7 @@ def test_a_results_file_resumed_after_a_commit_is_reported_from_its_latest_runs(
     argv = ["run", "--suite", SMALL.id, "--agent", "eval_cases:Crashes", "--out", str(out)]
     for revision in ("a" * 40, "b" * 40):
         monkeypatch.setattr(
-            provenance, "source_revision", lambda revision=revision: (revision, False)
+            provenance, "source_revision", lambda revision=revision: (revision, False, None)
         )
         assert main(argv) == 0
     results = read_results(out)

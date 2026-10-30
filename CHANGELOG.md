@@ -409,7 +409,8 @@ release may change the public API, and every such change is listed under Changed
   `spacegym-rendezvous`; the dispersions `AngleShell` and `LimitedSpeed`; `HoldParams.out_of_bounds`
   and `end_on_arrival`; `InspectionParams.shadow` and `out_of_bounds`.
 - `vbar.eval`, the evaluation harness: the suite runner (`run_suite`, `run_jobs`) with resumable
-  JSON-lines results, a provenance hash per run and the `Task` interface; a result line with a
+  JSON-lines results, a provenance hash per run (covering a digest of local edits to tracked
+  source files, so a resumed run is not served results of other edits) and the `Task` interface; a result line with a
   missing field or a bad seed, and a job with a bad seed or index, are refused.
 - `vbar.eval.stats` and `vbar.eval.tails`: the IQM, stratified bootstrap, performance profiles,
   probability of improvement and paired differences; safety tails with order-statistic intervals

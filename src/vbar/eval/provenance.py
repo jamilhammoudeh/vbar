@@ -1,7 +1,7 @@
 """Provenance: one hash per run of everything that decides its result, and the machine it ran on.
 
-The hash covers the package version, the source tree's git commit (and whether it had local
-changes), the task, the identifier flown and its dynamics model, both seeds, and the agent's and
+The hash covers the package version, the source tree's git commit and a digest of its local
+changes, the task, the identifier flown and its dynamics model, both seeds, and the agent's and
 the filter's names and settings. It is the SHA-256 of their canonical JSON, so the same run gives
 the same hash on every platform. The interpreter and library versions are recorded beside it but
 not hashed: results are reproducible across them only within the stated tolerances.
@@ -72,19 +72,34 @@ def _canonical(value: Any) -> Any:
     return value
 
 
-@functools.cache
-def source_revision() -> tuple[str | None, bool]:
-    """The git commit of the installed source tree and whether it has local changes.
+# Every choice git leaves to the user's configuration is fixed here, so the bytes that are hashed
+# depend on the edit alone: the abbreviation of object names (core.abbrev grows with the number of
+# objects in the repository), the prefixes, the context, rename detection, the algorithm, the
+# order of the files, the quoting of paths, colour, and external and text-conversion drivers.
+_GIT_SETTINGS = ("-c", "core.quotepath=false", "-c", "diff.suppressBlankEmpty=false")
+_DIFF = (
+    "diff",
+    "HEAD",
+    "--binary",
+    "--full-index",
+    "--no-renames",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--unified=3",
+    "--inter-hunk-context=0",
+    "--diff-algorithm=myers",
+    "--indent-heuristic",
+    "-O/dev/null",
+)
 
-    Returns
-    -------
-    tuple
-        (commit SHA, dirty); (None, False) when the package is not a git checkout or git is
-        not available.
-    """
-    root = Path(__file__).resolve().parents[3]
+
+def _revision(root: Path) -> tuple[str | None, bool, str | None]:
+    """Commit, dirty flag and diff digest of the checkout at `root`; Nones when there is none."""
     if not (root / ".git").exists():
-        return None, False
+        return None, False, None
     try:
         sha = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -93,16 +108,34 @@ def source_revision() -> tuple[str | None, bool]:
             timeout=10,
             check=True,
         ).stdout.strip()
-        status = subprocess.run(
-            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+        diff = subprocess.run(
+            ["git", "-C", str(root), *_GIT_SETTINGS, *_DIFF],
             capture_output=True,
-            text=True,
-            timeout=10,
+            timeout=60,
             check=True,
         ).stdout
     except (OSError, subprocess.SubprocessError):
-        return None, False
-    return sha or None, bool(status.strip())
+        return None, False, None
+    return sha, bool(diff), hashlib.sha256(diff).hexdigest() if diff else None
+
+
+@functools.cache
+def source_revision() -> tuple[str | None, bool, str | None]:
+    """The git revision of the installed source tree and a digest of its local changes.
+
+    The revision is read once per process. The digest covers the changes to tracked files against
+    the checked-out commit, staged and unstaged, so two different edits of one commit give
+    different digests and the same edit gives the same one. Files that git does not track are not
+    covered.
+
+    Returns
+    -------
+    tuple
+        (commit SHA, dirty, digest); the digest is the SHA-256 hex of the diff, None when the
+        tree is clean. (None, False, None) when the package is not a git checkout or git is
+        not available.
+    """
+    return _revision(Path(__file__).resolve().parents[3])
 
 
 def environment() -> dict[str, Any]:
@@ -111,15 +144,16 @@ def environment() -> dict[str, Any]:
     Returns
     -------
     dict
-        "vbar", "git", "dirty", "python", "numpy", "scipy" and "platform".
+        "vbar", "git", "dirty", "diff", "python", "numpy", "scipy" and "platform".
     """
     from .. import __version__
 
-    sha, dirty = source_revision()
+    sha, dirty, diff = source_revision()
     return {
         "vbar": __version__,
         "git": sha,
         "dirty": dirty,
+        "diff": diff,
         "python": platform.python_version(),
         "numpy": np.__version__,
         "scipy": scipy.__version__,
@@ -158,11 +192,12 @@ def provenance_fields(
     """
     from .. import __version__
 
-    sha, dirty = source_revision()
+    sha, dirty, diff = source_revision()
     return {
         "vbar": __version__,
         "git": sha,
         "dirty": dirty,
+        "diff": diff,
         "task": task,
         **{str(k): _canonical(v) for k, v in identity.items()},
         "seed": str(int(seed)),

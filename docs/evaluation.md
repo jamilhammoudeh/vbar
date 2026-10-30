@@ -76,9 +76,10 @@ stores the true states, times, observations and commands of recorded episodes in
 ## Provenance
 
 `provenance_hash(provenance_fields(...))` is the SHA-256 of the canonical JSON (sorted keys, no
-spaces) of: the package version, the git commit of the source tree and whether it had local
-changes (None and False for an installed package), the task, the identifier flown and its dynamics
-model, both seeds, and the agent's and the filter's names and settings. Settings are a declared
+spaces) of: the package version, the git revision of the source tree, whether it had local changes
+and a SHA-256 digest of those changes (staged and unstaged edits of tracked files, `git diff HEAD`;
+None for a clean tree, False and None for an installed package), the task, the identifier flown and
+its dynamics model, both seeds, and the agent's and the filter's names and settings. Settings are a declared
 `config` mapping, or else the component's public attributes of plain types (numbers, strings,
 booleans and tuples of them), which for the built-in agents are their constructor arguments. The
 interpreter, numpy, scipy and platform are recorded in `environment` but not hashed: results
@@ -196,8 +197,11 @@ only; decimal text is read by `decode` but not accepted by `encode`.
 
 - Wall-clock metrics (latency, compute, filter time) differ between repeats of a run;
   `reproducible(result)` leaves them out when two runs are compared.
-- The provenance hash names the code by its git commit; an installed package is named by its
-  version alone.
+- The provenance hash names the code by its git revision and, for a tree with local changes, by a
+  digest of the changes to tracked files, read once per process, so a resumed run is served only
+  results flown with the same edits. Untracked files are not covered, an installed package is
+  named by its version alone, and where git is missing or fails on a checkout the revision is
+  unknown and every edit hashes the same.
 - Trajectories are stored as `.npz`; Parquet output is not provided.
 
 ## Validation
