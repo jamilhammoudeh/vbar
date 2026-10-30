@@ -62,6 +62,11 @@ def _vec(values: ArrayLike, digits: int = 2) -> str:
     return "[" + ", ".join(f"{float(c):.{digits}f}" for c in np.ravel(values)) + "]"
 
 
+def _sig(values: ArrayLike) -> str:
+    """A vector to four significant figures, so accelerations of any size keep their digits."""
+    return "[" + ", ".join(f"{float(c):.4g}" for c in np.ravel(values)) + "]"
+
+
 def _deg(angle: float) -> str:
     return f"{math.degrees(float(angle)):.4g} deg"
 
@@ -151,7 +156,7 @@ def _attitude_text(description: Mapping[str, Any]) -> str:
     mode = description.get("mode", "passive")
     if mode == "maneuvering":
         burns = "; ".join(
-            f"from t = {_num(s)} s for {_num(d)} s at {_vec(a, 6)} m/s^2"
+            f"from t = {_num(s)} s for {_num(d)} s at {_sig(a)} m/s^2"
             for s, d, a in description["burns"]
         )
         return (

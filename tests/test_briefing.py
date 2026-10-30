@@ -367,3 +367,11 @@ def test_a_goal_entry_at_the_edge_of_its_range_is_accepted(key, value):
     outside = -1e-9 if np.ndim(value) == 0 else ((0.3, 0.0),)
     with pytest.raises(ValueError, match=key):
         check_goal(dataclasses.replace(view, goal={**view.goal, key: outside}))
+
+
+def test_a_small_target_burn_acceleration_is_printed_with_its_digits():
+    # 3e-7 m/s^2 printed to six decimals read 0.000000.
+    burns = Maneuvering(((10.0, 20.0, (3e-7, 0.0, -1.25e-5)),))
+    spec = dataclasses.replace(get("docking"), target=burns)
+    text = briefing(entry_class(spec)(spec).agent_view())
+    assert "[3e-07, 0, -1.25e-05] m/s^2" in text
