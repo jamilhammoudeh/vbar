@@ -60,6 +60,7 @@ def _finite_array(name: str, value: ArrayLike, shape: tuple[int | None, ...]) ->
 
 
 def _finite_number(name: str, value: float, low: float = -math.inf, strict: bool = False) -> float:
+    """`value` as a finite float not below `low` (above it when `strict`)."""
     number = float(value)
     if not math.isfinite(number) or number < low or (strict and number == low):
         side = "above" if strict else "at least"

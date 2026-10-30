@@ -376,11 +376,13 @@ class TwoBodyDynamics:
         Raises
         ------
         ValueError
-            If a state does not have six finite entries.
+            If a state does not have six finite entries or the target is at the body's centre.
         """
         states = [np.array(s, dtype=float) for s in (target, chaser)]
         if any(s.shape != (6,) or not np.all(np.isfinite(s)) for s in states):
             raise ValueError("target and chaser must be six finite numbers each")
+        if not np.linalg.norm(states[0][:3]) > 0.0:
+            raise ValueError("the target must not be at the body's centre")
         self._y = np.concatenate([states[0], states[1] - states[0]])
         self._sol = None
         self._step = None

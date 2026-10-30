@@ -92,7 +92,7 @@ def test_sidereal_angle_matches_the_earth_rotation_angle_plus_precession(day):
     # and the equation of the origins' polynomial in Table 5.2e: GMST = ERA + 0.014506"
     # + 4612.156534" t + 1.3915817" t^2, Tu in UT1 days and t in TT centuries since J2000.
     # The IAU 1982 expression agrees to well under 1e-4 deg; a rate error of 1e-4 deg per day
-    # would show as 0.26 deg by 2019.
+    # would show as 0.73 deg by 2019-12-03, 7275.5 days after J2000.
     t_gps = gps_seconds(day)
     tu = (t_gps - 18.0) / 86400.0
     t = (t_gps + 51.184) / 86400.0 / 36525.0
@@ -229,6 +229,8 @@ def test_reset_inertial_refuses_a_bad_state():
         dynamics.reset_inertial(np.zeros(5), np.zeros(6))
     with pytest.raises(ValueError):
         dynamics.reset_inertial(np.full(6, np.nan), np.zeros(6))
+    with pytest.raises(ValueError, match="centre"):
+        dynamics.reset_inertial(np.zeros(6), GOOD[0])
 
 
 def test_replay_refuses_unordered_times(flown):
