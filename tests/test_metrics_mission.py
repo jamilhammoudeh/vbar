@@ -308,6 +308,37 @@ def test_a_departure_is_met_where_its_free_drift_stays_clear():
     assert not missed["success"] and missed["time_to_complete"] == toward.duration
 
 
+def test_a_departure_drift_is_judged_at_its_radius_over_its_whole_horizon():
+    # From 320 m behind: a drift aimed 60 m beside the target passes it at 59 m, between the
+    # 30 m drift radius and the 100 m clear ball, and stays clear; a drift aimed at the target
+    # 0.7 of the horizon later is clear over the first half and hits it in the second.
+    horizon = 2.0 * (2.0 * np.pi / N)
+    goal = {
+        "task": "depart",
+        "hold_point": (0.0, -330.0, 0.0),
+        "capture_radius": 100.0,
+        "capture_speed": 10.0,
+        "clear_range": 300.0,
+        "drift_horizon": horizon,
+        "drift_radius": 30.0,
+    }
+    r0 = np.array([0.0, -320.0, 0.0])
+
+    def aimed(point, t):
+        phi = cw_stm(N, t)
+        return np.linalg.solve(phi[:3, 3:], np.asarray(point) - phi[:3, :3] @ r0)
+
+    past = episode(goal=goal, start_state=(*r0, *aimed((0.0, 0.0, 60.0), 300.0)), max_steps=3)
+    assert 30.0 < drift_minimum_range(past.states[1], N, horizon) < 100.0
+    assert mission_metrics(past)["time_to_complete"] == 10.0
+    back = aimed((0.0, 0.0, 0.0), 0.7 * horizon)
+    late = episode(goal=goal, start_state=(*r0, *back), max_steps=3)
+    for state in late.states[1:]:
+        assert drift_minimum_range(state, N, 0.5 * horizon) > 300.0
+        assert drift_minimum_range(state, N, horizon) < 30.0
+    assert not mission_metrics(late)["success"]
+
+
 @pytest.mark.parametrize("clear_radius", [2.0, 100.0])
 def test_departure_metrics_agree_with_the_environment_whatever_the_clear_ball(clear_radius):
     # The reference leaves on the axis; with a 2 m ball it passes the clear point between
