@@ -21,6 +21,9 @@ release may change the public API, and every such change is listed under Changed
   an excerpt format), and `TwoBodyDynamics.reset_inertial`. A GRACE-FO excerpt of 2019-12-03
   (doi:10.5067/GFL1B-ASJ04, CC0) checks the two-body, J2 and drag rungs over ten orbits against a bound
   stated before the run; `docs/flight-data.md` documents it.
+- The suite `comparison-v1` (`afrl-docking`, `afrl-inspection`, `spacegym-docking` and
+  `spacegym-rendezvous`, 100 validation seeds each) and a row of `reproduce.toml` for the LQR
+  baseline on it.
 - `vbar.safety.projections`: halfspace, box, ball and second-order cone projections, and an exact
   projection out of a keep-out sphere with the hard case handled.
 - `vbar.safety.tightening`: box, ball and ellipsoid error sets with halfspace, chance and keep-out
@@ -281,6 +284,28 @@ release may change the public API, and every such change is listed under Changed
   returning a `Segment`, in place of `mode`, `force` and `switch`; the game applies the vessel's
   thrust limits and per-axis propellant flow to the evader as to the pursuer.
   `NormalEscapeEvader(thrust=...)` is now `throttle`, in [0, 1] (1 is the former 8000 N).
+- The result lines of the test split (`core-test-v1`) hold the keyed digest `seed_digest` of each
+  seed instead of the seed, matched to their runs by `Suite.missing` and `match_runs`. A line that
+  would hold a test seed or the hidden key is refused, and `VBAR_HIDDEN_SEED_LOG` names the private
+  file the seeds are appended to instead.
+- Every result line carries `seed_digest` and `agent_seed_digest`, so `read_results` refuses a result
+  file written by 0.4.0, which lacks them; the suite has to be flown again.
+- The provenance hash of a run covers a digest of local edits to tracked source files, so a resumed
+  run is not served results of other edits. `vbar.eval.provenance.source_revision` returns
+  (commit, dirty, digest) where it returned (commit, dirty), and `environment()` gains the key
+  `diff`.
+- `vbar.eval` refuses a result line with a missing field or a bad seed, and a job with a bad seed
+  or index.
+- `vbar.eval.stats` and `vbar.eval.tails` refuse NaN scores, fractional counts and probabilities
+  outside their range; the studies of `vbar.eval.coverage` refuse impossible sizes and
+  probabilities before drawing; the learned-agent entries of `vbar.eval.learned` need whole-number
+  counts and seeds.
+- The Basilisk and Orekit propagators of `vbar.dynamics.backends` refuse malformed states, sample
+  times, tolerances and overlapping burns before the extra is imported.
+- `Episode.reset_s` also appears in the result lines of the agent host
+  (`python -m vbar.agents.remote`).
+- The MATLAB PD client `clients/matlab/pd_agent.m` raises the error `vbar:pd_agent` at reset for a
+  goal whose task is not a hold or a berthing, or that has no hold point, as the Python agents do.
 
 ### Fixed
 
@@ -358,6 +383,9 @@ release may change the public API, and every such change is listed under Changed
   200 m evasion distance are unchanged.
 - `vbar.games.PursuitEvasionEnv` captures a fast pass whose range dips under the capture distance
   and out again within one integrator step; it was missed, and the episode flew on.
+- `vbar.metrics.clopper_pearson` raised `OverflowError` for an infinite count and an unclear
+  `ValueError` for NaN, and `unsafe_tail` took a `level` outside [0, 1] when every value was NaN
+  or there was none; both now raise `ValueError` with a clear message.
 
 ## [0.4.0] - 2026-10-30
 
@@ -402,41 +430,29 @@ release may change the public API, and every such change is listed under Changed
 - Every scenario goal carries `cam_impulses`, the abort set the abort metrics check.
 - The core suite `core-v1` (the V-bar and R-bar approaches, `docking:axis`, `docking-afrl` and the
   inspection, each with and without `:nav1`, 100 validation seeds each) and `core-test-v1` (the
-  same on the hidden test split, whose result lines hold the keyed digest `seed_digest` of each
-  seed instead of the seed, matched to their runs by `Suite.missing` and `match_runs`);
-  `Suite.require_complete` refuses a partial report.
-- The suite `comparison-v1` (`afrl-docking`, `afrl-inspection`, `spacegym-docking` and
-  `spacegym-rendezvous`, 100 validation seeds each) and a row of `reproduce.toml` for the LQR
-  baseline on it.
+  same on the hidden test split); `Suite.require_complete` refuses a partial report.
 - `DriftingVelocity`, a start-velocity dispersion that excludes slowly drifting orbits.
 - Comparison tasks rebuilt from their papers: `afrl-docking` and `afrl-inspection` (the AFRL
   safe-autonomy deep-RL docking and illuminated inspection tasks) and `spacegym-docking` and
   `spacegym-rendezvous`; the dispersions `AngleShell` and `LimitedSpeed`; `HoldParams.out_of_bounds`
   and `end_on_arrival`; `InspectionParams.shadow` and `out_of_bounds`.
 - `vbar.eval`, the evaluation harness: the suite runner (`run_suite`, `run_jobs`) with resumable
-  JSON-lines results, a provenance hash per run (covering a digest of local edits to tracked
-  source files, so a resumed run is not served results of other edits) and the `Task` interface; a result line with a
-  missing field or a bad seed, and a job with a bad seed or index, are refused; the seeds of the
-  test split are never written to a result file, a line that would hold them or the hidden key is
-  refused, and `VBAR_HIDDEN_SEED_LOG` names the private file they are appended to instead.
+  JSON-lines results, a provenance hash per run and the `Task` interface.
 - `vbar.eval.stats` and `vbar.eval.tails`: the IQM, stratified bootstrap, performance profiles,
   probability of improvement and paired differences; safety tails with order-statistic intervals
-  and tolerance bounds, and rate comparisons that refuse unresolved claims; NaN scores, fractional
-  counts and probabilities outside their range are refused.
+  and tolerance bounds, and rate comparisons that refuse unresolved claims.
 - `vbar.eval.coverage`: coverage of the scoring intervals on synthetic outcomes, and McNemar's
-  exact test; the studies refuse impossible sizes and probabilities before drawing.
+  exact test.
 - `vbar.eval.learned`: learned-agent entries (`LearnedEntry`, `TrainingRun`), training runs as the
-  unit, failed runs never replaced; counts and seeds must be whole numbers.
+  unit, failed runs never replaced.
 - `vbar.eval.report` and the command line `python -m vbar.eval run | report | reproduce`: suite
   reports that refuse a partial suite, and `reproduce.toml`, which rebuilds every published table.
-- `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`, also in the result
-  lines of the agent host (`python -m vbar.agents.remote`).
+- `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
 - `Episode.target_misbriefed`: whether the target moved otherwise than the briefing said, set by
   `record_episode` from the environment's true target mode; never part of what an agent sees.
 - `vbar.dynamics.backends`: Basilisk and Orekit as independent propagators of the two-body plus J2
   rung (the optional extras `basilisk` and `orekit`), and the agreement table against them
-  (`benchmarks/agreement_table.py`). The propagators refuse malformed states, sample times,
-  tolerances and overlapping burns before the extra is imported.
+  (`benchmarks/agreement_table.py`).
 - `relative_acceleration` in `vbar.dynamics`: the Hill-frame acceleration of a coasting chaser
   from the target's inertial state, with or without J2, for model-based controllers.
 - `vbar.agents.lqr` design functions: discrete LQR by the discrete Riccati equation, the exact
@@ -649,15 +665,9 @@ release may change the public API, and every such change is listed under Changed
   `angular_velocity` (rad/s^2) that certifies predicates on points moving with the target.
 - The failure label T1 (version 2) has `returning_drift`, for a departure that reached its clear
   range only on free drifts that come back to the target, labelled a timeout or `other` before.
-- The MATLAB PD client `clients/matlab/pd_agent.m` raises the error `vbar:pd_agent` at reset for a
-  goal whose task is not a hold or a berthing, or that has no hold point, as the Python agents do;
-  it flew to the target's centre on an inspection goal.
 
 ### Fixed
 
-- `vbar.metrics.clopper_pearson` raised `OverflowError` for an infinite count and an unclear
-  `ValueError` for NaN, and `unsafe_tail` took a `level` outside [0, 1] when every value was NaN
-  or there was none; both now raise `ValueError` with a clear message.
 - The `pending_commands` channel echoed a command clipped at the true action scale, which in `accel`
   mode with the thrust drive, or `thrust` mode with the acceleration drive, moves with the mass, so
   a saturated command gave away the mass and each burn's delivered delta-v; a command dropped by the
