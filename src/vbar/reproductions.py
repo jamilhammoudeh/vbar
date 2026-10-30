@@ -263,12 +263,17 @@ def matches(row: MatchRow) -> bool:
     Parameters
     ----------
     row : MatchRow
-        The comparison.
+        The comparison; `row.paper` is the number as the paper prints it.
 
     Returns
     -------
     bool
         True when |V-BAR - paper| is at most half a unit of the paper's last printed digit.
+
+    Raises
+    ------
+    ValueError
+        If `row.paper` is not a plain decimal.
     """
     half = 0.5 * 10.0 ** -_decimals(row.paper)
     return abs(row.vbar - float(row.paper)) <= half * (1.0 + 1e-9)
@@ -286,6 +291,11 @@ def match_table(rows: list[MatchRow]) -> str:
     -------
     str
         The table, one line per row after the header, no trailing newline.
+
+    Raises
+    ------
+    ValueError
+        If a row's paper value is not a plain decimal.
     """
     lines = [
         "| Quantity | Paper | V-BAR | Unit | Matches | Note |",
