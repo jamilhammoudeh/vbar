@@ -9,6 +9,7 @@ are left to the statistics of the evaluation harness.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -32,9 +33,30 @@ def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str,
     finite ones. The tail mean averages the values at or beyond it, a conditional value at risk;
     it always holds at least the worst value. NaN values are left out and counted: `n` is the
     number of values summarised and `missing` the number of NaN values left out.
+
+    Parameters
+    ----------
+    values : array_like
+        One value per run; infinite values are values, NaN is missing.
+    worse : {"low", "high"}
+        Which end is unsafe.
+    level : float
+        Tail probability, in [0, 1].
+
+    Returns
+    -------
+    dict
+        "worst", "quantile" and "tail_mean" (all NaN when no value is left), "n" and "missing".
+
+    Raises
+    ------
+    ValueError
+        If `worse` is unknown or `level` is outside [0, 1].
     """
     if worse not in ("low", "high"):
         raise ValueError(f"unknown side {worse!r}, expected low or high")
+    if not 0.0 <= level <= 1.0:
+        raise ValueError("level must lie in [0, 1]")
     x = np.asarray(values, dtype=float)
     counts = {"n": int(np.sum(~np.isnan(x))), "missing": int(np.sum(np.isnan(x)))}
     x = x[~np.isnan(x)]
@@ -51,8 +73,29 @@ def unsafe_tail(values: ArrayLike, worse: str, level: float = 0.05) -> dict[str,
 
 
 def clopper_pearson(successes: int, trials: int, confidence: float = 0.95) -> tuple[float, float]:
-    """Exact (Clopper-Pearson) interval for a success rate from `successes` of `trials`."""
-    if successes != int(successes) or trials != int(trials):
+    """Exact (Clopper-Pearson) interval for a success rate from `successes` of `trials`.
+
+    Parameters
+    ----------
+    successes : int
+        Successful runs, a finite whole number with 0 <= successes <= trials.
+    trials : int
+        Runs, a finite whole number above 0.
+    confidence : float
+        Confidence level, in (0, 1).
+
+    Returns
+    -------
+    tuple of float
+        Lower and upper ends of the interval, in [0, 1].
+
+    Raises
+    ------
+    ValueError
+        If a count is not a finite whole number or is out of range, or `confidence` is outside
+        (0, 1).
+    """
+    if not all(math.isfinite(count) and count == int(count) for count in (successes, trials)):
         raise ValueError("successes and trials must be whole numbers")
     if not 0 <= successes <= trials or trials == 0:
         raise ValueError("need 0 <= successes <= trials and trials > 0")

@@ -641,6 +641,9 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
+- `vbar.metrics.clopper_pearson` raised `OverflowError` for an infinite count and an unclear
+  `ValueError` for NaN, and `unsafe_tail` took a `level` outside [0, 1] when every value was NaN
+  or there was none; both now raise `ValueError` with a clear message.
 - The `pending_commands` channel echoed a command clipped at the true action scale, which in `accel`
   mode with the thrust drive, or `thrust` mode with the acceleration drive, moves with the mass, so
   a saturated command gave away the mass and each burn's delivered delta-v; a command dropped by the
