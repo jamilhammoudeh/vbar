@@ -24,6 +24,9 @@ release may change the public API, and every such change is listed under Changed
 - The suite `comparison-v1` (`afrl-docking`, `afrl-inspection`, `spacegym-docking` and
   `spacegym-rendezvous`, 100 validation seeds each) and a row of `reproduce.toml` for the LQR
   baseline on it.
+- `examples/quickstart.ipynb`, a notebook that installs vbar from PyPI, flies the PD baseline, prints
+  its metrics and rebuilds a table of two episodes through the entry point of
+  `python -m vbar.eval reproduce`.
 - `vbar.safety.projections`: halfspace, box, ball and second-order cone projections, and an exact
   projection out of a keep-out sphere with the hard case handled.
 - `vbar.safety.tightening`: box, ball and ellipsoid error sets with halfspace, chance and keep-out
