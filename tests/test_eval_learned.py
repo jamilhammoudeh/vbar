@@ -208,3 +208,32 @@ def test_numpy_integers_are_accepted_for_counts_and_seeds():
     assert (run.seed, run.env_steps, run.violations) == (7, 10, 2)
     sampled = LearnedEntry(**{**SAMPLED, "action_seeds": (0, count(1), 2)})
     assert len(sampled.action_seeds) == 3
+
+
+def training_runs(*statuses):
+    return tuple(
+        TrainingRun(
+            seed=100 + k,
+            status=status,
+            env_steps=10_000,
+            simulated_time_s=1e5,
+            wall_clock_s=60.0,
+            violations=0,
+            propellant_kg=1.5,
+        )
+        for k, status in enumerate(statuses)
+    )
+
+
+def test_a_failed_training_run_scores_the_failure_score_whatever_score_is_supplied():
+    declared = LearnedEntry(
+        name="ppo",
+        algorithm="PPO",
+        runs=training_runs(
+            "completed", "diverged", "cap_saturated", "non_terminating", "completed"
+        ),
+        tuned_on=("approach-vbar",),
+    )
+    supplied = {100: 0.9, 101: 0.9, 102: 0.9, 103: 0.9, 104: 0.7}
+    assert np.array_equal(run_scores(declared, supplied, failed_score=-1.0), [0.9, -1, -1, -1, 0.7])
+    assert np.array_equal(run_scores(declared, supplied), [0.9, 0.0, 0.0, 0.0, 0.7])

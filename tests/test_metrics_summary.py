@@ -191,3 +191,39 @@ def test_hostile_summary_inputs_are_refused(function, arguments, match):
 def test_numpy_integers_count_successes_and_trials():
     found = clopper_pearson(np.int64(90), np.int64(100))
     assert found == clopper_pearson(90, 100)
+
+
+@pytest.mark.parametrize("worse, extreme", [("low", -np.inf), ("high", np.inf)])
+def test_nan_is_left_out_and_counted_and_infinities_are_values(worse, extreme):
+    runs = [np.inf, -np.inf, np.nan, 2.0, np.nan, 3.0, np.inf]
+    found = unsafe_tail(runs, worse)
+    assert found == {
+        "worst": extreme,
+        "quantile": extreme,
+        "tail_mean": extreme,
+        "n": 5,
+        "missing": 2,
+    }
+
+
+@pytest.mark.parametrize("worse, worst", [("low", 1.0), ("high", 5.0)])
+def test_nan_never_enters_the_worst_value_the_quantile_or_the_tail_mean(worse, worst):
+    found = unsafe_tail([3.0, np.nan, 1.0, 2.0, np.nan, 5.0, 4.0], worse)
+    assert found == {
+        "worst": worst,
+        "quantile": worst,
+        "tail_mean": worst,
+        "n": 5,
+        "missing": 2,
+    }
+
+
+def test_all_nan_values_leave_nothing_summarised_and_all_missing():
+    found = unsafe_tail([np.nan, np.nan, np.nan], "low")
+    assert (found["n"], found["missing"]) == (0, 3)
+    assert all(np.isnan(found[key]) for key in ("worst", "quantile", "tail_mean"))
+
+
+def test_without_nan_nothing_is_missing_even_when_values_are_infinite():
+    found = unsafe_tail([1.0, np.inf, -np.inf, 2.0], "high")
+    assert (found["n"], found["missing"]) == (4, 0)

@@ -1,14 +1,21 @@
-"""Source provenance: a digest of the local changes tells edited source trees apart."""
+"""Provenance: local source changes and a filter's settings tell runs apart."""
 
 import hashlib
 import re
 import shutil
 import subprocess
+from functools import partial
 from pathlib import Path
 
 import pytest
+from eval_cases import ShortTask
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+
+from vbar.agents import PDAgent
+from vbar.eval import Job, read_results, run_jobs
+from vbar.eval.provenance import provenance_fields, provenance_hash
+from vbar.scenarios import seeds
 
 needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
@@ -463,3 +470,78 @@ def test_the_revision_of_the_package_checkout_is_read_once_per_process(monkeypat
     finally:
         provenance.source_revision.cache_clear()
     assert roots == [Path(provenance.__file__).resolve().parents[3]]
+
+
+class GainFilter:
+    """Scales the command; `gain` is a plain public attribute."""
+
+    name = "gain"
+
+    def __init__(self, gain):
+        self.gain = gain
+
+    def reset(self, view):
+        pass
+
+    def filter(self, obs, action):
+        return self.gain * action
+
+
+class HorizonFilter(GainFilter):
+    """Declares its settings as a `config` mapping."""
+
+    name = "horizon"
+
+    def __init__(self, horizon):
+        super().__init__(1.0)
+        self.config = {"horizon": horizon}
+
+
+def fields_and_hash(safety_filter):
+    fields = provenance_fields(
+        task="space",
+        identity={"scenario_id": "vbar:approach-vbar:cw:box:dv:v1", "dynamics": "cw"},
+        seed=11,
+        agent_seed=12,
+        agent=PDAgent(),
+        safety_filter=safety_filter,
+    )
+    return fields, provenance_hash(fields)
+
+
+def test_a_filters_plain_attribute_is_in_the_provenance_fields_and_hash():
+    fields, half = fields_and_hash(GainFilter(0.5))
+    assert fields["filter"] == {"name": "gain", "config": {"gain": 0.5}}
+    assert half != fields_and_hash(GainFilter(0.9))[1]
+    assert half == fields_and_hash(GainFilter(0.5))[1]
+
+
+def test_a_filters_declared_config_is_in_the_provenance_fields_and_hash():
+    fields, short = fields_and_hash(HorizonFilter(5))
+    assert fields["filter"] == {"name": "horizon", "config": {"horizon": 5}}
+    assert short != fields_and_hash(HorizonFilter(10))[1]
+    assert short == fields_and_hash(HorizonFilter(5))[1]
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        pytest.param(partial(GainFilter, 0.5), partial(GainFilter, 0.9), id="plain-attribute"),
+        pytest.param(partial(HorizonFilter, 5), partial(HorizonFilter, 10), id="declared-config"),
+    ],
+)
+def test_runs_that_differ_only_in_a_filter_setting_are_told_apart_and_both_flown(
+    tmp_path, first, second
+):
+    pairs = seeds("approach-vbar", "validation", 1).pairs()
+    work = [Job("approach-vbar", "validation", 0, *pairs[0], "test-suite")]
+    out = tmp_path / "results.jsonl"
+    one = run_jobs(work, PDAgent, task=ShortTask(), safety_filter=first, out=out)[0]
+    two = run_jobs(work, PDAgent, task=ShortTask(), safety_filter=second, out=out)[0]
+    assert one["error"] is None and two["error"] is None
+    assert (one["seed"], one["agent_seed"]) == (two["seed"], two["agent_seed"])
+    assert one["provenance"] != two["provenance"]
+    # The second setting is flown, not read back as the first one's stored result.
+    assert len(read_results(out)) == 2
+    again = run_jobs(work, PDAgent, task=ShortTask(), safety_filter=first, out=out)[0]
+    assert again["provenance"] == one["provenance"] and len(read_results(out)) == 2

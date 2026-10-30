@@ -14,6 +14,11 @@ from scipy.stats import binom, norm
 from vbar.eval.tails import compare_rates, conformal_coverage_risk, tail_summary, tolerance_order
 from vbar.metrics import clopper_pearson, unsafe_tail
 
+# At 500 resamples a 97.5% end (the 488th smallest) or a 2.5% end (the 13th) misses an event that
+# a resample holds with probability q only when 488 resamples lack it, P(Binomial(500, 1 - q) >=
+# 488); every q below is at least 0.26, so that chance is below 1e-47 in each test.
+REPS = 500
+
 
 def bounds(interval):
     if hasattr(interval, "lower"):
@@ -428,3 +433,18 @@ def test_no_runs_give_no_tolerance_bound():
 def test_nan_among_finite_values_is_counted_not_refused():
     found = tail_summary([1.0, 2.0, np.nan, 4.0, 5.0], "low", reps=100, rng=0)
     assert (found["n"], found["missing"]) == (4, 1)
+
+
+@pytest.mark.parametrize("worse", ["low", "high"])
+def test_the_tail_mean_bootstrap_can_draw_the_last_run(worse):
+    # 99 runs between 1 and 2 on the safe side and one at 1000 on the unsafe side, last. A resample
+    # of 100 draws holds it with probability 1 - 0.99**100 = 0.63, and then the mean of the five
+    # worst runs is near 200 beyond them; without it, no tail mean lies beyond the 99 runs.
+    sign = 1.0 if worse == "low" else -1.0
+    others = sign * np.linspace(1.0, 2.0, 99)
+    runs = np.append(others, -1000.0 * sign)
+    lower, upper = tail_summary(runs, worse, reps=REPS, rng=0)["tail_mean_interval"]
+    if worse == "low":
+        assert lower < others.min()
+    else:
+        assert upper > others.max()

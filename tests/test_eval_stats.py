@@ -24,6 +24,11 @@ from vbar.eval.stats import (
     summary_interval,
 )
 
+# At 500 resamples a 97.5% end (the 488th smallest) or a 2.5% end (the 13th) misses an event that
+# a resample holds with probability q only when 488 resamples lack it, P(Binomial(500, 1 - q) >=
+# 488); every q below is at least 0.26, so that chance is below 1e-47 in each test.
+REPS = 500
+
 scores = st.lists(
     st.floats(-100.0, 100.0, allow_nan=False, allow_infinity=False, allow_subnormal=False),
     min_size=1,
@@ -403,3 +408,60 @@ def test_infinite_scores_are_accepted_by_the_iqm_and_the_bootstrap():
 def test_infinite_thresholds_and_scores_are_accepted_by_the_profile():
     np.testing.assert_array_equal(performance_profile(CLEAN, [-np.inf, np.inf]), [1.0, 0.0])
     np.testing.assert_allclose(performance_profile(INF_RUN, [10.0]), [1.0 / 6.0], rtol=1e-12)
+
+
+def test_the_bootstrap_can_draw_the_last_run_of_every_scenario():
+    # A resample of five draws holds the last of five runs with probability 1 - 0.8**5 = 0.672, and
+    # both scenarios' last runs together with 0.452, so the largest sum is reached in 45% of the
+    # resamples and the 97.5% end equals it.
+    samples = {"a": np.arange(5.0), "b": 10.0 + np.arange(5.0)}
+    found = stratified_bootstrap(samples, lambda s: s["a"].max() + s["b"].max(), reps=REPS, rng=0)
+    assert (found.estimate, found.upper) == (18.0, 18.0)
+
+
+def test_the_bootstrap_can_draw_the_first_run_of_every_scenario():
+    samples = {"a": np.arange(5.0), "b": 10.0 + np.arange(5.0)}
+    found = stratified_bootstrap(samples, lambda s: s["a"].min() + s["b"].min(), reps=REPS, rng=0)
+    assert (found.estimate, found.lower) == (10.0, 10.0)
+
+
+def test_the_pooled_iqm_bootstrap_can_draw_the_last_run():
+    # Of [0, 0, 0, 1] the IQM is the mean of the middle two, 0; a resample reaches 0.5 or 1 when the
+    # last run is drawn twice or more, 26% of them, so the 97.5% end is above 0 and only a bootstrap
+    # that can draw the last run gets there.
+    runs = [0.0, 0.0, 0.0, 1.0]
+    pooled = summary_interval(runs, reps=REPS, rng=0)
+    generic = stratified_bootstrap({"runs": runs}, lambda s: aggregate_iqm(s), reps=REPS, rng=0)
+    assert pooled.estimate == 0.0 and generic.estimate == 0.0
+    assert pooled.upper > 0.0 and generic.upper > 0.0
+
+
+def test_the_pooled_iqm_bootstrap_equals_the_statistic_applied_to_each_resample():
+    # A lambda is not `aggregate_iqm`, so it takes the path that calls the statistic per resample.
+    gen = np.random.default_rng(1)
+    samples = {"a": gen.standard_normal(12), "b": gen.exponential(size=7), "c": gen.normal(size=5)}
+    fast = stratified_bootstrap(samples, aggregate_iqm, reps=300, rng=2)
+    slow = stratified_bootstrap(samples, lambda s: aggregate_iqm(s), reps=300, rng=2)
+    assert fast.estimate == slow.estimate
+    assert fast.lower == pytest.approx(slow.lower, rel=1e-12)
+    assert fast.upper == pytest.approx(slow.upper, rel=1e-12)
+
+
+def test_the_probability_of_improvement_bootstrap_can_draw_the_last_run_of_x():
+    # Only the last run of x beats any run of y. A resample of x holds it with probability 0.672,
+    # so the 97.5% end of P(X > Y) is above 0; with x never holding it, every resample gives 0.
+    x = {"s": [0.0, 0.0, 0.0, 0.0, 1.0]}
+    y = {"s": [0.5] * 5}
+    found = probability_of_improvement(x, y, reps=REPS, rng=0)
+    assert found.estimate == 0.2
+    assert found.upper > 0.0
+
+
+def test_the_probability_of_improvement_bootstrap_can_draw_the_last_run_of_y():
+    # Only the last run of y beats any run of x, so P(X > Y) falls below 1 in a resample of y only
+    # when it holds that run.
+    x = {"s": [0.5] * 5}
+    y = {"s": [0.0, 0.0, 0.0, 0.0, 1.0]}
+    found = probability_of_improvement(x, y, reps=REPS, rng=0)
+    assert found.estimate == 0.8
+    assert found.lower < 1.0
