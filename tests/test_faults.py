@@ -379,3 +379,11 @@ def test_all_of_updates_a_member_while_another_is_inactive():
     path = [[0.0, -200.0, 0.0], [0.0, -150.0, 0.0], [0.0, -50.0, 0.0]]
     flags = [pair.update(10.0 * k, np.array([[*p, 0.0, 0.0, 0.0]])) for k, p in enumerate(path)]
     assert flags == [False, False, False]
+
+
+def test_window_edges_land_on_decisions_when_the_step_is_not_exact_in_binary():
+    # Ten steps of 0.1 s sum to 0.9999999999999999 s; decisions 8 to 11 are inside [0.8, 1.2).
+    fault = ThrusterOff(axis=1, direction=1, when=Window(start_s=0.8, end_s=1.2), name="x")
+    env = Still(EnvConfig(faults=(fault,), dt=0.1))
+    flags = active_after_each_step(env, 14)
+    assert [k for k, on in enumerate(flags) if on] == [8, 9, 10, 11]

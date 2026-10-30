@@ -144,7 +144,10 @@ class Window:
         pass
 
     def update(self, t: float, states: np.ndarray) -> bool:
-        return self.start_s <= t < self.end_s
+        # Decision times are sums of steps, so 8 steps of 0.1 s land at 0.7999999999999999 s;
+        # an edge within rounding of a decision counts as reached there.
+        tol = 1e-9 * max(1.0, abs(t))
+        return self.start_s - tol <= t < self.end_s - tol
 
 
 @dataclass(kw_only=True)
