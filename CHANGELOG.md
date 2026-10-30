@@ -343,6 +343,10 @@ release may change the public API, and every such change is listed under Changed
   prograde from 0.5 s on), and its scenarios `PE1_E4_I1_Env` to `PE1_E4_I4_Env`
   (`PE1_E4_ParentEnv`), registered as `vbar/PursuitEvasionE4I1-v1` to `vbar/PursuitEvasionE4I4-v1`.
 
+- `vbar.games.pursuers.ClosestApproachAgent` and `closest_approach`: a reimplementation of Jason
+  Cheng's deterministic pe1 agent (github.com/ARCLab-MIT/kspdg) on V-BAR's Kepler propagation,
+  with the original's predictor signature.
+
 ### Changed
 
 - `vbar.games.EvaderBot` is one method, `segment(t, r_p, v_p, r_e, v_e, previous, cause, rng)`,

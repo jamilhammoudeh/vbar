@@ -273,6 +273,34 @@ print(reward, info["closest_approach"])
 The same agent and seed give the same episode on every run, whatever the number of workers; with
 the passive and normal-escape evaders the seed changes nothing.
 
+## Published agents
+
+`ClosestApproachAgent` is V-BAR's reimplementation of Jason Cheng's deterministic agent in
+github.com/ARCLab-MIT/kspdg (commit a45e5c6,
+`arclab_mit/agents/extended_obs_agent/deterministic_agent.py` and `simulate.py`, MIT licence); Cheng
+is an author of "Language Models are Spacecraft Operators" (Rodriguez-Fernandez, Carrasco, Cheng,
+Scharf, Siew and Linares, arXiv 2404.00413). Each call predicts the closest approach of the two
+vessels if both coast, sampling their two-body conics every second for 300 s (`closest_approach`,
+V-BAR's Kepler propagation in place of poliastro), and fires a 5 s inertial-frame throttle burn:
+
+| Predicted approach | Throttle vector |
+|---|---|
+| now, or 80 s or more ahead | 0.7 toward the evader |
+| 25 s to 80 s ahead | 0.7 along the predicted miss vector (pursuer to evader at the approach) |
+| under 25 s ahead | 0.4 along the miss vector minus 0.8 along the predicted relative velocity |
+
+The constants and the order of the arithmetic are the original's. `closest_approach(state,
+max_time)` has the original's signature and returns its first sample of least range, so the true
+minimum may lie up to half a second from the sample.
+
+```python
+from vbar.games import AgentEnvRunner, PE1_E1_I3_Env
+from vbar.games.pursuers import ClosestApproachAgent
+
+info = AgentEnvRunner(ClosestApproachAgent(), PE1_E1_I3_Env, {"episode_timeout": 60.0}).run()
+print(info["agent_env_results"]["closest_approach"])
+```
+
 ## Running many episodes
 
 `PursuitTask` makes the scenarios a task of the evaluation harness ([evaluation.md](evaluation.md)),
@@ -376,6 +404,14 @@ rerun the script to measure yours.
 - After 10 s of burning the evader's velocity differs from a passive twin's by the rocket-equation
   amount to 1e-3, along its velocity, and not at all with the pursuer burning; over the episode its
   semi-major axis rises by 20 km to 60 km. Every E4 start flies this evader.
+
+`tests/test_pursuit_closest_approach.py`:
+
+- `closest_approach` returns the whole second of least range of an independent DOP853 coast from
+  I1 and I4, with that sample's states to 1e-9; a pair already separating gives time 0.
+- Each branch fires the original's burn: toward the evader for the I3 start (approach 121 s
+  ahead), along the miss vector 40 s ahead, and the braking combination 10 s ahead.
+- From I3 the agent captures the passive evader, using all three branches.
 
 `tests/test_pursuit_bots.py`:
 
