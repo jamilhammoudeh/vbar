@@ -6,13 +6,21 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-10-30
-
 ### Added
 
 - `vbar.agents.glideslope_lp.lp_glideslope`: the minimum-fuel V-bar glideslope by linear programming of
   Ariba, Arzelier, Urbina and Louembet (2016); `vbar.reproductions` rebuilds their case 1 and prints
   the match table (`python -m vbar.reproductions`); `docs/reproductions.md` documents it.
+- `vbar.flightdata`: flown orbits replayed through the relative-motion models (`replay`, `hill_states`,
+  `earth_fixed_to_inertial`, `gmst`, `sun_direction`, `error_envelope`, a GRACE-FO Level-1B reader and
+  an excerpt format), and `TwoBodyDynamics.reset_inertial`. A GRACE-FO excerpt of 2019-12-03
+  (doi:10.5067/GFL1B-ASJ04, CC0) checks the two-body, J2 and drag rungs over ten orbits against a bound
+  stated before the run; `docs/flight-data.md` documents it.
+
+## [0.4.0] - 2026-10-30
+
+### Added
+
 - `vbar.replay.export_rrd` and the optional extra `replay`: writes a recorded episode as a Rerun
   `.rrd` file in the Hill frame with SI units, with the chaser and target, a trail, the keep-out
   spheres and approach corridors, the hold point or port, the command, filtered command and flown
@@ -26,11 +34,6 @@ release may change the public API, and every such change is listed under Changed
   the signatures of KSPDG's agent interface, so KSPDG agents run unchanged; `PursuitTask` for
   `vbar.eval.run_jobs`; the reference pursuers `LineOfSightPursuer` and
   `VelocityMatchingPursuer`; `docs/pursuit-evasion.md`.
-- `vbar.flightdata`: flown orbits replayed through the relative-motion models (`replay`, `hill_states`,
-  `earth_fixed_to_inertial`, `gmst`, `sun_direction`, `error_envelope`, a GRACE-FO Level-1B reader and
-  an excerpt format), and `TwoBodyDynamics.reset_inertial`. A GRACE-FO excerpt of 2019-12-03
-  (doi:10.5067/GFL1B-ASJ04, CC0) checks the two-body, J2 and drag rungs over ten orbits against a bound
-  stated before the run; `docs/flight-data.md` documents it.
 - Mission reconstructions from public reports, `recon-progress-m34`, `recon-ets7` and `recon-dart`
   (Gymnasium `vbar/ReconProgressM34-v0`, `vbar/ReconEts7-v0`, `vbar/ReconDart-v0`), each with a
   `:nominal` variant without its failure; `docs/reconstructions.md` documents them.
