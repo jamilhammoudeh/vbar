@@ -56,7 +56,20 @@ from .mission import MissionManagerAgent, Mode
 from .mutants import MUTANT_KINDS, Mutant
 from .pd import PDAgent
 from .planning import Impulse, impulse_action, predicted_margin
+from .rules import RuleSupervisor
 from .shuttle import ElevationTimedAgent, PilotAgent, elevation, football_aim, nsr_aim
+from .supervision import (
+    PHASES,
+    Command,
+    Order,
+    Rung,
+    Situation,
+    SupervisedAgent,
+    SupervisionStep,
+    Supervisor,
+    ladder,
+)
+from .tracker import SetpointTracker, speed_cap
 
 __all__ = [
     "DISC27",
@@ -131,4 +144,16 @@ __all__ = [
     "twice_rate_cost",
     "two_impulse",
     "zero_action",
+    "PHASES",
+    "Command",
+    "Order",
+    "RuleSupervisor",
+    "Rung",
+    "SetpointTracker",
+    "Situation",
+    "SupervisedAgent",
+    "SupervisionStep",
+    "Supervisor",
+    "ladder",
+    "speed_cap",
 ]
