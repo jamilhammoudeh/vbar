@@ -328,6 +328,17 @@ def test_the_burns_of_a_recorded_episode_do_not_overlap():
     common.check_burns(burns)
 
 
+def test_the_burns_of_a_recorded_lqr_episode_do_not_overlap():
+    from vbar.agents import LQRAgent
+    from vbar.metrics import record_episode
+    from vbar.scenarios import make
+
+    episode = record_episode(make("approach-vbar", max_steps=40), LQRAgent(), seed=3, agent_seed=4)
+    burns = episode_burns(episode.records)
+    assert len(burns) == 40
+    common.check_burns(burns)
+
+
 def test_adjacent_burns_have_one_acceleration_at_the_join_in_both_paths():
     first = Burn(0.0, 30.0, (1e-3, 0.0, 0.0))
     second = Burn(30.0, 30.0, (0.0, -2e-3, 5e-4))

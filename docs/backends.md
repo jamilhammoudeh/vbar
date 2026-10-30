@@ -55,10 +55,10 @@ target's gravity), so every tool's output is compared in one frame by one formul
 velocity differences over the arc. `benchmarks/agreement_table.py` regenerates the table in
 [validation.md](validation.md): coast arcs from (0.1 r, -r, 0.05 r) m with an out-of-plane speed
 of 1e-4 r m/s at r = 100 m, 1 km and 10 km, over one and ten orbits of a 500 km, 51.6 deg target,
-and an episode of the PD baseline on the V-bar approach replayed open loop on its recorded thrust
-segments (`episode_burns`). Each residual is attributed by changing one setting at a time:
-loosening V-BAR's tolerance to 1e-10, the backend's (Basilisk 1e-10, Orekit 1e-4 m), and halving
-the substep over which a burn's direction is held.
+and two controlled episodes on the V-bar approach, the LQR and PD baselines, each replayed open
+loop on its recorded thrust segments (`episode_burns`). Each residual is attributed by changing one
+setting at a time: loosening V-BAR's tolerance to 1e-10, the backend's (Basilisk 1e-10, Orekit
+1e-4 m), and halving the substep over which a burn's direction is held.
 
 ```python
 import math
@@ -82,8 +82,10 @@ assert ours.shape == (7, 6) and math.isclose(ours[0, 1], -1000.0)
 
 - Only the central body's point mass and J2: no drag, solar pressure, third bodies or higher
   harmonics, on any side.
-- The burns' held inertial direction is the backends' one approximation; it is second order in
-  n times the substep and is measured in the table by halving the substep.
+- The burns' held inertial direction is the backends' one approximation, and the table measures
+  its effect by halving the substep. A second-order error in n times the substep would divide the
+  residual by four; in the table's run it falls by 2.7 for the LQR episode and 3.4 for the PD one,
+  so the residual is not purely second order.
 - The Orekit backend needs a Java runtime; `jdk4py` provides one when it is installed, and the
   backend uses it if `JAVA_HOME` is not set.
 
@@ -94,5 +96,6 @@ states, the held direction is turned to the hold's middle, V-BAR's arc splits at
 episode's burns are its thrusting segments, malformed input and overlapping burns are refused
 before the extra is imported, and a missing extra names its install command.
 `tests/test_backends_external.py` (each with its extra): a one-orbit coast at 1 km agrees to
-1e-4 m, the tolerance set before any run from the integrators' settings, and a burn replay agrees
-to 1e-3 m with a residual that falls by more than a factor of three when the substep halves.
+1e-4 m, the tolerance set before any run from the integrators' settings, and a burn replay, of two
+burns and of the LQR episode of the table, agrees to 1e-3 m with a residual that falls by more than
+a factor of three when the substep halves from 2 s to 1 s.

@@ -769,9 +769,10 @@ below. "Matches" means V-BAR's number rounds to the paper's at the paper's print
 
 ## Agreement with Basilisk and Orekit
 
-V-BAR's two-body plus J2 rung, Basilisk 2.12 and Orekit 13.1 fly the same initial inertial states
-with the same constants (`benchmarks/agreement_table.py`, [backends.md](backends.md)); the largest
-Hill-frame differences over each arc, sampled every 100 s for the coasts and 10 s for the episode:
+V-BAR's two-body plus J2 rung, Basilisk 2.12.1 and Orekit 13.1.9 fly the same initial inertial
+states with the same constants (`benchmarks/agreement_table.py`, [backends.md](backends.md)); the
+largest Hill-frame differences over each arc, sampled every 100 s for the coasts and 10 s for the
+episodes:
 
 | Case | Backend | Position (m) | Velocity (m/s) | Loosened backend (m) | Loosened V-BAR (m) |
 |---|---|---|---|---|---|
@@ -788,7 +789,7 @@ Hill-frame differences over each arc, sampled every 100 s for the coasts and 10 
 | coast 10000 m, 10 orbits | Basilisk | 5.72e-06 | 4.99e-10 | 5.72e-06 | 5.45e-06 |
 | coast 10000 m, 10 orbits | Orekit | 8.09e-07 | 3.81e-10 | 6.05e-06 | 9.99e-07 |
 
-Every coast agrees to 6e-6 m over ten orbits and 1.4e-7 m over one, at every range: the residual
+Every coast agrees to 6e-6 m over ten orbits and 1.3e-7 m over one, at every range: the residual
 is the integrators' and does not grow with the range, so no force-model difference shows. The
 last two columns repeat the arc with one tolerance loosened. Orekit's residual grows by up to a
 factor of 7.5 when its own tolerance is loosened from 1e-6 m to 1e-4 m, so its integrator sets it.
@@ -799,15 +800,22 @@ one formula applied to every tool's states, so it adds nothing.
 
 | Case | Backend | Position, 1 s substep (m) | Position, 0.5 s substep (m) | Velocity, 1 s (m/s) |
 |---|---|---|---|---|
+| LQR episode on the V-bar approach, 215 burns | Basilisk | 5.32e-04 | 1.96e-04 | 3.97e-07 |
+| LQR episode on the V-bar approach, 215 burns | Orekit | 5.32e-04 | 1.96e-04 | 3.97e-07 |
 | PD episode on the V-bar approach, 62 burns | Basilisk | 1.07e-04 | 3.17e-05 | 2.56e-07 |
 | PD episode on the V-bar approach, 62 burns | Orekit | 1.07e-04 | 3.17e-05 | 2.56e-07 |
 
-Replayed open loop, the episode agrees to 1.1e-4 m with both tools, and the residual falls by a
-factor of 3.4 when the substep over which a backend holds a burn's inertial direction halves (the
-second-order term of that approximation), identically in both: it comes from that approximation,
-not from V-BAR. The tests assert a one-orbit coast within 1e-4 m and a burn replay within 1e-3 m
-whose residual falls by more than three when the substep halves (`tests/test_backends_external.py`,
-run when the extras are installed).
+Each episode is replayed open loop on its recorded thrust segments. The LQR episode is
+`LQRAgent()` with its defaults on the first validation seed pair of `approach-vbar`: 215 burns over
+2150 s. The PD episode starts at (30, -400, 10)
+m at rest and lasts 620 s. The LQR episode agrees to 5.3e-4 m with both tools and the PD episode to
+1.1e-4 m. Halving the substep over which a backend holds a burn's inertial direction divides the
+residual by 2.7 for the LQR episode and 3.4 for the PD one, identically in both tools, so the
+substep sets the residual, not V-BAR or the tool. A second-order term alone would divide it by
+four; the table does not separate the part that falls more slowly. The tests assert a one-orbit
+coast within 1e-4 m and, for a two-burn replay and for the LQR episode, a burn replay within 1e-3 m
+whose residual falls by more than three when the substep halves from 2 s to 1 s
+(`tests/test_backends_external.py`, run when the extras are installed).
 
 ## Coverage of the scoring intervals
 
