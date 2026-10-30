@@ -9,6 +9,7 @@ Rawlings, Mayne and Diehl, Model Predictive Control, 2nd ed.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -231,8 +232,9 @@ class LQGConfig:
     Raises
     ------
     ValueError
-        If a sigma is not positive, the process noise or the walk is negative, or a bias state
-        is "y" (along-track position, not detectable on the CW model), unknown or repeated.
+        If a sigma is not positive and finite, the process noise or the walk is negative or not
+        finite, or a bias state is "y" (along-track position, not detectable on the CW model),
+        unknown or repeated.
     """
 
     sigma_pos_m: float = 1.0
@@ -243,14 +245,16 @@ class LQGConfig:
     regulator: LQRConfig = field(default_factory=LQRConfig)
 
     def __post_init__(self):
-        if not self.sigma_pos_m > 0.0:
-            raise ValueError("sigma_pos_m must be positive")
-        if not self.sigma_vel_mps > 0.0:
-            raise ValueError("sigma_vel_mps must be positive")
-        if not self.process_sigma_mps2 >= 0.0:
-            raise ValueError("process_sigma_mps2 must not be negative")
-        if not self.bias_walk >= 0.0:
-            raise ValueError("bias_walk must not be negative")
+        for name in ("sigma_pos_m", "sigma_vel_mps"):
+            value = getattr(self, name)
+            if not (math.isfinite(value) and value > 0.0):
+                raise ValueError(f"{name} must be positive and finite")
+        # Zero process noise or walk is refused when the agent is reset, so only the sign and
+        # finiteness are checked here.
+        for name in ("process_sigma_mps2", "bias_walk"):
+            value = getattr(self, name)
+            if not (math.isfinite(value) and value >= 0.0):
+                raise ValueError(f"{name} must be finite and not negative")
         object.__setattr__(self, "bias_states", tuple(self.bias_states))
         for name in self.bias_states:
             if name == "y":

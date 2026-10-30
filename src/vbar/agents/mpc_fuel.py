@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import functools
 import math
+import operator
 import time
 from dataclasses import dataclass
 
@@ -73,6 +74,8 @@ class FuelMPCConfig:
     ValueError
         If `mode` is unknown, `horizon_s` is not positive and finite, `tie_break` is not
         positive and finite, or `max_iter` is below 1.
+    TypeError
+        If `max_iter` is not an integer.
     """
 
     mode: str = "receding"
@@ -128,7 +131,7 @@ class FuelPlan:
 def _check_settings(tie_break: float, max_iter: int) -> None:
     if not (math.isfinite(tie_break) and tie_break > 0.0):
         raise ValueError("tie_break must be positive and finite")
-    if max_iter < 1:
+    if operator.index(max_iter) < 1:
         raise ValueError("max_iter must be at least 1")
 
 
@@ -260,6 +263,8 @@ def fuel_plan(
         If `steps` is below 2 (three moves cannot meet six terminal equalities, so the
         multipliers are not unique), `dt` or `a_max` is not positive and finite, `tie_break`
         is not positive and finite, `max_iter` is below 1, or a state is not six finite numbers.
+    TypeError
+        If `max_iter` is not an integer.
     """
     if steps < 2:
         raise ValueError("a fuel plan needs at least 2 steps")

@@ -108,8 +108,7 @@ def shooting_linearization(
     Raises
     ------
     ValueError
-        If the shapes disagree, an input is not finite, `t0` is negative, `dt` is not positive,
-        or the declared dynamics is unknown.
+        If the shapes disagree, an input is not finite, `t0` is negative or `dt` is not positive.
     RuntimeError
         If an integration of the declared model fails.
     """
@@ -250,10 +249,10 @@ class NMPCAgent:
         ------
         ValueError
             If the goal is not a hold or a berthing or has no hold point, the action mode takes
-            no continuous command, the declared dynamics is unknown, the thrust layout is
-            unknown, the hold point needs more than `max_accel` of steady thrust, the regulator
-            has a rate weight, the observation carries pending commands, or the horizon problem
-            cannot be built (see `mpc_problem`).
+            no continuous command, the thrust layout is unknown, the hold point needs more than
+            `max_accel` of steady thrust, the regulator has a rate weight, the observation
+            carries pending commands, or the horizon problem cannot be built (see
+            `mpc_problem`).
         """
         cfg = self.config
         hold_point(view, "NMPC agent")

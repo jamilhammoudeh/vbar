@@ -9,6 +9,7 @@ Every matrix is in SI units of the Hill frame unless stated.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -337,8 +338,8 @@ class LQRConfig:
     Raises
     ------
     ValueError
-        If a scale is not positive, `stage_cost` is not one of the two, or `rate_weight` is
-        negative.
+        If a scale is not positive and finite, `stage_cost` is not one of the two, or
+        `rate_weight` is negative or not finite.
     """
 
     pos_scale_m: float = 10.0
@@ -348,16 +349,18 @@ class LQRConfig:
     rate_weight: float = 0.0
 
     def __post_init__(self):
-        if not self.pos_scale_m > 0.0:
-            raise ValueError("pos_scale_m must be positive")
-        if not self.vel_scale_mps > 0.0:
-            raise ValueError("vel_scale_mps must be positive")
-        if self.accel_scale_mps2 is not None and not self.accel_scale_mps2 > 0.0:
-            raise ValueError("accel_scale_mps2 must be positive")
+        scales = {"pos_scale_m": self.pos_scale_m, "vel_scale_mps": self.vel_scale_mps}
+        if self.accel_scale_mps2 is not None:
+            scales["accel_scale_mps2"] = self.accel_scale_mps2
+        # An infinite scale passes a positivity test but zeroes that weight, which removes the
+        # feedback it prices.
+        for name, value in scales.items():
+            if not (math.isfinite(value) and value > 0.0):
+                raise ValueError(f"{name} must be positive and finite")
         if self.stage_cost not in STAGE_COSTS:
             raise ValueError(f"stage_cost must be one of {STAGE_COSTS}")
-        if not self.rate_weight >= 0.0:
-            raise ValueError("rate_weight must not be negative")
+        if not (math.isfinite(self.rate_weight) and self.rate_weight >= 0.0):
+            raise ValueError("rate_weight must be finite and not negative")
 
     @classmethod
     def alfriend(cls, n: float) -> LQRConfig:
@@ -376,6 +379,11 @@ class LQRConfig:
         -------
         LQRConfig
             Config with these scales and the other fields at their defaults.
+
+        Raises
+        ------
+        ValueError
+            If `n` is not positive and finite.
         """
         return cls(pos_scale_m=1.0, vel_scale_mps=n, accel_scale_mps2=n**2)
 

@@ -311,10 +311,9 @@ def test_config_refuses_a_non_finite_phase(phase):
         nmpc.NMPCConfig(argument_of_latitude=phase)
 
 
-def test_unknown_declared_dynamics_is_refused_at_reset():
-    agent = nmpc.NMPCAgent(config(model=DeclaredModel(dynamics="twobody_drag")))
+def test_unknown_declared_dynamics_is_refused_at_construction():
     with pytest.raises(ValueError, match="unknown dynamics"):
-        agent.reset(hand_view())
+        DeclaredModel(dynamics="twobody_drag")
 
 
 @pytest.mark.parametrize("mode", ["disc27", "impulse_coast"])

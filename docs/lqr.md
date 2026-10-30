@@ -136,6 +136,9 @@ baselines reuse it for their stage and terminal cost, so an MPC and `LQRAgent` w
   not implemented, and the agent refuses one at the first act whose waits show it.
 - Only the continuous action modes are supported: `reset` raises `ValueError` from
   `action_scale` for `"disc27"` and `"impulse_coast"`.
+- `LQRConfig` raises `ValueError` at construction for a scale that is not positive and finite, an
+  unknown `stage_cost` and a `rate_weight` that is negative or not finite: an infinite scale would
+  zero its weight and remove the feedback it prices (`tests/test_baseline_inputs.py`).
 - The agent refuses at reset goals other than a hold or a berthing, and goals without a hold
   point, with a `ValueError`.
 - The observation is used as the state. Under navigation noise the noise passes straight into

@@ -126,6 +126,8 @@ so only the upper optimality ratio is informative.
   refused in `disc27`.
 - `TwoImpulseAgent.reset` and `TwoImpulseBound.bounds` refuse goals other than a hold or a
   berthing, and goals without a hold point, with a `ValueError`.
+- `TwoImpulseBound` raises `TypeError` for a `grid_points` that is not an integer and `ValueError`
+  below 2, at construction (`tests/test_baseline_inputs.py`).
 - Re-targeting does not always capture. Single measured cases in the approach scenario, mode
   `impulse_coast`, $dt$ = 10 s, `max_accel` = 0.02 m/s^2, default agent, episode ended at
   3600 s without capture: from rest 1 km behind the target with exact navigation, 121 m from the

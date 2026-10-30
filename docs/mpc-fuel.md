@@ -144,7 +144,7 @@ bookkeeping, which neither the recorder nor any metric reads.
 | `mode` | `"receding"` | The usual MPC form; `"shrinking"` is the variant that flies the open-loop optimum |
 | `horizon_s` | `None`: half the orbit period, rounded to whole steps (2840 s at 500 km and 10 s) | The receding case measured below; a full orbit arrives closer to its horizon at twice the planning work per decision |
 | `tie_break` | $10^{-6}$ | Fuel guarantee measured at about $10^{-6}$ of the optimum away from the goal, while rounding in the moves, amplified by $a_{\max}/\tau$, stays at $5\times10^{-9}\,a_{\max}$ |
-| `max_iter` | 100 | In the tests cold plans take two to five updates and converging warm ones up to 23; a stalled warm start leaves 75 for the cold start |
+| `max_iter` | 100 | In the tests cold plans take two to five updates and converging warm ones up to 23; a stalled warm start leaves 75 for the cold start. A whole number of at least 1: `FuelMPCConfig` and `fuel_plan` raise `TypeError` for a NaN, an infinity or a fraction and `ValueError` below 1 (`tests/test_baseline_inputs.py`) |
 
 Fixed in the module: the stop rule $10^{-10}$, six decades above the $4\times10^{-16}$ that
 converged plans of 284 and 568 steps reach; the arrival radius 1 cm, a

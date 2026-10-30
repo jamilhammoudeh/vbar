@@ -98,11 +98,11 @@ and metrics never read them as scores.
 Fixed in the module: the retry statuses ("iteration_cap", "solver_failed") and the schedule
 tolerance of $10^{-9}$ of a step. `NMPCAgent(config=None, name="nmpc")`.
 
-`reset` raises `ValueError` when the goal is not a hold or a berthing, the action mode takes no
-continuous command ("disc27", "impulse_coast"), the declared dynamics is unknown, the thrust
-layout is unknown, the regulator has a rate weight, the observation carries pending commands, or
-the horizon problem cannot be built (the terminal set and in-step bound errors of
-`mpc_problem`, checked at reset rather than mid-episode).
+An unknown declared dynamics is refused when the `DeclaredModel` is built. `reset` raises
+`ValueError` when the goal is not a hold or a berthing, the action mode takes no continuous command
+("disc27", "impulse_coast"), the thrust layout is unknown, the regulator has a rate weight, the
+observation carries pending commands, or the horizon problem cannot be built (the terminal set and
+in-step bound errors of `mpc_problem`, checked at reset rather than mid-episode).
 
 ## Assumptions and limits
 

@@ -109,9 +109,9 @@ keyword-only.
   repeats on a loaded machine, an episode took 37 to 49 s with `LyapunovAgent` against 16 to
   33 s with `CWTrackingAgent` (1.5 to 2.3 times); timings depend on the machine.
 - Only the continuous action modes are supported: `reset` raises `ValueError` from
-  `action_scale` for `"disc27"` and `"impulse_coast"`. An unknown declared dynamics raises
-  `ValueError` at `reset`, and a gain that is not positive and finite raises `ValueError` at
-  construction.
+  `action_scale` for `"disc27"` and `"impulse_coast"`. A gain that is not positive and finite,
+  and a `DeclaredModel` with an unknown dynamics or body, a negative or non-finite altitude or a
+  non-finite inclination, raise `ValueError` at construction, before any state is built.
 - Both agents refuse at reset goals other than a hold or a berthing, and goals without a hold
   point, with a `ValueError`.
 - The observation is used as the state; navigation noise passes straight into the command.
@@ -156,6 +156,8 @@ limit unless stated:
 - **Agent**: commands agree in fractions across the three continuous modes; discrete and
   impulsive modes are refused; box clipping and ball scaling; frozen keyword-only configs whose
   `DeclaredModel` fields and defaults match `EnvConfig`; an unknown declared dynamics is refused;
+  a NaN or infinite altitude or inclination, a negative altitude and an unknown body are refused
+  at construction (`tests/test_baseline_inputs.py`);
   the sign check passes; reset wipes the declared target orbit; two agents from one config on
   interleaved environments match separate runs; both agents run on a hand-made view reading no
   `info` key but `time_s`; and `LyapunovAgent` holds no environment object and a fresh agent

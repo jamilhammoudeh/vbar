@@ -60,10 +60,13 @@ release may change the public API, and every such change is listed under Changed
 - `TwoImpulseAgent` (open-loop, re-targeting and tracking modes) and `TwoImpulseBound`, an
   interim fuel oracle whose upper bound is the best two-impulse cost over a grid of transfer
   angles, in `vbar.agents.cw_targeting`; the Curtis section 7.5 rendezvous examples are reproduced
-  in the tests.
+  in the tests. `TwoImpulseBound` raises `TypeError` for a `grid_points` that is not an integer and
+  `ValueError` below 2.
 - `CWTrackingAgent` (the Clohessy-Wiltshire tracking law of Alfriend et al. with a reference
   hook) and `LyapunovAgent` with `DeclaredModel` (the Cartesian Lyapunov law of Schaub and Junkins
-  on a declared two-body or J2 model) in `vbar.agents.lyapunov`.
+  on a declared two-body or J2 model) in `vbar.agents.lyapunov`. `DeclaredModel` raises
+  `ValueError` for an unknown dynamics or body, a negative or non-finite altitude and a
+  non-finite inclination.
 - Fehse trajectory elements in `vbar.agents.elements`: tangential and radial V-bar transfers, the
   CW Hohmann, fly-arounds, forced straight-line motion, the twice-orbital-rate circle and
   finite-burn durations, with the agents that fly them (`ElementAgent`, `TorvaAgent`,
@@ -81,7 +84,8 @@ release may change the public API, and every such change is listed under Changed
   section 6.3.
 - `LQGAgent` and `LQGConfig` in `vbar.agents.lqg`: a steady-state Kalman filter on the CW model
   with a declared sensor law and optional bias states, feeding the LQR hold-point regulator; a
-  baseline for noisy navigation, never an oracle.
+  baseline for noisy navigation, never an oracle. `LQGConfig` raises `ValueError` for a sigma that
+  is not positive and finite and for a process noise or bias walk that is negative or not finite.
 - `Mutant` and `MUTANT_KINDS` in `vbar.agents.mutants`: deliberately broken controllers (biases,
   delay, sign errors, dither, chatter, a dropped Coriolis term, bang-bang) wrapped around any agent,
   for checking that the metrics detect each fault and rank its severity.
@@ -162,6 +166,8 @@ release may change the public API, and every such change is listed under Changed
   programming on the CW model with a declared receding or shrinking horizon, the arrival time
   reported, a unique applied action through a strictly convex tie-break, and a certified bound on
   each plan's excess fuel over the linear-programming optimum; box thrust limits only.
+  `FuelMPCConfig` and `fuel_plan` raise `TypeError` for a `max_iter` that is not an integer and
+  `ValueError` below 1.
 - `FuelOracle` in `vbar.oracles`: certified lower and upper bounds on the fuel of a success on the
   CW model, at a free final time by default and at a fixed arrival step with `arrival_step`, by an
   exact linear program for a box thrust layout and a bracket of linear programs for a ball,
@@ -171,6 +177,8 @@ release may change the public API, and every such change is listed under Changed
   augmentation from the pending-commands channel and an optional input-rate weight. The default
   scales, 10 m, 0.03 m/s and the view's `max_accel`, give the slowest closed-loop mode a 333 s
   time constant, so the agent reaches and holds the `approach-rbar` point within its episode.
+  `LQRConfig` raises `ValueError` for a scale that is not positive and finite and for a
+  `rate_weight` that is negative or not finite.
 - `vbar.agents.lqg` functions: the steady-state Kalman gain of the discrete CW model and the
   detectability test for sensor bias states (a constant along-track position bias is not
   detectable).

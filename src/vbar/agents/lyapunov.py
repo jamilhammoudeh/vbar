@@ -16,9 +16,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..dynamics import TwoBodyDynamics, make_dynamics, relative_acceleration
+from ..dynamics import TwoBodyDynamics, get_body, make_dynamics, relative_acceleration
 from .base import AgentView, action_scale, hold_point
 
+DECLARED_DYNAMICS = ("cw", "twobody", "twobody_j2")
 Reference = Callable[[float], tuple[np.ndarray, np.ndarray, np.ndarray]]
 
 
@@ -161,12 +162,31 @@ class DeclaredModel:
         Inclination of the target's orbit (rad).
     body : str
         Central body name.
+
+    Raises
+    ------
+    ValueError
+        If `dynamics` or `body` is unknown, `altitude_m` is negative or not finite, or
+        `inclination` is not finite.
+    TypeError
+        If `altitude_m` or `inclination` is not a number.
     """
 
     dynamics: str = "cw"
     altitude_m: float = 500e3
     inclination: float = 0.0
     body: str = "earth"
+
+    def __post_init__(self):
+        if self.dynamics not in DECLARED_DYNAMICS:
+            raise ValueError(
+                f"unknown dynamics {self.dynamics!r}, expected cw, twobody or twobody_j2"
+            )
+        get_body(self.body)
+        if not (math.isfinite(self.altitude_m) and self.altitude_m >= 0.0):
+            raise ValueError("altitude_m must be finite and not negative")
+        if not math.isfinite(self.inclination):
+            raise ValueError("inclination must be finite")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -246,8 +266,7 @@ class LyapunovAgent:
         ------
         ValueError
             If the goal is not a hold or a berthing or has no hold point, the action mode takes
-            no continuous command, the thrust layout is unknown, or the declared dynamics or
-            body is unknown.
+            no continuous command, or the thrust layout is unknown.
         """
         self.hold = hold_point(view, "Lyapunov agent")
         self.scale = action_scale(view)

@@ -10,6 +10,7 @@ n tf = k pi (Alfriend, Vadali, Gurfil, How and Breger, Spacecraft Formation Flyi
 from __future__ import annotations
 
 import math
+import operator
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -402,10 +403,12 @@ class TwoImpulseBound:
     ValueError
         If `grid_points` is below 2 or `n_tf_grid` holds a value that is not positive and
         finite.
+    TypeError
+        If `grid_points` is not an integer.
     """
 
     def __init__(self, *, n_tf_grid: ArrayLike | None = None, grid_points: int = 400):
-        if grid_points < 2:
+        if operator.index(grid_points) < 2:
             raise ValueError("grid_points must be at least 2")
         if n_tf_grid is not None:
             n_tf_grid = np.asarray(n_tf_grid, dtype=float).ravel()
