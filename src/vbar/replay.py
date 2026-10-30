@@ -111,8 +111,9 @@ def _series_label(parts: tuple[str, ...]) -> str:
     if info is None:
         return "/".join(parts)
     label = f"{info.id} {'/'.join(parts)}"
-    # A margin has the unit of its constraint, which the catalogue cannot name.
-    return label if info.units == "per constraint" else f"{label} ({info.units})"
+    # A margin has the unit of its constraint, which the catalogue cannot name, and a dictionary
+    # metric's entries have their own.
+    return label if info.units in ("per constraint", "dict") else f"{label} ({info.units})"
 
 
 def _entity(rr, *parts: str) -> str:

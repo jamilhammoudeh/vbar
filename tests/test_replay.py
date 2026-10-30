@@ -477,6 +477,21 @@ def test_every_finite_number_in_the_card_is_stored_as_a_final_value(blocked):
     assert stored == set(numbers)
 
 
+def test_series_names_carry_the_identifier_and_the_unit_where_the_metric_has_one(tmp_path):
+    ep = episode(PDAgent(), start_state=BLOCKED, max_steps=30)
+    card = {"solver_metadata": {"iterations": 3.0}, "delta_v": 1.0}
+    rec = Recording(export_rrd(ep, tmp_path / "l.rrd", card=card))
+
+    def names(entity):
+        return rec.static[entity]["SeriesLines:names"]
+
+    assert names("card/delta_v") == ["E1 delta_v (m/s)"]
+    assert names("card/violation_duration/keep_out") == ["S3 violation_duration/keep_out (s)"]
+    # A margin has its constraint's unit and a dictionary's entries their own, so neither shows one.
+    assert names("card/min_margin/keep_out") == ["S1 min_margin/keep_out"]
+    assert names("card/final/solver_metadata/iterations") == ["A9 solver_metadata/iterations"]
+
+
 def test_range_and_speed_series_are_read_from_the_states(blocked):
     ep, rec, _ = blocked
     assert np.array_equal(
