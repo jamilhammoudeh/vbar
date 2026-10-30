@@ -230,6 +230,91 @@ def test_an_inspection_goal_without_a_sun_direction_raises_value_error_naming_it
         ladder(dataclasses.replace(view, goal=goal), first_observation("inspection"))
 
 
+def test_a_berthing_goal_gets_a_hold_rung_twice_as_far_and_the_goal():
+    name = "berthing-box"
+    view = make(name).agent_view()
+    rungs = ladder(view, first_observation(name))
+    assert [r.kind for r in rungs] == ["hold", "goal"]
+    assert np.allclose(rungs[0].position, [-30.0, 0.0, 0.0])
+    assert np.allclose(rungs[1].position, [-15.0, 0.0, 0.0])
+    assert rungs[1].radius == view.goal["capture_radius"]
+    assert rungs[1].speed == view.goal["capture_speed"]
+
+
+@pytest.mark.parametrize("name", ["approach-vbar", "approach-rbar", "berthing-box"])
+def test_the_goal_rung_arrives_within_the_capture_radius_and_speed_of_the_goal(name):
+    view = make(name).agent_view()
+    goal_rung = ladder(view, first_observation(name))[1]
+    assert goal_rung.radius == view.goal["capture_radius"]
+    assert goal_rung.speed == view.goal["capture_speed"]
+
+
+def test_a_hold_rung_arrives_within_5_m_and_0_05_m_s():
+    name = "approach-vbar"
+    rung = ladder(make(name).agent_view(), first_observation(name))[0]
+    assert rung.radius == 5.0 and rung.speed == 0.05
+
+
+def test_the_contact_rung_arrives_within_the_lateral_limit_and_below_the_top_axial_speed():
+    goal = {**DOCK.goal, "lateral_limit": 0.07, "axial_speed_window": (0.03, 0.09)}
+    rungs = ladder(dataclasses.replace(DOCK, goal=goal), first_observation("docking:axis"))
+    assert rungs[-1].kind == "contact"
+    assert rungs[-1].radius == 0.07
+    assert rungs[-1].speed == 0.09
+
+
+def test_a_docking_without_an_approach_cone_gets_its_standoff_10_m_out_on_the_axis():
+    view = dataclasses.replace(
+        DOCK, constraints=tuple(c for c in DOCK.constraints if c["type"] != "approach_cone")
+    )
+    rungs = ladder(view, first_observation("docking:axis"))
+    port, axis = np.array(DOCK.goal["port"]), np.array(DOCK.goal["port_axis"])
+    assert np.allclose(rungs[0].position, port + 10.0 * axis)
+
+
+def test_the_orbit_rung_arrives_within_5_m_and_0_05_m_s_like_the_entry_rung():
+    view = make("inspection").agent_view()
+    rungs = ladder(view, first_observation("inspection"))
+    assert [(r.radius, r.speed) for r in rungs] == [(5.0, 0.05), (5.0, 0.05)]
+
+
+def test_the_departure_task_has_no_ladder():
+    name = "separation-flyaround"
+    with pytest.raises(ValueError, match="no ladder"):
+        ladder(make(name).agent_view(), first_observation(name))
+
+
+def test_a_hold_goal_at_the_target_with_a_zero_first_line_of_sight_raises_value_error():
+    view = make("docking-afrl").agent_view()
+    with pytest.raises(ValueError, match="no direction"):
+        ladder(view, np.zeros(6))
+
+
+def test_an_inspection_with_a_zero_first_line_of_sight_raises_value_error():
+    view = make("inspection").agent_view()
+    with pytest.raises(ValueError, match="no direction"):
+        ladder(view, np.zeros(6))
+
+
+@pytest.mark.parametrize("sun", [(0.0, 0.0, 0.0), (0.0, 0.0, 1.0)], ids=["zero", "normal-only"])
+def test_an_inspection_goal_with_no_sun_direction_in_the_orbit_plane_raises_value_error(sun):
+    view = make("inspection").agent_view()
+    goal = {**view.goal, "sun_direction": sun}
+    with pytest.raises(ValueError, match="(?i)sun"):
+        ladder(dataclasses.replace(view, goal=goal), first_observation("inspection"))
+
+
+def test_an_approach_cone_with_an_infinite_active_range_raises_value_error():
+    constraints = tuple(
+        {**c, "active_range": math.inf} if c["type"] == "approach_cone" else c
+        for c in DOCK.constraints
+    )
+    with pytest.raises(ValueError, match="active range"):
+        ladder(
+            dataclasses.replace(DOCK, constraints=constraints), first_observation("docking:axis")
+        )
+
+
 # Validity mask
 
 
@@ -516,6 +601,54 @@ def test_an_invalid_order_is_refused_and_recorded_without_moving_the_reference(
     assert step.consulted and step.accepted is False
     assert isinstance(step.reason, str) and step.reason
     assert np.array_equal(step.r_ref, kept[0]) and np.array_equal(step.v_ref, kept[1])
+
+
+EXTRAS = {
+    "point": {"point": (0.0, -150.0, 0.0)},
+    "velocity": {"velocity": (0.0, 0.1, 0.0)},
+    "speed": {"speed": 0.1},
+}
+OTHER_COMMANDS = [c for c in Command if c != GO]
+
+
+def reach_state_where_valid(s, mode, command):
+    """Step `s` to a state in which `command` is valid if the mode allows one; returns the obs."""
+    if mode == "ladder":
+        if command == Command.RETREAT:
+            to_holding_1(s)
+            return R1
+        obs = CLOSING if command == CAM else FAR
+        s.step(obs)
+        return obs
+    s.step(FAR, VALID[mode][0])
+    return FAR
+
+
+@pytest.mark.parametrize("extra", EXTRAS)
+@pytest.mark.parametrize("command", OTHER_COMMANDS, ids=lambda c: c.name)
+@pytest.mark.parametrize("mode", ["ladder", "waypoint", "velocity"])
+def test_a_command_other_than_go_given_a_point_a_velocity_or_a_speed_is_refused_and_changes_nothing(
+    mode, command, extra
+):
+    s = Session(APPROACH, mode=mode, tracker=SetpointTracker(v_max=0.5))
+    obs = reach_state_where_valid(s, mode, command)
+    before = s.agent.last_step
+    step = s.step(obs, Order(command, **EXTRAS[extra]))
+    assert step.consulted and step.accepted is False
+    assert step.reason == f"{command.name} takes no point, velocity or speed"
+    assert (step.phase, step.rung) == (before.phase, before.rung)
+    assert np.array_equal(step.r_ref, before.r_ref) and np.array_equal(step.v_ref, before.v_ref)
+    assert s.sit.refused is None
+    s.step(obs)
+    assert s.sit.refused == step.reason
+
+
+@pytest.mark.parametrize("mode", ["ladder", "waypoint", "velocity"])
+@pytest.mark.parametrize("command", [HOLD, INHIBIT, CAM], ids=lambda c: c.name)
+def test_the_bare_command_is_accepted_where_the_same_command_with_a_point_is_refused(mode, command):
+    s = Session(APPROACH, mode=mode, tracker=SetpointTracker(v_max=0.5))
+    obs = reach_state_where_valid(s, mode, command)
+    assert s.step(obs, command).accepted is True
 
 
 def test_a_valid_waypoint_order_moves_the_reference_to_the_point():
