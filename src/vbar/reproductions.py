@@ -39,12 +39,38 @@ __all__ = [
 
 @dataclass(frozen=True)
 class AribaCase:
-    """Ariba et al.'s case 1 in V-BAR's Hill frame (m, s, rad/s)."""
+    """Ariba et al.'s case 1 in V-BAR's Hill frame (m, s, rad/s).
+
+    Parameters
+    ----------
+    n : float
+        Mean motion, rad/s, positive.
+    start, aim : tuple of float
+        Positions on one V-bar line, m, distinct.
+    duration : float
+        Transfer time, s, positive.
+
+    Raises
+    ------
+    ValueError
+        If a value is not finite, `n` or `duration` is not positive, or the points coincide.
+    """
 
     n: float = 1e-3
     start: tuple[float, float, float] = (20.0, -500.0, 0.0)
     aim: tuple[float, float, float] = (20.0, -100.0, 0.0)
     duration: float = 540.0
+
+    def __post_init__(self) -> None:
+        for name in ("n", "duration"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not (math.isfinite(value) and value > 0.0):
+                raise ValueError(f"{name} must be positive and finite")
+        points = np.array([self.start, self.aim], dtype=float)
+        if points.shape != (2, 3) or not np.all(np.isfinite(points)):
+            raise ValueError("start and aim must be three finite numbers each")
+        if np.array_equal(points[0], points[1]):
+            raise ValueError("start and aim must differ")
 
 
 ARIBA_CASE_ONE = AribaCase()

@@ -189,3 +189,23 @@ def test_docs_table_is_the_regenerated_table():
         "Two-impulse transfer",
         "Two-impulse excursion",
     ]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"n": 0.0},
+        {"n": math.nan},
+        {"n": True},
+        {"duration": 0.0},
+        {"duration": math.inf},
+        {"start": (20.0, math.nan, 0.0)},
+        {"start": (20.0, -500.0)},
+        {"aim": (20.0, -500.0, 0.0)},
+    ],
+)
+def test_ariba_case_refuses_bad_settings(kwargs):
+    from vbar.reproductions import AribaCase
+
+    with pytest.raises(ValueError):
+        AribaCase(**kwargs)
