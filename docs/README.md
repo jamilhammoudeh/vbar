@@ -28,6 +28,7 @@ and how it is tested.
 | [viz.md](viz.md) | the screen style and its colours, the Hill-frame view, range and speed panels, the approach animation, label placement, regenerating the README figures |
 | [replay.md](replay.md) | replays of a recorded episode for the Rerun viewer: the file's entities and units, the violation and filter events, the metric card over time, limits |
 | [backends.md](backends.md) | Basilisk and Orekit as independent propagators of the two-body plus J2 rung, burns held in the Hill frame, the agreement table and how its residuals are attributed |
+| [pursuit-evasion.md](pursuit-evasion.md) | KSPDG's pe1 pursuit-evasion game on two-body dynamics: the problem and score, KSPDG's observation and action formats, frames and RCS model, time and event handling, the agent interface that runs KSPDG agents unchanged, V-BAR's evader bots, limits |
 | [evaluation.md](evaluation.md) | the evaluation harness: the suite runner, result files, the provenance hash, IQM and stratified bootstrap statistics, safety tails with order-statistic intervals and tolerance bounds, rate comparisons, learned-agent rules, reports and one-command reproduction |
 | [lqr.md](lqr.md) | the LQR baseline: the exact zero-order-hold design model, discrete and sampled-data stage costs, the hold-point input, actuation delay and the command-change weight |
 | [lqg.md](lqg.md) | the LQG baseline: the steady-state Kalman filter on the Clohessy-Wiltshire model, declared measurement biases and their detectability, the regulator on the estimate |

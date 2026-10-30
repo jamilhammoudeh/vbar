@@ -622,6 +622,19 @@ Li and Wang (*Aerospace* 9, 242, 2022), eqs. 14 to 25
   comparison tasks, and the inspection paper's minimum completion time of about 3060 s, pi / n,
   reproduced at 3060 s (`tests/test_comparison_tasks.py`).
 
+## Published problem behind the pursuit-evasion game
+
+- KSPDG v0.15.0 (github.com/mit-ll/spacegym-kspdg, commit 6251ca3), public
+  source only: the pe1 observation, score, 240 s timeout, 5 m capture distance and RCS model
+  (`src/kspdg/pe1/pe1_base.py`), the action dictionary and frames (`base_envs.py`), the agent and
+  runner signatures (`agent_api/`), the I3 orbits, parts and propellant of the mission save
+  `pe1_i3_init.sfs`, and the e3 evasion distance and throttle (`e3_envs.py`). The I3 range
+  a dM = 2617.994 m and the burn's propellant use 8000 N / (240 s g0) are reproduced
+  (`tests/test_pursuit_evasion.py`).
+- KSP's resource definitions (`ResourcesGeneric.cfg`): monopropellant density 0.004 t per unit.
+- Carrasco, Rodriguez-Fernandez and Linares (arXiv 2408.08676, 2024): the PE1_I3_E3 scenario as
+  the one their LLM agents were evaluated on.
+
 ## Agreement with Basilisk and Orekit
 
 V-BAR's two-body plus J2 rung, Basilisk 2.12 and Orekit 13.1 fly the same initial inertial states

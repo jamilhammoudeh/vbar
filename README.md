@@ -347,6 +347,22 @@ Also included, each documented in [docs/](https://github.com/jamilhammoudeh/vbar
 Earth uses the WGS 84 constants; a Kerbin body with KSP's values is available for comparison with
 KSPDG.
 
+## Pursuit-evasion in KSPDG's format
+
+`vbar.games` rebuilds KSPDG's pe1 pursuit-evasion problem on two-body dynamics, with KSPDG's
+observation list, action dictionary and agent interface, so an agent written for KSPDG runs
+unchanged, headless and faster than real time. The evaders are V-BAR's own bots.
+
+```python
+from vbar.games import PE1_E3_I3_Env, AgentEnvRunner
+from vbar.games.pursuers import VelocityMatchingPursuer
+
+results = AgentEnvRunner(VelocityMatchingPursuer(), PE1_E3_I3_Env, {"episode_timeout": 30.0}).run()
+print(results["agent_env_results"]["weighted_score"])
+```
+
+See [docs/pursuit-evasion.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/pursuit-evasion.md).
+
 ## Scenario catalogue
 
 Beyond the approach above, `vbar.scenarios` holds seventeen scenarios built from specs: the
@@ -381,7 +397,8 @@ How each part is built, with its equations, methods, assumptions and limits, is 
 frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
 spacecraft, sensors, constraints, the environment, scenarios, metrics, rewards, training
 interfaces, the vectorized environment, agent tools, LLM agents, remote agents, policy export,
-solvers, the evaluation harness, the external propagators, the classical baselines and validation.
+solvers, the evaluation harness, the external propagators, the classical baselines, pursuit-evasion
+in KSPDG's format and validation.
 
 ## Tests
 
