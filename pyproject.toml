@@ -122,6 +122,7 @@ also_copy = [
     "examples",
     "clients",
     ".github",
+    "reproduce.toml",
 ]
 # Stats, clean and mutant runs each start from a process that has only collected the tests; with
 # plain fork, state a test leaves behind in the stats run leaks into every mutant's run.

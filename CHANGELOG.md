@@ -405,6 +405,9 @@ release may change the public API, and every such change is listed under Changed
   same on the hidden test split, whose result lines hold the keyed digest `seed_digest` of each
   seed instead of the seed, matched to their runs by `Suite.missing` and `match_runs`);
   `Suite.require_complete` refuses a partial report.
+- The suite `comparison-v1` (`afrl-docking`, `afrl-inspection`, `spacegym-docking` and
+  `spacegym-rendezvous`, 100 validation seeds each) and a row of `reproduce.toml` for the LQR
+  baseline on it.
 - `DriftingVelocity`, a start-velocity dispersion that excludes slowly drifting orbits.
 - Comparison tasks rebuilt from their papers: `afrl-docking` and `afrl-inspection` (the AFRL
   safe-autonomy deep-RL docking and illuminated inspection tasks) and `spacegym-docking` and

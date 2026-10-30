@@ -103,7 +103,9 @@ reported in full or not at all. A result belongs to a run by its seed or, if it 
 `approach-vbar`, `approach-rbar`, `docking:axis`, `docking-afrl` and `inspection`, each without and
 with `:nav1`, on 100 validation seeds per entry, and `core-test-v1` the same ten entries on 100
 hidden test seeds each. The rest of the catalogue stays available outside it. Also built in:
-`v1-v1` (the four v1
+`comparison-v1` (the four comparison tasks below, `afrl-docking`, `afrl-inspection`,
+`spacegym-docking` and `spacegym-rendezvous`, on 100 validation seeds each, for baselines reported
+on them), `v1-v1` (the four v1
 scenarios, 50 validation seeds each), `v1-nav1-v1` (the same on the `:nav1` track),
 `v1-operations-v2` (closing, R-bar acquisition, berthing box, the on-axis, lit and offset
 dockings, the inertial target and the orbit-normal approach) and `v1-shuttle-v1` (the six

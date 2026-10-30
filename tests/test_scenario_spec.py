@@ -426,3 +426,19 @@ def test_hidden_key_is_not_in_the_repository():
                 with open(os.path.join(folder, file), encoding="utf-8") as handle:
                     assert "VBAR_HIDDEN_SEED_KEY=" not in handle.read()
     assert math.isfinite(SCENARIOS["docking"].config["dt"])
+
+
+def test_the_comparison_suite_holds_each_comparison_task_on_100_validation_seeds():
+    from vbar.scenarios.catalog import COMPARISON
+
+    suite = SUITES["comparison-v1"]
+    assert COMPARISON == (
+        "afrl-docking",
+        "afrl-inspection",
+        "spacegym-docking",
+        "spacegym-rendezvous",
+    )
+    assert [(e.scenario, e.split, e.count) for e in suite.entries] == [
+        (name, "validation", 100) for name in COMPARISON
+    ]
+    assert len(suite.runs()) == 400

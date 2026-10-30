@@ -192,3 +192,23 @@ def test_a_corrupt_line_that_was_not_cut_off_is_refused(tmp_path):
     out.write_text(good + "{bad\n", encoding="utf-8")
     with pytest.raises(ValueError, match="line 6"):
         read_results(out)
+
+
+def test_the_repository_manifest_names_registered_suites_and_importable_agents():
+    import tomllib
+    from pathlib import Path
+
+    from vbar.eval.runner import resolve
+    from vbar.scenarios import SUITES
+
+    manifest = Path(__file__).parents[1] / "reproduce.toml"
+    tables = tomllib.loads(manifest.read_text(encoding="utf-8"))["table"]
+    assert {t["name"] for t in tables} >= {"core suite, free drift", "comparison tasks, LQR"}
+    for table in tables:
+        assert table["suite"] in SUITES, table["name"]
+        assert callable(resolve(table["agent"])), table["name"]
+        if "filter" in table:
+            assert callable(resolve(table["filter"])), table["name"]
+    for key, suffix in (("results", ".jsonl"), ("markdown", ".md")):
+        paths = [t[key] for t in tables]
+        assert len(set(paths)) == len(paths) and all(p.endswith(suffix) for p in paths)
