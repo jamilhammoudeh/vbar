@@ -148,7 +148,10 @@ on a turning target has (Fehse 8.3.6):
   points that move with the target.
 - `GravityGradientTumble(...)`, with the parameters of `TorqueFree`: the same tumble at t = 0, then
   under the gravity-gradient torque of the target's circular orbit, integrated numerically, with
-  rate bounds from the orbit-frame Jacobi integral ([rigid-body.md](rigid-body.md)).
+  rate bounds from the orbit-frame Jacobi integral ([rigid-body.md](rigid-body.md)). With
+  `rate_in_n=True` the rate is a multiple of the episode's mean motion, so a stage set to turn with
+  its orbit does so at any altitude; the briefing then carries `rate_in_n` and the body rate at
+  that n.
 - `Maneuvering(schedule, attitude)`: a target that burns on a schedule of (start, duration, Hill
   acceleration). The chaser's relative state feels the opposite acceleration, exact in the
   Clohessy-Wiltshire model and first order in the target's orbit change otherwise; the
@@ -334,7 +337,7 @@ Shuttle values.
 | `tumbling-capture` (v1) | hold a capture-ready state at the aft ring of a tumbling upper stage | random direction, 40 to 100 m, velocities within 0.02 m/s | upper stage 6 m by 2.4 m, moments (1000, 4200, 4700) kg m^2 (ours); capsule keep-out of radius 1.5 m about the long axis (hard); capture point 2 m beyond the ring at (-5, 0, 0) m body; 0.2 m and 0.02 m/s relative to the moving point for 30 s (ours); flat spin about the major axis, D in [4600, 4690] kg m^2, w_l 0.5 to 2 deg/s, H direction and phases uniform, briefed at t = 0 | 1800 x 2 s | Fehse 7.1.1, 8.1.2 to 8.1.3, 8.3.6; Scheeres 3.2; Schaub and Junkins 4.2 |
 | `tumbling-capture:coning` | the same with a spin about the long axis | as the base | D in [1050, 1300] kg m^2 (long-axis mode, the long axis cones about H), 1 to 4 deg/s | 1800 x 2 s | Schaub and Junkins 4.2.2 |
 | `tumbling-capture:separatrix` | a tumble near the separatrix | as the base | D 0.2 to 2% above the intermediate moment, 0.5 to 1.5 deg/s | 1800 x 2 s | Scheeres 3.2.4 to 3.2.8 |
-| `tumbling-capture:libration` | a dead stage librating in the gravity gradient | as the base | `GravityGradientTumble` with the long axis radial (the stable attitude for these moments), spinning about the orbit normal at 0.95 to 1.05 n with a pitch of up to 20 deg (ours) | 1800 x 2 s | Schaub and Junkins 4.4.3, eq. 4.158 |
+| `tumbling-capture:libration` | a dead stage librating in the gravity gradient | as the base | `GravityGradientTumble` with the long axis radial (the stable attitude for these moments), spinning about the orbit normal at 0.95 to 1.05 times the episode's n with a pitch of up to 20 deg (ours) | 1800 x 2 s | Schaub and Junkins 4.4.3, eq. 4.158 |
 | `tumbling-capture:intermediate` | a spin started next to the unstable intermediate axis | as the base | D 1e-5 to 1e-4 above the intermediate moment, polhode phase 0.22 to 0.25 (near the axis, before a flip), 0.5 to 1.5 deg/s | 1800 x 2 s | Scheeres 3.2.4; Schaub and Junkins 4.2.1 |
 
 Gate tables (`GATES` in the catalogue) are the flown range-rate gates in m and m/s:

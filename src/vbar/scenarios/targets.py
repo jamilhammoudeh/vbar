@@ -840,16 +840,28 @@ class GravityGradientTumble(TorqueFree):
     3 n^2 (o x I o) (Schaub and Junkins, eq. 4.132). A slow or librating dead stage feels the
     torque within an orbit; a fast tumble only over many. The integration is made on first use at
     the mean motion it is asked for, and the rate bounds come from the orbit-frame Jacobi integral.
+
+    Parameters
+    ----------
+    rate_in_n : bool
+        Whether `rate` is a multiple of the mean motion n rather than rad/s, so a stage set to
+        turn with its orbit does so at any altitude; the other parameters are those of
+        `TorqueFree`. The body rate scales with `rate` at fixed effective inertia and phase, so
+        the attitude at t = 0 does not depend on it.
     """
 
+    rate_in_n: bool = False
     name: ClassVar[str] = "gravity_gradient"
     integrated: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    def _omega0(self, n: float) -> np.ndarray:
+        return np.asarray(self.motion.omega0) * (n if self.rate_in_n else 1.0)
 
     def _motion(self, n: float) -> GravityGradientMotion:
         if n not in self.integrated:
             self.integrated[n] = GravityGradientMotion(
                 self.moments,
-                self.motion.omega0,
+                self._omega0(n),
                 Rotation.from_matrix(self.motion.r0).as_quat(),
                 n,
             )
@@ -892,6 +904,26 @@ class GravityGradientTumble(TorqueFree):
         inertial = self._motion(n).angular_velocity(t)
         inertial = np.einsum("...ij,...j->...i", rotation_z(-n * t), inertial)
         return inertial - _about_z(np.full(t.shape, n))
+
+    def public(self, n: float) -> dict[str, Any]:
+        """The tumble parameters, `rate_in_n` and the state they give at t = 0.
+
+        Parameters
+        ----------
+        n : float
+            Mean motion (rad/s), which scales the body rate when `rate_in_n` is set.
+
+        Returns
+        -------
+        dict
+            As `TorqueFree.public`, with "rate_in_n" and "omega" the body rate at t = 0 at this n
+            (rad/s, body axes).
+        """
+        return {
+            **super().public(n),
+            "rate_in_n": self.rate_in_n,
+            "omega": tuple(float(c) for c in self._omega0(n)),
+        }
 
     def rate_bound(self, n: float) -> float:
         """The bound from the Jacobi integral on the rate relative to the Hill frame.

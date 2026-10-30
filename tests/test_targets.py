@@ -428,7 +428,7 @@ def test_the_gravity_gradient_tumble_starts_as_briefed_and_departs_from_the_torq
     torqued = GravityGradientTumble(**keys, momentum_direction=(0.2, -0.4, 0.9), spin_angle=0.7)
     free = TorqueFree(**keys, momentum_direction=(0.2, -0.4, 0.9), spin_angle=0.7)
     assert torqued.matrix(0.0, N) == pytest.approx(free.matrix(0.0, N), abs=1e-15)
-    assert torqued.public(N) == {**free.public(N), "mode": "gravity_gradient"}
+    assert torqued.public(N) == {**free.public(N), "mode": "gravity_gradient", "rate_in_n": False}
     later = np.array([3000.0])
     apart = np.linalg.norm(torqued.matrix(later, N) - free.matrix(later, N))
     assert apart > 1e-3

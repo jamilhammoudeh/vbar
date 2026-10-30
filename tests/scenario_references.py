@@ -598,8 +598,11 @@ class Capture:
         self.max_accel = view.max_accel
         self.scale = action_scale(view)
         goal = view.goal
-        kind = GravityGradientTumble if goal["target"]["mode"] == "gravity_gradient" else TorqueFree
-        self.mode = kind(*(goal["target"][key] for key in self.KEYS))
+        briefed = [goal["target"][key] for key in self.KEYS]
+        if goal["target"]["mode"] == "gravity_gradient":
+            self.mode = GravityGradientTumble(*briefed, rate_in_n=goal["target"]["rate_in_n"])
+        else:
+            self.mode = TorqueFree(*briefed)
         self.point = np.array(goal["capture_point"], dtype=float)
         self.h = np.asarray(self.mode.motion.momentum) / self.mode.motion.h
         self.stage = None

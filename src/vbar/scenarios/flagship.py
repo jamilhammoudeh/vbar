@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 
-from .catalog import ALTITUDE, INCLINATION, ISS_ALTITUDE, LATITUDE, TWO_PI, N
+from .catalog import ALTITUDE, INCLINATION, ISS_ALTITUDE, LATITUDE, TWO_PI
 from .registry import register
 from .spec import Fixed, Observation, ScenarioSpec, Shell, Uniform
 from .targets import GravityGradientTumble, TorqueFree
@@ -94,12 +94,15 @@ TUMBLING_CAPTURE = register(
             },
             # A dead stage held by the gravity gradient with its long axis radial, the stable
             # attitude for these moments (Schaub and Junkins, section 4.4.3), librating about the
-            # orbit normal from a pitch and a rate a little off the orbit's.
+            # orbit normal from a pitch and a rate a little off the orbit's, set in units of the
+            # episode's mean motion so the stage turns with its orbit at any altitude.
             "libration": {
-                "target": GravityGradientTumble(MOMENTS, 4700.0, N, 0.0, (0.0, 0.0, 1.0), 0.0),
+                "target": GravityGradientTumble(
+                    MOMENTS, 4700.0, 1.0, 0.0, (0.0, 0.0, 1.0), 0.0, rate_in_n=True
+                ),
                 "dispersions": {
                     "target_effective_inertia": Fixed(4700.0),
-                    "target_rate": Uniform(0.95 * N, 1.05 * N),
+                    "target_rate": Uniform(0.95, 1.05),
                     "target_phase": Fixed(0.0),
                     "target_momentum_direction": Fixed((0.0, 0.0, 1.0)),
                     "target_spin_angle": Uniform(math.radians(-20.0), math.radians(20.0)),

@@ -171,8 +171,11 @@ def test_every_tumble_preset_passes_the_gymnasium_checker(variant):
     _, info = env.reset(seed=11)
     # The tumble is drawn and briefed: the public parameters rebuild the true attitude.
     public = env.agent_view().goal["target"]
-    kind = GravityGradientTumble if public["mode"] == "gravity_gradient" else TorqueFree
-    rebuilt = kind(*(public[key] for key in KEYS))
+    briefed = [public[key] for key in KEYS]
+    if public["mode"] == "gravity_gradient":
+        rebuilt = GravityGradientTumble(*briefed, rate_in_n=public["rate_in_n"])
+    else:
+        rebuilt = TorqueFree(*briefed)
     times = np.array([0.0, 100.0, 1000.0])
     assert rebuilt.matrix(times, env.n) == pytest.approx(env.target.matrix(times, env.n), abs=1e-12)
     assert info["captured"] is False
@@ -192,6 +195,21 @@ def test_the_libration_preset_starts_long_axis_radial_turning_with_the_orbit():
         relative = env.target.angular_velocity(0.0, env.n)
         assert relative[:2] == pytest.approx((0.0, 0.0), abs=1e-15)
         assert abs(relative[2]) <= 0.05 * env.n * (1.0 + 1e-9)
+
+
+@pytest.mark.parametrize("altitude_m", [300e3, 1200e3])
+def test_the_libration_preset_turns_with_the_orbit_at_any_altitude(altitude_m):
+    # The drawn rate is in units of the episode's n: at 300 km and 1200 km the stage spins about
+    # the normal at the drawn multiple of that n, not of the catalogue altitude's, and the
+    # briefing gives the body rate at that n.
+    env = make("tumbling-capture:libration", altitude_m=altitude_m)
+    env.reset(seed=4)
+    k = env.draw["target_rate"]
+    assert 0.95 <= k <= 1.05
+    relative = env.target.angular_velocity(0.0, env.n)
+    assert relative == pytest.approx((0.0, 0.0, (k - 1.0) * env.n), rel=1e-12, abs=1e-18)
+    omega = env.agent_view().goal["target"]["omega"]
+    assert np.linalg.norm(omega) == pytest.approx(k * env.n, rel=1e-12)
 
 
 def test_the_dwell_ends_when_the_drifting_chaser_falls_behind_the_moving_point():

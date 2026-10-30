@@ -120,7 +120,9 @@ $|\dot\omega_i| \le |I_k - I_j|\,(\tfrac32 n^2 + \tfrac12|\boldsymbol\omega|^2)/
 cyclic, since $|\hat o_j\hat o_k| \le \tfrac12$ and $|\omega_j\omega_k| \le \tfrac12|\boldsymbol\omega|^2$,
 with $|\boldsymbol\omega|$ at most the relative bound plus $n$; the turning orbit normal adds
 $n|\boldsymbol\omega|$ (`relative_acceleration_bound`). The target mode `GravityGradientTumble` takes the same
-tumble parameters as `TorqueFree` and starts from the same state.
+tumble parameters as `TorqueFree` and starts from the same state; with `rate_in_n` its rate is a
+multiple of n, and since the body rate scales with the rate at fixed effective inertia and phase,
+the start attitude is the same at every n.
 
 ## Assumptions and limits
 
