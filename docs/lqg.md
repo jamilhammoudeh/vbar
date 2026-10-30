@@ -103,8 +103,9 @@ for tests only; the recorder never reads them.
   keep-out zone, and the estimate error is unbounded in the tails.
 - The delay must be a whole number of steps, as for `LQRAgent`.
 - `LQGConfig` raises `ValueError` at construction for a sigma that is not positive and finite and
-  for a process noise or bias walk that is negative or not finite; a zero process noise or walk
-  is accepted there and refused at `reset` (`tests/test_baseline_inputs.py`).
+  for a process noise or bias walk that is negative or not finite (`tests/test_baseline_inputs.py`);
+  a zero process noise is accepted there and refused at `reset`, and so is a zero walk when there
+  are bias states. Without bias states the walk is not used.
 - The regulator refuses at reset goals other than a hold or a berthing, and goals without a
   hold point, with a `ValueError`.
 - Only the continuous action modes are supported: `reset` raises `ValueError` from

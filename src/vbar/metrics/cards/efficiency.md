@@ -91,7 +91,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Definition: a successful run spent less than the bound E3 divides by, the certified lower bound or `impulsive_lower` after the acceleration limit was exceeded, by more than 1e-9 relative.
 - Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: a theorem says this cannot happen, so it exposes simulator or accounting bugs.
-- Known-answer tests: flagged 1% below the bound; not flagged at the bound within rounding; never flagged for a failure, for a bound certified for another rung, for a bound assuming less acceleration than the run flew, or for a run carried to the hold by a target burn the briefing omits; not flagged above `impulsive_lower` when the limit was exceeded; a record doctored to half the delta-v is flagged when its accelerations stay within the limit and not when it claims the saving by flying harder (`tests/test_fuel_bounds_accel.py`).
+- Known-answer tests: flagged 1% below the bound; not flagged at the bound within rounding; never flagged for a failure, for a bound certified for another rung, for a bound assuming less acceleration than the run flew, or for a run carried to the hold by a target burn the briefing omits; not flagged above `impulsive_lower` when the limit was exceeded; a record doctored to half the delta-v is flagged when its accelerations stay within the limit and not when it claims the saving by flying harder (`tests/test_fuel_bounds_accel.py`; the target burn case in `tests/test_fuel_oracle_free_time.py`).
 - Convergence: not applicable.
 - Invariance: not applicable.
 - Mutation detection: a bug that under-counts delta-v would raise it.
@@ -99,7 +99,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Reproducibility: exact (boolean).
 - Power: not applicable.
 - Validity: not applicable.
-- Changelog: v1, first version; v2, set only within the bound's acceleration limit, against `impulsive_lower` beyond it.
+- Changelog: v1, first version; v2, set only within the bound's acceleration limit, against `impulsive_lower` beyond it, and never for a run whose target moved otherwise than briefed.
 
 ## E3c bound_certified (v2)
 - Definition: whether a lower bound is certified for the run: the rung matches the episode's dynamics, the target moved as briefed and the delivered acceleration stayed within `accel_limit`, or the bound gives `impulsive_lower`.
