@@ -186,8 +186,8 @@ power figures need real filters and are not given.
 - Validity: not yet measured.
 - Changelog: v1, first version.
 
-## F10 stall_time (v1)
-- Definition: time (s) with an active safety row while the chaser moves slower than `stall_speed` (0.01 m/s, ours).
+## F10 stall_time (v2)
+- Definition: time (s) with an active safety row while the chaser moves slower than `stall_speed` (0.01 m/s, ours), each decision counting the length of its step, which a contact can cut short.
 - Summary: the unsafe tail across episodes (highest value, 95th percentile, mean at or above it), never the interquartile mean.
 - Why it matters: with the target between the chaser and its goal, a barrier's push and the agent's pull can cancel and hold the chaser in place for good; a filter that is safe by never arriving is not useful.
 - Known-answer tests: 60 s for a filter that zeroes every command from rest over six 10 s steps; 0 when the commands pass and the chaser moves; 20 s for 0.03 of a full command from rest with an active row, whose first two of six decisions are slower than 0.01 m/s, and 60 s with a 0.1 m/s stall speed; 0 for a hold at rest with no active row.
@@ -198,7 +198,7 @@ power figures need real filters and are not given.
 - Reproducibility: exact.
 - Power: not given.
 - Validity: not yet measured.
-- Changelog: v1, first version.
+- Changelog: v2, a step cut short by a contact counts its own length, not a whole step; v1, first version.
 
 ## F5f fallback_count (v1)
 - Definition: decisions answered by a fallback (`fallback_level` > 0: the shifted previous plan or the declared backup), over the decisions that report a level; NaN if none does.

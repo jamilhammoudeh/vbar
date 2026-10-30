@@ -82,7 +82,7 @@ CATALOGUE = (
     MetricInfo("F7", "filter_conservatism", "fraction", summary="none"),
     MetricInfo("F8", "unnecessary_intervention_rate", "fraction"),
     MetricInfo("F9", "reentry_time", "s", summary="upper_tail"),
-    MetricInfo("F10", "stall_time", "s", summary="upper_tail"),
+    MetricInfo("F10", "stall_time", "s", version=2, summary="upper_tail"),
     MetricInfo("F5f", "fallback_count", "count", summary="upper_tail"),
     MetricInfo("F5l", "fallback_level_max", "level", summary="upper_tail"),
     MetricInfo("F11", "filter_certificates", "labels", summary="none"),

@@ -304,6 +304,8 @@ release may change the public API, and every such change is listed under Changed
   environment. A departure goal (`task` "depart") now carries `drift_radius` and is met as the
   departure judges it: at the first step boundary beyond `clear_range` from which the free
   drift over `drift_horizon` stays outside `drift_radius`.
+- F10 `stall_time` (version 2) counted a whole step for a decision whose step a contact cut short,
+  so a slow docking with an active safety row read up to one step too long.
 
 ## [0.3.1] - 2026-10-24
 

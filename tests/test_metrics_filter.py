@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -14,9 +15,12 @@ from vbar.metrics import (
     filter_metrics,
     iqm,
     paired_filter_metrics,
+    record_episode,
 )
 from vbar.metrics.efficiency import delta_v
 from vbar.safety import FilteredAgent, FilterResult, PassThroughFilter
+from vbar.scenarios import SCENARIOS, Fixed
+from vbar.scenarios.registry import entry_class
 
 
 class ScriptedFilter:
@@ -297,6 +301,23 @@ def test_stall_time_counts_only_decisions_slower_than_the_stall_speed():
     assert filter_behaviour(ep, MetricSettings(stall_speed=0.1))["stall_time"] == pytest.approx(
         60.0
     )
+
+
+def test_stall_time_ends_at_a_contact_that_cuts_the_last_step():
+    # 5 cm out drifting in at 8 mm/s, inside a soft window: contact at 6.25 s cuts the second
+    # 5 s step, so the stalled time is the contact time, not two whole steps.
+    spec = SCENARIOS["docking"]
+    spec = replace(
+        spec,
+        parameters={**spec.parameters, "axial_window": (0.0, 0.1)},
+        dispersions={"start_pos": Fixed((0.0, -2.05, 0.0)), "start_vel": Fixed((0.0, 0.008, 0.0))},
+    )
+    env = entry_class(spec)(spec)
+    agent = FilteredAgent(ConstantAgent([0.0, 0.0, 0.0]), SequenceFilter(zero=True, active=(True,)))
+    ep = record_episode(env, agent, seed=1, agent_seed=2)
+    assert env._info()["success"] and len(ep.records) == 2
+    assert ep.duration == pytest.approx(0.05 / 0.008, rel=1e-3)
+    assert filter_behaviour(ep)["stall_time"] == pytest.approx(ep.duration, rel=1e-12)
 
 
 def test_a_planned_hold_without_an_active_row_is_not_stall_time():

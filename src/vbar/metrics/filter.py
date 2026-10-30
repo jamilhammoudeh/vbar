@@ -117,19 +117,19 @@ def _commanded_accel(ep: Episode, command: np.ndarray) -> np.ndarray:
     return u * ep.view.max_accel
 
 
-def _run_lengths(flags: list[bool], dt: float) -> list[float]:
-    """Durations (s) of the runs of consecutive True flags, each flag one decision of `dt` s.
+def _run_lengths(flags: list[bool], durations: list[float]) -> list[float]:
+    """Durations (s) of the runs of consecutive True flags, each flag one decision of its duration.
 
     A run still open at the last flag never ended, so its duration is infinite.
     """
-    runs, count = [], 0
-    for flag in flags:
+    runs, length, running = [], 0.0, False
+    for flag, duration in zip(flags, durations, strict=True):
         if flag:
-            count += 1
-        elif count:
-            runs.append(count * dt)
-            count = 0
-    if count:
+            length, running = length + duration, True
+        elif running:
+            runs.append(length)
+            length, running = 0.0, False
+    if running:
         runs.append(math.inf)
     return runs
 
@@ -162,6 +162,8 @@ def filter_behaviour(ep: Episode, settings: MetricSettings | None = None) -> dic
     if not decisions:
         return out
     dt = ep.view.dt
+    # A step cut short by a contact is shorter than dt, so the times come from the record.
+    durations = [float(ep.times[k + 1] - ep.times[k]) for k, _ in decisions]
     states = ep.states
     acting = [(k, rec) for k, rec in decisions if _active(ep, rec)]
     if acting:
@@ -173,14 +175,14 @@ def filter_behaviour(ep: Episode, settings: MetricSettings | None = None) -> dic
         out["unnecessary_intervention_rate"] = float(np.mean(clear))
     results = [rec.filter_result for _, rec in decisions]
     if any(r.recovering is not None for r in results):
-        runs = _run_lengths([bool(r.recovering) for r in results], dt)
+        runs = _run_lengths([bool(r.recovering) for r in results], durations)
         out["reentry_time"] = float(np.mean(runs)) if runs else 0.0
     speeds = np.linalg.norm(states[[k for k, _ in decisions], 3:], axis=1)
     slow = [
         _active(ep, rec) and s < settings.stall_speed
         for (_, rec), s in zip(decisions, speeds, strict=True)
     ]
-    out["stall_time"] = float(sum(slow)) * dt
+    out["stall_time"] = float(sum(d for d, stalled in zip(durations, slow, strict=True) if stalled))
     levels = [r.fallback_level for r in results if r.fallback_level is not None]
     if levels:
         out["fallback_count"] = float(sum(level > 0 for level in levels))
