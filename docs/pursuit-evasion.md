@@ -196,6 +196,17 @@ evader).
 `VelocityMatchingPursuer` closes along the line of sight at 20 m/s, slowing in proportion to range
 inside 200 m; it captures the passive evader.
 
+## Speed
+
+`benchmarks/pursuit_evasion.py` times the E3 scenario, whose 240 s episodes neither reference
+pursuer ends early. On a GitHub-hosted Ubuntu runner with two cores and Python 3.15, one episode
+took 0.075 s with `LineOfSightPursuer` (240 steps of 1 s), about 3200 times real time, and 0.22 s
+with `VelocityMatchingPursuer` (480 steps of 0.5 s), about 1100 times. Four episodes on two worker
+processes through `run_jobs` took 2.3 s, about 400 times real time in total: the episodes need
+about 0.45 s per worker, and the rest is the harness starting its workers and recording each run.
+KSPDG runs one second of game time per second of wall time. The figures depend on the machine;
+rerun the script to measure yours.
+
 ## Limits
 
 - Two-body point masses: no KSP physics engine, part physics, reaction-wheel slew or roll
