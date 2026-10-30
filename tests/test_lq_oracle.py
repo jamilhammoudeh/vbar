@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from scipy.optimize import lsq_linear
+from scipy.optimize import brentq, lsq_linear
 
 from vbar.agents.lqr import dlqr, steady_state_input
 from vbar.agents.mpc import admissible_set
@@ -177,6 +177,31 @@ def test_validity_flag_is_false_exactly_when_the_terminal_state_leaves_the_set(
     assert bound.lower == pytest.approx(x0 @ design.p @ x0, rel=REL)
     if inside:
         assert bound.horizon == steps
+        assert bound.value == pytest.approx(value, rel=REL)
+    else:
+        assert bound.horizon is None
+        assert np.isnan(bound.value)
+
+
+@pytest.mark.parametrize("miss", [-1e-3, -1e-6, 1e-6, 1e-3])
+def test_validity_flag_changes_where_the_terminal_state_crosses_the_set_boundary(design, miss):
+    # A start whose terminal state after 5 steps has set ratio 1 + miss, found on the reference
+    # QP between the 5 and 8 offsets above, where the ratio crosses 1; 1e-6 is far above the
+    # 1e-12 or so by which the oracle's solve and the reference agree.
+    def start(scale):
+        return scale * design.s_max * ALONG_TRACK
+
+    def ratio_excess(scale):
+        _, z_n = reference_qp(start(scale), 5, design.p)
+        return set_ratio(design.rows, z_n) - (1.0 + miss)
+
+    x0 = start(brentq(ratio_excess, 5.0, 8.0, xtol=1e-14))
+    value, z_n = reference_qp(x0, 5, design.p)
+    assert set_ratio(design.rows, z_n) == pytest.approx(1.0 + miss, abs=1e-9)
+    bound = oracle(horizons=(5,))(x0)
+    assert bound.valid is (miss < 0.0)
+    if bound.valid:
+        assert bound.horizon == 5
         assert bound.value == pytest.approx(value, rel=REL)
     else:
         assert bound.horizon is None

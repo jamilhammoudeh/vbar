@@ -1188,6 +1188,43 @@ def test_a_riccati_plan_just_outside_the_box_goes_to_the_interior_point_solve():
     assert np.max(np.abs(plan.u)) <= A_MAX * (1.0 + 1e-8)
 
 
+def terminal_row_problem(miss):
+    """A free problem with one terminal row y_N >= e that the Riccati plan misses by `miss` of the
+    row's terms |y_N| + |e|, and that plan."""
+    view = free_view(0)
+    weights = dataclasses.replace(DISCRETE, accel_scale_mps2=A_MAX)
+    model = regulator_model(view, weights)
+    z0 = free_starts(model)[0]
+    qp = mpc_problem(model, view, z0, lqr_plan(model, z0, 20), MPCConfig(regulator=weights))
+    free = mpc_solve(qp)
+    assert free.path == "riccati"
+    # This plan ends 41 m behind the target, so the row's terms are far above rounding.
+    y_n = free.x[-1, 1]
+    assert abs(y_n) > 10.0
+    row = np.zeros((1, qp.A.shape[1]))
+    row[0, 1] = 1.0
+    bound = np.array([y_n + 2.0 * miss * abs(y_n)])
+    return dataclasses.replace(qp, C_N=row, e_N=bound), free, 2.0 * abs(y_n)
+
+
+@pytest.mark.parametrize("miss", [1e-4, 1e-6, 1e-8, 1e-10])
+def test_a_riccati_plan_that_misses_a_terminal_row_by_more_than_rounding_is_not_the_optimum(miss):
+    qp, free, size = terminal_row_problem(miss)
+    plan = mpc_solve(qp, settings=TIGHT)
+    assert (plan.status, plan.path) == ("converged", "ipm")
+    # The interior-point plan meets the row the Riccati plan missed.
+    assert plan.x[-1, 1] >= qp.e_N[0] - 1e-9 * size
+    assert plan.x[-1, 1] - free.x[-1, 1] > 0.5 * miss * size
+
+
+@pytest.mark.parametrize("miss", [0.0, 1e-14])
+def test_a_riccati_plan_that_misses_a_terminal_row_by_rounding_only_is_the_optimum(miss):
+    qp, free, _ = terminal_row_problem(miss)
+    plan = mpc_solve(qp, settings=TIGHT)
+    assert (plan.status, plan.path) == ("converged", "riccati")
+    np.testing.assert_array_equal(plan.u, free.u)
+
+
 # Extreme steps: a problem whose first move is the LQR law, or a refusal
 
 STEP_OUTCOMES = {
