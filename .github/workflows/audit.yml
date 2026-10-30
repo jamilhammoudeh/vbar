@@ -1,0 +1,40 @@
+name: audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 3"
+
+jobs:
+  # The push workflow runs the whole-episode scenario audits on one platform only; a difference
+  # between platforms or dependency versions in a full episode would show nowhere else.
+  scenario-audit:
+    # Mirrors used for pre-merge CI would otherwise run this weekly on their own minutes.
+    if: github.repository == 'jamilhammoudeh/vbar'
+    name: scenario audit (${{ matrix.os }}, ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.12", "3.15"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q -m slow
+
+  scenario-audit-oldest:
+    if: github.repository == 'jamilhammoudeh/vbar'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e . pytest hypothesis "numpy==1.26.0" "scipy==1.11.2" "gymnasium==0.29.0"
+      - run: python -m pytest -q -m slow

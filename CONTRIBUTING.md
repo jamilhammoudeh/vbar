@@ -30,6 +30,8 @@ The suite includes `tests/test_docs.py`, which runs every python example in READ
 below 95%) and prints the throughput from `python benchmarks/steps.py`; compare that number before
 and after a change on the same machine. A weekly mutation-testing run (`mutmut run`, configured in
 `pyproject.toml`) plants small changes in the core modules and lists the ones no test catches.
+CI runs the scenario audits (`-m slow`) on Linux with each push, and a weekly run repeats them on
+Linux, macOS and Windows with Python 3.12 and 3.15 and with the oldest supported dependencies.
 
 ## Conventions
 
