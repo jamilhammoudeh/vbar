@@ -1057,7 +1057,8 @@ def bounds_for(ep: Episode, oracle: FuelOracle | None = None) -> FuelBounds:
     -------
     FuelBounds
         `oracle.solve(ep.view, ep.start, hard=ep.hard).bounds`, rung "cw" whatever the episode's
-        dynamics, so `optimality_gap` certifies it only for a CW run.
+        dynamics, so `optimality_gap` certifies it only for a CW run whose target moved as
+        briefed (`Episode.target_misbriefed` False).
 
     Raises
     ------

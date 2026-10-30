@@ -83,9 +83,9 @@ class FuelBounds:
 
     Both bounds are for the same success set, time window and actuator norm (Boyd and
     Vandenberghe, Convex Optimization, sections 5.1 and 5.5). A lower bound is a theorem only for
-    the dynamics model it was computed on and for acceleration histories within the limit it
-    assumed; for any other run it is a model bound, since the true optimum there can lie on
-    either side of it.
+    the dynamics model it was computed on, for acceleration histories within the limit it
+    assumed and for a target that moves as briefed; for any other run it is a model bound, since
+    the true optimum there can lie on either side of it.
 
     Parameters
     ----------
@@ -177,8 +177,10 @@ def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | 
     read from the record and never from the agent, stayed within `accel_limit` (1e-12 relative).
     The ratio is then at least 1 by theorem, and a successful run below it means a simulator or
     metric bug and is flagged. A run that exceeded the limit is held to `impulsive_lower`
-    instead, when given. A lower bound not certified for the run gives the model ratio, which
-    may fall below 1 and is never flagged.
+    instead, when given. A run whose target moved otherwise than briefed
+    (`Episode.target_misbriefed`) is certified for neither, since the bounds were computed for
+    the briefed motion. A lower bound not certified for the run gives the model ratio, which may
+    fall below 1 and is never flagged.
 
     Parameters
     ----------
@@ -215,7 +217,7 @@ def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | 
         raise ValueError(f"{ep.view.thrust_limit} thrusters need {expected} bounds")
     lower_certified = False
     certified_lower = None
-    if bounds.rung == ep.dynamics:
+    if bounds.rung == ep.dynamics and not ep.target_misbriefed:
         limit = bounds.accel_limit
         lower_certified = limit == math.inf or _peak_accel(ep) <= limit * (1.0 + _ACCEL_TOL)
         certified_lower = bounds.lower if lower_certified else bounds.impulsive_lower

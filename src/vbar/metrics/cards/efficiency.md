@@ -46,10 +46,10 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Changelog: v1, first version.
 
 ## E3 optimality_gap (v2)
-- Definition: layout delta-v over a lower bound certified for the run, for the same success set, time window and norm: the bound's rung is the episode's dynamics and the run's delivered acceleration, read from the record, stayed within the bound's `accel_limit`; a run that exceeded it is held to the bound's `impulsive_lower` when given. NaN for failures, without bounds, or when no bound is certified for the run (then see E3m). Under the constant-thrust drive the limit is compared at the final mass, which can understate the flown peak only when one step burns more than 77% of the mass and an event cuts it in its first half.
+- Definition: layout delta-v over a lower bound certified for the run, for the same success set, time window and norm: the bound's rung is the episode's dynamics and the run's delivered acceleration, read from the record, stayed within the bound's `accel_limit`; a run that exceeded it is held to the bound's `impulsive_lower` when given; and the target moved as briefed (`Episode.target_misbriefed` is False), since the bounds are computed for the briefed motion and no bound is certified for a run whose target burned or turned otherwise. NaN for failures, without bounds, or when no bound is certified for the run (then see E3m). Under the constant-thrust drive the limit is compared at the final mass, which can understate the flown peak only when one step burns more than 77% of the mass and an event cuts it in its first half.
 - Summary: interquartile mean across episodes.
 - Why it matters: fuel against what physics allows, at least 1 by theorem.
-- Known-answer tests: 2 with a lower bound at half the delta-v; 2 with the limit at `max_accel` for constant-acceleration box and ball runs, and at the acceleration flown under the constant-thrust drive (0.0201 m/s^2) or a 5% scale bias (0.021 m/s^2); NaN with the limit at `max_accel` for those runs; the default limit reproduces v1 exactly (`tests/test_fuel_bounds_accel.py`).
+- Known-answer tests: 2 with a lower bound at half the delta-v; not certified, and no E3, for a zero-thrust run carried to the hold by a target burn the briefing omits (`tests/test_fuel_oracle_free_time.py`); 2 with the limit at `max_accel` for constant-acceleration box and ball runs, and at the acceleration flown under the constant-thrust drive (0.0201 m/s^2) or a 5% scale bias (0.021 m/s^2); NaN with the limit at `max_accel` for those runs; the default limit reproduces v1 exactly (`tests/test_fuel_bounds_accel.py`).
 - Convergence: inherits E1's.
 - Invariance: the bound's norm must match the layout; a mismatch is rejected.
 - Mutation detection: not exercised; no oracle bounds are in the suite.
@@ -57,12 +57,12 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Reproducibility: 1e-9 relative.
 - Power: oracle bounds not yet available.
 - Validity: E3f flags any run below its bound.
-- Changelog: v1, first version; the bound now names its rung and E3 is reported only on it; v2, the bound names its acceleration limit and is certified only for runs within it, with `impulsive_lower` used beyond it.
+- Changelog: v1, first version; the bound now names its rung and E3 is reported only on it; v2, the bound names its acceleration limit and is certified only for runs within it, with `impulsive_lower` used beyond it, and for no run whose target moved otherwise than briefed.
 
 ## E3m optimality_gap_model (v2)
-- Definition: layout delta-v over a lower bound not certified for the run: computed for a different dynamics rung than the episode's, or for less acceleration than the run delivered; NaN otherwise.
+- Definition: layout delta-v over a lower bound not certified for the run: computed for a different dynamics rung than the episode's, for less acceleration than the run delivered, or for a target motion other than the one flown; NaN otherwise.
 - Summary: interquartile mean across episodes.
-- Why it matters: a CW bound is a theorem for CW only; on two-body truth the optimum can lie on either side of it, so the ratio can fall below 1 with no bug (Rawlings, Mayne and Diehl, sections 8.1.2 and 8.10); likewise a run that flies harder than a finite-thrust bound assumed can legally spend less than it.
+- Why it matters: a CW bound is a theorem for CW only; on two-body truth the optimum can lie on either side of it, so the ratio can fall below 1 with no bug (Rawlings, Mayne and Diehl, sections 8.1.2 and 8.10); likewise a run that flies harder than a finite-thrust bound assumed, or whose target burns where the briefing says it does not, can legally spend less than it.
 - Known-answer tests: 1/1.01 for a CW bound 1% above the delta-v of a two-body run, which is not flagged; 1/1.01 for a bound at `max_accel` 1% above the delta-v of a constant-thrust or scale-biased run, box and ball (`tests/test_fuel_bounds_accel.py`).
 - Convergence: inherits E1's.
 - Invariance: as E3.
@@ -71,7 +71,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Reproducibility: 1e-9 relative.
 - Power: oracle bounds not yet available.
 - Validity: not applicable.
-- Changelog: v1, first version; v2, also reported when the run exceeded the bound's acceleration limit.
+- Changelog: v1, first version; v2, also reported when the run exceeded the bound's acceleration limit or its target moved otherwise than briefed.
 
 ## E3u optimality_gap_upper (v2)
 - Definition: layout delta-v over the best known feasible cost; NaN when that cost is infinite (no verified plan).
@@ -91,7 +91,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Definition: a successful run spent less than the bound E3 divides by, the certified lower bound or `impulsive_lower` after the acceleration limit was exceeded, by more than 1e-9 relative.
 - Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: a theorem says this cannot happen, so it exposes simulator or accounting bugs.
-- Known-answer tests: flagged 1% below the bound; not flagged at the bound within rounding; never flagged for a failure, for a bound certified for another rung, or for a bound assuming less acceleration than the run flew; not flagged above `impulsive_lower` when the limit was exceeded; a record doctored to half the delta-v is flagged when its accelerations stay within the limit and not when it claims the saving by flying harder (`tests/test_fuel_bounds_accel.py`).
+- Known-answer tests: flagged 1% below the bound; not flagged at the bound within rounding; never flagged for a failure, for a bound certified for another rung, for a bound assuming less acceleration than the run flew, or for a run carried to the hold by a target burn the briefing omits; not flagged above `impulsive_lower` when the limit was exceeded; a record doctored to half the delta-v is flagged when its accelerations stay within the limit and not when it claims the saving by flying harder (`tests/test_fuel_bounds_accel.py`).
 - Convergence: not applicable.
 - Invariance: not applicable.
 - Mutation detection: a bug that under-counts delta-v would raise it.
@@ -102,18 +102,18 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Changelog: v1, first version; v2, set only within the bound's acceleration limit, against `impulsive_lower` beyond it.
 
 ## E3c bound_certified (v2)
-- Definition: whether a lower bound is certified for the run: the rung matches the episode's dynamics and the delivered acceleration stayed within `accel_limit`, or the bound gives `impulsive_lower`.
+- Definition: whether a lower bound is certified for the run: the rung matches the episode's dynamics, the target moved as briefed and the delivered acceleration stayed within `accel_limit`, or the bound gives `impulsive_lower`.
 - Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: says whether E3 >= 1 is a theorem for this run.
 - Known-answer tests: False for a CW bound on a two-body run, True for a two-body bound there and for a CW bound on CW; False for a limit at `max_accel` under the constant-thrust drive or a 5% scale bias and True at the acceleration flown; a ball run at 0.021 m/s^2 in the 2-norm fails a 0.0205 m/s^2 limit (`tests/test_fuel_bounds_accel.py`).
 - Convergence: not applicable.
 - Invariance: not applicable.
 - Mutation detection: not applicable.
-- Anti-gaming: a bound must name its rung; there is no default. The delivered acceleration is read from the record and the drive and initial mass from the environment, never from the agent's reports, log, view or a bound it carries (`tests/test_fuel_bounds_accel.py`).
+- Anti-gaming: a bound must name its rung; there is no default. The delivered acceleration is read from the record and the drive, initial mass and true target mode from the environment, never from the agent's reports, log, view or a bound it carries (`tests/test_fuel_bounds_accel.py`, `tests/test_fuel_oracle_free_time.py`).
 - Reproducibility: exact (boolean).
 - Power: not applicable.
 - Validity: not applicable.
-- Changelog: v1, first version; v2, also requires the run's delivered acceleration within the bound's limit.
+- Changelog: v1, first version; v2, also requires the run's delivered acceleration within the bound's limit and the target to have moved as briefed.
 
 ## E3r bound_rung (v1)
 - Definition: the dynamics rung the oracle's lower bound is certified for, empty without bounds.

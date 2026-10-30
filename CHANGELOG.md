@@ -43,6 +43,8 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.eval.report` and the command line `python -m vbar.eval run | report | reproduce`: suite
   reports that refuse a partial suite, and `reproduce.toml`, which rebuilds every published table.
 - `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
+- `Episode.target_misbriefed`: whether the target moved otherwise than the briefing said, set by
+  `record_episode` from the environment's true target mode; never part of what an agent sees.
 - `vbar.dynamics.backends`: Basilisk and Orekit as independent propagators of the two-body plus J2
   rung (the optional extras `basilisk` and `orekit`), and the agreement table against them
   (`benchmarks/agreement_table.py`).
@@ -208,8 +210,10 @@ release may change the public API, and every such change is listed under Changed
   `summarize` raises for a NaN success, progress or composite score.
 - A2 `compute` (version 2) includes the agent's time in `reset`.
 - E3, E3m, E3u, E3f and E3c are at version 2. E3u is NaN for an infinite upper bound (0 in
-  version 1); with `FuelBounds.accel_limit` at its default, infinite, every other value is the
-  version 1 value.
+  version 1); with `FuelBounds.accel_limit` at its default, infinite, and a target that moved as
+  briefed, every other value is the version 1 value. A run whose target moved otherwise than
+  briefed (`Episode.target_misbriefed`, set by `record_episode` from the environment's true target
+  mode) is certified for no lower bound, so its ratio is reported as E3m.
 - Identifiers name a sensor subclass by its class, never by a built-in track name such as `nav1`;
   a custom `label` that takes a built-in name raises; an environment of another class than its
   spec names adds a `kind=` token.

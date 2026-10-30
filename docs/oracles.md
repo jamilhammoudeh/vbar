@@ -529,9 +529,11 @@ a manoeuvring mode with an empty schedule adds no acceleration and is accepted.
   $\text{aim}\cdot\rho/\sqrt3$ through the whole dwell; the tests assert at most 8% on
   approach-rbar and 17% on rbar-acquisition at shortened lengths.
 - The view carries the briefing only: a target that burns while the briefing says it does not is
-  not refused, and the bound is then a model bound.
+  not refused. `record_episode` notes it from the environment's true target mode in
+  `Episode.target_misbriefed`, which no agent can read, and `optimality_gap` then certifies no
+  lower bound for that run: E3c is False and the ratio goes to E3m.
 - `bounds_for` reads the true start `ep.start` and returns rung `"cw"` whatever the episode's
-  dynamics, so `optimality_gap` certifies it only on a CW run.
+  dynamics, so `optimality_gap` certifies it only on a CW run whose target moves as briefed.
 - A ball layout solves one Kelley loop per window it visits, each of up to `cut_rounds` LPs, so
   a free-final-time ball solve costs many times a fixed-window one; a fixed `arrival_step` or a
   larger `bank_stride` keeps it short.
@@ -652,13 +654,16 @@ the actuator accounting or the metrics, not to a good controller. The check flie
 baselines and the mutants on the CW scenarios and counts the runs that beat the bound.
 
 **Certification rule.** `optimality_gap` holds a run to a lower bound only when the bound is
-certified for it: the bound's rung (`FuelBounds.rung`) equals the episode's dynamics, and the
-acceleration the run delivered, read from the record and never from the agent, stayed within
-`accel_limit` (per axis for box thrusters, in the 2-norm for one engine, $10^{-12}$ relative). A
-run that exceeded the limit is held to `impulsive_lower`, which holds for any acceleration. E3c
-reports whether a bound is certified. A successful run below the certified bound by more than
-$10^{-9}$ relative, in E1b for box thrusters and E1 for one engine, is flagged E3f. On another
-rung the bound is a model bound: E3c is False, E3f is never set, and the ratio goes to E3m.
+certified for it: the bound's rung (`FuelBounds.rung`) equals the episode's dynamics, the target
+moved as briefed (`Episode.target_misbriefed` is False), and the acceleration the run delivered,
+read from the record and never from the agent, stayed within `accel_limit` (per axis for box
+thrusters, in the 2-norm for one engine, $10^{-12}$ relative). A run that exceeded the limit is
+held to `impulsive_lower`, which holds for any acceleration. E3c reports whether a bound is
+certified. A successful run below the certified bound by more than $10^{-9}$ relative, in E1b for
+box thrusters and E1 for one engine, is flagged E3f. On another rung, or when the target burned or
+turned otherwise than briefed, the bound is a model bound: E3c is False, E3f is never set, and the
+ratio goes to E3m. A target burn the briefing omits can carry a chaser to the hold with no
+thrust, which a bound computed for a passive target would otherwise report as a saving.
 
 **How it runs.** For each scenario the script builds the environment, draws `--count` seeds of
 the split, and builds one `DualBank` with the default `OracleConfig` from the true start of every

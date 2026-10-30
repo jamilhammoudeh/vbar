@@ -20,6 +20,7 @@ from ..agents.base import AgentView, agent_generator
 from ..constraints import Constraint
 from ..safety import FilteredAgent
 from ..scenarios.base import StepRecord
+from ..scenarios.targets import Misbriefed
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -35,7 +36,9 @@ class Episode:
     of what was flown, which can differ from the one in `view` where the briefing hides the
     target's true mode. `outcome` is the environment's verdict on a goal the metrics cannot
     rebuild from the trajectory (`BaseEnv.task_outcome`; the inspection's coverage), else None.
-    `reset_s` is the agent's wall time in `reset` (s).
+    `reset_s` is the agent's wall time in `reset` (s). `target_misbriefed` is True when the target
+    followed a motion other than the one `view` describes; the recorder reads it from the
+    environment's true target mode, and neither the view nor the agent's info carries it.
     """
 
     view: AgentView
@@ -58,6 +61,7 @@ class Episode:
     scenario_id: str | None = None
     reset_s: float = 0.0
     outcome: Mapping[str, Any] | None = None
+    target_misbriefed: bool = False
 
     @property
     def duration(self) -> float:
@@ -142,6 +146,7 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         )
     cfg = env.cfg
     soft = set(getattr(env, "soft_constraints", ()))
+    target = getattr(getattr(env, "unwrapped", env), "target", None)
     return Episode(
         view=env.agent_view(),
         start=start,
@@ -163,4 +168,5 @@ def record_episode(env, agent, seed: int | None = None, agent_seed: int | None =
         scenario_id=env.scenario_id,
         reset_s=reset_s,
         outcome=getattr(env, "task_outcome", lambda: None)(),
+        target_misbriefed=isinstance(target, Misbriefed) and target.actual != target.briefed,
     )

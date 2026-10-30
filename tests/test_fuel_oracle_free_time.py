@@ -23,6 +23,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from vbar.agents import DriftAgent
 from vbar.agents.base import AgentView
 from vbar.dynamics import cw_discrete, mean_motion
 from vbar.dynamics.cw import R_EARTH
@@ -38,7 +39,7 @@ from vbar.oracles.fuel import (
     bounds_for,
 )
 from vbar.oracles.primer import dual_bound
-from vbar.scenarios import HoldPointEnv, Maneuvering, get, make
+from vbar.scenarios import Fixed, HoldPointEnv, Maneuvering, Misbriefed, Passive, get, make
 from vbar.scenarios.seeds import SeedSplit
 
 N_500 = mean_motion(R_EARTH + 500e3)
@@ -729,3 +730,69 @@ def test_bounds_for_reads_the_hard_constraints_of_the_episode(oracle_run):
     # with every listed constraint hard it is unmodelled and voids the upper bound.
     assert bounds_for(listed, oracle=FuelOracle(config=FAST)) == bounds
     assert math.isinf(FuelOracle(config=FAST).bounds(listed.view, listed.start).upper)
+
+
+# A target burn of 2 mm/s^2 for ten steps, which the chaser feels as the opposite acceleration.
+BURN = 2e-3
+BURN_STEPS = 10
+
+
+def coasting_start(n, dt):
+    """The state from which that burn alone, with no thrust, brings the chaser to rest at the
+    hold point 100 m behind the target (the burn's steps run backwards from there)."""
+    phi, gamma = cw_discrete(n, dt)
+    x = np.array([0.0, -100.0, 0.0, 0.0, 0.0, 0.0])
+    for _ in range(BURN_STEPS):
+        x = np.linalg.solve(phi, x - gamma @ np.array([0.0, -BURN, 0.0]))
+    return x
+
+
+def burn_spec(truth, start):
+    """approach-vbar with a 100 s dwell and only its keep-out sphere, from a fixed start, whose
+    target is briefed as passive and follows `truth`."""
+    spec = get("approach-vbar")
+    parameters = {
+        **spec.parameters,
+        "hold_time": 100.0,
+        "closing_limit": None,
+        "passive_axis": None,
+        "soft": (),
+    }
+    dispersions = {
+        **spec.dispersions,
+        "start_pos": Fixed(tuple(start[:3])),
+        "start_vel": Fixed(tuple(start[3:])),
+    }
+    return replace(
+        spec,
+        parameters=parameters,
+        dispersions=dispersions,
+        target=Misbriefed(actual=truth, briefed=Passive()),
+    )
+
+
+def test_a_run_carried_to_the_hold_by_a_hidden_target_burn_is_not_flagged_by_a_cw_bound():
+    # The target burns where the briefing says it is passive. The chaser never fires, yet is at
+    # rest at the hold point when the burn ends, so it succeeds with no delta-v: below any bound
+    # computed for a target that does not burn, which is no theorem for this run.
+    flown = HoldPointEnv(get("approach-vbar"))
+    dt = flown.cfg.dt
+    burn = Maneuvering(schedule=((0.0, BURN_STEPS * dt, (0.0, BURN, 0.0)),))
+    start = coasting_start(flown.n, dt)
+    config = {"max_steps": 40}
+    still = record_episode(
+        HoldPointEnv(burn_spec(Passive(), start), config), DriftAgent(), seed=7, agent_seed=8
+    )
+    assert not success(still)
+    env = HoldPointEnv(burn_spec(burn, start), config)
+    ep = record_episode(env, DriftAgent(), seed=7, agent_seed=8)
+    assert "burns" not in env.agent_view().goal["target"]
+    assert success(ep)
+    bounds = bounds_for(ep, oracle=FuelOracle(config=FAST))
+    assert bounds.lower > 0.0
+    gap = optimality_gap(ep, bounds)
+    assert not gap["below_lower_bound"]
+    assert not gap["bound_certified"]
+    # The ratio is reported as a model ratio, delta-v 0 over the bound, and E3 is left empty.
+    assert math.isnan(gap["optimality_gap"])
+    assert gap["optimality_gap_model"] == 0.0

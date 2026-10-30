@@ -21,6 +21,7 @@ built with `training=True` is refused) and returns an `Episode`:
 | `isp`, `drive`, `dynamics`, `body`, `altitude_m`, `inclination` | actuator and propagation settings |
 | `agent_log` | the agent's own per-decision `log`, when it keeps one (`LLMAgent.log`); a `log` whose length is not the number of decisions is left out with a warning |
 | `first_obs` | the observation the first decision was made on |
+| `target_misbriefed` | whether the target moved otherwise than its briefing, from the environment's true target mode; never in what the agent sees |
 | `seed`, `agent_seed`, `scenario_id` | the seeds flown and the identifier of what was flown; for a misbriefed target `scenario_id` names the true mode while `view.scenario_id` names the briefing |
 
 When the agent is a `FilteredAgent`, the record's `command` is the agent's raw command, `filtered`
@@ -144,7 +145,7 @@ no plan was verified. With $\Delta v$ = E1b for box and E1 for ball:
 |---|---|---|
 | E3 | `optimality_gap` | $\Delta v / \text{lower}$ when the bound is certified for the run, or over `impulsive_lower` when the run exceeded `accel_limit`; at least 1 by theorem |
 | E3u | `optimality_gap_upper` | $\Delta v / \text{upper}$, NaN for an infinite upper bound |
-| E3m | `optimality_gap_model` | $\Delta v / \text{lower}$ when the bound is not certified for the run: another dynamics rung, or more acceleration than `accel_limit`; may fall below 1 |
+| E3m | `optimality_gap_model` | $\Delta v / \text{lower}$ when the bound is not certified for the run: another dynamics rung, more acceleration than `accel_limit`, or a target that moved otherwise than briefed; may fall below 1 |
 | E3f | `below_lower_bound` | a successful run spent less than the bound E3 divides by, by more than 1e-9 relative: a simulator, actuator-accounting or metric bug |
 | E3c, E3r | `bound_certified`, `bound_rung` | whether a lower bound is certified for the run, and the rung the bounds are for |
 
@@ -169,6 +170,11 @@ finite-thrust bound goes to E3m, and E3 and E3f use `impulsive_lower` instead wh
 one, since an impulsive bound holds for any acceleration on its rung; without it E3 is NaN and E3c
 False. The default `accel_limit` of inf states a bound valid for any acceleration, so it is
 certified on its rung as before.
+
+A bound computed from the briefing also assumes the target moved as briefed. For a misbriefed
+target (`Episode.target_misbriefed`, read from the environment's true target mode, never from the
+agent) no lower bound is certified: the ratio goes to E3m, E3 is NaN, and E3f and E3c are False,
+since a target burn the briefing omits can carry the chaser for free.
 Bounds in the wrong norm are rejected, since a 2-norm bound under-counts a box actuator's cost by
 up to $\sqrt3$.
 
