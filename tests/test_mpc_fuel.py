@@ -311,8 +311,9 @@ def test_an_infeasible_plan_is_replaced_by_the_shifted_previous_plan():
 
 
 # A near-goal state (1e-6 m and 1.1e-9 m/s off the V-bar hold) whose 60-step plan, warm-started
-# from the plan out of NEAR, ends at the 100-iteration cap: its moves sit inside the rounding of
-# the prices. Found by a search over offsets; the capped plan's first move is -2.3e-10 m/s^2.
+# from the plan out of NEAR, has moves inside the rounding of the prices. Found by a search over
+# offsets; whether the default 100 iterations end there depends on the platform's BLAS (OpenBLAS
+# does not converge in 1000, Accelerate converges), so the test sets its cap explicitly.
 CAPPED = np.array(
     [
         4.929793712602455e-07,
@@ -328,12 +329,16 @@ CAPPED = np.array(
 def test_a_near_goal_plan_at_the_cap_is_not_applied():
     view = hand_view()
     first_plan = mpc_fuel.fuel_plan(N, DT, NEAR, GOAL, 60, A_MAX)
-    capped = mpc_fuel.fuel_plan(N, DT, CAPPED, GOAL, 60, A_MAX, warm=first_plan.nu)
+    # The first plan converges in 4 updates of the 100 allowed. At max_iter=1 a warm start gets
+    # one update, which leaves a relative residual of 0.3 against the stop at 1e-10, so the cap
+    # is reached whatever the rounding.
+    capped = mpc_fuel.fuel_plan(N, DT, CAPPED, GOAL, 60, A_MAX, max_iter=1, warm=first_plan.nu)
     assert capped.status == "iteration_cap"
     assert np.any(capped.u[0] != first_plan.u[1])
     agent = mpc_fuel.FuelMPCAgent(mpc_fuel.FuelMPCConfig(horizon_s=60 * DT))
     agent.reset(view, np.random.default_rng(0))
     agent.act(NEAR.copy(), {"time_s": 0.0})
+    agent.config = dataclasses.replace(agent.config, max_iter=1)
     second = command_fraction(view, agent.act(CAPPED.copy(), {"time_s": DT})) * A_MAX
     assert [e["status"] for e in agent.log] == ["converged", "iteration_cap"]
     assert [e["level"] for e in agent.log] == [0, 1]
