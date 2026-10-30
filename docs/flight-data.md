@@ -4,12 +4,12 @@ Code: `vbar.flightdata`, `TwoBodyDynamics.reset_inertial`. Two spacecraft's prec
 flight are replayed through V-BAR's relative-motion models: the first flown sample starts the
 model, and the model's relative state is compared with the flown one at every later sample.
 
-The flown pair is GRACE-FO on 3 December 2019: two satellites in one near-polar orbit at about
-483 km, 182 km apart, their positions known from GPS orbit determination to millimetres. **At
-this separation the replay validates the nonlinear models (two-body, J2, drag), not
-Clohessy-Wiltshire.** The CW model's curvature error rho^2 / (2 r) is 2.4 km here, and the run
-below shows CW off by more than 10 km within an orbit. No public dataset of a formation under
-1 km with open terms was found.
+The flown pair is GRACE-FO on 3 December 2019: two satellites in one near-polar orbit whose
+semi-major axis is 483 km above the equatorial radius, 182 km apart, their positions known from GPS
+orbit determination to millimetres. **At this separation the replay validates the nonlinear models
+(two-body, J2, drag), not Clohessy-Wiltshire.** The CW model's curvature error rho^2 / (2 r) is 2.4
+km here, and the run below shows CW off by more than 10 km within an orbit. No public dataset of a
+formation under 1 km with open terms was found.
 
 ## Data
 
@@ -62,11 +62,11 @@ The bound was fixed before the flight data were read, from a budget of what the 
   largest singular value of the CW block that maps a velocity change to a later position
   (`error_envelope`).
 
-So B(t) = 30 m + 66 m per orbit + A int_0^t ||Phi_rv(s)|| ds, about 99 m after one orbit and
-930 m after ten at this orbit's mean motion. With it: the error's least-squares growth over ten orbits at most 95 m per orbit;
-the J2 rung at least five times better than two-body in the first orbit; drag changing the J2
-result by at most 100 m; CW off by more than 10 km after one orbit; and the GPS-derived range
-agreeing with the K-band range to under 1 cm RMS.
+So B(t) = 30 m + 66 m per orbit + A int_0^t ||Phi_rv(s)|| ds, about 99 m after one orbit and 930 m
+after ten at this orbit's mean motion. With it: the error's least-squares growth over ten orbits at
+most 95 m per orbit; the J2 rung at least five times better than two-body in the first orbit; drag
+changing the J2 result by at most 100 m; CW off by more than 10 km after one orbit; and the
+GPS-derived range agreeing with the K-band range to under 1 cm RMS.
 
 ## Result
 

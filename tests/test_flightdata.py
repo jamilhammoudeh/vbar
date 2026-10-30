@@ -114,11 +114,17 @@ def test_sun_direction_at_the_solstices_and_equinox(utc, declination_deg, right_
 def test_level1b_reader_takes_columns_from_the_header(tmp_path):
     path = tmp_path / "GNV1B_test.txt"
     path.write_text(
-        "header:\n  variables:\n    - gps_time:\n        units: second\n    - GRACEFO_id:\n"
-        "    - xpos:\n        units: m\n# End of YAML header\n100 C 1.5\n101 C -2.25\n",
+        # Nested lists before the variables, as in the real files, must not be read as columns.
+        "header:\n  dimensions:\n    num_records: 2\n  global_attributes:\n    history:\n"
+        '      - "INPUT FILE NAME: test"\n  sections:\n    - not_a_column:\n'
+        "  variables:\n    - gps_time:\n        units: second\n"
+        "    - GRACEFO_id:\n        flag_meanings:\n          - bit 0 = Phase break\n"
+        "    - xpos:\n        units: m\n# End of YAML header\n"
+        "100 C 1.5\n101 C -2.25\n",
         encoding="utf-8",
     )
     columns = read_level1b(path)
+    assert list(columns) == ["gps_time", "GRACEFO_id", "xpos"]
     np.testing.assert_array_equal(columns["gps_time"], [100.0, 101.0])
     np.testing.assert_array_equal(columns["xpos"], [1.5, -2.25])
     assert list(columns["GRACEFO_id"]) == ["C", "C"]
@@ -140,14 +146,20 @@ def test_level1b_reader_refuses_a_broken_file(tmp_path, body):
 
 def test_excerpt_round_trip_keeps_the_written_precision(tmp_path):
     rng = np.random.default_rng(0)
-    target = rng.uniform(-7e6, 7e6, (3, 6))
-    chaser = rng.uniform(-7e6, 7e6, (3, 6))
+    states = [
+        np.hstack([rng.uniform(-7e6, 7e6, (3, 3)), rng.uniform(-7.6e3, 7.6e3, (3, 3))])
+        for _ in range(2)
+    ]
+    rho = rng.uniform(1e5, 4e5, 3)
     path = tmp_path / "excerpt.csv"
-    write_orbit_excerpt(path, [1.0, 2.0, 3.0], target, chaser, [10.0, 20.0, 30.0], ["source"])
+    write_orbit_excerpt(path, [1.0, 2.0, 3.0], states[0], states[1], rho, ["source"])
     back = read_orbit_excerpt(path)
-    # Positions to 0.1 mm and velocities to 0.1 um/s.
-    np.testing.assert_allclose(back["target"][:, :3], target[:, :3], atol=5e-5)
-    np.testing.assert_allclose(back["chaser"][:, 3:], chaser[:, 3:], atol=5e-8)
+    # Written to 0.1 mm, 0.1 um/s and 0.01 mm: half the last digit, with room for rounding.
+    for key, state in zip(("target", "chaser"), states, strict=True):
+        np.testing.assert_allclose(back[key][:, :3], state[:, :3], rtol=0.0, atol=5.1e-5)
+        np.testing.assert_allclose(back[key][:, 3:], state[:, 3:], rtol=0.0, atol=5.1e-8)
+    np.testing.assert_allclose(back["range"], rho, rtol=0.0, atol=5.1e-6)
+    np.testing.assert_array_equal(back["t"], [1.0, 2.0, 3.0])
     assert path.read_text(encoding="utf-8").startswith("# source\n")
 
 
