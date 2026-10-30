@@ -258,3 +258,56 @@ def test_ten_orbit_replay_meets_every_stated_bound(flown):
 def test_hill_states_of_identical_orbits_are_zero(flown):
     zero = hill_states(flown["target"][:3], flown["target"][:3])
     np.testing.assert_array_equal(zero, np.zeros((3, 6)))
+
+
+GOOD = np.tile([7e6, 0.0, 0.0, 0.0, 7.5e3, 0.0], (2, 1))
+
+
+@pytest.mark.parametrize(
+    "call, message",
+    [
+        (lambda: replay([0.0, math.inf], GOOD, GOOD, TwoBodyDynamics(EARTH)), "finite"),
+        (
+            lambda: replay([0.0, 60.0], GOOD, np.vstack([GOOD[0], np.full(6, np.nan)]), None),
+            "finite",
+        ),
+        (lambda: error_envelope([-100.0], 1e-3, 66.0, 5e-8), "negative"),
+        (lambda: error_envelope([100.0], 1e-3, 66.0, 5e-8, samples=1), "samples"),
+        (lambda: error_envelope([100.0], 1e-3, -1.0, 5e-8), "per_orbit_m"),
+        (lambda: error_envelope([100.0], 1e-3, 66.0, -5e-8), "accel_mps2"),
+        (lambda: error_envelope([], 1e-3, 66.0, 5e-8), "at least one"),
+        (lambda: error_envelope([math.nan], 1e-3, 66.0, 5e-8), "finite"),
+        (lambda: error_envelope([100.0], math.nan, 66.0, 5e-8), "n must"),
+        (lambda: error_envelope([100.0], 0.0, 66.0, 5e-8), "n must"),
+        (lambda: earth_fixed_to_inertial([0.0], [7e6, 0.0, 0.0], [0.0, 0.0, 0.0], 0.0), "shape"),
+        (
+            lambda: earth_fixed_to_inertial([0.0], [[7e6, 0.0, 0.0]], [[0.0, 0.0, 0.0]], math.nan),
+            "theta0",
+        ),
+        (lambda: hill_states(GOOD, GOOD[:1]), "shape"),
+        (lambda: hill_states(np.zeros((1, 6)), GOOD[:1]), "centre"),
+        (lambda: gmst(math.nan), "finite"),
+        (lambda: sun_direction(math.nan), "finite"),
+    ],
+)
+def test_bad_flight_data_inputs_are_refused(call, message):
+    with pytest.raises(ValueError, match=message):
+        call()
+
+
+@pytest.mark.parametrize(
+    "target, biased_range",
+    [(GOOD[:1], [1.0, 2.0]), (GOOD[:, :5], [1.0, 2.0]), (GOOD, [1.0, math.nan])],
+)
+def test_a_bad_excerpt_is_refused_before_anything_is_written(tmp_path, target, biased_range):
+    path = tmp_path / "excerpt.csv"
+    with pytest.raises(ValueError):
+        write_orbit_excerpt(path, [0.0, 1.0], target, GOOD, biased_range)
+    assert not path.exists()
+
+
+def test_an_excerpt_with_missing_fields_is_refused(tmp_path):
+    path = tmp_path / "short.csv"
+    path.write_text("# t\n" + ",".join(["1.0"] * 13) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="14"):
+        read_orbit_excerpt(path)

@@ -47,6 +47,26 @@ __all__ = [
 GPS_MINUS_UTC_S = 18.0
 
 
+def _finite_array(name: str, value: ArrayLike, shape: tuple[int | None, ...]) -> np.ndarray:
+    """`value` as a finite float array of `shape`, None marking a free length."""
+    array = np.asarray(value, dtype=float)
+    if array.ndim != len(shape) or any(
+        want is not None and have != want for have, want in zip(array.shape, shape, strict=True)
+    ):
+        raise ValueError(f"{name} must have shape {shape}, not {array.shape}")
+    if not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} must be finite")
+    return array
+
+
+def _finite_number(name: str, value: float, low: float = -math.inf, strict: bool = False) -> float:
+    number = float(value)
+    if not math.isfinite(number) or number < low or (strict and number == low):
+        side = "above" if strict else "at least"
+        raise ValueError(f"{name} must be finite and {side} {low:g}, not {value!r}")
+    return number
+
+
 def gmst(t_gps: ArrayLike, gps_minus_utc_s: float = GPS_MINUS_UTC_S) -> np.ndarray:
     """Greenwich mean sidereal angle (rad) at GPS seconds past 2000-01-01 12:00:00 GPS.
 
@@ -65,8 +85,16 @@ def gmst(t_gps: ArrayLike, gps_minus_utc_s: float = GPS_MINUS_UTC_S) -> np.ndarr
     -------
     numpy.ndarray
         Angle in [0, 2 pi), rad.
+
+    Raises
+    ------
+    ValueError
+        If a time or the leap-second count is not finite.
     """
-    days = (np.asarray(t_gps, dtype=float) - gps_minus_utc_s) / 86400.0
+    t = np.asarray(t_gps, dtype=float)
+    if not np.all(np.isfinite(t)):
+        raise ValueError("t_gps must be finite")
+    days = (t - _finite_number("gps_minus_utc_s", gps_minus_utc_s)) / 86400.0
     degrees = 280.46061837 + 360.98564736629 * days
     return np.radians(np.mod(degrees, 360.0))
 
@@ -89,8 +117,14 @@ def sun_direction(t_gps: float, gps_minus_utc_s: float = GPS_MINUS_UTC_S) -> np.
     -------
     numpy.ndarray
         Unit vector, shape (3,).
+
+    Raises
+    ------
+    ValueError
+        If the time or the leap-second count is not finite.
     """
-    centuries = (t_gps - gps_minus_utc_s) / (86400.0 * 36525.0)
+    t = _finite_number("t_gps", t_gps)
+    centuries = (t - _finite_number("gps_minus_utc_s", gps_minus_utc_s)) / (86400.0 * 36525.0)
     mean_anomaly = math.radians(357.5256 + 35999.049 * centuries)
     longitude = math.radians(
         282.94
@@ -131,11 +165,16 @@ def earth_fixed_to_inertial(
     -------
     tuple of numpy.ndarray
         Inertial positions and velocities, shape (k, 3).
+
+    Raises
+    ------
+    ValueError
+        If an input is not finite or the shapes disagree.
     """
-    t = np.asarray(t, dtype=float)
-    r = np.asarray(r, dtype=float)
-    v = np.asarray(v, dtype=float)
-    theta = theta0 + body.spin_rate * t
+    t = _finite_array("t", t, (None,))
+    r = _finite_array("r", r, (len(t), 3))
+    v = _finite_array("v", v, (len(t), 3))
+    theta = _finite_number("theta0", theta0) + body.spin_rate * t
     c, s = np.cos(theta), np.sin(theta)
     w = np.array([0.0, 0.0, body.spin_rate])
     v_rot = v + np.cross(w, r)
@@ -150,10 +189,14 @@ def hill_states(target: ArrayLike, chaser: ArrayLike, body: Body = EARTH) -> np.
     """Chaser's Hill-frame state relative to the target from inertial states, shape (k, 6).
 
     The frame's rate about the radial axis uses point-mass plus J2 gravity at the target, the
-    same for flown and modelled states, so the two are compared in one convention.
+    same for flown and modelled states, so the two are compared in one convention. Raises
+    ValueError if the states are not finite, their shapes differ or a target is at the centre.
     """
     target = np.atleast_2d(np.asarray(target, dtype=float))
-    chaser = np.atleast_2d(np.asarray(chaser, dtype=float))
+    target = _finite_array("target", target, (None, 6))
+    chaser = _finite_array("chaser", np.atleast_2d(np.asarray(chaser, dtype=float)), target.shape)
+    if np.any(np.linalg.norm(target[:, :3], axis=1) == 0.0):
+        raise ValueError("a target position is at the body's centre")
     accel = gravity(target[:, :3], body, j2=True)
     return inertial_to_hill(
         target[:, :3],
@@ -205,13 +248,11 @@ def replay(
     Raises
     ------
     ValueError
-        If the times do not increase or the shapes differ.
+        If an input is not finite, the times do not increase or the shapes differ.
     """
-    t = np.asarray(t, dtype=float)
-    target = np.asarray(target, dtype=float)
-    chaser = np.asarray(chaser, dtype=float)
-    if target.shape != (len(t), 6) or chaser.shape != target.shape:
-        raise ValueError("target and chaser must have shape (len(t), 6)")
+    t = _finite_array("t", t, (None,))
+    target = _finite_array("target", target, (len(t), 6))
+    chaser = _finite_array("chaser", chaser, (len(t), 6))
     if len(t) < 2 or not np.all(np.diff(t) > 0.0):
         raise ValueError("t must hold at least two increasing times")
     dynamics.reset_inertial(target[0], chaser[0])
@@ -242,22 +283,34 @@ def error_envelope(
     Parameters
     ----------
     t : array_like
-        Times since the start, s, not negative.
+        Times since the start, s, finite and not negative, at least one.
     n : float
-        Mean motion, rad/s.
+        Mean motion, rad/s, positive.
     per_orbit_m : float
-        Error budget per orbit, m.
+        Error budget per orbit, m, not negative.
     accel_mps2 : float
-        Bound on the unmodelled acceleration, m/s^2.
+        Bound on the unmodelled acceleration, m/s^2, not negative.
     samples : int
-        Grid points of the trapezoid rule for the integral.
+        Grid points of the trapezoid rule for the integral, at least 2.
 
     Returns
     -------
     numpy.ndarray
         B at each time, m.
+
+    Raises
+    ------
+    ValueError
+        If an input is outside the ranges above.
     """
-    t = np.asarray(t, dtype=float)
+    t = _finite_array("t", np.atleast_1d(np.asarray(t, dtype=float)), (None,))
+    if len(t) == 0 or np.any(t < 0.0):
+        raise ValueError("t must hold at least one time, none negative")
+    n = _finite_number("n", n, low=0.0, strict=True)
+    per_orbit_m = _finite_number("per_orbit_m", per_orbit_m, low=0.0)
+    accel_mps2 = _finite_number("accel_mps2", accel_mps2, low=0.0)
+    if isinstance(samples, bool) or not isinstance(samples, int | np.integer) or samples < 2:
+        raise ValueError(f"samples must be an integer of at least 2, not {samples!r}")
     grid = np.linspace(0.0, float(np.max(t)), samples)
     norms = np.array([np.linalg.norm(cw_stm(n, s)[:3, 3:], 2) for s in grid])
     integral = np.concatenate([[0.0], np.cumsum(0.5 * (norms[1:] + norms[:-1]) * np.diff(grid))])
@@ -329,8 +382,15 @@ def read_orbit_excerpt(path: str | Path) -> dict[str, np.ndarray]:
     dict of str to numpy.ndarray
         "t" (GPS seconds past 2000-01-01 12:00:00 GPS), "target" and "chaser" (Earth-fixed
         [r, v] in m and m/s, shape (k, 6)) and "range" (the corrected biased range, m).
+
+    Raises
+    ------
+    ValueError
+        If a row does not have 14 finite fields.
     """
     table = np.loadtxt(path, comments="#", delimiter=",", ndmin=2)
+    if table.shape[1] != 14 or not np.all(np.isfinite(table)):
+        raise ValueError(f"{path}: rows must have 14 finite fields")
     return {
         "t": table[:, 0],
         "target": table[:, 1:7],
@@ -364,11 +424,18 @@ def write_orbit_excerpt(
         Range with its corrections applied, m, shape (k,).
     header : sequence of str
         Comment lines written first, without the leading "#".
+
+    Raises
+    ------
+    ValueError
+        If an input is not finite or the shapes disagree; nothing is written then.
     """
-    t = np.asarray(t, dtype=float)
-    target = np.asarray(target, dtype=float)
-    chaser = np.asarray(chaser, dtype=float)
-    biased_range = np.asarray(biased_range, dtype=float)
+    t = _finite_array("t", t, (None,))
+    target = _finite_array("target", target, (len(t), 6))
+    chaser = _finite_array("chaser", chaser, (len(t), 6))
+    biased_range = _finite_array("biased_range", biased_range, (len(t),))
+    if any("\n" in line for line in header):
+        raise ValueError("header lines must not contain line breaks")
     with open(path, "w", encoding="utf-8", newline="\n") as out:
         for line in header:
             out.write(f"# {line}\n")
