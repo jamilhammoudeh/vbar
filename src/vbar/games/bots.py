@@ -218,12 +218,44 @@ class RandomEvader:
         return Segment(throttle=tuple(throttle) if on else (0.0, 0.0, 0.0), until=until)
 
 
+@dataclass(frozen=True, kw_only=True)
+class ProgradeEvader:
+    """V-BAR's version of KSPDG's e4 evader: a constant low forward throttle prograde.
+
+    After `delay` s, the time KSPDG's bot gives its autopilot to turn prograde, the bot fires
+    `throttle` forward along its inertial velocity for the rest of the episode, whatever the
+    pursuer does.
+
+    Parameters
+    ----------
+    throttle : float
+        Forward throttle in [0, 1].
+    delay : float
+        Mission time (s) at which the burn starts.
+    """
+
+    throttle: float = 0.2
+    delay: float = 0.5
+    name: str = "vbar-prograde-evader"
+
+    def __post_init__(self):
+        if not _number(self.throttle, "throttle", zero=True) <= 1.0:
+            raise ValueError("throttle must be at most 1")
+        _number(self.delay, "delay", zero=True)
+
+    def segment(self, t, r_p, v_p, r_e, v_e, previous, cause, rng) -> Segment:
+        if t < self.delay:
+            return Segment(until=self.delay)
+        return Segment(throttle=(self.throttle, 0.0, 0.0))
+
+
 __all__ = [
     "CONTROL_RANGE",
     "POINTINGS",
     "EvaderBot",
     "NormalEscapeEvader",
     "PassiveEvader",
+    "ProgradeEvader",
     "RandomEvader",
     "Segment",
     "Switch",

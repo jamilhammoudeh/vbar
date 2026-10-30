@@ -339,6 +339,9 @@ release may change the public API, and every such change is listed under Changed
   times inside the control range, drawn from the episode seed), and its scenarios `PE1_E2_I1_Env`
   to `PE1_E2_I4_Env` (`PE1_E2_ParentEnv`), registered as `vbar/PursuitEvasionE2I1-v1` to
   `vbar/PursuitEvasionE2I4-v1`.
+- `vbar.games.ProgradeEvader`, V-BAR's version of KSPDG's e4 evader (a fifth of its forward thrust
+  prograde from 0.5 s on), and its scenarios `PE1_E4_I1_Env` to `PE1_E4_I4_Env`
+  (`PE1_E4_ParentEnv`), registered as `vbar/PursuitEvasionE4I1-v1` to `vbar/PursuitEvasionE4I4-v1`.
 
 ### Changed
 

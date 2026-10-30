@@ -15,7 +15,7 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
-from .bots import NormalEscapeEvader, PassiveEvader, RandomEvader
+from .bots import NormalEscapeEvader, PassiveEvader, ProgradeEvader, RandomEvader
 from .pursuit import PursuitEvasionEnv
 from .runner import fly
 
@@ -61,6 +61,16 @@ class PE1_E3_ParentEnv(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
             kwargs["evader"] = NormalEscapeEvader(
                 evade_distance=evade_dist, throttle=evade_throttle
             )
+        super().__init__(initial=self.initial, **kwargs)
+
+
+class PE1_E4_ParentEnv(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
+    """pe1 against V-BAR's `ProgradeEvader` (KSPDG's e4)."""
+
+    initial = "i3"
+
+    def __init__(self, **kwargs: Any):
+        kwargs.setdefault("evader", ProgradeEvader())
         super().__init__(initial=self.initial, **kwargs)
 
 
@@ -136,6 +146,30 @@ class PE1_E3_I4_Env(PE1_E3_ParentEnv):  # noqa: N801  KSPDG's class name
     initial, scenario = "i4", "pe1-e3-i4"
 
 
+class PE1_E4_I1_Env(PE1_E4_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I1 start against the prograde evader."""
+
+    initial, scenario = "i1", "pe1-e4-i1"
+
+
+class PE1_E4_I2_Env(PE1_E4_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I2 start against the prograde evader."""
+
+    initial, scenario = "i2", "pe1-e4-i2"
+
+
+class PE1_E4_I3_Env(PE1_E4_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I3 start against the prograde evader."""
+
+    initial, scenario = "i3", "pe1-e4-i3"
+
+
+class PE1_E4_I4_Env(PE1_E4_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I4 start against the prograde evader."""
+
+    initial, scenario = "i4", "pe1-e4-i4"
+
+
 SCENARIOS: dict[str, type[PursuitEvasionEnv]] = {
     cls.scenario: cls
     for cls in (
@@ -151,6 +185,10 @@ SCENARIOS: dict[str, type[PursuitEvasionEnv]] = {
         PE1_E3_I2_Env,
         PE1_E3_I3_Env,
         PE1_E3_I4_Env,
+        PE1_E4_I1_Env,
+        PE1_E4_I2_Env,
+        PE1_E4_I3_Env,
+        PE1_E4_I4_Env,
     )
 }
 # "pe1-e3-i3" is registered as "vbar/PursuitEvasionE3I3-v1".
@@ -300,6 +338,11 @@ __all__ = [
     "PE1_E3_I3_Env",
     "PE1_E3_I4_Env",
     "PE1_E3_ParentEnv",
+    "PE1_E4_I1_Env",
+    "PE1_E4_I2_Env",
+    "PE1_E4_I3_Env",
+    "PE1_E4_I4_Env",
+    "PE1_E4_ParentEnv",
     "SCENARIOS",
     "PursuitEvasionGymEnv",
     "PursuitTask",

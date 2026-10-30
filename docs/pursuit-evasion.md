@@ -45,7 +45,7 @@ conjunction", "inclined orbits with an unactuated conjunction", "about 3 km apar
 circular orbit" and "inclined, out of phase, unsynchronized periods". Each start is flown against
 each evader; a class is named for both, as in KSPDG (`PE1_E3_I2_Env` is evader e3 from start I2),
 and the classes of one evader share a parent (`PE1_E1_ParentEnv`, `PE1_E2_ParentEnv`,
-`PE1_E3_ParentEnv`). The e3
+`PE1_E3_ParentEnv`, `PE1_E4_ParentEnv`). The e3
 classes take KSPDG's `evade_dist` and `evade_throttle` arguments.
 
 | Classes | Gymnasium IDs | Evader |
@@ -53,6 +53,7 @@ classes take KSPDG's `evade_dist` and `evade_throttle` arguments.
 | `PE1_E1_I1_Env` to `PE1_E1_I4_Env` | `vbar/PursuitEvasionE1I1-v1` to `vbar/PursuitEvasionE1I4-v1` | `PassiveEvader`: never thrusts (KSPDG's e1 is "passive") |
 | `PE1_E2_I1_Env` to `PE1_E2_I4_Env` | `vbar/PursuitEvasionE2I1-v1` to `vbar/PursuitEvasionE2I4-v1` | `RandomEvader`: random throttles, held for random durations, while the pursuer is within 2200 m |
 | `PE1_E3_I1_Env` to `PE1_E3_I4_Env` | `vbar/PursuitEvasionE3I1-v1` to `vbar/PursuitEvasionE3I4-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m, acting only inside 2200 m |
+| `PE1_E4_I1_Env` to `PE1_E4_I4_Env` | `vbar/PursuitEvasionE4I1-v1` to `vbar/PursuitEvasionE4I4-v1` | `ProgradeEvader`: a fifth of its forward thrust along its velocity from 0.5 s on |
 
 `NormalEscapeEvader` is written for V-BAR from KSPDG's description of e3 ("heuristic evasion
 maneuvers") and its public code: it acts only while the pursuer is inside the 2200 m control range
@@ -75,6 +76,12 @@ sleeps, so no two of its runs are alike; V-BAR's draws from the episode seed on 
 a seed replays an episode exactly, and scores against it are compared over many seeds. KSPDG's e2
 also sets random pitch, yaw and roll inputs with its throttles; V-BAR's keeps its forward axis
 prograde and draws none.
+
+`ProgradeEvader` is V-BAR's version of KSPDG's e4 (`e4_envs.py`, "constant low-thrust burn in
+prograde direction, regardless of pursuer"). KSPDG's bot engages its autopilot toward its orbital
+prograde, waits 0.5 s for it to turn, then sets forward throttle 0.2 for the rest of the episode;
+V-BAR's coasts until mission time 0.5 s and then fires 0.2 forward (1600 N) along its inertial
+velocity, pointed exactly, whatever the pursuer does.
 
 ## Observation
 
@@ -312,7 +319,6 @@ rerun the script to measure yours.
   of game time before the first observation.
 - `vec_type` takes 0 and 1; KSPDG declares a third value it does not define. Burn durations above
   10 s are accepted, as KSPDG does not enforce its declared bound.
-- Only the e1, e2 and e3 evaders exist so far.
 
 ## Validation
 
@@ -363,6 +369,13 @@ rerun the script to measure yours.
   uses each axis's flow.
 - A cheat agent that flies twin episodes for 16 candidate seeds and matches the evader's first
   three seconds finds seed 7 and does not find a drawn 128-bit seed.
+
+`tests/test_pursuit_prograde_evader.py`:
+
+- No propellant before 0.5 s, then exactly a fifth of the forward flow, 239.5 s of it by the end.
+- After 10 s of burning the evader's velocity differs from a passive twin's by the rocket-equation
+  amount to 1e-3, along its velocity, and not at all with the pursuer burning; over the episode its
+  semi-major axis rises by 20 km to 60 km. Every E4 start flies this evader.
 
 `tests/test_pursuit_bots.py`:
 
