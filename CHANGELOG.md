@@ -297,13 +297,10 @@ release may change the public API, and every such change is listed under Changed
   to the ball with its direction kept, and refuses an unknown thrust layout at reset.
 - The mission metrics took a departure goal, which names the port it leaves from, for a docking
   goal: M1 and M4 waited for a contact that never comes, and a crossing of the port plane raised
-  `KeyError`. A docking goal is now one with a contact window, so a departure goal is judged at
-  its clear point as a hold goal.
-- The mission metrics judged a departure by the capture ball around its clear point, which a run
-  can miss between samples or enter before the clear range, so M1 and M4 disagreed with the
-  environment. A departure goal (`task` "depart") now carries `drift_radius` and is met as the
-  departure judges it: at the first step boundary beyond `clear_range` from which the free
-  drift over `drift_horizon` stays outside `drift_radius`.
+  `KeyError`. A docking goal is now one with a contact window, and a departure goal (`task`
+  "depart") carries `drift_radius` and is met as the departure judges it: at the first step
+  boundary beyond `clear_range` from which the free drift over `drift_horizon` stays outside
+  `drift_radius`.
 - F10 `stall_time` (version 2) counted a whole step for a decision whose step a contact cut short,
   so a slow docking with an active safety row read up to one step too long.
 
