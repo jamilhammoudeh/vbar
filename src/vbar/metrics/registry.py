@@ -109,7 +109,7 @@ CATALOGUE = (
     MetricInfo("C1", "composite_score", "score"),
     MetricInfo("C1c", "completion", "fraction"),
     MetricInfo("C1n", "infractions", "count per type", summary="none"),
-    MetricInfo("T1", "failure_label", "label", summary="none"),
+    MetricInfo("T1", "failure_label", "label", version=2, summary="none"),
 )
 
 METRICS = {info.name: info for info in CATALOGUE}

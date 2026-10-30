@@ -5,7 +5,7 @@ from metric_cases import DOCKING_GOAL, ConstantAgent, episode, pd_episode
 from vbar.agents import LLMAgent, PDAgent
 from vbar.agents.llm import text_model
 from vbar.constraints import ApproachCone, SpeedLimit, SunExclusion, ZoneEntry
-from vbar.dynamics import EARTH, mean_motion
+from vbar.dynamics import EARTH, cw_stm, mean_motion
 from vbar.metrics import (
     LABELS,
     AgentReport,
@@ -119,6 +119,31 @@ def test_a_hold_that_did_not_last():
     assert label(ep) == "hold_not_maintained"
 
 
+def test_a_departure_beyond_its_clear_range_on_a_drift_back_to_the_target():
+    # 320 m behind, beyond the 300 m clear range, on the drift that reaches the target in 300 s.
+    phi = cw_stm(N, 300.0)
+    r0 = np.array([0.0, -320.0, 0.0])
+    v0 = -np.linalg.solve(phi[:3, 3:], phi[:3, :3] @ r0)
+    goal = {
+        "task": "depart",
+        "hold_point": (0.0, -330.0, 0.0),
+        "capture_radius": 100.0,
+        "capture_speed": 10.0,
+        "clear_range": 300.0,
+        "drift_horizon": 4.0 * np.pi / N,
+        "drift_radius": 30.0,
+    }
+    assert label(episode(goal=goal, start_state=(*r0, *v0), max_steps=3)) == "returning_drift"
+    # Short of the clear range the same drift is a timeout, near the clear point.
+    short = {**goal, "clear_range": 400.0}
+    assert label(episode(goal=short, start_state=(*r0, *v0), max_steps=3)) == "timeout_near"
+    # At rest the drift stays clear, so a run failed by a forbidden zone is no returning drift.
+    zone = ZoneEntry((400.0, 400.0, 400.0))
+    cleared = episode(goal=goal, extra=(zone,), start_state=(*r0, 0, 0, 0), max_steps=3)
+    assert mission_metrics(cleared)["time_to_complete"] == 10.0
+    assert label(cleared) not in (None, "returning_drift")
+
+
 def test_passing_through_the_capture_ball_too_fast_is_an_overshoot():
     ep = episode(start_state=(0.0, -60.0, 0.0, 0.0, -0.5, 0.0), keep_out_radius=10.0)
     assert label(ep) == "overshoot"
@@ -137,7 +162,7 @@ def test_a_capture_inside_a_forbidden_zone_ends_as_other():
 
 
 def test_labels_are_listed_in_order():
-    assert LABELS[0] == "filter_defect" and LABELS[-1] == "other" and len(LABELS) == 15
+    assert LABELS[0] == "filter_defect" and LABELS[-1] == "other" and len(LABELS) == 16
 
 
 def test_a_hold_that_lasted_but_broke_another_hard_constraint_is_not_called_unmaintained():

@@ -6,9 +6,12 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+import numpy as np
+
 from .episode import Episode
 from .mission import (
     completion_time,
+    departure_time,
     docking,
     goal_bounds,
     goal_errors,
@@ -29,6 +32,7 @@ LABELS = (
     "sign_error",
     "oscillation",
     "contact_out_of_tolerance",
+    "returning_drift",
     "hold_not_maintained",
     "overshoot",
     "timeout_near",
@@ -62,7 +66,9 @@ def failure_label(
     contact and terminal figures), as `evaluate` gives them. Overshoot means the goal position
     came within the capture radius but the capture predicate never held, in continuous time;
     a timeout ending within twice the capture radius is near. An inspection timeout is near when
-    the inspectable coverage misses the goal by at most twice the shortfall the goal allows.
+    the inspectable coverage misses the goal by at most twice the shortfall the goal allows. A
+    departure that reached its clear range only on drifts that come back within its drift radius
+    is a returning drift.
     """
     if metrics["success"]:
         return None
@@ -97,6 +103,9 @@ def failure_label(
         if ep.truncated:
             return "timeout_near" if near else "timeout_far"
         return "other"
+    if goal.get("task") == "depart" and departure_time(ep) is None:
+        if np.any(np.linalg.norm(ep.states[1:, :3], axis=1) >= goal["clear_range"]):
+            return "returning_drift"
     held = goal.get("hold_time", 0.0) > 0.0 and hold_intervals(ep, trace)
     if held and completion_time(ep, trace) is None:
         return "hold_not_maintained"

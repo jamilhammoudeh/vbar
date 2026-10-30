@@ -45,8 +45,8 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Validity: not applicable.
 - Changelog: v1, first version.
 
-## T1 failure_label (v1)
-- Definition: for a failed run, the first matching label of filter_defect, filter_infeasible, keep_out_entry, speed_limit_breach, cone_violation, propellant_exhaustion, parse_failure, sign_error, oscillation, contact_out_of_tolerance, hold_not_maintained, overshoot, timeout_near, timeout_far, other; None on success.
+## T1 failure_label (v2)
+- Definition: for a failed run, the first matching label of filter_defect, filter_infeasible, keep_out_entry, speed_limit_breach, cone_violation, propellant_exhaustion, parse_failure, sign_error, oscillation, contact_out_of_tolerance, returning_drift, hold_not_maintained, overshoot, timeout_near, timeout_far, other; None on success.
 - Summary: not summarised across episodes (a label, a record or already an aggregate).
 - Why it matters: failures differ in kind, and a rate alone does not say which.
 - Known-answer tests: one constructed run per label reaches it through the order.
@@ -57,4 +57,4 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Reproducibility: exact (label).
 - Power: not applicable.
 - Validity: not yet measured.
-- Changelog: v1, first version.
+- Changelog: v2, `returning_drift` for a departure that reached its clear range only on drifts that come back; v1, first version.

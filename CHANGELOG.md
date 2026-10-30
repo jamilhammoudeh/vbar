@@ -269,6 +269,8 @@ release may change the public API, and every such change is listed under Changed
   side of it, a difference only for crossings within a sample's travel of the range's edge.
 - The `TargetMode` protocol has `angular_acceleration_bound(n)`, a bound on the rate of change of
   `angular_velocity` (rad/s^2) that certifies predicates on points moving with the target.
+- The failure label T1 (version 2) has `returning_drift`, for a departure that reached its clear
+  range only on free drifts that come back to the target, labelled a timeout or `other` before.
 
 ### Fixed
 
