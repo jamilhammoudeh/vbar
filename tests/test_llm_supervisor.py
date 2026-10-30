@@ -936,3 +936,20 @@ def test_an_order_nested_deeper_than_the_json_limit_is_not_read(depth, found):
 def test_deep_brackets_after_the_order_do_not_hide_it():
     order = parse_order(reply_of("GO") + " " + "[" * (MAX_JSON_DEPTH + 10), "ladder")
     assert order is not None and order.command == Command.GO
+
+
+@pytest.mark.parametrize("agent_mode", ["ladder", "waypoint", "velocity"])
+@pytest.mark.parametrize("supervisor_mode", ["ladder", "waypoint", "velocity"])
+def test_a_supervisor_whose_mode_is_not_the_agents_is_refused_before_the_model_is_called(
+    agent_mode, supervisor_mode
+):
+    model = Replies(Reply(reply_of("CONTINUE")))
+    agent = SupervisedAgent(LLMSupervisor(model, mode=supervisor_mode), mode=agent_mode)
+    agent.reset(APPROACH, None)
+    if agent_mode == supervisor_mode:
+        agent.act(np.array(FAR), {"time_s": 0.0})
+        assert agent.last_step.consulted
+    else:
+        with pytest.raises(ValueError, match="orders but the agent flies"):
+            agent.act(np.array(FAR), {"time_s": 0.0})
+        assert model.requests == []

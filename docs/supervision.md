@@ -290,10 +290,9 @@ result is added. `action_masks()` is the bool mask for the sb3-contrib conventio
 - A CAM ends the approach. Afterwards GO, HOLD, RETREAT, CAM and THRUST_INHIBIT are refused and
   the chaser coasts.
 - The mask and the situation come from the observation, so they carry the sensor's error.
-- The mode of an `LLMSupervisor` has to be the mode of its `SupervisedAgent`. The supervisor is
-  reset with the view and ladder only, which do not depend on the mode, so a mismatch is not
-  detected: the agent refuses the orders of the other mode and the model is told why in the next
-  prompt.
+- The mode of an `LLMSupervisor` has to be the mode of its `SupervisedAgent`: the situation
+  carries the agent's mode, and the first consult raises `ValueError` on a mismatch before the
+  model is called (`test_a_supervisor_whose_mode_is_not_the_agents_is_refused_before_the_model_is_called`).
 - A model reply of more than `MAX_REPLY_CHARS` characters is a parse failure, however good the
   order inside it.
 - The orbit rung in the learning features is at its position at t = 0. It turns with the Sun, so

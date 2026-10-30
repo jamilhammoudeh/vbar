@@ -226,6 +226,8 @@ class Situation:
         Why the previous consult's order was refused, if it was.
     info : mapping
         Copy of the agent-safe info the agent was given (time, coverage).
+    mode : str
+        The agent's mode, one of `MODES`, which says the orders it accepts.
     """
 
     t: float
@@ -237,6 +239,7 @@ class Situation:
     reasons: Mapping[Command, str]
     refused: str | None
     info: Mapping[str, Any]
+    mode: str = "ladder"
 
 
 @dataclass(frozen=True, eq=False)
@@ -504,6 +507,7 @@ class SupervisedAgent:
             reasons=MappingProxyType(dict(reasons)),
             refused=self._refused,
             info=MappingProxyType(copy.deepcopy(dict(info))),
+            mode=self.mode,
         )
         return _Look(t, phase, state, mask, cam, reasons, situation)
 

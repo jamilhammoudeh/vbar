@@ -252,10 +252,8 @@ class LLMSupervisor:
     `MAX_REPLY_CHARS` characters, is logged as a parse failure and answered with CONTINUE. Errors
     the model raises, `ReplayError` included, are not caught.
 
-    `mode` has to be the mode of the `SupervisedAgent` this supervisor is given to. A supervisor
-    is reset with the view and the ladder only, which are the same in every mode, so a mismatch
-    cannot be detected here: the agent refuses the orders of the other mode and the model is told
-    why in the next prompt.
+    `mode` has to be the mode of the `SupervisedAgent` this supervisor is given to; the first
+    consult raises ValueError if the situation's mode differs, before the model is called.
 
     Parameters
     ----------
@@ -334,7 +332,16 @@ class LLMSupervisor:
         -------
         Order or Command
             The parsed order; `Command.CONTINUE` for an unreadable reply.
+
+        Raises
+        ------
+        ValueError
+            If the situation's mode is not this supervisor's mode.
         """
+        if situation.mode != self.mode:
+            raise ValueError(
+                f"the supervisor reads {self.mode!r} orders but the agent flies {situation.mode!r}"
+            )
         prompt = self._prompt(situation)
         t0 = time.perf_counter()
         reply = as_reply(self.complete([{"role": "user", "content": prompt}], []))
