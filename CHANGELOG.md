@@ -331,6 +331,11 @@ release may change the public API, and every such change is listed under Changed
 - `PDAgent` raises `ValueError` for a `wn` that is not positive and finite or a `zeta` that is
   negative or not finite, gains that used to give NaN commands.
 
+- `vbar.games`: KSPDG's pe1 starts I1, I2 and I4 from its mission saves beside I3, and the scenario
+  classes `PE1_E1_I1_Env` to `PE1_E1_I4_Env` and `PE1_E3_I1_Env` to `PE1_E3_I4_Env` with the
+  parents `PE1_E1_ParentEnv` and `PE1_E3_ParentEnv` (the e3 classes take KSPDG's `evade_dist` and
+  `evade_throttle`), registered as `vbar/PursuitEvasionE1I1-v1` to `vbar/PursuitEvasionE3I4-v1`.
+
 ### Changed
 
 - `vbar.games.EvaderBot` is one method, `segment(t, r_p, v_p, r_e, v_e, previous, cause, rng)`,

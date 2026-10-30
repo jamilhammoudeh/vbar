@@ -685,10 +685,13 @@ reproduced in Yuan, Li and Wang (*Aerospace* 9, 242, 2022), eqs. 14 to 25
 - KSPDG v0.15.0 (github.com/mit-ll/spacegym-kspdg, commit 6251ca3), public
   source only: the pe1 observation, score, 240 s timeout, 5 m capture distance and RCS model
   (`src/kspdg/pe1/pe1_base.py`), the action dictionary and frames (`base_envs.py`), the agent and
-  runner signatures (`agent_api/`), the I3 orbits, parts and propellant of the mission save
-  `pe1_i3_init.sfs`, and the e3 evasion distance and throttle (`e3_envs.py`). The I3 range
-  a dM = 2617.994 m and the burn's propellant use 8000 N / (240 s g0) are reproduced
-  (`tests/test_pursuit_evasion.py`).
+  runner signatures (`agent_api/`), the orbits of the mission saves `pe1_i1_init.sfs` to
+  `pe1_i4_init.sfs` and the parts and propellant of `pe1_i3_init.sfs`, and the e3 evasion distance
+  and throttle (`e3_envs.py`). The I3 range a dM = 2617.994 m and the burn's propellant use
+  8000 N / (240 s g0) are reproduced (`tests/test_pursuit_evasion.py`), and so are the geometry the
+  saves were built for: I1's apoapsis on the evader's circle and its conjunction within 0.2 m, I2's
+  chord 2 r sin(u) sin(di / 2) and its meeting at the far node, and I4's semi-major axis,
+  eccentricity and inclination (`tests/test_pursuit_starts.py`).
 - KSP's resource definitions (`ResourcesGeneric.cfg`): monopropellant density 0.004 t per unit.
 - Carrasco, Rodriguez-Fernandez and Linares (arXiv 2408.08676, 2024): the PE1_I3_E3 scenario as
   the one their LLM agents were evaluated on.

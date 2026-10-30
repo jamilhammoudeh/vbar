@@ -28,14 +28,28 @@ at the closest approach: $d$ the range (m), $v$ the relative speed (m/s), $f$ th
 propellant used so far (kg) and $t$ the mission elapsed time (s). The reward is $-S$ on the step
 that ends the episode and 0 before it.
 
-Two scenarios start from KSPDG's I3 conditions, read from its `pe1_i3_init.sfs` mission save:
-both vessels on a 750 km circular equatorial orbit, the pursuer 0.2 deg (2618 m) behind, the
-evader's orbit tilted by 1e-4 deg.
+The four starts are KSPDG's, read from the ORBIT blocks of its mission saves
+(`pe1_i1_init.sfs` to `pe1_i4_init.sfs`: semi-major axis, eccentricity, inclination, argument of
+periapsis, longitude of the ascending node, mean anomaly at epoch 0), with the saved digits:
 
-| Class | Gymnasium ID | Evader |
+| Start | Pursuer | Evader | Range at the start |
+|---|---|---|---|
+| I1 | ellipse, a = 724999.9 m, e = 0.0345, apoapsis on the evader's circle | 750 km circle | 4510 m; unpowered, they meet within 0.2 m at 121.7 s where the ellipse touches the circle |
+| I2 | 750 km circle inclined 1 deg | 750 km circle | 456.8 m, both 2 deg past the node they share; unpowered, they meet again at the far node after 1073.75 s |
+| I3 | 750 km circle, 0.2 deg behind | 750 km circle tilted 1e-4 deg | 2618 m |
+| I4 | ellipse, a = 754500.2 m, e = 0.0073, inclined 1 deg, another period | the I3 evader | 2660 m |
+
+KSPDG describes them as "elliptical and circular orbits with a tangential conjunction",
+"inclined orbits with an unactuated conjunction", "about 3 km apart in the same circular orbit"
+and "inclined, out of phase, unsynchronized periods". Each start is flown against each evader; a
+class is named for both, as in KSPDG (`PE1_E3_I2_Env` is evader e3 from start I2), and the
+classes of one evader share a parent (`PE1_E1_ParentEnv`, `PE1_E3_ParentEnv`). The e3 classes
+take KSPDG's `evade_dist` and `evade_throttle` arguments.
+
+| Classes | Gymnasium IDs | Evader |
 |---|---|---|
-| `PE1_E1_I3_Env` | `vbar/PursuitEvasionE1I3-v1` | `PassiveEvader`: never thrusts (KSPDG's e1 is "passive") |
-| `PE1_E3_I3_Env` | `vbar/PursuitEvasionE3I3-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m |
+| `PE1_E1_I1_Env` to `PE1_E1_I4_Env` | `vbar/PursuitEvasionE1I1-v1` to `vbar/PursuitEvasionE1I4-v1` | `PassiveEvader`: never thrusts (KSPDG's e1 is "passive") |
+| `PE1_E3_I1_Env` to `PE1_E3_I4_Env` | `vbar/PursuitEvasionE3I1-v1` to `vbar/PursuitEvasionE3I4-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m, acting only inside 2200 m |
 
 `NormalEscapeEvader` is written for V-BAR from KSPDG's description of e3 ("heuristic evasion
 maneuvers") and its public code: it acts only while the pursuer is inside the 2200 m control range
@@ -272,11 +286,12 @@ rerun the script to measure yours.
   autopilot in game time, so they fire before they finish turning.
 - Lockstep time: a slow agent loses no simulated time, unlike in KSPDG, where game time runs on
   while it decides.
-- The episode starts at mission time 0 at the I3 orbits; KSPDG loads the save and pauses about 3 s
+- The episode starts at mission time 0 at the saved orbits' epoch; the saves were written 0.02 s to
+  0.14 s of game time later, and KSPDG loads the save and pauses about 3 s
   of game time before the first observation.
 - `vec_type` takes 0 and 1; KSPDG declares a third value it does not define. Burn durations above
   10 s are accepted, as KSPDG does not enforce its declared bound.
-- Only the I3 start and the e1 and e3 evaders exist so far.
+- Only the e1 and e3 evaders exist so far.
 
 ## Validation
 
@@ -298,7 +313,20 @@ rerun the script to measure yours.
   10 s step matches a run in 0.25 s steps to 1e-6 m and is 20 m below every 10 s step end.
 - `None` repeats the last action and coasts before the first; a KSPDG-shaped agent class runs
   through `AgentEnvRunner` with KSPDG's arguments; the agent's list is a copy.
-- Both Gymnasium IDs pass `check_env`; parallel and serial runs give identical metrics.
+- Parallel and serial runs give identical metrics (`tests/test_pursuit_scenarios.py`, which also
+  runs `check_env` on every registered pe1 Gymnasium ID, enumerated from the registry).
+
+`tests/test_pursuit_starts.py`:
+
+- Each start's two states equal the save's elements mapped through the perifocal frame and three
+  rotations, written out in the test, to 1e-6 m and 1e-9 m/s.
+- The start ranges are 4510 m (I1), 456.8 m (I2) and 2660 m (I4) to 1 m.
+- I1: the pursuer's apoapsis is the evader's radius to 0.1 m, and an unpowered coast passes within
+  0.2 m at 121.7 s. I2: the start range equals the chord 2 r sin(u) sin(di / 2) to 1e-12, and an
+  unpowered coast meets again within 0.1 m at 178/360 of a period, 1073.75 s. I4: the pursuer's semi-major
+  axis, eccentricity and inclination recovered from its state by energy and angular momentum
+  match the save.
+- Every scenario class flies its start and its evader.
 
 `tests/test_pursuit_bots.py`:
 
@@ -323,4 +351,5 @@ rerun the script to measure yours.
 Sources: KSPDG v0.15.0 (commit 6251ca3): `src/kspdg/pe1/pe1_base.py` (observation, score, timeout,
 capture distance, thrusters, target-hold), `base_envs.py` (actions, frames), `agent_api/` (agent
 and runner signatures), `pe1/README.md` (evader descriptions), `e3_envs.py` (evasion distance and
-throttle) and `ksp_files/saves/missions/pe1_i3/pe1_i3_init.sfs` (orbits, parts, propellant).
+throttle) and the mission saves `ksp_files/saves/missions/pe1_i1/pe1_i1_init.sfs` to
+`pe1_i4/pe1_i4_init.sfs` (the orbits of every start; parts and propellant from `pe1_i3_init.sfs`).

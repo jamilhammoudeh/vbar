@@ -102,11 +102,27 @@ class Orbit:
         return state_from_elements(elements, mu)
 
 
-# The I3 start of KSPDG pe1 (`pe1_i3_init.sfs`): both vessels on the same 750 km circular orbit,
-# the pursuer 0.2 deg (2618 m) behind; the evader's orbit is tilted by 1e-4 deg.
+# The four starts of KSPDG pe1, from its mission saves `pe1_i1_init.sfs` to `pe1_i4_init.sfs`
+# (each vessel's ORBIT block: SMA, ECC, INC, LPE, LAN, MNA at epoch 0), digits as saved.
+# I1: the pursuer on an ellipse whose apoapsis touches the evader's 750 km circle; both are about
+# 20 deg short of the point of contact and reach it together.
+I1_PURSUER = Orbit(724999.90000000002, 0.034483000636100769, 0.0001, 180.0, 0.0, 2.7743753789701864)
+I1_EVADER = Orbit(750000.0, 0.0, 0.0001, 180.0, 0.0, 2.7925268031909272)
+# I2: one 750 km circle at 1 deg relative inclination, both 2 deg past the node they share.
+I2_PURSUER = Orbit(750000.0, 0.0, 1.0, 0.0, 0.0, 0.034906585039886591)
+I2_EVADER = Orbit(750000.0, 0.0, 0.0001, 0.0, 0.0, 0.034906585039886591)
+# I3: one 750 km circle, the pursuer 0.2 deg (2618 m) behind; the evader tilted by 1e-4 deg.
 I3_PURSUER = Orbit(750000.0, 0.0, 0.0, 0.0, 0.0, 5.9306287982767323)
 I3_EVADER = Orbit(750000.0, 0.0, 0.0001, 0.0, 0.0, 5.9341194567807207)
-INITIAL_CONDITIONS = {"i3": (I3_PURSUER, I3_EVADER)}
+# I4: the I3 evader; the pursuer on an inclined ellipse of another period, out of phase.
+I4_PURSUER = Orbit(754500.1875, 0.0072900000959634781, 1.0, 355.0, 350.0, 6.1959188445798699)
+I4_EVADER = I3_EVADER
+INITIAL_CONDITIONS = {
+    "i1": (I1_PURSUER, I1_EVADER),
+    "i2": (I2_PURSUER, I2_EVADER),
+    "i3": (I3_PURSUER, I3_EVADER),
+    "i4": (I4_PURSUER, I4_EVADER),
+}
 
 
 def _finite_vector(value: Any, size: int, name: str) -> np.ndarray:
@@ -188,7 +204,7 @@ class PursuitEvasionEnv:
     Parameters
     ----------
     initial : str
-        Initial conditions; "i3" (both vessels on one circular orbit, about 2.6 km apart).
+        Initial conditions, a key of `INITIAL_CONDITIONS`: KSPDG's starts "i1" to "i4".
     evader : EvaderBot, optional
         The evader's bot; `PassiveEvader()` by default.
     seed : int, optional
