@@ -48,9 +48,10 @@ The scenario:
 |---|---|---|
 | Start range | uniform on 6 to 7 km | Ellis gives 6 km; the NASA SMA case study puts the start about 7 km from the station |
 | Start elevation | uniform on 30 to 70 deg above the local horizontal, the horizontal part behind the station | ours, "above" and "behind" from the reports |
-| Out-of-plane offset | 400 m, either side | Ellis gives the size, not the side |
+| Out-of-plane offset | uniform on 300 to 500 m, either side | ours, around Ellis's 400 m; Ellis gives no side |
 | Closing rate at the start | uniform on 5.0 to 6.5 m/s | Ellis |
-| Start velocity | the coasting arc through the aim point 1000 m behind the station (at the same out-of-plane offset) whose initial range rate is minus the drawn closing rate | Ellis's aim point; the arc is ours |
+| Aim point | 1000 m behind the station, moved by up to 100 m radially and 200 m along-track, at the same out-of-plane offset | Ellis's "about 1000 m"; the spread is ours |
+| Start velocity | the coasting arc through the aim point whose initial range rate is minus the drawn closing rate, plus up to 0.2 m/s per axis | the arc and the scatter are ours |
 | Fault | `RangeLoss`, the reading scaled to an assumed 6.5 km for the whole episode | Kurs off, TV only |
 | Hold point | 200 m behind the station, capture 10 m and 0.1 m/s, dwell 60 s | ours; Ellis notes earlier takeovers were made inside 200 m |
 | Keep-out | 25 m | ours, the size of the station's modules and arrays |
@@ -58,9 +59,13 @@ The scenario:
 | Chaser | 7000 kg, 0.05 m/s^2 per axis | mass from Ellis; the authority is ours |
 | Step, length | 10 s, 300 steps | ours, three times the reported 16 min |
 
-The coasting arcs this builds take 650 to 1600 s to reach the aim point, which brackets the
-reported 16 min of manual control. With the radar off, the reading carries no range or range
-rate at all, so a closing speed is invisible until the line of sight swings.
+The coasting arcs this builds take 620 to 1640 s to reach the aim point at the corners of the
+dispersions, which brackets the reported 16 min of manual control. With the radar off, the reading
+carries only the line of sight and its rate, so a closing speed shows only as the line of sight
+swings. Free drift is linear, so bearings alone do not fix the scale, and the spread of the start
+keeps the public spec from supplying it: an estimate that reads the range off the out-of-plane
+component and fits the arc through the nominal aim point misses (`tests/test_reconstructions.py`,
+`test_progress_start_is_not_solved_from_the_spec_and_one_reading`).
 
 ## ETS-VII second docking experiment
 
@@ -138,7 +143,7 @@ scenario over drawn seeds:
 
 | Scenario | Controller | Result asserted | Test |
 |---|---|---|---|
-| Progress M-34 | free drift | never enters the keep-out sphere and stays more than 300 m away, on 20 validation seeds | `test_progress_free_drift_never_hits_the_station` |
+| Progress M-34 | free drift | never enters the keep-out sphere and stays more than 100 m away, on 20 validation seeds | `test_progress_free_drift_never_hits_the_station` |
 | Progress M-34 `:nominal` | reference glide to the hold point | holds on all 20 seeds | `test_progress_reference_holds_with_range_and_mostly_hits_without_it` |
 | Progress M-34 | the same glide, range lost | hits the station on at least half of the 20 seeds | same test |
 | DART `:nominal` | reference glide | holds on all 10 seeds | `test_dart_bias_defeats_a_controller_that_trusts_the_velocity_reading` |

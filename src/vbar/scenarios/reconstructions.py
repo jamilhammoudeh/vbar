@@ -45,10 +45,14 @@ class AimedApproachEnv(HoldPointEnv):
     """A hold-point approach that starts on a coasting arc aimed at a point near the target.
 
     The start position is at the drawn `start_range` (m), `start_elevation` (rad above the local
-    horizontal, with the horizontal part behind the target, -y) and `out_of_plane` offset (m,
-    z). The start velocity is the Clohessy-Wiltshire velocity that reaches `aim_point` (with the
-    same out-of-plane offset) after a coast whose length makes the initial range rate equal to
-    minus the drawn `closure_speed` (m/s); `coast_s` holds that coast's length (s).
+    horizontal, with the horizontal part behind the target, -y) and out-of-plane offset (m, z) of
+    magnitude `out_of_plane` on the side `out_of_plane_side` (+1 or -1). The aim point is
+    `aim_point` moved by the drawn `aim_offset` (m, Hill axes), with the same out-of-plane offset.
+    The start velocity is the Clohessy-Wiltshire velocity that reaches the aim point after a coast
+    whose length makes the initial range rate equal to minus the drawn `closure_speed` (m/s),
+    plus the drawn `velocity_scatter` (m/s); `coast_s` holds that coast's length (s). The spread
+    keeps the start from being solved from the public spec and one line-of-sight reading: free
+    drift is linear, so bearings alone do not fix the scale.
 
     Parameters
     ----------
@@ -61,35 +65,55 @@ class AimedApproachEnv(HoldPointEnv):
     Raises
     ------
     ValueError
-        At reset, if no coast shorter than 0.45 orbit gives the drawn closing rate (dispersions
-        overridden beyond the catalogue's ranges can ask for one).
+        At reset, if no coast of 10 s to 0.45 orbit reaches the aim point at the drawn closing
+        rate (dispersions overridden beyond the catalogue's ranges can ask for one).
     """
 
     params_type: ClassVar[type] = AimedApproachParams
     params: AimedApproachParams
 
     def _sample_start(self, rng: np.random.Generator) -> np.ndarray:
-        rho = float(self.draw["start_range"])
-        elevation = float(self.draw["start_elevation"])
-        z = float(self.draw["out_of_plane"])
-        closure = float(self.draw["closure_speed"])
-        horizontal = math.sqrt(rho * rho - z * z)
-        p0 = np.array([horizontal * math.sin(elevation), -horizontal * math.cos(elevation), z])
-        aim = np.asarray(self.params.aim_point, dtype=float).copy()
-        aim[2] = z
-
-        def velocity(coast: float) -> np.ndarray:
-            phi = cw_stm(self.n, coast)
-            return np.linalg.solve(phi[:3, 3:], aim - phi[:3, :3] @ p0)
-
-        def range_rate_gap(coast: float) -> float:
-            return float(p0 @ velocity(coast)) / rho + closure
-
-        # The closing rate falls as the coast lengthens; past half an orbit the out-of-plane
-        # block of the transition matrix is singular, so the search stops short of it.
-        coast = float(brentq(range_rate_gap, 10.0, 0.45 * 2.0 * math.pi / self.n, xtol=1e-6))
+        draw = self.draw
+        side = float(draw["out_of_plane_side"])
+        x0, coast = _aimed_start(
+            self.n,
+            float(draw["start_range"]),
+            float(draw["start_elevation"]),
+            side * float(draw["out_of_plane"]),
+            float(draw["closure_speed"]),
+            np.asarray(self.params.aim_point, dtype=float) + np.asarray(draw["aim_offset"]),
+        )
         self.coast_s = coast
-        return np.concatenate([p0, velocity(coast)])
+        x0[3:] += np.asarray(draw["velocity_scatter"], dtype=float)
+        return x0
+
+
+def _aimed_start(
+    n: float, rho: float, elevation: float, z: float, closure: float, aim: np.ndarray
+) -> tuple[np.ndarray, float]:
+    """Start state on the CW arc through `aim` with initial range rate -`closure`, and its coast.
+
+    `aim`'s z component is replaced by `z`. Raises ValueError when no coast of 10 s to 0.45 orbit
+    gives that range rate.
+    """
+    horizontal = math.sqrt(rho * rho - z * z)
+    p0 = np.array([horizontal * math.sin(elevation), -horizontal * math.cos(elevation), z])
+    target = np.array([aim[0], aim[1], z])
+
+    def velocity(coast: float) -> np.ndarray:
+        phi = cw_stm(n, coast)
+        return np.linalg.solve(phi[:3, 3:], target - phi[:3, :3] @ p0)
+
+    def range_rate_gap(coast: float) -> float:
+        return float(p0 @ velocity(coast)) / rho + closure
+
+    # The closing rate falls as the coast lengthens; past half an orbit the out-of-plane block
+    # of the transition matrix is singular, so the search stops short of it.
+    low, high = 10.0, 0.45 * 2.0 * math.pi / n
+    if range_rate_gap(low) * range_rate_gap(high) > 0.0:
+        raise ValueError("no coast reaches the aim point at the drawn closing rate")
+    coast = float(brentq(range_rate_gap, low, high, xtol=1e-6))
+    return np.concatenate([p0, velocity(coast)]), coast
 
 
 INCLINATION_MIR = math.radians(51.6)
@@ -125,8 +149,11 @@ PROGRESS_M34 = register(
         dispersions={
             "start_range": Uniform(6000.0, 7000.0),
             "start_elevation": Uniform(math.radians(30.0), math.radians(70.0)),
-            "out_of_plane": Choice((-400.0, 400.0)),
+            "out_of_plane": Uniform(300.0, 500.0),
+            "out_of_plane_side": Choice((-1.0, 1.0)),
+            "aim_offset": Uniform((-100.0, -200.0, 0.0), (100.0, 200.0, 0.0)),
             "closure_speed": Uniform(5.0, 6.5),
+            "velocity_scatter": Uniform((-0.2, -0.2, -0.2), (0.2, 0.2, 0.2)),
             "argument_of_latitude": Uniform(0.0, 2.0 * math.pi),
         },
         tags=("reconstruction", "fault", "range-loss"),

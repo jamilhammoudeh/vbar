@@ -48,14 +48,51 @@ def test_progress_start_is_the_reported_range_and_closing_rate_on_an_arc_through
         _, info = env.reset(seed=seed)
         x0, draw = info["true_state"], env.draw
         rho = np.linalg.norm(x0[:3])
-        assert 6000.0 <= rho <= 7000.0 and abs(x0[2]) == 400.0
+        assert 6000.0 <= rho <= 7000.0 and 300.0 <= abs(x0[2]) <= 500.0
         assert x0[0] > 0.0 and x0[1] < 0.0
-        assert -(x0[:3] @ x0[3:]) / rho == pytest.approx(draw["closure_speed"], rel=1e-9)
+        scatter = np.asarray(draw["velocity_scatter"])
+        on_arc = np.concatenate([x0[:3], x0[3:] - scatter])
+        assert -(on_arc[:3] @ on_arc[3:]) / rho == pytest.approx(draw["closure_speed"], rel=1e-9)
         assert 5.0 <= draw["closure_speed"] <= 6.5
-        aim = cw_stm(env.n, env.coast_s) @ x0
+        aim = cw_stm(env.n, env.coast_s) @ on_arc
+        expected = np.array([0.0, -1000.0, 0.0]) + np.asarray(draw["aim_offset"])
+        expected[2] = x0[2]
         # The coast solves a 3x3 system; 1e-6 m is far above its rounding at 7 km.
-        np.testing.assert_allclose(aim[:3], [0.0, -1000.0, x0[2]], atol=1e-6)
-        assert 600.0 < env.coast_s < 1700.0
+        np.testing.assert_allclose(aim[:3], expected, atol=1e-6)
+        assert 600.0 < env.coast_s < 1800.0
+
+
+def test_progress_start_is_not_solved_from_the_spec_and_one_reading():
+    # The attack that worked on a fixed 400 m offset: read the range off the out-of-plane
+    # component of the line of sight, then fit the arc through the nominal aim point to the
+    # line-of-sight rate. With the start spread out it misses by a large fraction of the range
+    # and by metres per second.
+    env = make("recon-progress-m34")
+    misses = []
+    for seed in seeds("recon-progress-m34", "validation", 10):
+        obs, info = env.reset(seed=seed)
+        u = obs[:3] / 6500.0
+        rho = 400.0 / abs(u[2])
+        p0 = rho * u
+        aim = np.array([0.0, -1000.0, np.copysign(400.0, u[2])])
+
+        def velocity(coast, p0=p0, aim=aim):
+            phi = cw_stm(env.n, coast)
+            return np.linalg.solve(phi[:3, 3:], aim - phi[:3, :3] @ p0)
+
+        across = obs[3:6] * rho / 6500.0
+        coasts = np.linspace(10.0, 0.45 * 2.0 * np.pi / env.n, 2000)
+        fit = [np.linalg.norm(velocity(c) - (velocity(c) @ u) * u - across) for c in coasts]
+        v0 = velocity(coasts[int(np.argmin(fit))])
+        truth = info["true_state"]
+        misses.append(
+            (
+                np.linalg.norm(p0 - truth[:3]) / np.linalg.norm(truth[:3]),
+                np.linalg.norm(v0 - truth[3:]),
+            )
+        )
+    misses = np.array(misses)
+    assert np.sum(misses[:, 0] > 0.02) >= 8 and np.median(misses[:, 1]) > 0.1
 
 
 def test_progress_reading_carries_no_range():
@@ -113,7 +150,7 @@ def ets7_reference():
 def test_progress_free_drift_never_hits_the_station():
     for seed in seeds("recon-progress-m34", "validation", 20):
         _, closest, hit = fly("recon-progress-m34", Drift(), seed)
-        assert not hit and closest > 300.0
+        assert not hit and closest > 100.0
 
 
 @pytest.mark.slow
