@@ -68,6 +68,7 @@ UNSOLVED = {
     "inertial-target:nav2": "correlated navigation error pushes the final leg out of the corridor",
     "vbar-final-shuttle:nav1": "the filtered docking reference leaves the 5 deg corridor at times",
     "inspection:inertial": "an inertially pointing target keeps one face lit; the circle misses it",
+    "recon-progress-m34": "with range and range rate lost no reference ranges on bearings alone",
 }
 OTHER_VARIANTS = sorted(
     f"{name}:{variant}"

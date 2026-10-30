@@ -21,6 +21,11 @@ release may change the public API, and every such change is listed under Changed
   the signatures of KSPDG's agent interface, so KSPDG agents run unchanged; `PursuitTask` for
   `vbar.eval.run_jobs`; the reference pursuers `LineOfSightPursuer` and
   `VelocityMatchingPursuer`; `docs/pursuit-evasion.md`.
+- Mission reconstructions from public reports, `recon-progress-m34`, `recon-ets7` and `recon-dart`
+  (Gymnasium `vbar/ReconProgressM34-v0`, `vbar/ReconEts7-v0`, `vbar/ReconDart-v0`), each with a
+  `:nominal` variant without its failure; `docs/reconstructions.md` documents them.
+  `vbar.scenarios.reconstructions.AimedApproachEnv` and `AimedApproachParams`: a hold-point approach
+  that starts on a coasting arc aimed at a point near the target at a drawn range and closing rate.
 - `vbar.faults` and `EnvConfig.faults`: faults injected mid-episode, scheduled (`Window`),
   triggered by the true trajectory (`After`, `Until` with `RangeBelow` or `InSphere`),
   intermittent, or combined with `AllOf`; effects `ThrusterOff`, `SensorBias` and `RangeLoss`; `info["faults_active"]`

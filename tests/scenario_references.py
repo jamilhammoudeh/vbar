@@ -678,6 +678,26 @@ class Capture:
         return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
 
 
+class Differenced:
+    """A controller fed velocity from its last two position readings, not the velocity reading."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.name = "differenced-" + inner.name
+
+    def reset(self, view, rng=None):
+        self.inner.reset(view, rng)
+        self.dt = view.dt
+        self.last = None
+
+    def act(self, obs, info):
+        obs = np.array(obs, dtype=float)
+        if self.last is not None:
+            obs[3:6] = (obs[:3] - self.last) / self.dt
+        self.last = obs[:3].copy()
+        return self.inner.act(obs, info)
+
+
 def reference_for(name: str, n: float = 0.0011458864877737333):
     """The reference controller of a built-in scenario, by its name with variants.
 
@@ -733,4 +753,11 @@ def reference_for(name: str, n: float = 0.0011458864877737333):
         return Glide([(0.0, 30.0 + 130.0, 0.0), (0.0, 700.0, 0.0)], v_max=0.5)
     if name == "departure":
         return Glide([(0.0, -30.0 - 130.0, 0.0), (0.0, -400.0, 0.0)], v_max=0.5)
+    if name == "recon-progress-m34":
+        return Glide([(0.0, -200.0, 0.0)], v_max=6.0, gain=0.005, k_v=0.05, tol=10.0)
+    if name == "recon-dart":
+        # The velocity reading is biased; differenced positions are not.
+        return Differenced(Glide([(0.0, -15.24, 0.0)], v_max=0.5, gain=0.005, k_v=0.05, tol=2.0))
+    if name == "recon-ets7":
+        return Glide([(0.0, 2.0, 0.0)], v_max=0.1, gain=0.001, k_v=0.02, wn=0.008, tol=0.2)
     raise KeyError(name)

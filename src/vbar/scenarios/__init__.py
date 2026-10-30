@@ -1,5 +1,6 @@
 from . import catalog as _catalog  # noqa: F401  (registers the built-in scenarios and suites)
 from . import flagship as _flagship  # noqa: F401  (registers the tumbling-capture scenario)
+from . import reconstructions as _reconstructions  # noqa: F401  (registers the reconstructions)
 from .approach import ApproachConfig, ApproachEnv
 from .base import BaseEnv, EnvConfig, SegmentTrace, StepRecord
 from .berthing import BerthingEnv, BerthingParams

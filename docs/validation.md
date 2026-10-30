@@ -657,6 +657,20 @@ Li and Wang (*Aerospace* 9, 242, 2022), eqs. 14 to 25
 - KSP's resource definitions (`ResourcesGeneric.cfg`): monopropellant density 0.004 t per unit.
 - Carrasco, Rodriguez-Fernandez and Linares (arXiv 2408.08676, 2024): the PE1_I3_E3 scenario as
   the one their LLM agents were evaluated on.
+## Public reports behind the mission reconstructions
+
+Facts only, each cited in [reconstructions.md](reconstructions.md); none is an operator's data.
+
+- Ellis, "Collision in space" (NASA Ames, 2004 print): the Progress M-34 takeover at 6 km, the
+  closing rate of 6.5 m/s against a planned 5.0 m/s, the aim point 1000 m behind the station and the
+  400 m out-of-plane offset, which set the start of `recon-progress-m34`; its arc through the aim
+  point is checked on 20 validation seeds (`tests/test_reconstructions.py`).
+- NASA, "Overview of the DART Mishap Investigation Results" (2006), and Howard and Bryan, "DART AVGS
+  Performance" (NTRS 20070031729): the 1 km start, the 6.3 m waypoint sphere 200 m behind the
+  target, the 0.6 m/s GPS velocity bias and the 50 ft station-keeping point of `recon-dart`; the
+  bias ending exactly on sphere entry is tested (`tests/test_reconstructions.py`).
+- Kawano et al., J. JSASS 50(578) (2002), and Oda, i-SAIRAS 2001: the 520 m V-bar start from ahead,
+  the 2 m holding point held about 15 min, the 550 km orbit and the 2.5 t chaser of `recon-ets7`.
 
 ## Agreement with Basilisk and Orekit
 

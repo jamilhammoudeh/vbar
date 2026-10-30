@@ -395,15 +395,20 @@ Identifiers name every option that changes a result, seeds come in train, valida
 test splits, and suites list the runs a report must cover in full
 ([docs/scenarios.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/scenarios.md)).
 
+Three real rendezvous events are rebuilt from public reports with their failures as fault models:
+the Progress M-34 collision with Mir, the ETS-VII thruster anomaly and the DART collision, each
+with a `:nominal` variant without the failure
+([docs/reconstructions.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/reconstructions.md)).
+
 ## Documentation
 
 How each part is built, with its equations, methods, assumptions and limits, is in
 [docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part:
 frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
-spacecraft, sensors, faults, constraints, the environment, scenarios, metrics, rewards, training
-interfaces, the vectorized environment, agent tools, LLM agents, remote agents, policy export,
-solvers, the evaluation harness, the external propagators, the classical baselines, pursuit-evasion
-in KSPDG's format and validation.
+spacecraft, sensors, faults, constraints, the environment, scenarios, reconstructions, metrics,
+rewards, training interfaces, the vectorized environment, agent tools, LLM agents, remote agents,
+policy export, solvers, the evaluation harness, the external propagators, the classical baselines,
+pursuit-evasion in KSPDG's format and validation.
 
 ## Tests
 
