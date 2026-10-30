@@ -52,6 +52,18 @@ def accel_at(burns: Sequence[Burn], t: float) -> np.ndarray:
 
     Burns must not overlap: the first one in the list that covers `t` would win. `check_burns`
     refuses burns that overlap.
+
+    Parameters
+    ----------
+    burns : sequence of Burn
+        Chaser accelerations, held in the target's Hill axes.
+    t : float
+        Time (s) from the start.
+
+    Returns
+    -------
+    numpy.ndarray
+        Acceleration (m/s^2), Hill axes, shape (3,).
     """
     for burn in burns:
         if burn.start <= t < burn.start + burn.duration:
@@ -79,7 +91,8 @@ def check_burns(burns: Sequence[Burn]) -> None:
         raise ValueError("burns must be Burn instances")
     if any(burn.start < 0.0 for burn in burns):
         raise ValueError("burns must start at t = 0 or later")
-    # In order of start, a burn that overlaps an earlier one overlaps its neighbour.
+    # Sorted by start, the first burn that overlaps an earlier one overlaps the one just before
+    # it, so comparing neighbours is enough.
     end = -math.inf
     for burn in sorted(burns, key=lambda b: b.start):
         if end - burn.start > 1e-9:
@@ -172,6 +185,18 @@ def check_aligned(burns: Sequence[Burn], substep: float) -> None:
 
     A backend holds a burn's direction over whole substeps, so an edge inside one would move the
     burn and the comparison would blame the wrong side.
+
+    Parameters
+    ----------
+    burns : sequence of Burn
+        Chaser accelerations.
+    substep : float
+        Step (s), positive.
+
+    Raises
+    ------
+    ValueError
+        If a burn starts or ends more than 1e-9 s from a multiple of `substep`.
     """
     for burn in burns:
         for edge in (burn.start, burn.start + burn.duration):
@@ -187,6 +212,26 @@ def inertial_accel(
     The Hill axes turn about the orbit normal at h / r^2, so a direction held fixed in inertial
     axes for `hold` seconds is taken where the axes stand halfway through: the mean of the
     turning direction to second order in the angle turned.
+
+    Parameters
+    ----------
+    burns : sequence of Burn
+        Chaser accelerations, held in the target's Hill axes.
+    t : float
+        Time (s) from the start.
+    target : array_like
+        Target inertial [r, v] (m, m/s) at `t`, shape (6,).
+    body : Body
+        Central body.
+    j2 : bool
+        Whether the gravity that sets the Hill axes' rate includes J2.
+    hold : float, optional
+        Time (s) the direction is held fixed, from `t`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Acceleration (m/s^2), inertial axes, shape (3,); zero when no burn is in effect at `t`.
     """
     target = np.asarray(target, dtype=float)
     a = accel_at(burns, t)
@@ -200,7 +245,18 @@ def inertial_accel(
 
 
 def relative_inertial(target: ArrayLike, chaser: ArrayLike) -> np.ndarray:
-    """Chaser minus target, inertial [dr, dv] (m, m/s), for stacked states."""
+    """Chaser minus target, inertial [dr, dv] (m, m/s), for stacked states.
+
+    Parameters
+    ----------
+    target, chaser : array_like
+        Inertial [r, v] (m, m/s), shape (..., 6).
+
+    Returns
+    -------
+    numpy.ndarray
+        Inertial [dr, dv] (m, m/s), shape (..., 6).
+    """
     return np.asarray(chaser, dtype=float) - np.asarray(target, dtype=float)
 
 

@@ -24,13 +24,67 @@ class Task(Protocol):
     @property
     def name(self) -> str: ...
 
-    def make(self, scenario: str) -> Any: ...
+    def make(self, scenario: str) -> Any:
+        """A fresh environment for a scenario name.
 
-    def record(self, env: Any, agent: Any, seed: int, agent_seed: int) -> Any: ...
+        Parameters
+        ----------
+        scenario : str
+            Scenario name as a suite entry gives it.
 
-    def score(self, env: Any, episode: Any) -> Mapping[str, Any]: ...
+        Returns
+        -------
+        Any
+            An environment that `record`, `score` and `identity` accept.
+        """
 
-    def identity(self, env: Any) -> Mapping[str, Any]: ...
+    def record(self, env: Any, agent: Any, seed: int, agent_seed: int) -> Any:
+        """Fly one episode and return what `score` reads.
+
+        Parameters
+        ----------
+        env : Any
+            The environment `make` built.
+        agent : Any
+            The agent, wrapped by its filter when one is on.
+        seed, agent_seed : int
+            Episode and agent seeds.
+
+        Returns
+        -------
+        Any
+            The recorded episode.
+        """
+
+    def score(self, env: Any, episode: Any) -> Mapping[str, Any]:
+        """The metrics of an episode by name.
+
+        Parameters
+        ----------
+        env : Any
+            The environment the episode was flown in.
+        episode : Any
+            What `record` returned.
+
+        Returns
+        -------
+        mapping
+            Metric name to value, with a boolean "success" and optionally a "failure_label".
+        """
+
+    def identity(self, env: Any) -> Mapping[str, Any]:
+        """The fields of the run that the provenance hash covers beyond seeds, agent and filter.
+
+        Parameters
+        ----------
+        env : Any
+            The environment `make` built.
+
+        Returns
+        -------
+        mapping
+            JSON-safe name to value; "scenario_id" names the run in the results when present.
+        """
 
 
 @dataclass(frozen=True)
