@@ -693,6 +693,10 @@ reproduced in Yuan, Li and Wang (*Aerospace* 9, 242, 2022), eqs. 14 to 25
   chord 2 r sin(u) sin(di / 2) and its meeting at the far node, and I4's semi-major axis,
   eccentricity and inclination (`tests/test_pursuit_starts.py`).
 - KSP's resource definitions (`ResourcesGeneric.cfg`): monopropellant density 0.004 t per unit.
+- github.com/ARCLab-MIT/kspdg (commit a45e5c6, MIT): Jason Cheng's `deterministic_agent.py` and
+  `simulate.py`, reimplemented as `ClosestApproachAgent` and `closest_approach`, and the original
+  `deterministic_agent.py` and `no_action_agent.py` run with only their imports changed; the two
+  deterministic agents fly the same episodes (`tests/test_pursuit_published_agents.py`).
 - Carrasco, Rodriguez-Fernandez and Linares (arXiv 2408.08676, 2024): the PE1_I3_E3 scenario as
   the one their LLM agents were evaluated on.
 

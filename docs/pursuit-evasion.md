@@ -357,6 +357,15 @@ info = AgentEnvRunner(ClosestApproachAgent(), PE1_E1_I3_Env, {"episode_timeout":
 print(info["agent_env_results"]["closest_approach"])
 ```
 
+The original files run in V-BAR too. `tests/test_pursuit_published_agents.py` downloads
+`deterministic_agent.py` and `no_action_agent.py` from that commit, checks their SHA-256, replaces
+the one line that imports the poliastro predictor with `from vbar.games.pursuers import
+closest_approach`, and runs them through KSPDG's names: the deterministic agent flies the same
+episode as `ClosestApproachAgent` (every result to 1e-9) and, run as its own `__main__` in a fresh
+process, captures the passive evader; the no-action agent coasts through the E3 episode. Without
+network access these tests skip. Agents in that repository that read the live game through kRPC,
+or call an LLM service, are not covered.
+
 ## Running many episodes
 
 `PursuitTask` makes the scenarios a task of the evaluation harness ([evaluation.md](evaluation.md)),
@@ -473,6 +482,17 @@ rerun the script to measure yours.
   `uninstall` removes it and the alias modules.
 - A KSPDG agent script written as KSPDG's example runs as `__main__` through `main` with its
   arguments and its folder first on `sys.path`.
+
+`tests/test_pursuit_published_agents.py` (downloads the original files; skips offline; the full
+episode run as `__main__` is marked slow):
+
+- Only the import lines change, and the files match their SHA-256 at commit a45e5c6.
+- The no-action agent's `[0, 0, 0, 1]` coasts 240 steps of the E3 I3 episode with no propellant,
+  never nearer than 2617.99 m.
+- The deterministic agent and `ClosestApproachAgent` fly a 60 s E1 I3 episode alike (every result
+  to 1e-9, 12 steps); the original prints its predictions as it did.
+- Run as its own `__main__` in a subprocess, the deterministic agent flies the full episode as
+  `ClosestApproachAgent` does and captures the passive evader at 5 m.
 
 `tests/test_pursuit_closest_approach.py`:
 
