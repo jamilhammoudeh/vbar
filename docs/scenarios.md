@@ -404,8 +404,8 @@ momentum (through a point on its own side when the station is on the far side), 
 10 m, along the sphere of 10 m onto the ray through the capture point as it turns with the body,
 then down that ray in body axes to the capture point, feeding the point's acceleration forward;
 it succeeds on the first three validation seeds of every tumble preset in 1050 to 1370 s for 1.5
-to 4.4 m/s, and on six more drawn seeds each, 30 in all, in 1000 to 1390 s for 1.4 to 6.4 m/s,
-never closer than 0.50 m to the body. The hold boxes
+to 4.4 m/s, never closer than 0.50 m to the body, and on 42 drawn 128-bit seeds across the five
+presets in 972 to 1384 s for 1.4 to 6.4 m/s, the metrics agreeing with the environment on each. The hold boxes
 contain the dispersion a reference LQR reaches with raw `:nav1` noise fed back: a stationary
 1-sigma of 0.22 m and 8.2 mm/s per axis at 10 s steps, so 3 sigma per axis is 0.66 m and
 0.025 m/s against the 5 m and 0.05 m/s box, and the 3-sigma norm over three axes 1.13 m and
