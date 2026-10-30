@@ -9,9 +9,11 @@ and without it.
 
 from __future__ import annotations
 
+import itertools
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 from scipy.optimize import brentq
@@ -65,12 +67,17 @@ class AimedApproachEnv(HoldPointEnv):
     Raises
     ------
     ValueError
-        At reset, if no coast of 10 s to 0.45 orbit reaches the aim point at the drawn closing
-        rate (dispersions overridden beyond the catalogue's ranges can ask for one).
+        If a dispersion is missing, a range or closing rate is not positive, the out-of-plane
+        offset reaches the range, or no coast of 10 s to 0.45 orbit reaches the aim point at the
+        drawn closing rate at some corner of the dispersions' supports.
     """
 
     params_type: ClassVar[type] = AimedApproachParams
     params: AimedApproachParams
+
+    def __init__(self, spec: ScenarioSpec, config: Mapping[str, Any] | None = None):
+        super().__init__(spec, config)
+        _check_aimed_dispersions(self.n, spec.dispersions, self.params.aim_point)
 
     def _sample_start(self, rng: np.random.Generator) -> np.ndarray:
         draw = self.draw
@@ -86,6 +93,47 @@ class AimedApproachEnv(HoldPointEnv):
         self.coast_s = coast
         x0[3:] += np.asarray(draw["velocity_scatter"], dtype=float)
         return x0
+
+
+def _check_aimed_dispersions(
+    n: float, dispersions: Mapping[str, Any], aim_point: tuple[float, float, float]
+) -> None:
+    """Refuse dispersions an aimed start cannot fly, checked at the corners of their supports.
+
+    Raises ValueError if a range is not positive, an out-of-plane offset reaches the range, a
+    closing rate is not positive, or no coast reaches the aim point at some corner.
+    """
+
+    def support(key: str) -> tuple[np.ndarray, np.ndarray]:
+        if key not in dispersions:
+            raise ValueError(f"an aimed start needs the dispersion {key!r}")
+        low, high = dispersions[key].bounds()
+        return np.atleast_1d(np.asarray(low, dtype=float)), np.atleast_1d(
+            np.asarray(high, dtype=float)
+        )
+
+    rho, elevation, z, closure, aim = (
+        support(k)
+        for k in ("start_range", "start_elevation", "out_of_plane", "closure_speed", "aim_offset")
+    )
+    support("out_of_plane_side")
+    support("velocity_scatter")
+    if not rho[0][0] > 0.0:
+        raise ValueError("start_range must be positive")
+    if not max(abs(z[0][0]), abs(z[1][0])) < rho[0][0]:
+        raise ValueError("out_of_plane must stay below start_range")
+    if not closure[0][0] > 0.0:
+        raise ValueError("closure_speed must be positive")
+    base = np.asarray(aim_point, dtype=float)
+    for r, e, dz, c, ax, ay in itertools.product(
+        *(pair for pair in zip(rho[0], rho[1], strict=True)),
+        *(pair for pair in zip(elevation[0], elevation[1], strict=True)),
+        *(pair for pair in zip(z[0], z[1], strict=True)),
+        *(pair for pair in zip(closure[0], closure[1], strict=True)),
+        (aim[0][0], aim[1][0]),
+        (aim[0][1], aim[1][1]),
+    ):
+        _aimed_start(n, r, e, dz, c, base + np.array([ax, ay, 0.0]))
 
 
 def _aimed_start(

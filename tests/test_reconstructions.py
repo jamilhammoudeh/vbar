@@ -3,13 +3,16 @@
 The whole-episode claims are behind the `slow` marker; they fly validation seeds.
 """
 
+import dataclasses
+
 import numpy as np
 import pytest
 from gymnasium.utils.env_checker import check_env
 from scenario_references import Differenced, Glide
 
 from vbar.dynamics import cw_stm
-from vbar.scenarios import make, seeds
+from vbar.scenarios import SCENARIOS, Uniform, make, seeds
+from vbar.scenarios.reconstructions import AimedApproachEnv
 
 NAMES = ("recon-progress-m34", "recon-ets7", "recon-dart")
 
@@ -175,3 +178,28 @@ def test_ets7_slow_approach_holds_with_the_fault_at_less_margin():
         ok, clean, _ = fly("recon-ets7:nominal", ets7_reference(), seed)
         ok_faulty, faulty, _ = fly("recon-ets7", ets7_reference(), seed)
         assert ok and ok_faulty and faulty < clean
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"start_range": Uniform(0.0, 7000.0)},
+        {"out_of_plane": Uniform(300.0, 6500.0)},
+        {"closure_speed": Uniform(0.0, 6.5)},
+        {"closure_speed": Uniform(-1.0, 6.5)},
+        # 0.5 m/s from 7 km at 70 deg needs a coast past the searched half orbit.
+        {"closure_speed": Uniform(0.5, 6.5)},
+    ],
+)
+def test_aimed_start_refuses_dispersions_it_cannot_fly(changes):
+    spec = SCENARIOS["recon-progress-m34"]
+    bad = dataclasses.replace(spec, dispersions={**spec.dispersions, **changes})
+    with pytest.raises(ValueError):
+        AimedApproachEnv(bad)
+
+
+def test_aimed_start_names_a_missing_dispersion():
+    spec = SCENARIOS["recon-progress-m34"]
+    kept = {k: v for k, v in spec.dispersions.items() if k != "aim_offset"}
+    with pytest.raises(ValueError, match="aim_offset"):
+        AimedApproachEnv(dataclasses.replace(spec, dispersions=kept))
