@@ -246,6 +246,20 @@ python -m vbar.eval reproduce reproduce.toml
 results and table go. `reproduce` flies only what the results files lack and rewrites every table,
 so one command regenerates all of them.
 
+The manifest also lists scripts, one `[[script]]` each, for files the suite runner does not make:
+`name`, `script` (a Python file run with the current interpreter in the manifest's folder), `args`,
+`outputs` (the files it writes), `stdout` (a file that receives its standard output, written only
+when the script exits with status 0), `requires` (module names that must import) and `extra` (the
+`vbar` extra that installs them). Tables run first, then the scripts in order, and every path must
+be relative and inside the manifest's folder; the whole manifest is checked before anything runs. A
+script whose outputs and stdout file all exist is skipped, and `--force` runs it anyway. A missing
+module raises `ImportError` with the command `pip install "vbar[<extra>]"`; on a machine without
+the extras, `--skip-missing` logs a warning and skips that script instead. An entry names one
+extra, so a script that needs a second one, as the agreement table does with `orekit`, says so
+itself. A script that fails raises `RuntimeError` with its exit status, as does one that leaves a
+listed output unwritten. A manifest with an unknown key, a path listed twice, an empty or
+wrongly typed field or a path outside the folder is refused with `ValueError`.
+
 The notebook `examples/quickstart.ipynb`
 ([open in Colab](https://colab.research.google.com/github/jamilhammoudeh/vbar/blob/main/examples/quickstart.ipynb))
 installs the package from PyPI, flies the PD baseline, prints its metrics and rebuilds a table of
@@ -299,6 +313,10 @@ validation.md quote: the bootstrap coverage at 5 and 20 runs, McNemar's false-po
 to 100 runs, the exact rate interval's coverage from 1 to 200 runs, the documented defaults and the
 safety-tail figures.
 `tests/test_eval_report.py`: complete reports, refusals, the command line and the manifest.
+`tests/test_eval_reproduce_scripts.py`: `[[script]]` entries run in the manifest folder, capture
+standard output, skip finished outputs, honour `--force` and `--skip-missing`, name a failed script
+or missing output, and reject unknown keys and paths outside the folder before running anything;
+the repository's own manifest lists the three scripts.
 `tests/test_eval_learned.py`: the learned-agent rules. `tests/test_eval_domain.py`: the toy domain.
 Each module's `test_hostile_*` test runs the refusals of the Inputs section.
 `tests/test_quickstart_notebook.py`: the notebook's cells run headless without the install cell,

@@ -8,6 +8,10 @@ release may change the public API, and every such change is listed under Changed
 
 ### Added
 
+- `[[script]]` entries in `reproduce.toml` for files the suite runner does not make, with the README
+  figure, the agreement table and the coverage table listed, and `--force` and `--skip-missing` on
+  `python -m vbar.eval reproduce`. A manifest with unknown keys, duplicated output paths or wrong
+  types is refused with `ValueError`.
 - `vbar.agents.glideslope_lp.lp_glideslope`: the minimum-fuel V-bar glideslope by linear programming of
   Ariba, Arzelier, Urbina and Louembet (2016); `vbar.reproductions` rebuilds their case 1 and prints
   the match table (`python -m vbar.reproductions`); `docs/reproductions.md` documents it.
