@@ -199,12 +199,16 @@ action in the view's action mode. Provided:
   ([mission-manager.md](mission-manager.md)).
 - `Mutant(agent, kind, severity)`: wraps an agent with one deliberate defect, to check which
   metric catches it ([mutants.md](mutants.md)).
-- `LLMAgent(complete, name=...)`: formats a prompt with the frame, goal, keep-out radius, mean
-  motion, observed state, step length and thrust limit, calls `complete(messages, tools)`, and
-  parses a JSON reply `{"ax": ..., "ay": ..., "az": ...}` of fractions, which it converts to the
-  action mode. An unparseable reply is logged as a parse failure and the spacecraft coasts. Its
-  prompt, tokens, cost and the rest are on [llm-agents.md](llm-agents.md). A goal without a hold
-  point or a view without a keep-out radius is refused at `reset` with a `ValueError`.
+- `LLMAgent(complete, name=...)`: formats a prompt with the frame, a briefing of the task (the
+  goal of every task kind, the target's attitude mode and each public constraint, in sentences),
+  the mean motion, the observed state measured against the goal, the step length and the thrust
+  limit, calls `complete(messages, tools)`, and parses a JSON reply `{"ax": ..., "ay": ..., "az":
+  ...}` of fractions, which it converts to the action mode. An unparseable reply is logged as a
+  parse failure and the spacecraft coasts. Its prompt, tokens, cost and the rest are on
+  [llm-agents.md](llm-agents.md). `reset` raises `ValueError` for a goal it cannot describe (a key its
+  task needs is missing, or the target mode is unknown or misses a parameter), an action mode that
+  takes no continuous command, or a prompt template field the goal cannot fill. Any other goal
+  entry or constraint is described as it is.
 - `FilteredAgent(agent, safety_filter)` (`vbar.safety`): wraps an agent with a filter that has
   `reset(view)` and `filter(obs, action)`. The filter gets copies of the observation and the
   agent's command and returns a `FilterResult`; anything else, a bare action included, raises
