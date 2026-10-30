@@ -7,6 +7,7 @@ from gymnasium.utils.env_checker import check_env
 from vbar.dynamics import cw_discrete
 from vbar.faults import (
     After,
+    AllOf,
     Always,
     InSphere,
     Intermittent,
@@ -333,3 +334,48 @@ def test_faults_spawn_no_extra_streams():
     # Sensor, actuator and target children at each of two resets, with or without faults.
     assert spawned(()) == 6
     assert spawned((ThrusterOff(axis=0, direction=1),)) == 6
+
+
+def test_all_of_acts_only_while_every_member_does_and_updates_each_member():
+    # A band that opens below 500 m and closes for good once the sphere 200 m out is entered.
+    band = AllOf(
+        activations=(
+            After(condition=RangeBelow(range_m=500.0)),
+            Until(condition=InSphere(center_m=(0.0, -200.0, 0.0), radius_m=6.3)),
+        )
+    )
+    band.reset(np.random.default_rng(0))
+
+    def at(y):
+        return np.array([[0.0, y, 0.0, 0.0, 0.0, 0.0]])
+
+    path = [at(-800.0), at(-400.0), at(-300.0), at(-200.0), at(-150.0), at(-600.0)]
+    assert [band.update(10.0 * k, s) for k, s in enumerate(path)] == [
+        False,
+        True,
+        True,
+        False,
+        False,
+        False,
+    ]
+
+
+@pytest.mark.parametrize("activations", [(), [Always()]])
+def test_all_of_refuses_an_empty_or_untupled_list(activations):
+    with pytest.raises(ValueError):
+        AllOf(activations=activations)
+
+
+def test_all_of_updates_a_member_while_another_is_inactive():
+    # The sphere is passed while the 100 m trigger has not fired; Until must still latch, so the
+    # pair stays off once the trigger fires later.
+    pair = AllOf(
+        activations=(
+            After(condition=RangeBelow(range_m=100.0)),
+            Until(condition=InSphere(center_m=(0.0, -200.0, 0.0), radius_m=6.3)),
+        )
+    )
+    pair.reset(np.random.default_rng(0))
+    path = [[0.0, -200.0, 0.0], [0.0, -150.0, 0.0], [0.0, -50.0, 0.0]]
+    flags = [pair.update(10.0 * k, np.array([[*p, 0.0, 0.0, 0.0]])) for k, p in enumerate(path)]
+    assert flags == [False, False, False]

@@ -24,6 +24,7 @@ from numpy.typing import ArrayLike
 __all__ = [
     "Activation",
     "After",
+    "AllOf",
     "Always",
     "Condition",
     "Fault",
@@ -204,6 +205,28 @@ class Intermittent:
         # the pattern of later draws.
         draw = self._rng.random()
         return self.within.update(t, states) and draw < self.probability
+
+
+@dataclass(kw_only=True)
+class AllOf:
+    """Active while every one of `activations` is active.
+
+    Every member is updated at every decision, so a latch inside it sees each step whatever the
+    others say. Members share the fault's stream, drawing in the order listed.
+    """
+
+    activations: tuple[Activation, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.activations, tuple) or not self.activations:
+            raise ValueError("activations must be a non-empty tuple")
+
+    def reset(self, rng: np.random.Generator) -> None:
+        for activation in self.activations:
+            activation.reset(rng)
+
+    def update(self, t: float, states: np.ndarray) -> bool:
+        return all([activation.update(t, states) for activation in self.activations])
 
 
 class Fault(Protocol):

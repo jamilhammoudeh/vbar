@@ -34,6 +34,7 @@ Activations (`vbar.faults`):
 | `After(condition)` | from the first step in which `condition` holds, for the rest of the episode |
 | `Until(condition)` | until the first step in which `condition` holds |
 | `Intermittent(probability, within)` | at each decision with `probability` while `within` is active |
+| `AllOf(activations)` | while every member is active; each member is updated at every decision |
 
 Conditions test a step's sampled true states. `RangeBelow(range_m)` holds when a sample is closer
 to the target than `range_m`. `InSphere(center_m, radius_m)` holds when the path enters a sphere in
@@ -119,6 +120,8 @@ Tests in `tests/test_faults.py` check each effect against a hand-computed answer
   pass between two outside samples counts and a pass 0.7 m outside it does not.
 - An intermittent fault acts on 30% of 2000 decisions within the binomial bound, repeats on a seed
   and keeps its pattern when another fault is appended.
+- `AllOf` of a trigger below 500 m and an `Until` on a sphere 200 m out is active only between
+  them, and stays off after the sphere is entered.
 - A fault that never acts leaves observations and the final state bit-identical over a seeded and
   an unseeded reset; unseeded resets draw new fault parameters; environments
   built from one configuration do not share a latched trigger; agents see the same view and info

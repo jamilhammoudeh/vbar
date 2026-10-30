@@ -58,9 +58,10 @@ starts are ahead of the target, so the target lies between the chaser and the ho
 `start_state` overrides the draw.
 
 `reset(seed=...)` seeds Gymnasium's generator, which draws the start state. Its seed sequence
-spawns independent sensor, actuator and target streams at every reset, and derives a fault stream when
-faults are configured ([faults.md](faults.md)), so the same seed gives the same episode, and adding
-sensor noise, execution error or a fault never moves the start state or another model's draws. The agent's stream is seeded separately by `run_episode` (below), so nothing an
+spawns independent sensor, actuator and target streams at every reset, and derives a fault
+stream when faults are configured ([faults.md](faults.md)), so the same seed gives the same
+episode, and adding sensor noise, execution error or a fault never moves the start state or
+another model's draws. The agent's stream is seeded separately by `run_episode` (below), so nothing an
 agent holds is derived from the episode seed. Each environment works on its own copy of the
 configured sensor, so environments built from one configuration do not share noise.
 

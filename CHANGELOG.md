@@ -22,8 +22,8 @@ release may change the public API, and every such change is listed under Changed
   `vbar.eval.run_jobs`; the reference pursuers `LineOfSightPursuer` and
   `VelocityMatchingPursuer`; `docs/pursuit-evasion.md`.
 - `vbar.faults` and `EnvConfig.faults`: faults injected mid-episode, scheduled (`Window`),
-  triggered by the true trajectory (`After`, `Until` with `RangeBelow` or `InSphere`) or
-  intermittent; effects `ThrusterOff`, `SensorBias` and `RangeLoss`; `info["faults_active"]`
+  triggered by the true trajectory (`After`, `Until` with `RangeBelow` or `InSphere`),
+  intermittent, or combined with `AllOf`; effects `ThrusterOff`, `SensorBias` and `RangeLoss`; `info["faults_active"]`
   names the faults acting. Each fault draws from its own stream. `docs/faults.md` documents them.
 - `vbar.viz.screen_style`, a context manager that applies the screen style (`SCREEN_STYLE`) for
   README, documentation and report figures, and `SERIES_COLORS`, the three run colours in order.
