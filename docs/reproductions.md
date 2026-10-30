@@ -34,7 +34,8 @@ formulation covers; an infeasible bound raises `ValueError`.
 **The standard glideslope** is the baseline `glideslope_pulses` ([glideslope.md](glideslope.md))
 with the pulse interval T / N. The paper states its transfer time but not its initial and final
 closing rates, which leaves one free parameter, their ratio. It is fitted so that the N = 10 cost
-is the paper's 8.09 m/s; the other four costs and all five excursions are then predictions.
+is the paper's 8.09 m/s (`fitted_rate_ratio`): a ratio of 1.195e-3, closing at 4.99 m/s at the start
+and 6.0 mm/s at the aim. The other four costs and all five excursions are then predictions.
 
 **Excursion** (`excursion`) is the largest radial distance from the line over the flight, from
 exact CW arcs sampled at 400 points each.

@@ -13,7 +13,14 @@ import pytest
 from vbar.agents.glideslope_lp import lp_glideslope
 from vbar.agents.planning import Impulse
 from vbar.dynamics import cw_stm
-from vbar.reproductions import ARIBA_CASE_ONE, ariba_case_one, excursion, match_table, matches
+from vbar.reproductions import (
+    ARIBA_CASE_ONE,
+    ariba_case_one,
+    excursion,
+    fitted_rate_ratio,
+    match_table,
+    matches,
+)
 
 DOCS = Path(__file__).parent.parent / "docs" / "validation.md"
 CASE = ARIBA_CASE_ONE
@@ -144,6 +151,15 @@ PLAN = (Impulse(0.0, np.array([0.0, 0.1, 0.0])), Impulse(60.0, np.array([0.0, -0
 def test_excursion_refuses_bad_inputs(args):
     with pytest.raises(ValueError):
         excursion(*args)
+
+
+def test_fitted_standard_glideslope_rates():
+    # Quoted in docs/reproductions.md: the one parameter the paper leaves out.
+    ratio = fitted_rate_ratio()
+    initial = 400.0 * math.log(ratio) / (CASE.duration * (1.0 - ratio))
+    assert ratio == pytest.approx(1.195e-3, rel=1e-3)
+    assert initial == pytest.approx(-4.991, abs=1e-3)
+    assert ratio * initial == pytest.approx(-0.00596, abs=1e-5)
 
 
 def test_match_rule_reads_the_paper_digits():

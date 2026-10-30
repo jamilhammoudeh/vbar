@@ -25,7 +25,16 @@ from .agents.glideslope_lp import lp_glideslope
 from .agents.planning import Impulse
 from .dynamics import cw_stm
 
-__all__ = ["ARIBA_CASE_ONE", "MatchRow", "ariba_case_one", "excursion", "match_table", "matches"]
+__all__ = [
+    "ARIBA_CASE_ONE",
+    "AribaCase",
+    "MatchRow",
+    "ariba_case_one",
+    "excursion",
+    "fitted_rate_ratio",
+    "match_table",
+    "matches",
+]
 
 
 @dataclass(frozen=True)
@@ -124,6 +133,27 @@ def _standard(case: AribaCase, ratio: float, pulses: int) -> tuple[Impulse, ...]
     return glideslope_pulses(case.n, state, np.asarray(case.aim), profile, interval)
 
 
+def fitted_rate_ratio(case: AribaCase = ARIBA_CASE_ONE) -> float:
+    """Final over initial closing rate of the standard glideslope that costs the paper's 8.09 m/s.
+
+    The paper gives the transfer time but not the closing rates; with the time fixed, their ratio
+    is the one free parameter, fitted here to the N = 10 cost. The cost falls steadily as the
+    ratio grows, so the root in (1e-12, 0.98) is unique.
+
+    Parameters
+    ----------
+    case : AribaCase
+        The case in V-BAR's Hill frame.
+
+    Returns
+    -------
+    float
+        The ratio of the final to the initial closing rate.
+    """
+    exponent = brentq(lambda q: _cost(_standard(case, 10.0**q, 10)) - 8.09, -12.0, -0.01)
+    return float(10.0**exponent)
+
+
 def ariba_case_one(case: AribaCase = ARIBA_CASE_ONE) -> list[MatchRow]:
     """Ariba et al.'s case 1 numbers and their reproduction.
 
@@ -166,7 +196,7 @@ def ariba_case_one(case: AribaCase = ARIBA_CASE_ONE) -> list[MatchRow]:
                 "",
             )
         )
-    ratio = 10.0 ** brentq(lambda q: _cost(_standard(case, 10.0**q, 10)) - 8.09, -12.0, -0.01)
+    ratio = fitted_rate_ratio(case)
     std_costs = ("3.61", "4.76", "5.63", "8.09", "9.32")
     std_excursions = ("26.2", "16.2", "11.1", "2.67", "0.78")
     for pulses, cost, spread in zip((2, 3, 4, 10, 20), std_costs, std_excursions, strict=True):

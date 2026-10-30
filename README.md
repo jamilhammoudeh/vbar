@@ -350,6 +350,9 @@ Also included, each documented in [docs/](https://github.com/jamilhammoudeh/vbar
 - a replay of flown orbits through these models (`vbar.flightdata`): GRACE-FO's two satellites on
   3 December 2019, 182 km apart, stay inside an error bound stated before the run over ten orbits
   on the J2 and drag rungs, a check of the nonlinear models, not of Clohessy-Wiltshire.
+- published results rebuilt from their papers (`vbar.reproductions`): Ariba et al.'s minimum-fuel
+  V-bar glideslope by linear programming (`vbar.agents.glideslope_lp`) on Hablani's case, compared
+  number by number with `python -m vbar.reproductions`.
 
 Earth uses the WGS 84 constants; a Kerbin body with KSP's values is available for comparison with
 KSPDG.
@@ -410,10 +413,10 @@ with a `:nominal` variant without the failure
 ## Documentation
 
 How each part is built, with its equations, methods, assumptions and limits, is in
-[docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part:
-frames, dynamics, perturbations, relative-motion models, flight-data replay, transition matrices,
-three-body models, spacecraft, sensors, faults, constraints, the environment, scenarios,
-reconstructions, metrics, rewards, training interfaces, the vectorized environment, agent tools,
+[docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part: frames,
+dynamics, perturbations, relative-motion models, flight-data replay, transition matrices, three-body
+models, spacecraft, sensors, faults, constraints, the environment, scenarios, reconstructions,
+reproduced results, metrics, rewards, training interfaces, the vectorized environment, agent tools,
 LLM agents, remote agents, policy export, solvers, the evaluation harness, the external propagators,
 the classical baselines, pursuit-evasion in KSPDG's format and validation.
 
