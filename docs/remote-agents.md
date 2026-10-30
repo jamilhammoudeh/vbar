@@ -65,9 +65,12 @@ sessions keep the drawn seeds. However the session fails (a bad hello, a disconn
 that is not JSON, not UTF-8 or too deeply nested to parse, an action the server cannot use), the
 episode being flown is written with `completed` false and the error, and so is every seed not yet
 flown; when no valid hello arrives in time every seed is recorded unflown. The records are also
-written when the host itself is interrupted (Ctrl+C) before the interrupt goes on. Real-time runs
-([agents.md](agents.md)) work through the server too; the measured latency then includes the
-network.
+written when the host itself is interrupted (Ctrl+C) before the interrupt goes on.
+Each line carries `reset_s`, the seconds the client took to answer the reset message (its reset and
+the round trip), as `run_episode` records the time of a local agent's `reset`, so work moved into
+`reset` still counts as the agent's compute; it is null for an episode whose reset never completed.
+Real-time runs ([agents.md](agents.md)) work through the server too; the measured latency then
+includes the network.
 
 ## Clients
 
@@ -173,6 +176,8 @@ the results file where the client cannot read them, and counts every seed it han
 - Burn-and-coast actions cross the server exactly; an action of the wrong length for its mode,
   or a discrete index out of range or fractional, is refused, while 13.0 is index 13 as in
   process.
+- The host records `reset_s` for a slow reset, an immediate one, a client that leaves during the
+  reset, a failed hello and a reset that fails in a later episode.
 - With MATLAB installed and `VBAR_TEST_MATLAB=1`, the MATLAB PD agent flies exactly the Python PD
   agent's trajectories over two default episodes (checked on R2025a; not on CI, which has no
   MATLAB).

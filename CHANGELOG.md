@@ -426,7 +426,8 @@ release may change the public API, and every such change is listed under Changed
   unit, failed runs never replaced; counts and seeds must be whole numbers.
 - `vbar.eval.report` and the command line `python -m vbar.eval run | report | reproduce`: suite
   reports that refuse a partial suite, and `reproduce.toml`, which rebuilds every published table.
-- `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`.
+- `Episode.reset_s` and the runner's `reset_s`: the agent's time in `reset`, also in the result
+  lines of the agent host (`python -m vbar.agents.remote`).
 - `Episode.target_misbriefed`: whether the target moved otherwise than the briefing said, set by
   `record_episode` from the environment's true target mode; never part of what an agent sees.
 - `vbar.dynamics.backends`: Basilisk and Orekit as independent propagators of the two-body plus J2
