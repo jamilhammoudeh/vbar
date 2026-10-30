@@ -33,8 +33,9 @@ from vbar.agents.lqr import LQRAgent, LQRConfig, regulator_model
 from vbar.agents.sign_check import sign_check
 from vbar.constraints import KeepOut, segment_minimum
 from vbar.dynamics import EARTH, cw_discrete, mean_motion
+from vbar.metrics import record_episode
 from vbar.metrics.agent import solver_metrics
-from vbar.scenarios import make
+from vbar.scenarios import SCENARIOS, make, seeds
 from vbar.solvers import HorizonSolution, IPMSettings
 
 MPCConfig = mpc.MPCConfig
@@ -904,3 +905,28 @@ def test_pass_by_the_target_stays_outside_the_sphere_in_continuous_time_and_cert
         assert continuous - entry["certified_bound"] <= 2e-3
         if entry["certified"]:
             assert entry["certified_bound"] >= 0.0
+
+
+# Raw 1 m position noise (:nav1) on a controller that plans to ride the sphere at 50.4 m puts the
+# agent inside it on most seeds, so that variant is left out of the claim.
+SPHERE_CASES = [
+    pytest.param(f"{base}:{variant}" if variant else base, index)
+    for base in ("approach-vbar", "approach-hbar")
+    for variant in (None, *SCENARIOS[base].variants)
+    if variant != "nav1"
+    for index in range(3)
+]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name, index", SPHERE_CASES)
+def test_mpc_completes_the_dwell_outside_the_sphere_on_every_variant_without_raw_noise(name, index):
+    # The variants come from the registry and the seeds are the first three validation seeds, as
+    # in the scenario audit.
+    env = make(name, **FAST)
+    seed, agent_seed = seeds(name, "validation", 3).pairs()[index]
+    record_episode(env, make_agent(), seed=seed, agent_seed=agent_seed)
+    info = env._info()
+    assert info["success"], info
+    assert not info["keep_out_violated"]
+    assert info["min_range_to_target_m"] >= KEEP_OUT

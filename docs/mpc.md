@@ -513,6 +513,9 @@ only here. Fixed in the module:
   of the flown step; the certificate is logged, not enforced.
 - Only the "keep_out" constraint is modelled; approach corridors, speed limits and other
   constraint types are neither rows nor certified.
+- On `:nav1` (a 1 m position sigma) the agent is not kept outside the sphere. The plan rides it at
+  about 50.4 m and the keep-out rows carry no margin for navigation error, which at 1 m sigma is
+  larger than the 0.4 m of clearance.
 - The committed side makes the law depend on the episode's history, not only on the state.
 - A contested decision with no side costs two interior-point solves. Each decision makes one more
   solve only when its certificate fails. A solve that does not converge is not retried: it falls
@@ -574,10 +577,14 @@ only here. Fixed in the module:
   fresh one bitwise; two agents from one config stepped interleaved repeat separate runs bitwise;
   on a hand-made view the agent reads only `info["time_s"]`.
 - **Whole episodes** (marked slow): on `approach-rbar` (210 steps), `approach-vbar` and
-  `approach-hbar` (360 steps) the agent completes the dwell without entering the sphere, where
-  on the last two the LQR agent from the same start enters it; past the target from the closing
-  state with 20 constraint samples per step, the flown margin stays nonnegative in continuous
-  time and is at or above each step's certified bound and within 2 mm of it.
+  `approach-hbar` (360 steps) from seed 0 the agent completes the dwell without entering the
+  sphere, where on the last two the LQR agent from the same start enters it. For the first three
+  validation seeds of `approach-vbar` and `approach-hbar` and of each of their registry variants
+  except `:nav1` (`:iss`, `:gates-vbar-iss` and `:nav2` on the first, `:nav2` on the second),
+  `test_mpc_completes_the_dwell_outside_the_sphere_on_every_variant_without_raw_noise` asserts
+  success, no keep-out violation and a closest range of at least 50 m. Past the target from the
+  closing state with 20 constraint samples per step, the flown margin stays nonnegative in
+  continuous time and is at or above each step's certified bound and within 2 mm of it.
 
 ### Example
 
