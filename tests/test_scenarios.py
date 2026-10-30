@@ -100,6 +100,10 @@ def test_the_reference_controller_succeeds_and_the_metrics_agree(name, index):
     info = env._info()
     assert info["success"], info
     assert not info["keep_out_violated"]
+    if env.cfg.dynamics == "euler1":
+        # The metrics interpolate between samples and the Euler plant has no state between its
+        # nodes, so `evaluate` refuses the episode.
+        return
     metrics = evaluate(episode, env.metric_settings())
     # The metrics apply the departure's own rule and read the inspection's recorded coverage.
     assert metrics["success"] is True

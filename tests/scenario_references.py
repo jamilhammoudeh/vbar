@@ -698,6 +698,36 @@ class Differenced:
         return self.inner.act(obs, info)
 
 
+class SpeedLimitDescent:
+    """Close on the target under the view's whole-speed limit, with Clohessy-Wiltshire feedforward.
+
+    The desired speed is `v_end` v0 + `fraction` v1 |r|, capped at `v_cap`, so it stays under the
+    limit v0 + v1 |r| of the view and a variant with another slope is flown without a change here.
+    The paper's LQR primary is not used: the filters of that paper exist because it breaks this
+    limit.
+    """
+
+    name = "speed-limit-descent"
+
+    def __init__(self, fraction=0.8, v_cap=8.0, v_end=0.5, k_v=0.2):
+        self.fraction, self.v_cap, self.v_end, self.k_v = fraction, v_cap, v_end, k_v
+
+    def reset(self, view, rng=None):
+        limit = next(c for c in view.constraints if c["type"] == "speed_limit")
+        self.v0, self.v1 = limit["v0"], limit["v1"]
+        self.n = view.n
+        self.max_accel = view.max_accel
+        self.scale = action_scale(view)
+
+    def act(self, obs, info):
+        r, v = obs[:3], obs[3:6]
+        dist = max(float(np.linalg.norm(r)), 1e-9)
+        # Arrival at v_end v0, well inside the 0.2 m/s capture speed and the limit's v0 offset.
+        speed = min(self.v_cap, self.v_end * self.v0 + self.fraction * self.v1 * dist)
+        a = -cw_terms(obs, self.n) + self.k_v * (-speed * r / dist - v)
+        return np.clip(a / self.max_accel, -1.0, 1.0) * self.scale
+
+
 def reference_for(name: str, n: float = 0.0011458864877737333):
     """The reference controller of a built-in scenario, by its name with variants.
 
@@ -717,6 +747,8 @@ def reference_for(name: str, n: float = 0.0011458864877737333):
         return Dock()
     if name == "docking-afrl":
         return Glide([(0.0, 0.0, 0.0)], v_max=0.15)
+    if name == "docking-afrl-paper":
+        return SpeedLimitDescent()
     if name == "afrl-docking":
         return Glide([(0.0, 0.0, 0.0)], v_max=0.15)
     if name == "spacegym-docking":
