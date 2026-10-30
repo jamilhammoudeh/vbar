@@ -622,6 +622,30 @@ def test_the_supervisor_is_consulted_at_most_once_per_step_however_often_the_pha
     assert 20 < len(s.supervisor.seen) <= 120
 
 
+def test_pending_gives_the_situation_the_next_act_records_and_changes_no_state():
+    s = Session(APPROACH, period_s=60.0, supervisor=Cycle())
+    places = [FAR, R0, MID, R1, FAR, R0, INSIDE, MID]
+    s.step(places[0])
+    asked = 0
+    for k in range(1, 120):
+        obs = places[k % len(places)]
+        info = {"time_s": s.t}
+        tracker = s.agent._tracker
+        before = (repr(s.agent.last_step), *tracker.reference(s.t))
+        first = s.agent.pending(obs, info)
+        second = s.agent.pending(obs, info)
+        after = (repr(s.agent.last_step), *tracker.reference(s.t))
+        assert before[0] == after[0]
+        assert all(np.array_equal(b, a) for b, a in zip(before[1:], after[1:], strict=True))
+        assert (first is None) == (second is None)
+        s.step(obs)
+        assert (first is not None) == s.consulted == s.agent.last_step.consulted
+        if first is not None:
+            asked += 1
+            assert plain_situation(first) == plain_situation(second) == plain_situation(s.sit)
+    assert asked > 20
+
+
 @pytest.mark.parametrize("period", [5.0, 65.0, 0.0, -10.0])
 def test_a_period_that_is_not_a_whole_number_of_steps_raises_value_error(period):
     with pytest.raises(ValueError):

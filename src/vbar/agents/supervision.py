@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import KW_ONLY, dataclass
 from enum import IntEnum
 from types import MappingProxyType
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -260,6 +260,19 @@ class SupervisionStep:
     v_ref: tuple[float, ...]
 
 
+@dataclass(frozen=True, eq=False)
+class _Look:
+    """What `SupervisedAgent` works out for an observation before it commits anything."""
+
+    t: float
+    phase: str
+    state: tuple[str, int]
+    mask: tuple[bool, ...]
+    cam: np.ndarray | None
+    reasons: dict[Command, str]
+    situation: Situation | None
+
+
 class Supervisor(Protocol):
     name: str
 
@@ -423,36 +436,76 @@ class SupervisedAgent:
         numpy.ndarray
             The command in the view's action mode.
         """
-        if not self._ready:
-            raise RuntimeError("reset the agent before acting")
-        view = self._view
-        t = float(info["time_s"])
         obs = np.array(obs, dtype=float)
-        if not self._ladder:
-            self._start(obs)
-        self._arrive(obs, t)
-        state = (self._shown(obs), self._rung)
-        k = round(t / view.dt)
-        consulted = self.last_step is None or k % self._steps == 0 or state != self._seen
+        look = self._look(obs, info)
+        self._phase = look.phase
         order = accepted = None
         reason = ""
-        if consulted:
-            order, accepted, reason = self._consult(obs, t, info, state)
-        action = self._tracker.act(obs, t)
-        r_ref, v_ref = self._tracker.reference(t)
+        if look.situation is not None:
+            order, accepted, reason = self._consult(look, obs)
+        action = self._tracker.act(obs, look.t)
+        r_ref, v_ref = self._tracker.reference(look.t)
         self.last_step = SupervisionStep(
-            t=t,
-            consulted=consulted,
+            t=look.t,
+            consulted=look.situation is not None,
             order=order,
             accepted=accepted,
             reason=reason,
-            phase=self._shown(obs),
+            phase=self._shown(obs, self._phase),
             rung=self._rung,
             mask=self._mask,
             r_ref=tuple(float(c) for c in r_ref),
             v_ref=tuple(float(c) for c in v_ref),
         )
         return action
+
+    def pending(self, obs, info) -> Situation | None:
+        """The situation `act(obs, info)` would show the supervisor, or None between consults.
+
+        The agent's state is left as it is, except that the first call after a reset starts the
+        episode from `obs`, as the first `act` would: the ladder is cut from that observation.
+
+        Parameters
+        ----------
+        obs : numpy.ndarray
+            The observation (m, m/s, Hill).
+        info : mapping
+            The agent-safe info; "time_s" (s) is the time.
+
+        Returns
+        -------
+        Situation or None
+            What the supervisor would be told, or None between consults.
+        """
+        return self._look(np.array(obs, dtype=float), info).situation
+
+    def _look(self, obs: np.ndarray, info) -> _Look:
+        """The phase, and the consult if one is due, for `obs`; nothing but the start is stored."""
+        if not self._ready:
+            raise RuntimeError("reset the agent before acting")
+        t = float(info["time_s"])
+        if not self._ladder:
+            self._start(obs)
+        phase = self._phase
+        if phase in ("transfer", "retreating") and self._arrived(obs, t):
+            phase = "holding"
+        state = (self._shown(obs, phase), self._rung)
+        k = round(t / self._view.dt)
+        if not (self.last_step is None or k % self._steps == 0 or state != self._seen):
+            return _Look(t, phase, state, self._mask, None, {}, None)
+        mask, cam, reasons = self._validity(obs, t, phase)
+        situation = Situation(
+            t=t,
+            obs=_frozen(obs),
+            phase=state[0],
+            rung=self._rung,
+            ladder=self._ladder,
+            mask=mask,
+            reasons=MappingProxyType(dict(reasons)),
+            refused=self._refused,
+            info=MappingProxyType(copy.deepcopy(dict(info))),
+        )
+        return _Look(t, phase, state, mask, cam, reasons, situation)
 
     def _start(self, obs: np.ndarray) -> None:
         self._ladder = ladder(self._view, obs)
@@ -466,11 +519,11 @@ class SupervisedAgent:
         rung = self._ladder[self._rung]
         self._tracker.fly_to(rung.position, rung.kind)
 
-    def _shown(self, obs: np.ndarray) -> str:
+    def _shown(self, obs: np.ndarray, phase: str) -> str:
         """The phase a supervisor sees: commit inside the commit radius, unless aborted."""
-        if self._phase != "aborted" and float(np.linalg.norm(obs[:3])) < self._commit:
+        if phase != "aborted" and float(np.linalg.norm(obs[:3])) < self._commit:
             return "commit"
-        return self._phase
+        return phase
 
     def _arrived(self, obs: np.ndarray, t: float) -> bool:
         """Whether the observation is within the rung's radius and speed of its reference."""
@@ -490,14 +543,16 @@ class SupervisedAgent:
             np.linalg.norm(obs[:3] - r_ref) <= radius and np.linalg.norm(obs[3:6] - v_ref) <= speed
         )
 
-    def _arrive(self, obs: np.ndarray, t: float) -> None:
-        if self._phase in ("transfer", "retreating") and self._arrived(obs, t):
-            self._phase = "holding"
+    def _validity(
+        self, obs: np.ndarray, t: float, phase: str
+    ) -> tuple[tuple[bool, ...], np.ndarray | None, dict[Command, str]]:
+        """Whether each command may be given in `phase`, why not, and the CAM impulse (m/s, Hill).
 
-    def _validity(self, obs: np.ndarray, t: float) -> tuple[tuple[bool, ...], dict[Command, str]]:
-        """Whether each command may be given now, and why not, from the observation alone."""
+        All from the observation alone; the impulse is None when CAM is refused.
+        """
         view = self._view
-        phase, shown = self._phase, self._shown(obs)
+        shown = self._shown(obs, phase)
+        cam: np.ndarray | None = None
         ok = [True] * len(Command)
         why: dict[Command, str] = {}
 
@@ -510,7 +565,7 @@ class SupervisedAgent:
             for command in (Command.GO, Command.HOLD, Command.RETREAT, Command.CAM):
                 refuse(command, "aborted after a CAM")
             refuse(Command.THRUST_INHIBIT, "aborted after a CAM")
-            return tuple(ok), why
+            return tuple(ok), cam, why
         if shown == "commit":
             for command in (Command.GO, Command.HOLD, Command.RETREAT, Command.CAM):
                 refuse(command, "inside the commit radius")
@@ -518,7 +573,7 @@ class SupervisedAgent:
                 refuse(Command.THRUST_INHIBIT, "inhibit inside the commit radius is for docking")
             elif phase == "inhibited":
                 refuse(Command.THRUST_INHIBIT, "already inhibited")
-            return tuple(ok), why
+            return tuple(ok), cam, why
 
         last = self._rung == len(self._ladder) - 1
         if self.mode == "ladder":
@@ -544,36 +599,26 @@ class SupervisedAgent:
         if len(self._impulses) == 0:
             refuse(Command.CAM, "no abort impulse")
         elif self._collision <= 0.0:
-            self._cam = self._impulses[0]
+            cam = self._impulses[0]
         else:
             margins = [_drift_margin(view.n, obs, self._collision, dv) for dv in self._impulses]
             if max(margins) < 0.0:
                 refuse(Command.CAM, "the CAM arc enters the keep-out sphere")
             else:
-                self._cam = self._impulses[int(np.argmax(margins))]
+                cam = self._impulses[int(np.argmax(margins))]
         if phase == "inhibited":
             refuse(Command.THRUST_INHIBIT, "already inhibited")
         elif self._collision > 0.0 and _drift_margin(view.n, obs, self._collision) < 0.0:
             refuse(Command.THRUST_INHIBIT, "the free drift enters the keep-out sphere")
-        return tuple(ok), why
+        return tuple(ok), cam, why
 
-    def _consult(
-        self, obs: np.ndarray, t: float, info, state: tuple[str, int]
-    ) -> tuple[Order | None, bool, str]:
-        self._seen = state
-        self._mask, reasons = self._validity(obs, t)
-        situation = Situation(
-            t=t,
-            obs=_frozen(obs),
-            phase=state[0],
-            rung=self._rung,
-            ladder=self._ladder,
-            mask=self._mask,
-            reasons=MappingProxyType(dict(reasons)),
-            refused=self._refused,
-            info=MappingProxyType(copy.deepcopy(dict(info))),
-        )
-        answer = self.supervisor.decide(situation)
+    def _consult(self, look: _Look, obs: np.ndarray) -> tuple[Order | None, bool, str]:
+        self._seen = look.state
+        self._mask = look.mask
+        if look.cam is not None:
+            self._cam = look.cam
+        reasons = look.reasons
+        answer = self.supervisor.decide(cast(Situation, look.situation))
         if isinstance(answer, Command):
             answer = Order(answer)
         if not isinstance(answer, Order):
