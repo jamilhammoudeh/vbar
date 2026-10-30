@@ -246,6 +246,14 @@ python -m vbar.eval reproduce reproduce.toml
 results and table go. `reproduce` flies only what the results files lack and rewrites every table,
 so one command regenerates all of them.
 
+The notebook `examples/quickstart.ipynb`
+([open in Colab](https://colab.research.google.com/github/jamilhammoudeh/vbar/blob/main/examples/quickstart.ipynb))
+installs the package from PyPI, flies the PD baseline, prints its metrics and rebuilds a table of
+two episodes. The command line knows only the built-in suites, so the notebook registers a small
+suite with `register_suite` and calls `vbar.eval.__main__.main(["reproduce", "quickstart.toml"])`,
+the entry point of `python -m vbar.eval`, with a one-table manifest. Running that cell again flies
+nothing, since the results file already holds both episodes.
+
 ## Inputs
 
 The statistics raise `ValueError` for a NaN score (the message names the scenario where there is
@@ -293,3 +301,7 @@ safety-tail figures.
 `tests/test_eval_report.py`: complete reports, refusals, the command line and the manifest.
 `tests/test_eval_learned.py`: the learned-agent rules. `tests/test_eval_domain.py`: the toy domain.
 Each module's `test_hostile_*` test runs the refusals of the Inputs section.
+`tests/test_quickstart_notebook.py`: the notebook's cells run headless without the install cell,
+the notebook holds no stored outputs, its install cell is the unpinned package name, and a second
+run of the table cell flies nothing. `tests/test_quickstart_links.py`: the README and this page
+link the notebook, and the notebook's own badge points at it.

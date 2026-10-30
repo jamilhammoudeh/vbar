@@ -63,6 +63,12 @@ This flies the PD baseline from 400 m behind the target to the hold point 100 m 
 620 s of flight, and prints `True False 2.41...`: it arrived, it never entered the keep-out zone,
 and it used 2.4 m/s of delta-v.
 
+The quickstart notebook runs without a local install. It installs the package from PyPI, flies
+this baseline, prints its metrics and rebuilds a two-episode results table with the evaluation
+harness ([docs/evaluation.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/evaluation.md)).
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jamilhammoudeh/vbar/blob/main/examples/quickstart.ipynb)
+
 Benchmarks need many runs, not one. With the default random starts, which put the chaser 200 to
 600 m ahead of the target so the target sits between it and the hold point:
 
