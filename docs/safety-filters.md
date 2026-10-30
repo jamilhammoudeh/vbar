@@ -2384,7 +2384,8 @@ The tests in `tests/test_safety_cbf.py` and `tests/test_safety_soft.py` check:
   an unenforced constraint (a sun exclusion) with and without `ignore=`, a missing keep-out, and
   a default braking deceleration that is not positive.
 - The declaration: buffer $1.2 \cdot 3 n^2 v_{\text{cap}} \Delta t/p^2$ plus $\delta a/p^2$ to 1e-9
-  relative, certificate kinds "nominal" and "bounded-W", and the soft filter never counting.
+  relative, certificate kind "nominal" without error sets and None for the braking backup with
+  each kind of error set, and the soft filter never counting.
 - Clipping in every continuous mode and both layouts is not an intervention, and each row of the
   outcome tables gives its fields; inside the commit radius every filter only watches.
 - Closed loops on the exact CW environment at dt 1, 2, 5, 10 and 20 s from starts inside each
