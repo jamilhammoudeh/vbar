@@ -704,21 +704,23 @@ def test_a_silent_first_connection_does_not_stop_the_agent_behind_it(tmp_path, m
 
 
 def test_an_agent_slower_than_the_hello_wait_still_gets_the_full_timeout(monkeypatch):
-    # The hello must come within 0.3 s; after it every message may take the 3 s timeout.
-    monkeypatch.setattr(remote, "HELLO_WAIT_S", 0.3)
+    # The hello must come within 2 s; after it every message may take the 12 s timeout. The pauses
+    # of 3 s sit between the two with seconds to spare, since a loaded machine can delay the
+    # client thread by more than a second (a 0.3 s hello wait failed under load).
+    monkeypatch.setattr(remote, "HELLO_WAIT_S", 2.0)
 
     def slow(stream, seen):
         send(stream, {"type": "hello", "name": "slow", "protocol": 1})
         receive(stream)
-        time.sleep(1.0)
+        time.sleep(3.0)
         send(stream, {"type": "ready"})
         receive(stream)
-        time.sleep(1.0)
+        time.sleep(3.0)
         send(stream, {"type": "action", "action": [0.0, 0.0, 0.0]})
         seen["closing"] = receive(stream)
 
     # Not through raw_session, which sets the line's timeout itself after the accept.
-    server = AgentServer(timeout=3.0)
+    server = AgentServer(timeout=12.0)
     seen = {}
 
     def client():
