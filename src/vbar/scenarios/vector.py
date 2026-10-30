@@ -32,7 +32,7 @@ class ApproachVectorEnv(vector.VectorEnv):
     Supports the "cw" dynamics with the constant-acceleration drive, both thruster layouts, the
     minimum impulse bit, propellant limits, every sensor, the "normalized", "accel", "thrust"
     and "disc27" action modes, the time and propellant observation channels and library
-    rewards. Actuation delay, the constant-thrust drive, execution errors and the
+    rewards. Actuation delay, the constant-thrust drive, execution errors, faults and the
     "impulse_coast" mode are refused. `reset(seed=s)` seeds copy i with s + i; a list gives each
     copy its own seed. Info entries are arrays over the copies.
     """
@@ -45,6 +45,7 @@ class ApproachVectorEnv(vector.VectorEnv):
             "the constant-thrust drive": cfg.drive != "accel",
             "execution errors": cfg.execution is not None,
             "the impulse_coast mode": cfg.action_mode == "impulse_coast",
+            "faults": bool(cfg.faults),
         }
         for what, used in refused.items():
             if used:

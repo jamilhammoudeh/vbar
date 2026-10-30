@@ -29,6 +29,7 @@ from gymnasium import spaces
 from ..agents.base import DISC27, AgentView
 from ..constraints import Constraint, SegmentMinimum, segment_minimum, violation_intervals
 from ..dynamics import make_dynamics
+from ..faults import Fault
 from ..rewards import Reward, Transition
 from ..spacecraft import Actuation, ExecutionError, PerfectNav, Sensor, Spacecraft
 
@@ -39,6 +40,8 @@ _EVENT_TOL = 1e-9
 SCALAR_CHANNELS = ("t_remaining", "propellant_fraction")
 CHANNELS = (*SCALAR_CHANNELS, "pending_commands")
 STREAMS = ("sensor", "actuator", "target")
+# Spawn-key branch of the fault stream; spawned children count up from 0 and never reach it.
+_FAULT_KEY = 0x6661756C
 
 
 @dataclass(kw_only=True)
@@ -59,6 +62,10 @@ class EnvConfig:
     each as (seconds until it takes effect, command as issued in the action mode's units, limited
     by the thruster layout at the action-space bound); it has ceil(delay_s / dt) slots,
     zero-filled at the front before the first commands.
+
+    `faults` are injected into the episode (`vbar.faults`): each acts on the command as issued
+    or on the navigation reading while its activation says so, and `info["faults_active"]` names
+    those acting after each step.
 
     `reward` replaces the scenario's legacy reward with a `vbar.rewards.Reward`; `info` then
     holds each step's `discount`. `training` allows the training-only options of `reset`
@@ -84,6 +91,7 @@ class EnvConfig:
     sensor: Sensor = field(default_factory=PerfectNav)
     violation_samples: int = 20
     observation_channels: tuple[str, ...] = ()
+    faults: tuple[Fault, ...] = ()
     reward: Reward | None = None
     training: bool = False
 
@@ -100,6 +108,12 @@ class EnvConfig:
             check_number("propellant_kg", self.propellant_kg, low=0.0)
             if self.propellant_kg > self.mass_kg:
                 raise ValueError("propellant_kg must not exceed mass_kg")
+        if not isinstance(self.faults, tuple):
+            raise ValueError("faults must be a tuple")
+        for fault in self.faults:
+            hooks = ("reset", "update", "on_command", "on_observation")
+            if not all(callable(getattr(fault, hook, None)) for hook in hooks):
+                raise ValueError(f"{type(fault).__name__} is not a fault: it needs {hooks}")
         check_count("max_steps", self.max_steps, 1)
         check_count("violation_samples", self.violation_samples, 2)
 
@@ -326,6 +340,7 @@ class BaseEnv(gym.Env):
         # Sensors hold episode state (stream, bias, correlated error), so environments built
         # from one config must not share one.
         self.sensor = copy.deepcopy(config.sensor)
+        self.faults = copy.deepcopy(config.faults)
         self.constraints = tuple(self._constraints())
         unknown = set(config.observation_channels) - set(CHANNELS)
         if unknown:
@@ -465,6 +480,19 @@ class BaseEnv(gym.Env):
         self.spacecraft.reset(self.rngs["actuator"])
         self.issued = []
         self.sensor.reset(self.rngs["sensor"])
+        # The fault stream is derived, not spawned, so the seed sequence's counter moves exactly as
+        # it does without faults and adding a fault changes no other model's draws, on seeded and
+        # unseeded resets alike. Its key sits under a branch the counter never reaches, and the
+        # counter value keeps each reset's faults apart. Each fault draws from its own child, so
+        # appending one leaves the others' draws alone.
+        seq = self.np_random.bit_generator.seed_seq
+        fault_root = np.random.SeedSequence(
+            seq.entropy, spawn_key=(*seq.spawn_key, _FAULT_KEY, seq.n_children_spawned)
+        )
+        fault_seqs = fault_root.spawn(len(self.faults))
+        for fault, seq in zip(self.faults, fault_seqs, strict=True):
+            fault.reset(np.random.default_rng(seq))
+            fault.update(0.0, self.state[None])
         self.t = 0.0
         self.steps = 0
         self.dv_l2 = self.dv_l1 = self.propellant_used = 0.0
@@ -493,6 +521,8 @@ class BaseEnv(gym.Env):
             burn = command
             fraction = command / self._action_scale()
         fraction = self._limit_command(fraction)
+        for fault in self.faults:
+            fraction = fault.on_command(self.t, fraction)
         mass_before = self.spacecraft.mass
         actuation = self.spacecraft.apply(fraction, self.cfg.dt, latency_s)
         # The echo is recorded only once `apply` has accepted the command, so a rejected step
@@ -513,6 +543,8 @@ class BaseEnv(gym.Env):
             self.spacecraft.mass = mass_before - actuation.propellant_kg
             self.t += flown
         self.steps += 1 + coast_steps
+        for fault in self.faults:
+            fault.update(self.t, trace.states)
         self.dv_l2 += actuation.dv_l2
         self.dv_l1 += actuation.dv_l1
         self.propellant_used += actuation.propellant_kg
@@ -649,7 +681,10 @@ class BaseEnv(gym.Env):
 
     def _observe(self) -> np.ndarray:
         """Sensor output followed by the enabled channels."""
-        parts = [self.sensor.observe(self.state, self.t)]
+        reading = self.sensor.observe(self.state, self.t)
+        for fault in self.faults:
+            reading = fault.on_observation(self.t, reading)
+        parts = [reading]
         channels = self.cfg.observation_channels
         if "t_remaining" in channels:
             parts.append(np.array([(self.cfg.max_steps - self.steps) * self.cfg.dt]))
@@ -716,4 +751,7 @@ class BaseEnv(gym.Env):
             "mass_kg": self.spacecraft.mass,
             "min_margins": dict(self.min_margins),
             "min_margin_bounds": dict(self.min_margin_bounds),
-        }
+        } | ({"faults_active": self._faults_active()} if self.faults else {})
+
+    def _faults_active(self) -> tuple[str, ...]:
+        return tuple(fault.name for fault in self.faults if fault.active)

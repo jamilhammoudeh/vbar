@@ -349,9 +349,16 @@ class ScenarioEnv(BaseEnv):
         # The fingerprint of the briefed spec: the true mode would set the spec= token apart
         # from an honest briefing's. Records keep `scenario_id`.
         told = briefed_mode(self.scenario.target)
-        if told is self.scenario.target:
+        # Faults added over the spec's own are not briefed, so an agent is not told what will
+        # fail or when; the spec's declared faults are public with the catalogue.
+        declared = tuple(self.scenario.config.get("faults", ()))
+        same = len(declared) == len(self.cfg.faults) and all(
+            a is b for a, b in zip(declared, self.cfg.faults, strict=True)
+        )
+        if told is self.scenario.target and same:
             return self.scenario_id
-        return scenario_id(replace(self.scenario, target=told), self.cfg) + self._kind_token()
+        cfg = self.cfg if same else replace(self.cfg, faults=declared)
+        return scenario_id(replace(self.scenario, target=told), cfg) + self._kind_token()
 
     def _briefed_constraints(self) -> tuple[Constraint, ...]:
         # Built from the briefed mode, so a public spec has the form and fields an honest

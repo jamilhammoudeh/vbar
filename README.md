@@ -400,7 +400,7 @@ test splits, and suites list the runs a report must cover in full
 How each part is built, with its equations, methods, assumptions and limits, is in
 [docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part:
 frames, dynamics, perturbations, relative-motion models, transition matrices, three-body models,
-spacecraft, sensors, constraints, the environment, scenarios, metrics, rewards, training
+spacecraft, sensors, faults, constraints, the environment, scenarios, metrics, rewards, training
 interfaces, the vectorized environment, agent tools, LLM agents, remote agents, policy export,
 solvers, the evaluation harness, the external propagators, the classical baselines, pursuit-evasion
 in KSPDG's format and validation.
