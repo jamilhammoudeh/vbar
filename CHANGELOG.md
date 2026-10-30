@@ -335,6 +335,10 @@ release may change the public API, and every such change is listed under Changed
   classes `PE1_E1_I1_Env` to `PE1_E1_I4_Env` and `PE1_E3_I1_Env` to `PE1_E3_I4_Env` with the
   parents `PE1_E1_ParentEnv` and `PE1_E3_ParentEnv` (the e3 classes take KSPDG's `evade_dist` and
   `evade_throttle`), registered as `vbar/PursuitEvasionE1I1-v1` to `vbar/PursuitEvasionE3I4-v1`.
+- `vbar.games.RandomEvader`, V-BAR's version of KSPDG's e2 evader (random throttles held for random
+  times inside the control range, drawn from the episode seed), and its scenarios `PE1_E2_I1_Env`
+  to `PE1_E2_I4_Env` (`PE1_E2_ParentEnv`), registered as `vbar/PursuitEvasionE2I1-v1` to
+  `vbar/PursuitEvasionE2I4-v1`.
 
 ### Changed
 

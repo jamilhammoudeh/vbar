@@ -15,7 +15,7 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
-from .bots import NormalEscapeEvader, PassiveEvader
+from .bots import NormalEscapeEvader, PassiveEvader, RandomEvader
 from .pursuit import PursuitEvasionEnv
 from .runner import fly
 
@@ -27,6 +27,16 @@ class PE1_E1_ParentEnv(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
 
     def __init__(self, **kwargs: Any):
         kwargs.setdefault("evader", PassiveEvader())
+        super().__init__(initial=self.initial, **kwargs)
+
+
+class PE1_E2_ParentEnv(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
+    """pe1 against V-BAR's `RandomEvader` (KSPDG's e2), drawing from the episode seed."""
+
+    initial = "i3"
+
+    def __init__(self, **kwargs: Any):
+        kwargs.setdefault("evader", RandomEvader())
         super().__init__(initial=self.initial, **kwargs)
 
 
@@ -78,6 +88,30 @@ class PE1_E1_I4_Env(PE1_E1_ParentEnv):  # noqa: N801  KSPDG's class name
     initial, scenario = "i4", "pe1-e1-i4"
 
 
+class PE1_E2_I1_Env(PE1_E2_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I1 start against the random evader."""
+
+    initial, scenario = "i1", "pe1-e2-i1"
+
+
+class PE1_E2_I2_Env(PE1_E2_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I2 start against the random evader."""
+
+    initial, scenario = "i2", "pe1-e2-i2"
+
+
+class PE1_E2_I3_Env(PE1_E2_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I3 start against the random evader."""
+
+    initial, scenario = "i3", "pe1-e2-i3"
+
+
+class PE1_E2_I4_Env(PE1_E2_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I4 start against the random evader."""
+
+    initial, scenario = "i4", "pe1-e2-i4"
+
+
 class PE1_E3_I1_Env(PE1_E3_ParentEnv):  # noqa: N801  KSPDG's class name
     """pe1 from KSPDG's I1 start against the normal-escape evader."""
 
@@ -109,6 +143,10 @@ SCENARIOS: dict[str, type[PursuitEvasionEnv]] = {
         PE1_E1_I2_Env,
         PE1_E1_I3_Env,
         PE1_E1_I4_Env,
+        PE1_E2_I1_Env,
+        PE1_E2_I2_Env,
+        PE1_E2_I3_Env,
+        PE1_E2_I4_Env,
         PE1_E3_I1_Env,
         PE1_E3_I2_Env,
         PE1_E3_I3_Env,
@@ -252,6 +290,11 @@ __all__ = [
     "PE1_E1_I3_Env",
     "PE1_E1_I4_Env",
     "PE1_E1_ParentEnv",
+    "PE1_E2_I1_Env",
+    "PE1_E2_I2_Env",
+    "PE1_E2_I3_Env",
+    "PE1_E2_I4_Env",
+    "PE1_E2_ParentEnv",
     "PE1_E3_I1_Env",
     "PE1_E3_I2_Env",
     "PE1_E3_I3_Env",

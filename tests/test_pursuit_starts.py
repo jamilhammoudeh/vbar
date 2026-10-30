@@ -127,7 +127,14 @@ def test_every_scenario_class_flies_its_start_and_its_evader(key):
     _, evader, start = key.split("-")
     env = SCENARIOS[key]()
     assert env.initial == start and env.scenario == key
-    assert type(env.evader).__name__ == {"e1": "PassiveEvader", "e3": "NormalEscapeEvader"}[evader]
+    assert (
+        type(env.evader).__name__
+        == {
+            "e1": "PassiveEvader",
+            "e2": "RandomEvader",
+            "e3": "NormalEscapeEvader",
+        }[evader]
+    )
     assert env.reset()[0] == PursuitEvasionEnv(initial=start).reset()[0]
 
 

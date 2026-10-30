@@ -11,7 +11,7 @@ __all__ = ["ApproachConfig", "ApproachEnv", "RealTime", "ScoredRun", "run_episod
 register(id="vbar/Approach-v0", entry_point="vbar.scenarios.approach:ApproachEnv")
 # The pe1 games, as `vbar.games.GYMNASIUM_IDS` lists them; written out so that importing vbar
 # does not import the games.
-for _evader in (1, 3):
+for _evader in (1, 2, 3):
     for _start in (1, 2, 3, 4):
         register(
             id=f"vbar/PursuitEvasionE{_evader}I{_start}-v1",

@@ -1,6 +1,13 @@
 """KSPDG-format games on two-body dynamics: the pe1 pursuit-evasion problem."""
 
-from .bots import CONTROL_RANGE, EvaderBot, NormalEscapeEvader, PassiveEvader, Segment
+from .bots import (
+    CONTROL_RANGE,
+    EvaderBot,
+    NormalEscapeEvader,
+    PassiveEvader,
+    RandomEvader,
+    Segment,
+)
 from .envs import (
     GYMNASIUM_IDS,
     SCENARIOS,
@@ -9,6 +16,11 @@ from .envs import (
     PE1_E1_I3_Env,
     PE1_E1_I4_Env,
     PE1_E1_ParentEnv,
+    PE1_E2_I1_Env,
+    PE1_E2_I2_Env,
+    PE1_E2_I3_Env,
+    PE1_E2_I4_Env,
+    PE1_E2_ParentEnv,
     PE1_E3_I1_Env,
     PE1_E3_I2_Env,
     PE1_E3_I3_Env,
@@ -40,6 +52,11 @@ __all__ = [
     "PE1_E1_I3_Env",
     "PE1_E1_I4_Env",
     "PE1_E1_ParentEnv",
+    "PE1_E2_I1_Env",
+    "PE1_E2_I2_Env",
+    "PE1_E2_I3_Env",
+    "PE1_E2_I4_Env",
+    "PE1_E2_ParentEnv",
     "PE1_E3_I1_Env",
     "PE1_E3_I2_Env",
     "PE1_E3_I3_Env",
@@ -55,6 +72,7 @@ __all__ = [
     "PursuitEvasionEnv",
     "PursuitEvasionGymEnv",
     "PursuitTask",
+    "RandomEvader",
     "Segment",
     "Vessel",
     "axes_along",

@@ -44,12 +44,14 @@ With the 5 m capture distance, a pursuer that only coasts captures the passive e
 conjunction", "inclined orbits with an unactuated conjunction", "about 3 km apart in the same
 circular orbit" and "inclined, out of phase, unsynchronized periods". Each start is flown against
 each evader; a class is named for both, as in KSPDG (`PE1_E3_I2_Env` is evader e3 from start I2),
-and the classes of one evader share a parent (`PE1_E1_ParentEnv`, `PE1_E3_ParentEnv`). The e3
+and the classes of one evader share a parent (`PE1_E1_ParentEnv`, `PE1_E2_ParentEnv`,
+`PE1_E3_ParentEnv`). The e3
 classes take KSPDG's `evade_dist` and `evade_throttle` arguments.
 
 | Classes | Gymnasium IDs | Evader |
 |---|---|---|
 | `PE1_E1_I1_Env` to `PE1_E1_I4_Env` | `vbar/PursuitEvasionE1I1-v1` to `vbar/PursuitEvasionE1I4-v1` | `PassiveEvader`: never thrusts (KSPDG's e1 is "passive") |
+| `PE1_E2_I1_Env` to `PE1_E2_I4_Env` | `vbar/PursuitEvasionE2I1-v1` to `vbar/PursuitEvasionE2I4-v1` | `RandomEvader`: random throttles, held for random durations, while the pursuer is within 2200 m |
 | `PE1_E3_I1_Env` to `PE1_E3_I4_Env` | `vbar/PursuitEvasionE3I1-v1` to `vbar/PursuitEvasionE3I4-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m, acting only inside 2200 m |
 
 `NormalEscapeEvader` is written for V-BAR from KSPDG's description of e3 ("heuristic evasion
@@ -62,6 +64,17 @@ nothing, but with an evasion distance wider than the control range a burn begun 
 after the pursuer leaves. Its propellant runs out like the pursuer's. The class names are KSPDG's,
 so a KSPDG script needs only its imports changed; the LLM agents of Carrasco, Rodriguez-Fernandez
 and Linares (arXiv 2408.08676) were evaluated on PE1_I3_E3.
+
+`RandomEvader` is V-BAR's version of KSPDG's e2 (`e2_envs.py`, "randomized evasive maneuvers").
+While the pursuer is inside the control range it points prograde and repeats: draw a hold time
+uniform on (0, 2) s and, with probability one half, a throttle on each axis uniform on [-1, 1]
+(otherwise none), and hold them for that time. It looks at the range only when a hold ends; outside
+the control range it keeps its last throttles until the pursuer is back inside, as KSPDG's does.
+KSPDG's bot draws from numpy's unseeded global generator and times its holds with wall-clock
+sleeps, so no two of its runs are alike; V-BAR's draws from the episode seed on simulated time, so
+a seed replays an episode exactly, and scores against it are compared over many seeds. KSPDG's e2
+also sets random pitch, yaw and roll inputs with its throttles; V-BAR's keeps its forward axis
+prograde and draws none.
 
 ## Observation
 
@@ -171,7 +184,9 @@ a fresh 128-bit seed from the operating system. The seed used is kept in `env.se
 Gymnasium environment passes its `reset(seed=...)` on, and without one draws the stream's seed
 from its `np_random`; `fly(env, agent, seed=...)` and `PursuitTask` pass theirs on too. Nothing the
 agent receives is derived from the seed other than the observation itself. The passive and
-normal-escape bots draw nothing, so their episodes do not depend on it.
+normal-escape bots draw nothing, so their episodes do not depend on it; the random evader draws
+everything it does from it. An agent that tries seeds by flying twin episodes and matching the
+evader's first seconds finds a small seed among 16 candidates and no 128-bit drawn one.
 
 ## Time and integration
 
@@ -288,6 +303,8 @@ rerun the script to measure yours.
   dynamics; the pursuer points at the evader exactly.
 - The evaders point exactly and at once, on simulated time; KSPDG's turn under SAS or the
   autopilot in game time, so they fire before they finish turning.
+- The random evader holds its forward axis prograde instead of applying random attitude inputs,
+  and draws from a seeded stream on simulated time instead of an unseeded one on wall-clock time.
 - Lockstep time: a slow agent loses no simulated time, unlike in KSPDG, where game time runs on
   while it decides.
 - The episode starts at mission time 0 at the saved orbits' epoch; the saves were written 0.02 s to
@@ -295,7 +312,7 @@ rerun the script to measure yours.
   of game time before the first observation.
 - `vec_type` takes 0 and 1; KSPDG declares a third value it does not define. Burn durations above
   10 s are accepted, as KSPDG does not enforce its declared bound.
-- Only the e1 and e3 evaders exist so far.
+- Only the e1, e2 and e3 evaders exist so far.
 
 ## Validation
 
@@ -333,6 +350,19 @@ rerun the script to measure yours.
 - Every scenario class flies its start and its evader.
 - A fast pass (the I1 coast at 36 m/s) is captured at the capture distance to 1e-6 m at the same
   instant, to 1e-6 s, whether it is flown in 10 s or 0.5 s steps.
+
+`tests/test_pursuit_random_evader.py`:
+
+- 4000 draws inside the control range: hold times uniform on (0, 2) s (mean 1 s to 0.04 s), on
+  half the time (to 0.035), throttles uniform on [-1, 1] (mean 0 and mean magnitude 0.5); every
+  draw points prograde and ends only at its time.
+- Outside the control range the last throttles are kept and the segment ends where the range
+  falls through 2200 m, after which the bot draws at once; it never burns on the I3 coast, which
+  stays beyond 2618 m.
+- The same seed replays an I2 episode exactly and another seed differs; a draw on all three axes
+  uses each axis's flow.
+- A cheat agent that flies twin episodes for 16 candidate seeds and matches the evader's first
+  three seconds finds seed 7 and does not find a drawn 128-bit seed.
 
 `tests/test_pursuit_bots.py`:
 

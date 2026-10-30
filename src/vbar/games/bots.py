@@ -173,12 +173,58 @@ class NormalEscapeEvader:
         return Segment(pointing="normal", triggers=((self._evade, -1), (self._control, 1)))
 
 
+@dataclass(frozen=True, kw_only=True)
+class RandomEvader:
+    """V-BAR's version of KSPDG's e2 evader: random throttles while the pursuer is in range.
+
+    While the pursuer is inside `control_range`, the bot points prograde and repeatedly draws a
+    duration uniform in (0, `max_duration`) s and, with probability one half, throttles on all
+    three axes uniform in [-1, 1] (else none), and holds them for that duration. It checks the
+    range only when a duration ends; outside the control range it keeps its last throttles until
+    the pursuer comes back inside, as KSPDG's bot does. Draws come from the episode's evader
+    stream, so a seed replays them; KSPDG's are unseeded, and its random attitude inputs are not
+    modelled (the forward axis stays prograde).
+
+    Parameters
+    ----------
+    max_duration : float
+        Longest hold (s) of one draw.
+    control_range : float
+        Pursuer range (m) inside which the bot draws.
+    """
+
+    max_duration: float = 2.0
+    control_range: float = CONTROL_RANGE
+    name: str = "vbar-random-evader"
+
+    def __post_init__(self):
+        _number(self.max_duration, "max_duration")
+        _number(self.control_range, "control_range")
+
+    def _control(self, r_p, v_p, r_e, v_e) -> float:
+        return _range(r_p, v_p, r_e, v_e) - self.control_range
+
+    def segment(self, t, r_p, v_p, r_e, v_e, previous, cause, rng) -> Segment:
+        # A trigger fires only when the range falls through the control range.
+        inside = cause is not None or self._control(r_p, v_p, r_e, v_e) < 0.0
+        if not inside:
+            held = (0.0, 0.0, 0.0) if previous is None else previous.throttle
+            return Segment(throttle=held, triggers=((self._control, -1),))
+        until = t
+        while until <= t:
+            until = t + self.max_duration * rng.random()
+        on = rng.random() < 0.5
+        throttle = 2.0 * rng.random(3) - 1.0
+        return Segment(throttle=tuple(throttle) if on else (0.0, 0.0, 0.0), until=until)
+
+
 __all__ = [
     "CONTROL_RANGE",
     "POINTINGS",
     "EvaderBot",
     "NormalEscapeEvader",
     "PassiveEvader",
+    "RandomEvader",
     "Segment",
     "Switch",
 ]
