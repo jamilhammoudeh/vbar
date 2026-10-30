@@ -489,10 +489,10 @@ def _nearest(c: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
     `c` is (s, k) and `g` (s, k, m). Returns (lower, upper), each (s,). The upper bound is the
     norm of a point of the set; the lower bound is lam . c - sum_j |lam . g_j| with lam the
-    unit residual of that point, the separating hyperplane, so both hold however far the
-    search is from its optimum. The point comes from an accelerated projected gradient on all
-    sets at once, and sets whose bounds still differ by more than 1e-6 of the distance are
-    solved again by bounded least squares.
+    unit residual of that point, the separating hyperplane, less the allowance for its rounding
+    (`_lower_allowance`), so both hold however far the search is from its optimum. The point
+    comes from an accelerated projected gradient on all sets at once, and sets whose bounds
+    still differ by more than 1e-6 of the distance are solved again by bounded least squares.
     """
     lower, upper = _searched(c, g)
     for i in np.flatnonzero(_loose(lower, upper)).tolist():
@@ -505,7 +505,7 @@ def _searched(c: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     count, _, m = g.shape
     if m == 0:
         norm = np.linalg.norm(c, axis=1)
-        return norm, norm.copy()
+        return norm - _lower_allowance(c, g), norm.copy()
     step = 1.0 / np.maximum(np.linalg.norm(g, ord=2, axis=(1, 2)) ** 2, 1e-300)
     beta = np.zeros((count, m))
     ahead = beta
@@ -517,6 +517,30 @@ def _searched(c: np.ndarray, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         ahead = moved + (t - 1.0) / t_next * (moved - beta)
         beta, t = moved, t_next
     return _bounds_at(c, g, beta)
+
+
+def _lower_allowance(c: np.ndarray, g: np.ndarray) -> np.ndarray:
+    """Rounding (m) a lower bound of `_bounds_at` and the norm of a point of the set can carry.
+
+    lam . c - sum_j |lam . g_j| and the norm of a point of the set are each computed within
+    (m + 5) eps of |c| + sum_j |g_j| (Higham, Accuracy and Stability of Numerical Algorithms,
+    sec. 3.1), so the bound less this never sits above the exact distance, and a solve cannot
+    bring an upper bound below the bound less this either.
+    """
+    return 4.0 * (g.shape[2] + 8) * np.finfo(float).eps * _largest_norms(c, g)
+
+
+def _lower_margin(lower: np.ndarray, largest: np.ndarray, radius: float) -> np.ndarray:
+    """Lower bounds on |p| - radius from `lower` on |p|, less the rounding of the margin.
+
+    `largest` is |c| + sum_j |g_j| of each set. The subtraction and the sums that combine two
+    margins in `_sample_bounds` round at the size of the larger of `largest` and `radius`, at
+    most 2 eps of it in all. `_lower_allowance` exceeds the (m + 5) eps `largest` that the bound
+    needs by at least 27 eps `largest`, which holds that while radius <= 13 `largest`; beyond it
+    the margin is lowered by 4 eps (radius - 13 `largest`), which with the unused part is at
+    least 2 eps radius.
+    """
+    return lower - radius - 4.0 * np.finfo(float).eps * np.maximum(radius - 13.0 * largest, 0.0)
 
 
 def _loose(lower: np.ndarray, upper: np.ndarray) -> np.ndarray:
@@ -536,6 +560,7 @@ def _bounds_at(c: np.ndarray, g: np.ndarray, beta: np.ndarray) -> tuple[np.ndarr
     upper = np.linalg.norm(residual, axis=1)
     lam = residual / np.where(upper > 0.0, upper, 1.0)[:, None]
     lower = np.einsum("sk,sk->s", lam, c) - np.sum(np.abs(np.einsum("skm,sk->sm", g, lam)), axis=1)
+    lower -= _lower_allowance(c, g)
     # A set that reaches the origin has distance 0, which no direction can beat.
     return np.where(upper > 0.0, np.maximum(lower, 0.0), 0.0), upper
 
@@ -556,7 +581,10 @@ def ball_distance(z: Zonotope, radius: float) -> tuple[float, float]:
         A certified lower bound, m: with r a point of the set near the origin (bounded least
         squares) and lam = r / |r|, every point p of the set has |p| >= lam . p >=
         lam . c - sum_j |lam . g_j|; a separating hyperplane, so the bound holds whatever the
-        solver's accuracy. -radius when the set reaches the origin.
+        solver's accuracy, less an allowance of (4 m + 32) eps (|c| + sum_j |g_j|) for the
+        rounding of the products and, for a radius beyond 13 (|c| + sum_j |g_j|), one of 4 eps
+        times the excess for the rounding of the margin. -radius when the set reaches the
+        origin.
     upper : float
         |r| - radius, m, the margin of a point of the set.
     """
@@ -564,7 +592,8 @@ def ball_distance(z: Zonotope, radius: float) -> tuple[float, float]:
     if not (math.isfinite(radius) and radius >= 0.0):
         raise ValueError("radius must be finite and nonnegative")
     lower, upper = _nearest(z.center[None], z.generators[None])
-    return float(lower[0]) - radius, float(upper[0]) - radius
+    largest = _largest_norms(z.center[None], z.generators[None])
+    return float(_lower_margin(lower, largest, radius)[0]), float(upper[0]) - radius
 
 
 @dataclass(frozen=True)
@@ -600,11 +629,12 @@ def _sample_bounds(
 
     The lowest upper margin, its first index and the certified margin equal those of `_nearest`
     on every sample. A loose sample is solved by bounded least squares only while it can still
-    set one of them: while its search lower bound, less the rounding of both bounds, is at or
-    below the lowest upper margin, or an interval it ends has a lower two-line bound than every
-    interval between solved or tight samples. A solve only raises a lower bound and lowers an
-    upper one, so a skipped sample can neither take the lowest upper margin, which it exceeds
-    strictly, nor lower the certified one. Skipped samples keep their search bounds, which hold.
+    set one of them: while its search lower margin, which carries the rounding allowance of both
+    bounds and of the margin (`_lower_margin`), is at or below the lowest upper margin, or an
+    interval it ends has a lower two-line bound than every interval between solved or tight
+    samples. A solve only raises a lower bound and lowers an upper one, so a skipped sample can
+    neither take the lowest upper margin, which it exceeds strictly, nor lower the certified
+    one. Skipped samples keep their search bounds, which hold.
     """
     position, spread = np.ascontiguousarray(c[:, :3]), np.ascontiguousarray(g[:, :3])
     lower, upper = _searched(position, spread)
@@ -614,19 +644,14 @@ def _sample_bounds(
     # interval_bounds reads only the norms of the sample states, here the largest of each set.
     speed, _ = interval_bounds(largest, h, thrust, n)
     pending = _loose(lower, upper)
-    # lam . c - sum_j |lam . g_j| and the norm of a point of the set are each computed within
-    # (m + 5) eps of |c| + sum_j |g_j| (Higham, Accuracy and Stability of Numerical Algorithms,
-    # sec. 3.1), so a solve cannot bring an upper bound below the search lower bound less this.
-    rounding = 4.0 * (g.shape[2] + 8) * np.finfo(float).eps * largest[:, 0]
-    floor = (lower - rounding) - radius
     while np.any(pending):
-        low = lower - radius
+        low = _lower_margin(lower, largest[:, 0], radius)
         lines = 0.5 * (low[:-1] + low[1:] - speed * h)
         unsolved = pending[:-1] | pending[1:]
         settled = np.min(lines[~unsolved], initial=math.inf)
         # A tie with the lowest upper margin could move its first index, so a sample is skipped
         # only when strictly above it; the certified margin is a value, and a tie leaves it.
-        needed = pending & (floor <= np.min(upper - radius))
+        needed = pending & (low <= np.min(upper - radius))
         below = unsolved & (lines < settled)
         needed[:-1] |= below & pending[:-1]
         needed[1:] |= below & pending[1:]
@@ -636,7 +661,7 @@ def _sample_bounds(
         i = int(candidates[np.argmin(lower[candidates])])
         _refine(position, spread, lower, upper, i)
         pending[i] = False
-    lower, upper = lower - radius, upper - radius
+    lower, upper = _lower_margin(lower, largest[:, 0], radius), upper - radius
     # The nearest distance to the ball changes no faster than the fastest trajectory.
     certified = float(np.min(0.5 * (lower[:-1] + lower[1:] - speed * h)))
     return upper, certified

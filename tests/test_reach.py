@@ -1,5 +1,6 @@
 import itertools
 import math
+from decimal import Decimal, localcontext
 
 import numpy as np
 import pytest
@@ -388,6 +389,130 @@ def test_box_of_sixty_centimetres_still_enters_the_keep_out():
     assert clearance.found == pytest.approx(-6.157, abs=1e-3)
     assert clearance.certified <= clearance.found
     assert clearance.certified <= vertex_drift_minimum(x0, 8001) - 50.0
+
+
+def exact_margin(r, radius):
+    """|r| - radius of float inputs in 60-digit decimal arithmetic (m)."""
+    with localcontext() as context:
+        context.prec = 60
+        return sum(Decimal(float(c)) ** 2 for c in r).sqrt() - Decimal(float(radius))
+
+
+def test_certified_clearance_of_a_receding_point_is_not_above_its_exact_margin():
+    # The point is a trajectory of the set, so its margin at t = 0 bounds every certified value
+    # from above. Rounding of the norm put the certified one 5e-14 m above it, 1.5e-16 of its range.
+    x0 = [123.77143839022689, 118.30198966826268, 281.01877035297036]
+    x0 += [0.011008728372664167, 0.010522253656756901, 0.024994937044217295]
+    radius = 48.30784222506006
+    clearance = drift_clearance(0.0011, x0, radius, 1e-6, 2)
+    assert Decimal(clearance.certified) <= exact_margin(x0[:3], radius)
+
+
+@pytest.mark.parametrize(("duration", "samples"), [(1e-6, 2), (1e-6, 3)])
+def test_certified_clearance_is_never_above_the_exact_margin_of_a_receding_start(duration, samples):
+    # Starts from 1 cm to 100 km out, receding at up to 1% of their range per second, so the
+    # margin at t = 0 is the minimum and the exact value is |r| - R. The certified margin may fall
+    # below it by the rounding allowance and the speed bound's slack over a 1 us interval, which
+    # stay under 1e-12 of the range.
+    rng = np.random.default_rng(5)
+    above, below = [], []
+    for _ in range(100):
+        scale = 10.0 ** rng.uniform(-2.0, 5.0)
+        r = rng.normal(size=3)
+        r *= scale / np.linalg.norm(r)
+        v = r * rng.uniform(1e-6, 1e-2)
+        radius = scale * rng.uniform(0.1, 0.99)
+        clearance = drift_clearance(0.0011, np.concatenate([r, v]), radius, duration, samples)
+        excess = float(Decimal(clearance.certified) - exact_margin(r, radius)) / scale
+        (above if excess > 0.0 else below).append(excess)
+    assert not above, f"{len(above)} of 100 certified margins above the exact one, by {max(above)}"
+    assert min(below) >= -1e-12
+
+
+def segment_with_vertex_nearest(rng):
+    """Centre c, generator g and range (m) of a segment nearest the origin at one of its ends."""
+    scale = 10.0 ** rng.uniform(-2.0, 5.0)
+    while True:
+        c = rng.normal(size=3)
+        c *= scale / np.linalg.norm(c)
+        g = rng.normal(size=3) * scale * rng.uniform(0.02, 0.6)
+        # The line through the segment is nearest the origin at beta = -c.g / g.g; a factor of
+        # 1.5 puts that point beyond an end, clear of any rounding in this test.
+        if abs(c @ g) >= 1.5 * (g @ g):
+            return c, g, scale
+
+
+def exact_end_margin(c, g, radius):
+    """The smaller of |c + g| and |c - g|, less the radius, in 60-digit decimal arithmetic (m)."""
+    with localcontext() as context:
+        context.prec = 60
+        c, g = [Decimal(float(x)) for x in c], [Decimal(float(x)) for x in g]
+        ends = [sum((a + s * b) ** 2 for a, b in zip(c, g, strict=True)).sqrt() for s in (1, -1)]
+        return min(ends) - Decimal(float(radius))
+
+
+def segment_lower_bound(c, g, radius):
+    return ball_distance(Zonotope(c, g[:, None]), radius)[0]
+
+
+def segment_certified_clearance(c, g, radius):
+    # At rest, so the speed bound's slack over 1 us is about 1e-18 of the range, below rounding,
+    # and the margin at t = 0 bounds every certified value from above.
+    x0 = Zonotope(np.concatenate([c, np.zeros(3)]), np.concatenate([g, np.zeros(3)])[:, None])
+    return drift_clearance(0.0011, x0, radius, 1e-6, 2).certified
+
+
+@pytest.mark.parametrize(
+    "certified", [segment_lower_bound, segment_certified_clearance], ids=["ball", "drift"]
+)
+def test_certified_bound_of_a_segment_is_not_above_the_exact_margin_of_its_nearest_end(certified):
+    # With the nearest point an end, the separating hyperplane through it is exact in exact
+    # arithmetic, so the bound lands within rounding of the margin and sits above it in about
+    # half of the cases unless the generator term carries its own rounding allowance.
+    rng = np.random.default_rng(11)
+    above = []
+    for _ in range(100):
+        c, g, scale = segment_with_vertex_nearest(rng)
+        radius = scale * rng.uniform(0.0, 0.9)
+        excess = float(Decimal(certified(c, g, radius)) - exact_end_margin(c, g, radius)) / scale
+        if excess > 0.0:
+            above.append(excess)
+    assert not above, f"{len(above)} of 100 bounds above the exact margin, by {max(above)} of range"
+
+
+def point_lower_bound(r, v, radius):
+    return ball_distance(Zonotope.point(r), radius)[0]
+
+
+def receding_certified_clearance(r, v, radius):
+    return drift_clearance(0.0011, np.concatenate([r, v]), radius, 1e-6, 2).certified
+
+
+@pytest.mark.parametrize(
+    "certified", [point_lower_bound, receding_certified_clearance], ids=["ball", "drift"]
+)
+def test_certified_bound_is_not_above_the_exact_margin_of_a_distant_keep_out(certified):
+    # Keep-out radii from 2 to 1000 times the range: the margin |r| - R is then rounded at the
+    # size of R, which exceeds the allowance for the norm alone. The velocity is along r, so the
+    # speed bound is tight and the exact margin at t = 0 is the one to stay below.
+    rng = np.random.default_rng(7)
+    above, loose = [], []
+    for _ in range(300):
+        scale = 10.0 ** rng.uniform(-2.0, 5.0)
+        r = rng.normal(size=3)
+        r *= scale / np.linalg.norm(r)
+        v = r * rng.uniform(1e-6, 1e-2)
+        radius = scale * 10.0 ** rng.uniform(math.log10(2.0), 3.0)
+        excess = float(Decimal(certified(r, v, radius)) - exact_margin(r, radius))
+        if excess > 0.0:
+            above.append(excess)
+        # The norm's allowance, 32 eps |r| for a point, is at most 16 eps R here, and the radius
+        # term adds at most 4 eps R; 15.8 eps R was the loosest seen, so 24 eps R catches a radius
+        # term even ten times too large.
+        if excess < -24.0 * np.finfo(float).eps * radius:
+            loose.append(excess / radius)
+    assert not above, f"{len(above)} of 300 bounds above the exact margin, by {max(above)} m"
+    assert not loose, f"{len(loose)} of 300 bounds looser than 24 eps R, by {min(loose)} of R"
 
 
 def test_largest_passively_safe_velocity_box_lies_between_1_4140_and_1_4160_mm_per_s():

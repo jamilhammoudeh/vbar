@@ -69,7 +69,8 @@ release may change the public API, and every such change is listed under Changed
   closed-loop matrix (`cw_loop`), exact support functions of reachable sets by backward
   propagation of the direction, certified keep-out clearance of a set of states in free drift
   (`drift_clearance`) and in a closed loop that is refused if it saturates (`loop_clearance`),
-  set propagation with optional order reduction, exact zonotope containment and an invariance
+  each lower bound lowered by its rounding so that none sits above the exact margin, set
+  propagation with optional order reduction, exact zonotope containment and an invariance
   test, minimum time under a thrust box with a separating-direction certificate
   (`min_time_steps`), and a bound on the differential gravity a CW model leaves out.
 - `vbar.metrics.record_pair` and `vbar.runner.run_pairs`: one seed flown with a safety filter on

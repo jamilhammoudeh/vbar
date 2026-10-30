@@ -74,13 +74,21 @@ $R_1$, so its $R_{1:20}$ is `steps` 0 to 19 here.
 
 `ball_distance(z, radius)` bounds the keep-out margin $\min_{p \in Z} |p| - R$ of a zonotope of
 positions from both sides. A point $r$ of the set near the origin, from bounded least squares on
-$\min_\beta |c + G\beta|$, gives the upper bound $|r| - R$. Its direction
-$\lambda = r/|r|$ is a separating hyperplane: every point of the set has
+$\min_\beta |c + G\beta|$, gives the upper bound $|r| - R$. Its direction $\lambda = r/|r|$ is a
+separating hyperplane: every point of the set has
 $|p| \ge \lambda \cdot p \ge \lambda \cdot c - \sum_j |\lambda \cdot g_j|$, which gives the lower
-bound. Both hold whatever the solver's accuracy; at the solver's optimum they meet. The search
-runs on all samples at once by an accelerated projected gradient (300 iterations), and samples
-whose bounds still differ by more than $10^{-6}$ of the distance are solved again by bounded
-least squares (`scipy.optimize.lsq_linear`, BVLS).
+bound, less an allowance of $4(m + 8)\varepsilon(|c| + \sum_j |g_j|)$ for $m$ generators, the
+rounding of $\lambda \cdot c - \sum_j |\lambda \cdot g_j|$ and of $|r|$ (Higham, *Accuracy and
+Stability of Numerical Algorithms*, sec. 3.1). The allowance exceeds the $(m + 5)\varepsilon$ that
+the bound needs by at least $27\varepsilon(|c| + \sum_j |g_j|)$, which covers the rounding of the
+margin $l - R$ and of the sums that combine two margins below (at most $2\varepsilon$ of the larger
+of $R$ and $|c| + \sum_j |g_j|$ in all) for a radius up to $13(|c| + \sum_j |g_j|)$. Beyond it
+the margin is lowered by a further $4\varepsilon(R - 13(|c| + \sum_j |g_j|))$. A computed lower
+bound therefore never sits above the exact margin, whatever the radius. Both bounds hold whatever
+the solver's accuracy; at the solver's optimum they meet to that allowance. The search runs on all
+samples at once by an accelerated projected gradient (300 iterations), and samples whose bounds
+still differ by more than $10^{-6}$ of the distance are solved again by bounded least squares
+(`scipy.optimize.lsq_linear`, BVLS).
 
 `drift_clearance(n, x0, radius, duration, samples)` applies this to the free drift of every state
 in `x0`, the convex avoid set of eq. 8.29, at `samples` evenly spaced times. It returns a
@@ -98,13 +106,12 @@ in `x0`, the convex avoid set of eq. 8.29, at `samples` evenly spaced times. It 
   returns the opposite flag (true when the set meets the avoid set).
 
 A sample whose search bounds are loose is solved by bounded least squares only while it can still
-set `found` or `certified`: while its search lower bound, less a rounding allowance of
-$4(m + 8)\varepsilon(|c| + \sum_j |g_j|)$ for $m$ generators, is at or below the lowest upper
-bound, or an interval it ends has a lower two-line bound than every interval whose two samples are
-solved or tight. A solve only raises a lower bound and lowers an upper one, so a skipped sample
-can neither take the lowest upper bound, which it exceeds strictly (a tie could move `t` to an
-earlier sample), nor lower `certified`. The results equal those with every loose sample solved,
-bit for bit. `loop_clearance` and `drift_cover` share this rule.
+set `found` or `certified`: while its search lower margin, which carries those roundings, is
+at or below the lowest upper bound, or an interval it ends has a lower two-line bound than every
+interval whose two samples are solved or tight. A solve only raises a lower bound and lowers an
+upper one, so a skipped sample can neither take the lowest upper bound, which it exceeds strictly (a
+tie could move `t` to an earlier sample), nor lower `certified`. The results equal those with every
+loose sample solved, bit for bit. `loop_clearance` and `drift_cover` share this rule.
 
 `loop_clearance(loop, x0, w, radius, steps, samples_per_step, actuator=None, order=None)` does the
 same for a `CwLoop` over `steps` held steps, sampling each step from its start to its end. With a
@@ -355,6 +362,10 @@ The tests in `tests/test_reach.py` check:
   1.4140 mm/s is certified clear and 1.4160 mm/s has a found violation (the closed form
   $50n/\max_t[2(1 - \cos t) + 3t - 4\sin t]$ gives 1.4147 mm/s).
 - `ball_distance` brackets the true distance on 100 drawn zonotopes.
+- `drift_clearance` of a receding point, and of 100 receding starts from 1 cm to 100 km out over
+  one microsecond, is never above the exact margin $|r| - R$ evaluated in 60-digit arithmetic,
+  and is below it by less than $10^{-12}$ of the range. `ball_distance` and `drift_clearance` of
+  300 points with a keep-out of 2 to 1000 times the range are never above it either.
 - `drift_clearance` from the stacked sample sets equals the same computation with every sample set
   built as its own zonotope, to 1e-12 of the 50 m scale. `tests/test_reach_cover.py` runs the
   point, the (0.6 m, 0.3 mm/s) box and the 1.4160 mm/s box; `benchmarks/drift_cover_checks.py`
