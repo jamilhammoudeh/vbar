@@ -202,6 +202,35 @@ def test_the_first_commanded_acceleration_does_not_depend_on_the_action_mode(mod
     )
 
 
+def test_every_arrow_starts_at_the_chaser_state_of_the_decision_that_issued_it(tmp_path):
+    ep = episode(FilteredAgent(PDAgent(), CloseFilter()), start_state=BLOCKED, max_steps=40)
+    rec = Recording(export_rrd(ep, tmp_path / "o.rrd", card={}))
+    steps = len(ep.records)
+    reach = max(np.linalg.norm(ep.states[:, :3], axis=1).max(), 1.0)
+    arrow = 0.1 * reach
+    view = ep.view
+    expected = {
+        "command": [command_fraction(view, r.command) * arrow for r in ep.records],
+        "filtered": [command_fraction(view, r.filtered) * arrow for r in ep.records],
+        "flown": [
+            sum(d * a for d, a in r.actuation.segments)
+            / sum(d for d, _ in r.actuation.segments)
+            / view.max_accel
+            * arrow
+            for r in ep.records
+        ],
+    }
+    for name, vectors in expected.items():
+        entity = f"hill/chaser/{name}"
+        assert len(rec.timed[entity]) == steps, name
+        origins = rec.column(entity, "Arrows3D:origins")
+        assert np.allclose(origins, ep.states[:-1, :3], rtol=1e-6, atol=1e-6), name
+        assert np.allclose(rec.column(entity, "Arrows3D:vectors"), vectors, rtol=1e-5, atol=1e-6), (
+            name
+        )
+        assert np.abs(rec.times(entity) - ep.times[:-1]).max() <= NS, name
+
+
 def test_arrow_length_scales_the_drawing_and_not_the_stored_acceleration(tmp_path):
     ep = episode(PDAgent(), start_state=BLOCKED, max_steps=10)
     short = Recording(export_rrd(ep, tmp_path / "s.rrd", card={}, arrow_m=10.0))
