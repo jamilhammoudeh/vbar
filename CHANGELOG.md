@@ -6,6 +6,8 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-30
+
 ### Added
 
 - `vbar.replay.export_rrd` and the optional extra `replay`: writes a recorded episode as a Rerun
@@ -592,7 +594,8 @@ release may change the public API, and every such change is listed under Changed
 First release with the validated dynamics layer: exact Clohessy-Wiltshire, nonlinear two-body
 relative motion with J2, Kepler propagation and J2 mean elements.
 
-[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.1.0...v0.2.0
