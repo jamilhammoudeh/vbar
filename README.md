@@ -20,8 +20,9 @@ policy agents, the sign check, reward and training interfaces), a scenario catal
 baselines and fuel oracles, the evaluation harness, comparison tasks rebuilt from published
 benchmarks, agreement checks against Basilisk and Orekit, pursuit-evasion in KSPDG's format,
 replay export to Rerun, fault injection, mission reconstructions and a tumbling-capture scenario.
-Safety filters beyond the pass-through ("filter off") and the LLM supervisor study are in
-progress, and interfaces may change before 1.0.
+The safety filters (barrier, backup, predictive, corridor and run time assurance filters, and an
+audit of the certified ones) are on the main branch and not in a release yet. The LLM supervisor
+study is in progress, and interfaces may change before 1.0.
 
 ## Why
 

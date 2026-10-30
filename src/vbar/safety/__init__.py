@@ -1,8 +1,17 @@
 """Safety filters wrap an agent and modify unsafe commands before they are applied.
 
-Only the pass-through filter (filter off) exists so far. A filter returns a `FilterResult`, whose
-`intervened` is the filter's own report; `FilteredAgent` counts those interventions and keeps the
-last command and result for the step record.
+This module holds what every filter shares: `FilterResult`, the decision a filter returns, and
+`InfeasibilityProof`, the certificate it may carry; `run_filter`, which calls a filter and times
+it; `FilteredAgent`, which presents an agent and a filter as one agent; and `PassThroughFilter`,
+the filter-off condition. A filter's `FilterResult` has `intervened`, the filter's own report;
+`FilteredAgent` counts those interventions and keeps the last command and result for the step
+record.
+
+The filters are in submodules: `cbf` (`CbfFilter`, `SoftCbfFilter`, `BackupFilter`), `predictive`
+(`PredictiveFilter`), `corridor` (`CorridorCamFilter`) and `rta` (the four run time assurance
+filters). `barriers`, `sampled`, `projections` and `tightening` hold the barriers, the held-step
+check, the projections and the error margins they are built from, and `audit` flies a filter
+around a nominal agent and judges the run.
 """
 
 from __future__ import annotations

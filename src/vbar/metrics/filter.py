@@ -1,7 +1,7 @@
 """Safety-filter metrics F1 to F10 and the fallback and certificate columns.
 
 Per episode they read each step's `FilterResult`; an episode without a filter gives NaN. The
-paired metrics F3 and F4 compare the same seeds flown with the filter on and off.
+paired metrics F3, F4 and F8p compare the same seeds flown with the filter on and off.
 """
 
 from __future__ import annotations

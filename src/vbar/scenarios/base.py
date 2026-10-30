@@ -5,8 +5,10 @@ environment composes the dynamics model, the spacecraft and the navigation senso
 holds the agent's command for `dt` s: the spacecraft turns it into segments of constant
 acceleration (actuation delay and propellant run-out are boundaries), the dynamics model
 propagates each segment, and each constraint's minimum margin over each segment is found in
-continuous time. The agent sees only the sensor's output and `agent_info()`; the true state goes
-to the `info` dict and the step's full `record` for metrics and logging.
+continuous time. The exception is the forward-Euler rung `euler1`, a discrete plant with no state
+between its steps: its constraints are judged at the nodes alone. The agent sees only the
+sensor's output and `agent_info()`; the true state goes to the `info` dict and the step's full
+`record` for metrics and logging.
 
 The episode seed drives Gymnasium's generator, which samples the start state; the sensor,
 actuator and target streams are spawned from the same seed sequence, so changing one model does

@@ -220,8 +220,9 @@ action in the view's action mode. Provided:
   ([metrics.md](metrics.md)); `run_episode` and `record_episode` read this bookkeeping only from a
   `FilteredAgent` itself. The filter metrics judge interventions from the flown change and
   `active`, not from `intervened`. It refuses the discrete and burn-and-coast action modes at
-  `reset`, before anything is flown. Only the pass-through filter exists so far; it returns the
-  command unchanged with `intervened` false.
+  `reset`, before anything is flown. `PassThroughFilter` returns the command unchanged with
+  `intervened` false; the other filters are on [safety-filters.md](safety-filters.md) and
+  [run-time-assurance.md](run-time-assurance.md).
 
 `vbar.agents.action_scale(view)` gives the action units per fraction of a full command. The
 sign-convention check every agent passes before scoring is on [agents.md](agents.md).
