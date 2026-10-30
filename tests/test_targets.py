@@ -228,6 +228,35 @@ def test_body_keep_out_is_open_at_the_port_and_closed_elsewhere():
     assert abs(rate) <= turning.rate_bound(0.0, 0.0)
 
 
+def test_a_turning_port_plane_moves_the_keep_out_margin_at_w_dot_a_cross_r():
+    # At rest, d/dt [(r - R p) . R a] = -(w x R p) . R a + (r - R p) . (w x R a) = w . (R a x r):
+    # the port's own offset cancels, so the depth term turns at most at |w| rho, below
+    # |w| (R + d_r) where it is the larger term, and the bound's |port| is only margin. The port
+    # sits on the sphere off the body axes, its axis not along it, on a fast tumble.
+    target = TorqueFree((1000.0, 4200.0, 4700.0), 4650.0, math.radians(2.0), 0.3, (0.2, -0.4, 0.9))
+    radius, reception, port, axis = 1.5, 0.1, (-1.4, 0.5, 0.2), (-1.0, 0.0, 0.0)
+    body = BodyKeepOut(radius, port, axis, target, N, reception)
+    rng = np.random.default_rng(3)
+    r = np.array(port) + rng.normal(scale=0.3, size=(4000, 3))
+    r = r[np.linalg.norm(r, axis=1) <= radius + reception]
+    t = rng.uniform(0.0, 600.0, len(r))
+    states = np.concatenate([r, np.zeros_like(r)], axis=1)
+    h = 1e-4
+    rate = (body.margin(states, t + h) - body.margin(states, t - h)) / (2.0 * h)
+    depth = np.sum((r - body_point(target, port, t, N)) * body_point(target, axis, t, N), axis=1)
+    rho = np.linalg.norm(r, axis=1)
+    # Behind the port plane, where the depth term is the larger one by a step's worth.
+    active = (depth < -1e-3) & (depth + reception > rho - radius + 1e-3)
+    assert 100 < np.sum(active) < len(r)
+    w = target.angular_velocity(t, N)
+    a = body_point(target, axis, t, N)
+    predicted = np.sum(w * np.cross(a, r), axis=1)
+    # Central differences at h = 1e-4 s leave an error of order |w|^3 rho h^2.
+    assert rate[active] == pytest.approx(predicted[active], abs=1e-9)
+    assert np.max(np.abs(rate)) <= target.rate_bound(N) * (radius + reception)
+    assert np.max(np.abs(rate)) <= body.rate_bound(0.0, 0.0)
+
+
 def test_sun_direction_and_eclipse_fraction_match_montenbruck():
     # Montenbruck and Gill, sec. 3.4: with the Sun in the orbit plane a 500 km target is in
     # shadow 37.8% of each orbit, 23.1% at beta = 60 deg.

@@ -1371,8 +1371,9 @@ class BodyKeepOut:
     volume behind the plane, so the reception volume is not part of the keep-out while the rest
     of the sphere is, and a chaser that has just crossed the plane at the port reads a positive
     margin. The depth is clipped at zero so the second term never exceeds d_r and is the larger
-    one only within R + d_r of the centre; there the turning plane moves a point at most
-    rate (R + d_r + |port|), which the rate bound adds to the speed. Port and axis are
+    one only within R + d_r of the centre. There the turning plane changes the depth of a point
+    at rest at w . (a x r), whatever the port's offset, so at most rate (R + d_r); the rate bound
+    adds rate (R + d_r + |port|) to the speed, the extra |port| a margin. Port and axis are
     body-fixed and follow `target`. Both terms are 1-Lipschitz in position.
 
     Parameters

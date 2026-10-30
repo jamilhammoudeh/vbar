@@ -169,8 +169,11 @@ apex); `BodyKeepOut` is the target's keep-out sphere open at the port, with marg
 $\max(\rho - R, \min(d, 0) + d_r)$ where $d$ is the signed depth in front of the port plane and
 $d_r$ the reception depth of the mechanism (0.1 m, ours), so the reception volume is not part of
 the keep-out and a chaser that has just crossed the plane at the port reads a positive margin;
-the clipped depth is the larger term only within $R + d_r$ of the centre, which bounds the rate
-the turning plane adds; `LightingWindow` requires, within `active_range` of the port, the Sun's
+the clipped depth is the larger term only within $R + d_r$ of the centre, and the turning plane
+changes the depth of a point $\mathbf r$ at rest at $\boldsymbol\omega\cdot(\hat{\mathbf a}\times
+\mathbf r)$, whatever the port's offset, so at most $\omega (R + d_r)$; the rate bound adds
+$\omega (R + d_r + |\mathbf p|)$, the extra $|\mathbf p|$ a margin
+(`test_a_turning_port_plane_moves_the_keep_out_margin_at_w_dot_a_cross_r`); `LightingWindow` requires, within `active_range` of the port, the Sun's
 in-plane angle from the approach axis to lie in a window and the target to be on the day side,
 as the robustness $\max((d - R_c) / R_c, w(t))$ with $w$ the least angular margin to the window's
 edges and the lit margin $(p - R_B) / R_B$, where $R_B$ is the configured central body's radius
