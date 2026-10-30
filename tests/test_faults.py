@@ -289,6 +289,20 @@ def test_vector_environment_refuses_faults():
         lambda: InSphere(center_m=(0.0, 0.0), radius_m=1.0),
         lambda: EnvConfig(faults=[ThrusterOff(axis=0, direction=1)]),
         lambda: EnvConfig(faults=(object(),)),
+        lambda: ThrusterOff(axis=1.0, direction=1),
+        lambda: ThrusterOff(axis=True, direction=1),
+        lambda: ThrusterOff(axis=0, direction=True),
+        lambda: ThrusterOff(axis=0, direction=1, when=5),
+        lambda: ThrusterOff(axis=0, direction=1, name=3),
+        lambda: ThrusterOff(axis=0, direction=1, name=""),
+        lambda: Intermittent(probability=0.5, within=3),
+        lambda: After(condition=None),
+        lambda: Until(condition=3),
+        lambda: AllOf(activations=(1, 2)),
+        lambda: RangeBelow(range_m=math.inf),
+        lambda: InSphere(center_m=(0.0, 0.0, 0.0), radius_m=math.inf),
+        lambda: SensorBias(position_m=(1.0, 2.0, 3.0)),
+        lambda: SensorBias(velocity_mps=0.5),
     ],
 )
 def test_bad_fault_settings_are_refused(build):
@@ -387,3 +401,27 @@ def test_window_edges_land_on_decisions_when_the_step_is_not_exact_in_binary():
     env = Still(EnvConfig(faults=(fault,), dt=0.1))
     flags = active_after_each_step(env, 14)
     assert [k for k, on in enumerate(flags) if on] == [8, 9, 10, 11]
+
+
+def test_a_fault_listed_twice_or_without_its_name_is_refused():
+    lost = ThrusterOff(axis=0, direction=1)
+    with pytest.raises(ValueError, match="distinct"):
+        EnvConfig(faults=(lost, lost))
+
+    class Nameless:
+        active = False
+
+        def reset(self, rng):
+            pass
+
+        def update(self, t, states):
+            pass
+
+        def on_command(self, t, command):
+            return command
+
+        def on_observation(self, t, obs):
+            return obs
+
+    with pytest.raises(ValueError, match="name and active"):
+        EnvConfig(faults=(Nameless(),))

@@ -114,6 +114,11 @@ class EnvConfig:
             hooks = ("reset", "update", "on_command", "on_observation")
             if not all(callable(getattr(fault, hook, None)) for hook in hooks):
                 raise ValueError(f"{type(fault).__name__} is not a fault: it needs {hooks}")
+            if not isinstance(getattr(fault, "name", None), str) or not hasattr(fault, "active"):
+                raise ValueError(f"{type(fault).__name__} is not a fault: it needs name and active")
+        # One object listed twice would stay one object in each environment's copy and act twice.
+        if len({id(fault) for fault in self.faults}) != len(self.faults):
+            raise ValueError("faults must be distinct objects")
         check_count("max_steps", self.max_steps, 1)
         check_count("violation_samples", self.violation_samples, 2)
 

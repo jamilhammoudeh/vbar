@@ -49,6 +49,21 @@ def _finite(name: str, value: float, low: float = -math.inf, strict: bool = Fals
     return number
 
 
+def _whole(name: str, value: object, allowed: tuple[int, ...]) -> int:
+    if isinstance(value, bool) or not isinstance(value, int | np.integer) or value not in allowed:
+        raise ValueError(f"{name} must be one of {allowed}, not {value!r}")
+    return int(value)
+
+
+def _hooks(name: str, value: object, hooks: tuple[str, ...]) -> None:
+    if not all(callable(getattr(value, hook, None)) for hook in hooks):
+        raise ValueError(f"{name} must have {', '.join(hooks)}, not {type(value).__name__}")
+
+
+def _activation(name: str, value: object) -> None:
+    _hooks(name, value, ("reset", "update"))
+
+
 def _vector3(name: str, value: ArrayLike) -> np.ndarray:
     vector = np.array(value, dtype=float)
     if vector.shape != (3,) or not np.all(np.isfinite(vector)):
@@ -71,7 +86,8 @@ class RangeBelow:
     range_m: float
 
     def __post_init__(self) -> None:
-        _finite("range_m", self.range_m, low=0.0, strict=True)
+        if math.isinf(_finite("range_m", self.range_m, low=0.0, strict=True)):
+            raise ValueError("range_m must be finite")
 
     def met(self, states: np.ndarray) -> bool:
         return bool(np.any(np.linalg.norm(states[:, :3], axis=1) < self.range_m))
@@ -92,7 +108,8 @@ class InSphere:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "center_m", tuple(_vector3("center_m", self.center_m)))
-        _finite("radius_m", self.radius_m, low=0.0, strict=True)
+        if math.isinf(_finite("radius_m", self.radius_m, low=0.0, strict=True)):
+            raise ValueError("radius_m must be finite")
 
     def met(self, states: np.ndarray) -> bool:
         p = states[:, :3] - np.asarray(self.center_m)
@@ -157,6 +174,9 @@ class After:
     condition: Condition
     _met: bool = field(default=False, init=False, repr=False)
 
+    def __post_init__(self) -> None:
+        _hooks("condition", self.condition, ("met",))
+
     def reset(self, rng: np.random.Generator) -> None:
         self._met = False
 
@@ -171,6 +191,9 @@ class Until:
 
     condition: Condition
     _met: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        _hooks("condition", self.condition, ("met",))
 
     def reset(self, rng: np.random.Generator) -> None:
         self._met = False
@@ -196,6 +219,7 @@ class Intermittent:
         _finite("probability", self.probability, low=0.0)
         if self.probability > 1.0:
             raise ValueError("probability must be at most 1")
+        _activation("within", self.within)
 
     def reset(self, rng: np.random.Generator) -> None:
         self._rng = rng
@@ -223,6 +247,8 @@ class AllOf:
     def __post_init__(self) -> None:
         if not isinstance(self.activations, tuple) or not self.activations:
             raise ValueError("activations must be a non-empty tuple")
+        for activation in self.activations:
+            _activation("each activation", activation)
 
     def reset(self, rng: np.random.Generator) -> None:
         for activation in self.activations:
@@ -254,6 +280,12 @@ class Fault(Protocol):
 class _Base:
     when: Activation = field(default_factory=Always)
     active: bool = field(default=False, init=False)
+
+    def __post_init__(self) -> None:
+        _activation("when", self.when)
+        name = getattr(self, "name", None)
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"name must be a non-empty string, not {name!r}")
 
     def reset(self, rng: np.random.Generator) -> None:
         self.when.reset(rng)
@@ -291,10 +323,9 @@ class ThrusterOff(_Base):
     name: str = "thruster_off"
 
     def __post_init__(self) -> None:
-        if self.axis not in (0, 1, 2):
-            raise ValueError("axis must be 0, 1 or 2")
-        if self.direction not in (-1, 1):
-            raise ValueError("direction must be +1 or -1")
+        super().__post_init__()
+        self.axis = _whole("axis", self.axis, (0, 1, 2))
+        self.direction = _whole("direction", self.direction, (-1, 1))
 
     def on_command(self, t: float, command: np.ndarray) -> np.ndarray:
         if not self.active or command[self.axis] * self.direction <= 0.0:
@@ -328,8 +359,12 @@ class SensorBias(_Base):
     _bias: np.ndarray = field(default_factory=lambda: np.zeros(6), init=False, repr=False)
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         for label in ("position_m", "velocity_mps"):
-            low, high = getattr(self, label)
+            pair = getattr(self, label)
+            if not isinstance(pair, tuple | list) or len(pair) != 2:
+                raise ValueError(f"{label} must be a (low, high) pair")
+            low, high = pair
             _finite(f"{label} low", low, low=0.0)
             _finite(f"{label} high", high, low=0.0)
             if high < low or math.isinf(high):
@@ -369,6 +404,7 @@ class RangeLoss(_Base):
     name: str = "range_loss"
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         _finite("assumed_range_m", self.assumed_range_m, low=0.0, strict=True)
         if math.isinf(self.assumed_range_m):
             raise ValueError("assumed_range_m must be finite")
