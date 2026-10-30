@@ -202,7 +202,7 @@ inside 200 m; it captures the passive evader.
 ## Speed
 
 `benchmarks/pursuit_evasion.py` times the E3 scenario, whose 240 s episodes neither reference
-pursuer ends early. On a GitHub-hosted Ubuntu runner with two cores and Python 3.15, one episode
+pursuer ends early. On a hosted two-core Ubuntu CI runner with Python 3.15, one episode
 took 0.075 s with `LineOfSightPursuer` (240 steps of 1 s), about 3200 times real time, and 0.22 s
 with `VelocityMatchingPursuer` (480 steps of 0.5 s), about 1100 times. Four episodes on two worker
 processes through `run_jobs` took 2.3 s, about 400 times real time in total: the episodes need
