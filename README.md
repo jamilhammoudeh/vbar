@@ -13,11 +13,15 @@ scenarios and are scored with the same metrics.
 
 The PD baseline reaches the hold point from behind the target (blue) but flies through the keep-out zone from ahead of it (orange), closing to 14.4 m.
 
-**Status: early development (0.3).** The dynamics, spacecraft, sensor and constraint layers are
-validated (see [Tests](#tests)). Version 0.3 adds the metrics, agent tools (remote and ONNX
-policy agents, the sign check, reward and training interfaces), a scenario catalogue
-and `vbar.solvers` (command projection and horizon quadratic programs). Safety filters beyond the pass-through ("filter off")
-are not in yet, and interfaces may change before 1.0.
+**Status: early development (0.4).** The dynamics, spacecraft, sensor and constraint layers are
+validated (see [Tests](#tests)). Version 0.3 added the metrics, agent tools (remote and ONNX
+policy agents, the sign check, reward and training interfaces), a scenario catalogue and
+`vbar.solvers` (command projection and horizon quadratic programs). Version 0.4 adds the classical
+baselines and fuel oracles, the evaluation harness, comparison tasks rebuilt from published
+benchmarks, agreement checks against Basilisk and Orekit, pursuit-evasion in KSPDG's format,
+replay export to Rerun, fault injection, mission reconstructions and a tumbling-capture scenario.
+Safety filters beyond the pass-through ("filter off") and the LLM supervisor study are in
+progress, and interfaces may change before 1.0.
 
 ## Why
 
