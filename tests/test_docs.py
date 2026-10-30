@@ -8,13 +8,15 @@ ROOT = Path(__file__).resolve().parents[1]
 PAGES = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
 
 # Modules a page may import that work only with an optional extra, mapped to the module the extra
-# installs. vbar.viz imports matplotlib only when called, so it is listed by name; a page that
-# imports vbar.agents.policy runs without onnx and is not listed.
+# installs. vbar.viz imports matplotlib only when called, so it is listed by name, as is
+# vbar.replay; a page that imports vbar.agents.policy runs without onnx and is not listed.
 EXTRA_MODULES = {
     "matplotlib": "matplotlib",
     "vbar.viz": "matplotlib",
     "onnx": "onnx",
     "onnxruntime": "onnxruntime",
+    "rerun": "rerun",
+    "vbar.replay": "rerun",
 }
 
 
@@ -53,5 +55,6 @@ def test_every_python_example_in_the_docs_runs(page, tmp_path, monkeypatch):
 def test_only_pages_that_import_an_extra_are_skipped_without_it():
     needs = {page.name: extras_needed(python_blocks(page)) for page in PAGES}
     assert needs["viz.md"] == {"matplotlib"}
+    assert needs["replay.md"] == {"rerun"}
     assert needs["policy-export.md"] == set()
     assert needs["README.md"] == set()

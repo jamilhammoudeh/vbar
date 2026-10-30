@@ -8,6 +8,11 @@ release may change the public API, and every such change is listed under Changed
 
 ### Added
 
+- `vbar.replay.export_rrd` and the optional extra `replay`: writes a recorded episode as a Rerun
+  `.rrd` file in the Hill frame with SI units, with the chaser and target, a trail, the keep-out
+  spheres and approach corridors, the hold point or port, the command, filtered command and flown
+  acceleration, violation and filter events, and the metric card as scalars over time.
+  `examples/replay_demo.py` writes one for the PD baseline; `docs/replay.md` documents it.
 - `vbar.viz.screen_style`, a context manager that applies the screen style (`SCREEN_STYLE`) for
   README, documentation and report figures, and `SERIES_COLORS`, the three run colours in order.
 - `vbar.viz.trajectory_figure`: the Hill-frame view over range and speed panels sharing the time

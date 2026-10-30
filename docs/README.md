@@ -26,6 +26,7 @@ and how it is tested.
 | [policy-export.md](policy-export.md) | neural policies with normalization and squashing, ONNX export, the ONNX agent, latency profiles |
 | [solvers.md](solvers.md) | nondimensional Hill-frame units, the exact projection of a command onto linear rows under a box or ball thrust limit, its multipliers, the phase I certificate of infeasibility, stage-structured horizon problems and their Riccati solve, the primal-dual interior-point method and its statuses |
 | [viz.md](viz.md) | the screen style and its colours, the Hill-frame view, range and speed panels, the approach animation, label placement, regenerating the README figures |
+| [replay.md](replay.md) | replays of a recorded episode for the Rerun viewer: the file's entities and units, the violation and filter events, the metric card over time, limits |
 | [backends.md](backends.md) | Basilisk and Orekit as independent propagators of the two-body plus J2 rung, burns held in the Hill frame, the agreement table and how its residuals are attributed |
 | [evaluation.md](evaluation.md) | the evaluation harness: the suite runner, result files, the provenance hash, IQM and stratified bootstrap statistics, safety tails with order-statistic intervals and tolerance bounds, rate comparisons, learned-agent rules, reports and one-command reproduction |
 | [lqr.md](lqr.md) | the LQR baseline: the exact zero-order-hold design model, discrete and sampled-data stage costs, the hold-point input, actuation delay and the command-change weight |

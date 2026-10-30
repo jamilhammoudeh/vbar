@@ -14,8 +14,9 @@ from replay_read import Recording  # noqa: E402
 
 from vbar.agents import PDAgent  # noqa: E402
 from vbar.agents.base import command_fraction  # noqa: E402
-from vbar.metrics import evaluate, record_episode
-from vbar.metrics.efficiency import efficiency_metrics
+from vbar.constraints import ApproachCone, KeepOut  # noqa: E402
+from vbar.metrics import evaluate, record_episode  # noqa: E402
+from vbar.metrics.efficiency import efficiency_metrics  # noqa: E402
 from vbar.metrics.filter import filter_metrics  # noqa: E402
 from vbar.replay import export_rrd  # noqa: E402
 from vbar.safety import FilteredAgent, FilterResult  # noqa: E402
@@ -229,6 +230,29 @@ def test_interventions_are_events_at_the_decisions_that_changed_the_command(tmp_
     )
 
 
+def test_a_corridor_without_an_active_range_is_drawn_to_the_trajectorys_reach(tmp_path):
+    cone = ApproachCone(0.3, axis=(0.0, -1.0, 0.0), apex=(0.0, -2.0, 0.0))
+    assert math.isinf(cone.active_range)
+    ep = episode(PDAgent(), start_state=BLOCKED, max_steps=6, extra=(cone,))
+    rec = Recording(export_rrd(ep, tmp_path / "c.rrd", card={}))
+    strips = [
+        np.asarray(s) for s in rec.static["hill/constraints/approach_cone"]["LineStrips3D:strips"]
+    ]
+    distance = np.linalg.norm(np.concatenate(strips) - np.asarray(cone.apex), axis=1).max()
+    from_apex = np.linalg.norm(ep.states[:, :3] - np.asarray(cone.apex), axis=1).max()
+    from_target = np.linalg.norm(ep.states[:, :3], axis=1).max()
+    assert distance == pytest.approx(max(from_apex, from_target), rel=1e-6)
+
+
+def test_soft_constraints_are_warnings_and_hard_ones_errors(tmp_path):
+    outer = KeepOut(80.0, name="outer")
+    ep = episode(PDAgent(), start_state=BLOCKED, max_steps=40, extra=(outer,), soft=("outer",))
+    rec = Recording(export_rrd(ep, tmp_path / "w.rrd", card={}))
+    assert recorded_violations(ep, "outer")
+    assert all(r["TextLog:level"] == ["WARN"] for r in rec.timed["events/violation/outer"])
+    assert all(r["TextLog:level"] == ["ERROR"] for r in rec.timed["events/violation/keep_out"])
+
+
 def test_a_filter_that_denies_intervening_still_gets_its_events(tmp_path):
     # The record shows the command was halved, whatever the filter reports.
     ep = episode(
@@ -262,6 +286,8 @@ def test_the_corridor_is_drawn_on_the_cone_the_scenario_declares(tmp_path):
     stored = rec.static[f"hill/constraints/{cone.name}"]
     assert np.array_equal(np.asarray(stored["apex_m"]).ravel(), cone.apex)
     assert np.asarray(stored["half_angle_rad"]).ravel()[0] == cone.half_angle
+    assert np.array_equal(np.asarray(stored["axis"]).ravel(), cone.axis)
+    assert np.asarray(stored["active_range_m"]).ravel()[0] == cone.active_range
     strips = [np.asarray(s) for s in stored["LineStrips3D:strips"]]
     apex, axis = np.asarray(cone.apex), np.asarray(cone.axis) / np.linalg.norm(cone.axis)
     points = np.concatenate(strips) - apex
@@ -341,6 +367,28 @@ def test_final_card_values_are_stored_with_their_units(blocked):
     assert rec.timed["events/outcome"][0]["TextLog:text"] == [
         f"not successful: {card['failure_label']}"
     ]
+
+
+def test_every_finite_number_in_the_card_is_stored_as_a_final_value(blocked):
+    _, rec, card = blocked
+    expected = {}
+    for name, value in card.items():
+        if isinstance(value, dict):
+            expected.update({f"{name}/{key}": v for key, v in value.items()})
+        else:
+            expected[name] = value
+    numbers = {
+        name: float(v)
+        for name, v in expected.items()
+        if isinstance(v, bool | int | float) and math.isfinite(v)
+    }
+    assert len(numbers) > 20
+    for name, value in numbers.items():
+        assert rec.column(f"card/final/{name}", "Scalars:scalars")[0, 0] == value, name
+    stored = {
+        path.removeprefix("card/final/") for path in rec.timed if path.startswith("card/final/")
+    }
+    assert stored == set(numbers)
 
 
 def test_range_and_speed_series_are_read_from_the_states(blocked):

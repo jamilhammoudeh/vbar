@@ -9,6 +9,8 @@ the published examples below. Each test names its source in a comment next to th
 - Coverage: the suite executes 97% of the package's statements; CI fails below 95%.
 - Every python example in README.md and these pages runs as part of the suite
   (`tests/test_docs.py`).
+- The Rerun replay export is checked by reading its files back with Rerun's own reader
+  (`docs/replay.md`, "Validation").
 - Mutation testing (`mutmut`) plants small changes in the code (a flipped sign, a changed
   constant, a dropped argument) and checks that some test fails. In `vbar.dynamics.cw` the
   tests catch 359 of 389 mutants; the 30 that survive change nothing observable (slices past the
