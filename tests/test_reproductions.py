@@ -109,6 +109,15 @@ def test_lp_glideslope_refuses_bad_settings(kwargs):
         lp_glideslope(**settings)
 
 
+def test_arcs_of_an_orbit_or_longer_are_refused_and_shorter_ones_hold_the_bound():
+    # Two arcs of 1.01 orbits each: the midpoint no longer marks the highest point of a hump.
+    orbit = 2.0 * math.pi / CASE.n
+    with pytest.raises(ValueError, match="orbit"):
+        lp_glideslope(CASE.n, CASE.start, CASE.aim, 2.02 * orbit, 2, 200.0)
+    plan = lp_glideslope(CASE.n, CASE.start, CASE.aim, 1.98 * orbit, 2, 200.0)
+    assert excursion(CASE.n, np.asarray(CASE.start), plan, samples=4000) <= 200.0 + 1e-6
+
+
 def test_an_impossible_bound_is_reported():
     # One arc from rest 400 m along the V-bar bows far more than a millimetre off the line.
     with pytest.raises(ValueError, match="bound"):

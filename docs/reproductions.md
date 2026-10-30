@@ -25,7 +25,8 @@ paper's section 3, the variables are the along-track positions at which the chas
 line between impulses, its velocity after each impulse, and the last impulse. The arcs between
 impulses are exact Clohessy-Wiltshire arcs of length T / N that must end on the line; the last
 impulse leaves the chaser at rest at the aim. Each arc's radial deviation from the line at its
-midpoint, where a V-bar hump is highest (the paper's lemma 1), is bounded by `bound`. The cost
+midpoint, where a V-bar hump is highest (the paper's lemma 1), is bounded by `bound`; that holds
+only while each arc is shorter than one orbit, which `lp_glideslope` requires. The cost
 is linear after splitting each impulse component into its magnitude, and the program is solved
 with SciPy's HiGHS. Only lines parallel to the V-bar are accepted, the case the paper's V-bar
 formulation covers; an infeasible bound raises `ValueError`.

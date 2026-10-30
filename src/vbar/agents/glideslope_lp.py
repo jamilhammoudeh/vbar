@@ -46,7 +46,9 @@ def lp_glideslope(
     pulses : int
         Number of coasting arcs N, at least 1; impulses fall at k duration / N for k = 0 to N.
     bound : float
-        Largest radial deviation from the line allowed at each arc's midpoint, m, positive.
+        Largest radial deviation from the line allowed at each arc's midpoint, m, positive. It
+        bounds the whole arc only while the arc, duration / pulses, is shorter than one orbit,
+        which is required.
 
     Returns
     -------
@@ -56,8 +58,8 @@ def lp_glideslope(
     Raises
     ------
     ValueError
-        If an input is out of range, the points are not on a V-bar line, or no impulses meet the
-        bound.
+        If an input is out of range, an arc is an orbit or longer, the points are not on a V-bar
+        line, or no impulses meet the bound.
     """
     start = np.asarray(start, dtype=float)
     aim = np.asarray(aim, dtype=float)
@@ -75,6 +77,10 @@ def lp_glideslope(
     if isinstance(pulses, bool) or not isinstance(pulses, int | np.integer) or pulses < 1:
         raise ValueError("pulses must be an integer of at least 1")
     step = duration / pulses
+    # A V-bar hump that starts and ends on the line peaks at mid-arc only while the arc is
+    # shorter than an orbit; beyond that the midpoint bound no longer bounds the hump.
+    if not n * step < 2.0 * math.pi:
+        raise ValueError("each arc, duration / pulses, must be shorter than one orbit, 2 pi / n")
     phi = cw_stm(n, step)[np.ix_(_IN_PLANE, _IN_PLANE)]
     rr, rv, vr, vv = phi[:2, :2], phi[:2, 2:], phi[2:, :2], phi[2:, 2:]
     half = cw_stm(n, 0.5 * step)[np.ix_(_IN_PLANE, _IN_PLANE)]
