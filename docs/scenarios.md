@@ -383,6 +383,15 @@ docking, 62 +- 5% and 55 +- 6% on rendezvous; its fuel figures are not reproduci
 (an impulse over a mass budget with no specific impulse). The learned-agent rows need trained
 policies on these tasks; until then a comparison checks the task, not the agents.
 
+The LQR baseline (`LQRAgent` with its default weights) on the suite `comparison-v1`, 100 validation
+seeds per task, as `python -m vbar.eval reproduce reproduce.toml` reports it: `afrl-docking` 100 of
+100 (Clopper-Pearson interval 0.964 to 1.000), with an interquartile mean of 0.81 m/s delta-v;
+`spacegym-docking` 0 of 100 and `spacegym-rendezvous` 0 of 100, every run ending at the step limit
+11 to 23 m and 44 to 74 m from the goal. `afrl-inspection` has no hold point, so the agent refuses
+it and the 100 runs are recorded as errors, which keeps the suite complete. These are the table's
+figures; `tests/test_comparison_baselines.py` flies the first validation seed of each task and
+checks the same outcomes. There is no ZEM/ZEV agent yet, so that row is missing.
+
 ## Audit
 
 Each scenario was audited with a reference controller (`tests/scenario_references.py`:
