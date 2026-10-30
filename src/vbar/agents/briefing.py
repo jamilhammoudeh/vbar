@@ -77,8 +77,8 @@ def _finite(where: str, key: str, value: Any) -> np.ndarray:
 def _mode_numbers(mode: str, description: Mapping[str, Any]) -> None:
     """Refuse a mode parameter that is not a finite number, or a zero spin axis."""
     for key in ("pitch", "limit_cycle_amplitude", "limit_cycle_period", "phase", "rate"):
-        if key in description:
-            _finite(f"{mode} target mode's", key, description[key])
+        if key in description and _finite(f"{mode} target mode's", key, description[key]).shape:
+            raise ValueError(f"the {mode} target mode's {key} must be a number")
     if "axis" in description:
         axis = _finite(f"{mode} target mode's", "axis", description["axis"])
         if axis.shape != (3,) or not np.linalg.norm(axis) > 0.0:
@@ -291,10 +291,12 @@ def _goal_extras(view: AgentView) -> list[str]:
                 "is penalised (plume impingement)."
             )
         elif key == "cam_impulses":
-            burns = ", ".join(_vec(dv, 3) for dv in value)
-            lines.append(
-                f"The ability to abort is scored with the collision avoidance burns {burns} m/s."
-            )
+            if len(value):
+                burns = ", ".join(_vec(dv, 3) for dv in value)
+                lines.append(
+                    f"The ability to abort is scored with the collision avoidance burns {burns} "
+                    "m/s."
+                )
         elif key == "out_of_bounds":
             lines.append(
                 f"The episode ends as a failure if you go farther than {_num(value)} m from the "
@@ -390,6 +392,72 @@ def _constraint_text(spec: Mapping[str, Any], mode: TargetMode, n: float) -> str
     return f"Constraint {kind}: {params}."
 
 
+# The shape and sign of every numeric goal entry the briefing prints: "vector" a 3-vector,
+# "window" (low, high) with 0 <= low < high, "vectors" and "spans" lists of 3-vectors and of
+# (start, end) pairs, "positive" > 0, "nonnegative" >= 0, "fraction" in (0, 1], "angle" in
+# [0, pi] rad.
+_GOAL_FORMS = {
+    "hold_point": "vector",
+    "port": "vector",
+    "port_axis": "vector",
+    "sun_direction": "vector",
+    "axial_speed_window": "window",
+    "cam_impulses": "vectors",
+    "thrust_inhibit": "spans",
+    "capture_radius": "positive",
+    "capture_speed": "positive",
+    "capture_time": "positive",
+    "lateral_limit": "positive",
+    "lateral_speed_limit": "positive",
+    "target_radius": "positive",
+    "max_range": "positive",
+    "clear_range": "positive",
+    "drift_horizon": "positive",
+    "points": "positive",
+    "contact_range": "positive",
+    "out_of_bounds": "positive",
+    "hold_time": "nonnegative",
+    "commit_radius": "nonnegative",
+    "plume_range": "nonnegative",
+    "coverage": "fraction",
+    "sun_exclusion": "angle",
+}
+
+
+def _goal_entry(task: str, key: str, value: Any) -> None:
+    """Refuse a goal entry whose numbers, shape or sign the briefing cannot describe."""
+    where = f"{task} goal's"
+    form = _GOAL_FORMS[key]
+    if form in ("vectors", "spans") and np.size(np.asarray(value, dtype=object)) == 0:
+        return
+    x = _finite(where, key, value)
+    shapes = {"vector": (3,), "window": (2,)}
+    if form in shapes and x.shape != shapes[form]:
+        raise ValueError(f"the {where} {key} must have shape {shapes[form]}, got {value!r}")
+    if form in ("vectors", "spans") and (
+        x.ndim != 2 or x.shape[1] != (3 if form == "vectors" else 2)
+    ):
+        raise ValueError(f"the {where} {key} has the wrong shape, got {value!r}")
+    if form not in ("vector", "window", "vectors", "spans") and x.shape != ():
+        raise ValueError(f"the {where} {key} must be a number, got {value!r}")
+    if form == "window":
+        bad = not 0.0 <= x[0] < x[1]
+    elif form == "spans":
+        bad = bool(np.any(x[:, 0] > x[:, 1]))
+    elif form == "positive":
+        bad = not x > 0.0
+    elif form == "nonnegative":
+        bad = not x >= 0.0
+    elif form == "fraction":
+        bad = not 0.0 < x <= 1.0
+    elif form == "angle":
+        bad = not 0.0 <= x <= math.pi
+    else:
+        bad = False
+    if bad:
+        raise ValueError(f"the {where} {key} is out of range, got {value!r}")
+
+
 def check_goal(view: AgentView) -> None:
     """Refuse a goal the briefing cannot describe.
 
@@ -401,19 +469,20 @@ def check_goal(view: AgentView) -> None:
     Raises
     ------
     ValueError
-        If the goal of a known task lacks a key the task needs, one of those keys is not finite
-        numbers, its port axis is zero, or its target mode is unknown or has a parameter that is
-        not a finite number.
+        If the goal of a known task lacks a key the task needs, a numeric entry the briefing
+        prints is not finite numbers of the right shape and sign, its port axis is zero, or its
+        target mode is unknown or has a parameter that is not a finite number.
     """
     task = view.goal.get("task", "hold")
     missing = [k for k in TASK_KEYS.get(task, ()) if k not in view.goal]
     if missing:
         raise ValueError(f"the {task} goal has no {', '.join(missing)}")
-    for key in TASK_KEYS.get(task, ()):
-        _finite(f"{task} goal's", key, view.goal[key])
+    for key, value in view.goal.items():
+        if key in _GOAL_FORMS:
+            _goal_entry(task, key, value)
     if "port_axis" in TASK_KEYS.get(task, ()):
         axis = np.asarray(view.goal["port_axis"], dtype=float)
-        if axis.shape != (3,) or not np.linalg.norm(axis) > 0.0:
+        if not np.linalg.norm(axis) > 0.0:
             raise ValueError(f"the {task} goal's port_axis must be a nonzero 3-vector")
     target_mode(view.goal.get("target", {"mode": "passive"}))
 

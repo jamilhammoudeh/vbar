@@ -58,8 +58,11 @@ def test_an_unknown_goal_entry_constraint_and_task_are_still_shown():
 def test_a_goal_without_a_key_its_task_needs_is_refused_naming_the_key(task):
     goal = {"task": task, "target": {"mode": "passive"}}
     goal.update({key: 1.0 for key in TASK_KEYS[task]})
-    if "port_axis" in goal:
-        goal["port_axis"] = (0.0, -1.0, 0.0)
+    for key in ("hold_point", "port", "port_axis"):
+        if key in goal:
+            goal[key] = (0.0, -1.0, 0.0)
+    if "axial_speed_window" in goal:
+        goal["axial_speed_window"] = (0.05, 0.1)
     check_goal(view_with(goal))
     for key in TASK_KEYS[task]:
         partial = {k: v for k, v in goal.items() if k != key}
@@ -285,5 +288,65 @@ def test_a_goal_entry_its_task_needs_that_is_not_a_finite_number_is_refused(name
 @pytest.mark.parametrize("axis", [(0.0, 0.0, 0.0), (1e-300, 0.0, 0.0), (0.0, 1.0)])
 def test_a_port_axis_that_is_not_a_nonzero_3_vector_is_refused(name, axis):
     view = make(name).agent_view()
-    with pytest.raises(ValueError, match="port_axis must be a nonzero 3-vector"):
+    with pytest.raises(ValueError, match="port_axis (must be a nonzero 3-vector|must have shape)"):
         check_goal(dataclasses.replace(view, goal={**view.goal, "port_axis": axis}))
+
+
+@pytest.mark.parametrize(
+    ("name", "key", "value"),
+    [
+        ("docking", "port", (0.0, -2.0)),
+        ("docking", "lateral_limit", -0.1),
+        ("docking", "lateral_speed_limit", 0.0),
+        ("docking", "axial_speed_window", (0.1, 0.05)),
+        ("docking", "axial_speed_window", (-0.1, 0.05)),
+        ("docking", "axial_speed_window", (0.05, 0.1, 0.2)),
+        ("docking", "contact_range", -1.0),
+        ("approach-vbar", "hold_point", (0.0, -50.0)),
+        ("approach-vbar", "capture_radius", -1.0),
+        ("approach-vbar", "capture_speed", (0.1, 0.1)),
+        ("approach-vbar", "hold_time", -1.0),
+        ("approach-vbar", "cam_impulses", ((0.3, 0.0),)),
+        ("approach-vbar", "cam_impulses", 0.3),
+        ("approach-vbar", "thrust_inhibit", True),
+        ("inspection", "coverage", 1.5),
+        ("inspection", "coverage", 0.0),
+        ("inspection", "sun_exclusion", 4.0),
+        ("inspection", "points", 0),
+        ("separation-flyaround", "clear_range", -10.0),
+    ],
+)
+def test_a_goal_entry_of_the_wrong_shape_or_sign_is_refused(name, key, value):
+    view = make(name).agent_view()
+    with pytest.raises(
+        ValueError,
+        match=f"{key} (must have shape|has the wrong shape|must be|is out of range)",
+    ):
+        check_goal(dataclasses.replace(view, goal={**view.goal, key: value}))
+
+
+@pytest.mark.parametrize("key", ["hold_time", "sun_direction", "out_of_bounds", "commit_radius"])
+def test_an_optional_goal_entry_the_briefing_prints_must_be_finite(key):
+    view = make("approach-vbar").agent_view()
+    value = (math.nan, 0.0, 0.0) if key == "sun_direction" else math.nan
+    with pytest.raises(ValueError, match=f"{key} must be numeric and finite"):
+        check_goal(dataclasses.replace(view, goal={**view.goal, key: value}))
+
+
+def test_a_target_mode_parameter_must_be_a_single_number():
+    with pytest.raises(ValueError, match="phase must be a number"):
+        target_mode({"mode": "inertial", "phase": [0.1, 0.2]})
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("plume_range", 0.0), ("cam_impulses", ()), ("hold_time", 0.0), ("commit_radius", 0.0)],
+)
+def test_a_goal_entry_at_the_edge_of_its_range_is_accepted(key, value):
+    view = make("approach-vbar").agent_view()
+    edge = dataclasses.replace(view, goal={**view.goal, key: value})
+    check_goal(edge)
+    assert "Goal entry" not in briefing(edge) and "burns  m/s" not in briefing(edge)
+    outside = -1e-9 if np.ndim(value) == 0 else ((0.3, 0.0),)
+    with pytest.raises(ValueError, match=key):
+        check_goal(dataclasses.replace(view, goal={**view.goal, key: outside}))
