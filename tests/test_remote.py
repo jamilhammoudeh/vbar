@@ -341,13 +341,13 @@ def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
     assert "error" in results[0]
 
 
-def host_against(client, tmp_path):
+def host_against(client, tmp_path, timeout=HANG):
     """Run the command-line host for seeds 1 and 2, call `client(port)`, and read the results."""
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
-    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)]
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(timeout)]
     host = threading.Thread(target=main, args=(argv,))
     host.start()
     when_listening(host, lambda: client(port))
@@ -423,7 +423,8 @@ def test_a_failed_hello_leaves_every_reset_time_null(tmp_path):
         with connect(port) as sock, sock.makefile("rwb") as stream:
             send(stream, {"type": "hello", "name": "old", "protocol": 0})
 
-    results = host_against(client, tmp_path)
+    # The host waits this long for an agent after the refused hello.
+    results = host_against(client, tmp_path, timeout=2)
     assert [r["reset_s"] for r in results] == [None, None]
 
 
