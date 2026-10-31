@@ -15,6 +15,7 @@ from vbar.games import (
     Segment,
     axes_along,
     fly,
+    pursuit,
 )
 from vbar.games.pursuers import VelocityMatchingPursuer
 
@@ -188,24 +189,31 @@ def test_a_bot_must_return_a_segment():
 
 @dataclass(frozen=True)
 class Rearming:
-    """Re-arms the trigger that just fired, so each segment ends at its own start."""
+    """Sets each trigger a nanometre inside the current range, so every segment is about 1e-10 s.
+
+    Re-arming the trigger at the crossing just found loops only when rounding leaves the range
+    on the near side of the root, which varies by platform; a fixed nanometre does not.
+    """
 
     name: str = "rearming"
 
     def segment(self, t, r_p, v_p, r_e, v_e, previous, cause, rng):
+        near = float(np.linalg.norm(r_e - r_p)) - 1e-9
+
         def g(r_p, v_p, r_e, v_e):
-            return float(np.linalg.norm(r_e - r_p)) - 2500.0
+            return float(np.linalg.norm(r_e - r_p)) - near
 
         return Segment(triggers=((g, -1),))
 
 
-def test_a_bot_that_re_arms_its_crossing_is_stopped_not_left_hanging():
-    # The I3 range falls through 2500 m within the first 130 s of a coast toward the evader.
+def test_a_bot_whose_segments_last_almost_no_time_is_stopped_not_left_hanging(monkeypatch):
+    # Each segment costs a solve, so the cap is lowered from 1000 to 20 to keep the test short;
+    # burning toward the evader, the range falls at metres per second from the start.
+    monkeypatch.setattr(pursuit, "_MAX_SHORT_SEGMENTS", 20)
     env = PursuitEvasionEnv(evader=Rearming())
     env.reset()
     with pytest.raises(RuntimeError, match="no time passing"):
-        for _ in range(240):
-            env.step([1.0, 0.0, 0.0, 1.0])
+        env.step([1.0, 0.0, 0.0, 1.0])
 
 
 @pytest.mark.parametrize("axis", [0, 1, 2])

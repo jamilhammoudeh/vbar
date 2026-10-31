@@ -519,8 +519,8 @@ episode run as `__main__` is marked slow):
   thrust limit.
 - The Gymnasium seed and `fly`'s seed reach the evader's stream: equal seeds give equal episodes,
   and unseeded Gymnasium resets follow from the last seeded one.
-- Malformed segments and seeds are refused; a bot that never lets time pass, or re-arms the
-  trigger that just fired, raises instead of hanging.
+- Malformed segments and seeds are refused; a bot that never lets time pass, or whose segments
+  each end about 1e-10 s after they begin, raises instead of hanging.
 
 Sources: KSPDG v0.15.0 (commit 6251ca3): `src/kspdg/pe1/pe1_base.py` (observation, score, timeout,
 capture distance, thrusters, target-hold), `base_envs.py` (actions, frames), `agent_api/` (agent
