@@ -281,6 +281,16 @@ def test_seed_splits_are_deterministic_distinct_and_unguessable():
         SeedSplit("approach-vbar", "secret", 1)
 
 
+@pytest.mark.parametrize("split", ["train", "validation"])
+@pytest.mark.parametrize("variant", [":nav1", ":nav2"])
+def test_a_noise_variant_shares_no_seed_with_its_base_scenario(split, variant):
+    base = seeds("approach-vbar", split, 50)
+    noisy = seeds("approach-vbar" + variant, split, 50)
+    assert set(base).isdisjoint(noisy)
+    agent = {base.agent_seed(k) for k in range(50)}
+    assert agent.isdisjoint(noisy.agent_seed(k) for k in range(50))
+
+
 def test_public_seeds_can_be_enumerated_and_hidden_ones_cannot(monkeypatch):
     # An agent that knows the public keys hashes them with the agent label for each index until
     # it reproduces its own agent seed: it finds a validation episode at once and no test one.
