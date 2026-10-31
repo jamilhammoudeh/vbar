@@ -1,6 +1,7 @@
 """The task in words: a scenario's public goal and constraints, and the state measured against them.
 
-`briefing(view)` describes the goal of every task kind (hold, berth, dock, inspect, depart) and
+`briefing(view)` describes the goal of every task kind (hold, berth, dock, inspect, depart,
+capture) and
 every public constraint in plain sentences; `situation(view, obs, info)` gives the quantities a
 crew display shows for the current observation (distance to the hold point, offsets from a
 moving port's axis, coverage). Both read only the `AgentView`, the observation and the agent's
@@ -21,11 +22,15 @@ from numpy.typing import ArrayLike
 from ..constraints import _VBAR_COAST
 from ..scenarios.targets import (
     FixedOffset,
+    GravityGradientTumble,
     InertialPointing,
     Maneuvering,
     Passive,
     TargetMode,
+    TorqueFree,
     Tumbling,
+    body_point,
+    body_point_velocity,
     sun_at,
 )
 from .base import AgentView
@@ -38,6 +43,15 @@ TASK_KEYS: dict[str, tuple[str, ...]] = {
     "dock": ("port", "port_axis", "lateral_limit", "lateral_speed_limit", "axial_speed_window"),
     "inspect": ("points", "target_radius", "max_range", "sun_exclusion", "coverage"),
     "depart": ("port", "port_axis", "clear_range", "drift_horizon"),
+    "capture": (
+        "capture_point",
+        "interface",
+        "capture_radius",
+        "capture_speed",
+        "hold_time",
+        "body_ends",
+        "body_radius",
+    ),
 }
 
 # Goal keys the task sentences use, besides the task's own keys and "task" and "target"; the rest
@@ -50,7 +64,7 @@ _DESCRIBED = {
     "berth": ("hold_time",),
     "dock": ("contact_range",),
     "inspect": (*_SCORED_BALL, "shadow"),
-    "depart": _SCORED_BALL,
+    "depart": (*_SCORED_BALL, "drift_radius"),
 }
 
 
@@ -81,13 +95,23 @@ def _finite(where: str, key: str, value: Any) -> np.ndarray:
 
 def _mode_numbers(mode: str, description: Mapping[str, Any]) -> None:
     """Refuse a mode parameter that is not a finite number, or a zero spin axis."""
-    for key in ("pitch", "limit_cycle_amplitude", "limit_cycle_period", "phase", "rate"):
+    scalars = (
+        "pitch",
+        "limit_cycle_amplitude",
+        "limit_cycle_period",
+        "phase",
+        "rate",
+        "effective_inertia",
+        "spin_angle",
+    )
+    for key in scalars:
         if key in description and _finite(f"{mode} target mode's", key, description[key]).shape:
             raise ValueError(f"the {mode} target mode's {key} must be a number")
-    if "axis" in description:
-        axis = _finite(f"{mode} target mode's", "axis", description["axis"])
-        if axis.shape != (3,) or not np.linalg.norm(axis) > 0.0:
-            raise ValueError(f"the {mode} target mode's axis must be a nonzero 3-vector")
+    for key in ("axis", "moments", "momentum_direction"):
+        if key in description:
+            vector = _finite(f"{mode} target mode's", key, description[key])
+            if vector.shape != (3,) or not np.linalg.norm(vector) > 0.0:
+                raise ValueError(f"the {mode} target mode's {key} must be a nonzero 3-vector")
     for burn in description.get("burns", ()):
         try:
             start, duration, accel = burn
@@ -114,8 +138,9 @@ def target_mode(description: Mapping[str, Any]) -> TargetMode:
     Raises
     ------
     ValueError
-        If the mode is not one of passive, fixed_offset, inertial, tumbling or maneuvering, a
-        parameter it needs is missing, or a parameter is not a finite number.
+        If the mode is not one of passive, fixed_offset, inertial, tumbling, torque_free,
+        gravity_gradient or maneuvering, a parameter it needs is missing, or a parameter is not a
+        finite number.
     """
     mode = description.get("mode", "passive")
     _mode_numbers(mode, description)
@@ -135,6 +160,18 @@ def target_mode(description: Mapping[str, Any]) -> TargetMode:
             return InertialPointing(description["phase"])
         if mode == "tumbling":
             return Tumbling(tuple(description["axis"]), description["rate"], description["phase"])
+        if mode in ("torque_free", "gravity_gradient"):
+            tumble = (
+                tuple(description["moments"]),
+                description["effective_inertia"],
+                description["rate"],
+                description["phase"],
+                tuple(description["momentum_direction"]),
+                description["spin_angle"],
+            )
+            if mode == "torque_free":
+                return TorqueFree(*tumble)
+            return GravityGradientTumble(*tumble, rate_in_n=bool(description.get("rate_in_n")))
     except KeyError as error:
         raise ValueError(f"the {mode} target mode needs {error.args[0]!r}") from None
     raise ValueError(f"unknown target mode {mode!r}")
@@ -152,7 +189,7 @@ def _attitude_of(description: Mapping[str, Any]) -> dict[str, Any]:
     return {"mode": "passive"}
 
 
-def _attitude_text(description: Mapping[str, Any]) -> str:
+def _attitude_text(description: Mapping[str, Any], n: float) -> str:
     mode = description.get("mode", "passive")
     if mode == "maneuvering":
         burns = "; ".join(
@@ -160,7 +197,7 @@ def _attitude_text(description: Mapping[str, Any]) -> str:
             for s, d, a in description["burns"]
         )
         return (
-            f"{_attitude_text(_attitude_of(description))} The target fires its engines on a "
+            f"{_attitude_text(_attitude_of(description), n)} The target fires its engines on a "
             f"schedule ({burns}, Hill axes); your relative motion feels the opposite acceleration."
         )
     if mode == "passive":
@@ -185,6 +222,31 @@ def _attitude_text(description: Mapping[str, Any]) -> str:
             f"The target tumbles at {_num(description['rate'])} rad/s about its body axis "
             f"{_vec(description['axis'], 3)}, from an angle of {_deg(description['phase'])} at "
             "t = 0; points on its body turn with it."
+        )
+    if mode in ("torque_free", "gravity_gradient"):
+        tumble = target_mode(description)
+        assert isinstance(tumble, TorqueFree)
+        rate = np.asarray(tumble.motion.omega0) * (n if description.get("rate_in_n") else 1.0)
+        axes = ", ".join(_vec(column, 4) for column in tumble.matrix(0.0, n).T)
+        text = (
+            f"The target is a rigid body with principal moments {_vec(tumble.moments, 0)} kg m^2 "
+            f"about its body axes x, y and z, "
+        )
+        if mode == "torque_free":
+            text += (
+                "tumbling free of torques by Euler's equations: its angular momentum is fixed in "
+                f"inertial space, so in this frame it turns about the z axis at {_num(-n)} rad/s. "
+            )
+        else:
+            text += (
+                "tumbling under the gravity-gradient torque 3 n^2 (o x I o) of its circular "
+                "orbit, with I its inertia matrix, o the unit vector along this frame's x axis "
+                "in body axes and n the mean motion. "
+            )
+        return (
+            text + f"At t = 0 its angular velocity relative to inertial space is {_sig(rate)} "
+            f"rad/s in body axes and its body x, y and z axes point along {axes} (Hill axes); "
+            "points on its body turn with it."
         )
     return f"Target: {dict(description)}."
 
@@ -238,12 +300,16 @@ def _task_text(view: AgentView) -> list[str]:
             "some time in the episode."
         ]
     if task == "depart":
+        zone = (
+            f"come within {_num(goal['drift_radius'])} m of the target's centre"
+            if "drift_radius" in goal
+            else "come back into the keep-out zone"
+        )
         lines = [
             f"Task: depart from the target's port, at {_vec(goal['port'])} m at t = 0 with its "
             f"axis (from the port outward) {_vec(goal['port_axis'], 3)}. Reach a range of at "
             f"least {_num(goal['clear_range'])} m from the target on a path whose free drift (no "
-            f"thrust) does not come back into the keep-out zone for {_num(goal['drift_horizon'])} "
-            "s."
+            f"thrust) does not {zone} for {_num(goal['drift_horizon'])} s."
         ]
         if "hold_point" in goal:
             lines.append(
@@ -251,6 +317,21 @@ def _task_text(view: AgentView) -> list[str]:
                 f"{_num(goal['capture_radius'])} m of it."
             )
         return lines
+    if task == "capture":
+        rotate = target_mode(goal.get("target", {"mode": "passive"})).matrix(0.0, view.n)
+        point, interface = (
+            rotate @ np.asarray(goal[k], dtype=float) for k in ("capture_point", "interface")
+        )
+        return [
+            "Task: capture the target. Its capture point is fixed to its body, at "
+            f"{_vec(point)} m in this frame at t = 0 and beyond the grapple interface at "
+            f"{_vec(interface)} m, and it turns with the target, moving at the angular velocity "
+            "crossed with its position. You are capture-ready within "
+            f"{_num(goal['capture_radius'])} m of the capture point at a velocity relative to it "
+            f"below {_num(goal['capture_speed'])} m/s; holding still in this frame does not "
+            "meet that while the point moves. The task is met when you stay capture-ready, "
+            f"without a break, for {_num(goal['hold_time'])} s."
+        ]
     return [f"Task: {task}."]
 
 
@@ -327,7 +408,7 @@ def _body_fixed(spec: Mapping[str, Any]) -> bool:
     """Whether a constraint's geometry is in body axes and turns with the target."""
     kind = spec["type"]
     return (kind.startswith("approach_cone") and "n" in spec) or (
-        kind.startswith("keep_out") and "port" in spec
+        kind.startswith("keep_out") and ("port" in spec or "ends" in spec)
     )
 
 
@@ -341,6 +422,13 @@ def _constraint_text(spec: Mapping[str, Any], mode: TargetMode, n: float) -> str
                 f"Never enter the sphere of radius {_num(spec['radius'])} m around the target's "
                 "centre, except through the port, where the docking mechanism's capture volume "
                 f"reaches {_num(spec.get('reception', 0.0))} m behind the port plane."
+            )
+        if "ends" in spec:
+            a, b = (rotate @ np.asarray(end, dtype=float) for end in spec["ends"])
+            return (
+                f"Never come within {_num(spec['radius'])} m of the target's body{turns}, a "
+                f"capsule: the segment from {_vec(a)} m to {_vec(b)} m at t = 0, swept by a "
+                "sphere of that radius."
             )
         return f"Never come within {_num(spec['radius'])} m of the target's centre (the origin)."
     if kind.startswith("approach_cone"):
@@ -398,12 +486,15 @@ def _constraint_text(spec: Mapping[str, Any], mode: TargetMode, n: float) -> str
 
 
 # The shape and sign of every numeric goal entry the briefing prints: "vector" a 3-vector,
-# "window" (low, high) with 0 <= low < high, "standoff" (distance > 0, dwell >= 0), "vectors"
-# and "spans" lists of 3-vectors and of (start, end) pairs with 0 <= start <= end, "positive"
-# > 0, "count" a positive integer, "nonnegative" >= 0, "fraction" in (0, 1], "angle" in [0, pi]
-# rad. A Sun direction must also be nonzero.
+# "pair" two 3-vectors, "window" (low, high) with 0 <= low < high, "standoff" (distance > 0,
+# dwell >= 0), "vectors" and "spans" lists of 3-vectors and of (start, end) pairs with
+# 0 <= start <= end, "positive" > 0, "count" a positive integer, "nonnegative" >= 0, "fraction"
+# in (0, 1], "angle" in [0, pi] rad. A Sun direction must also be nonzero.
 _GOAL_FORMS = {
     "hold_point": "vector",
+    "capture_point": "vector",
+    "interface": "vector",
+    "body_ends": "pair",
     "port": "vector",
     "port_axis": "vector",
     "sun_direction": "vector",
@@ -421,6 +512,8 @@ _GOAL_FORMS = {
     "max_range": "positive",
     "clear_range": "positive",
     "drift_horizon": "positive",
+    "drift_radius": "positive",
+    "body_radius": "positive",
     "points": "count",
     "contact_range": "positive",
     "out_of_bounds": "positive",
@@ -440,14 +533,14 @@ def _goal_entry(task: str, key: str, value: Any) -> None:
     if form in ("vectors", "spans") and np.size(np.asarray(value, dtype=object)) == 0:
         return
     x = _finite(where, key, value)
-    shapes = {"vector": (3,), "window": (2,), "standoff": (2,)}
+    shapes = {"vector": (3,), "window": (2,), "standoff": (2,), "pair": (2, 3)}
     if form in shapes and x.shape != shapes[form]:
         raise ValueError(f"the {where} {key} must have shape {shapes[form]}, got {value!r}")
     if form in ("vectors", "spans") and (
         x.ndim != 2 or x.shape[1] != (3 if form == "vectors" else 2)
     ):
         raise ValueError(f"the {where} {key} has the wrong shape, got {value!r}")
-    if form not in ("vector", "window", "standoff", "vectors", "spans") and x.shape != ():
+    if form not in (*shapes, "vectors", "spans") and x.shape != ():
         raise ValueError(f"the {where} {key} must be a number, got {value!r}")
     if form == "window":
         bad = not 0.0 <= x[0] < x[1]
@@ -523,7 +616,7 @@ def briefing(view: AgentView) -> str:
     check_goal(view)
     description = view.goal.get("target", {"mode": "passive"})
     mode = target_mode(description)
-    lines = [*_task_text(view), _attitude_text(description), *_goal_extras(view)]
+    lines = [*_task_text(view), _attitude_text(description, view.n), *_goal_extras(view)]
     if view.constraints:
         lines.append("Constraints:")
         lines.extend(f"- {_constraint_text(c, mode, view.n)}" for c in view.constraints)
@@ -584,6 +677,14 @@ def situation(view: AgentView, obs: np.ndarray, info: Mapping[str, Any]) -> str:
         speed = -axial if task == "dock" else axial
         lines.append(
             f"speed along the axis {toward} = {speed:.4f} m/s, lateral speed = {sideways:.4f} m/s"
+        )
+    if task == "capture":
+        point = body_point(mode, goal["capture_point"], t, view.n)
+        velocity = body_point_velocity(mode, goal["capture_point"], t, view.n)
+        lines.append(f"capture point now at {_vec(point)} m, moving at {_vec(velocity, 4)} m/s")
+        lines.append(
+            f"distance to the capture point = {float(np.linalg.norm(r - point)):.3f} m, "
+            f"speed relative to it = {float(np.linalg.norm(v - velocity)):.4f} m/s"
         )
     if task == "depart" and "hold_point" in goal:
         clear = np.asarray(goal["hold_point"], dtype=float)

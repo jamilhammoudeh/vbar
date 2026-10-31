@@ -69,11 +69,13 @@ An entry the briefing does not know is printed as it is. The task keys:
 | `berth` | the hold keys and `capture_time` | rest in the capture box; the thrusters are inhibited for the capture window while the arm grapples |
 | `dock` | `port`, `port_axis`, `lateral_limit`, `lateral_speed_limit`, `axial_speed_window` | contact is the first crossing of the port plane within `contact_range` of the port, inside the lateral offset, lateral speed and axial speed window |
 | `inspect` | `points`, `target_radius`, `max_range`, `sun_exclusion`, `coverage` | when a point is imaged (range, facing side, lit, Sun out of the camera's view) and the coverage of the points lit at some time that succeeds |
-| `depart` | `port`, `port_axis`, `clear_range`, `drift_horizon` | reach the clear range on a path whose free drift does not return into the keep-out zone within the horizon; arrival scored at the clear point |
+| `depart` | `port`, `port_axis`, `clear_range`, `drift_horizon` | reach the clear range on a path whose free drift does not return into the keep-out zone, or within `drift_radius` of the target's centre when the goal has one, within the horizon; arrival scored at the clear point |
+| `capture` | `capture_point`, `interface`, `capture_radius`, `capture_speed`, `hold_time`, `body_ends`, `body_radius` | stay within the radius of the capture point, which is fixed to the turning body (given in body axes, stated in Hill axes at t = 0), at a velocity relative to it below the speed, for `hold_time` without a break; the body is a capsule that turns with the target |
 
 A goal of another task is named and its keys are listed as they are. The other goal entries
 each get a sentence: the target's attitude mode (passive, a fixed pitch with an optional limit
-cycle, inertial pointing, a tumble, or a manoeuvring target with its burn schedule), suggested
+cycle, inertial pointing, a tumble, a torque-free or gravity-gradient rigid body with its moments,
+angular velocity and axes at t = 0, or a manoeuvring target with its burn schedule), suggested
 waypoints and a docking hold point (not scored), thrust-inhibit windows, the range beyond which
 passive safety is scored, the radius inside which abort availability is not, the plume range,
 and the Sun direction at t = 0, which turns about z at -n. Each public constraint gets a line:
@@ -96,6 +98,9 @@ their positions in Hill axes at t = 0. `situation(view, obs, info)` gives, from 
   departure) and the lateral speed, measured as the contact check measures them, with the port
   and its axis where the briefed mode has turned them by now;
 - for a departure, the distance to the clear point;
+- for a capture, the capture point and its velocity now, $R(t)\mathbf c$ and
+  $\boldsymbol\omega\times R(t)\mathbf c$ with $R$ the briefed mode's rotation, the distance to the
+  point and the speed relative to it;
 - for an inspection, the fraction of points imaged so far (from the agent's `info`) and the Sun
   direction now;
 - on a turning target, each corridor's apex and axis now; inside a thrust-inhibit window, when it
@@ -232,11 +237,18 @@ truth, and that fractions are converted to each action mode.
   equal those of a scenario that flies the briefing; a departure's distance along the port axis,
   lateral offset, outward and lateral speeds and distance to the clear point are the observation's.
 
+`tests/test_briefing_capture.py`: the capture sentence names the capture point (in Hill axes at
+t = 0) and its radius, speed and hold time; a target mode rebuilt from a torque-free or
+gravity-gradient entry turns as the scenario's briefed mode does; the situation's distance to the
+capture point and the speed relative to it equal the scenario's own at t = 0, 900 s and 3000 s;
+a torque-free entry with a non-finite, mis-shaped or missing parameter is refused, as is a
+capture goal entry of the wrong shape or sign; the departure sentence gives `drift_radius`.
+
 `tests/test_llm_tasks.py`, for the agent:
 
 - The agent resets and flies two steps of every catalogue scenario and variant and of every suite
   entry, and its first prompt names the task.
-- The catalogue's task kinds are the five of `TASK_KEYS`; for each kind, a goal without any one of
+- The catalogue's task kinds are the six of `TASK_KEYS`; for each kind, a goal without any one of
   its keys is refused at reset with that key named, and the full goal is accepted. The hold fields
   need a hold point and a capture speed and `keep_out` a keep-out radius (the run time assurance
   docking task has none, and the default prompt flies it); ball thrusters are described as a limit on the
@@ -244,7 +256,7 @@ truth, and that fractions are converted to each action mode.
   briefing; the prompt at t = 600 s holds the situation at 600 s, where a turning port has moved.
 - Behind the `slow` marker: a stand-in model that reads only the time, position and velocity
   printed in the prompt, and answers with the command of the reference controller of the scenario
-  audit ([scenarios.md](scenarios.md)), succeeds on three drawn validation seeds of each of 21
+  audit ([scenarios.md](scenarios.md)), succeeds on three drawn validation seeds of each of 22
   scenarios, with no parse failure: every entry of the `core-v1` suite (the V-bar and R-bar holds,
   `docking:axis`, the run time assurance docking task and inspection, each also with `:nav1`), the
   comparison tasks `afrl-docking`, `afrl-inspection`, `spacegym-docking` and

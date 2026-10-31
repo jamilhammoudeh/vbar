@@ -240,6 +240,8 @@ release may change the public API, and every such change is listed under Changed
   `describe_task` tool and the `start_episode` reply return the briefing, and each observation the
   situation lines.
 - `--seeds-file` for both servers: seeds to repeat, one per line, kept out of the process list.
+- The LLM briefing describes the capture task (the body-fixed capture point, the tumble of a
+  torque-free or gravity-gradient target, the capsule keep-out) and a departure's `drift_radius`.
 
 ### Changed
 

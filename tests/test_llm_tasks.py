@@ -34,6 +34,7 @@ TASK_LINES = {
     "dock": "Task: dock at the target's port",
     "inspect": "Task: inspect the target",
     "depart": "Task: depart from the target's port",
+    "capture": "Task: capture the target",
 }
 
 
@@ -145,7 +146,7 @@ FLIGHTS = sorted(
     {e.scenario for e in SUITES["core-v1"].entries}
     | {"afrl-docking", "afrl-inspection", "spacegym-docking", "spacegym-rendezvous"}
     | {"docking", "docking:lit", "docking-offset", "inertial-target", "berthing-box"}
-    | {"hst-rbar-grapple", "separation-flyaround:reboost"}
+    | {"hst-rbar-grapple", "separation-flyaround:reboost", "tumbling-capture"}
 )
 
 

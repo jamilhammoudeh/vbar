@@ -47,9 +47,9 @@ def view_with(goal, constraints=()):
 
 
 def test_an_unknown_goal_entry_constraint_and_task_are_still_shown():
-    goal = {"task": "capture", "tumble_rate": 0.05, "target": {"mode": "passive"}}
+    goal = {"task": "rescue", "tumble_rate": 0.05, "target": {"mode": "passive"}}
     text = briefing(view_with(goal, ({"type": "glare", "limit": 0.4},)))
-    assert "Task: capture." in text
+    assert "Task: rescue." in text
     assert "Goal entry tumble_rate: 0.05." in text
     assert "Constraint glare: {'limit': 0.4}." in text
 
@@ -58,9 +58,11 @@ def test_an_unknown_goal_entry_constraint_and_task_are_still_shown():
 def test_a_goal_without_a_key_its_task_needs_is_refused_naming_the_key(task):
     goal = {"task": task, "target": {"mode": "passive"}}
     goal.update({key: 1.0 for key in TASK_KEYS[task]})
-    for key in ("hold_point", "port", "port_axis"):
+    for key in ("hold_point", "port", "port_axis", "capture_point", "interface"):
         if key in goal:
             goal[key] = (0.0, -1.0, 0.0)
+    if "body_ends" in goal:
+        goal["body_ends"] = ((-3.0, 0.0, 0.0), (3.0, 0.0, 0.0))
     if "axial_speed_window" in goal:
         goal["axial_speed_window"] = (0.05, 0.1)
     check_goal(view_with(goal))
