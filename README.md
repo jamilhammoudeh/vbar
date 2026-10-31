@@ -1,9 +1,11 @@
 # V-BAR: Verified Benchmark for Autonomous Rendezvous
 
-[![ci](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml/badge.svg)](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/jamilhammoudeh/vbar/ci.yml?branch=main&label=CI)](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/vbar)](https://pypi.org/project/vbar/)
 [![Python](https://img.shields.io/pypi/pyversions/vbar)](https://pypi.org/project/vbar/)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23632751.svg)](https://doi.org/10.5281/zenodo.23632751)
+[![License](https://img.shields.io/github/license/jamilhammoudeh/vbar)](LICENSE)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.23632751-blue)](https://doi.org/10.5281/zenodo.23632751)
+[![Docs](https://img.shields.io/badge/docs-docs%2F-blue)](docs/README.md)
 
 V-BAR is a headless Python benchmark for spacecraft rendezvous and proximity-operations
 controllers. Classical guidance laws, reinforcement learning agents and LLM agents fly the same
