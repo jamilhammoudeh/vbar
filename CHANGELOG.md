@@ -210,62 +210,8 @@ release may change the public API, and every such change is listed under Changed
   (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
   turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
   `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
-- `LLMAgent` flies every task kind: hold, berthing, docking, inspection and departure. The default
-  prompt describes the goal, the target's attitude mode and every public constraint in sentences
-  (`vbar.agents.briefing.briefing`) and measures the observation against them each step
-  (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
-  turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
-  `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
-- `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` take `--scenario` (a catalogue
-  name, variant or identifier) and write the scenario identifier into each result; the MCP
-  `describe_task` tool returns the briefing and each observation the situation lines.
-- `LLMAgent` flies every task kind: hold, berthing, docking, inspection and departure. The default
-  prompt describes the goal, the target's attitude mode and every public constraint in sentences
-  (`vbar.agents.briefing.briefing`) and measures the observation against them each step
-  (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
-  turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
-  `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
-- `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` take `--scenario` (a catalogue
-  name, variant or identifier) and write the scenario identifier into each result; the MCP
-  `describe_task` tool and the `start_episode` reply return the briefing, and each observation the
-  situation lines.
-- `LLMAgent` flies every task kind: hold, berthing, docking, inspection and departure. The default
-  prompt describes the goal, the target's attitude mode and every public constraint in sentences
-  (`vbar.agents.briefing.briefing`) and measures the observation against them each step
-  (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
-  turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
-  `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
-- `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` take `--scenario` (a catalogue
-  name, variant or identifier) and write the scenario identifier into each result; the MCP
-  `describe_task` tool and the `start_episode` reply return the briefing, and each observation the
-  situation lines.
-- `--seeds-file` for both servers: seeds to repeat, one per line, kept out of the process list.
 - The LLM briefing describes the capture task (the body-fixed capture point, the tumble of a
   torque-free or gravity-gradient target, the capsule keep-out) and a departure's `drift_radius`.
-- `LLMAgent` flies every task kind: hold, berthing, docking, inspection and departure. The default
-  prompt describes the goal, the target's attitude mode and every public constraint in sentences
-  (`vbar.agents.briefing.briefing`) and measures the observation against them each step
-  (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
-  turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
-  `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
-- `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` take `--scenario` (a catalogue
-  name, variant or identifier) and write the scenario identifier into each result; the MCP
-  `describe_task` tool and the `start_episode` reply return the briefing, and each observation the
-  situation lines.
-- `--seeds-file` for both servers: seeds to repeat, one per line, kept out of the process list.
-- The supervisory command channel ([docs/supervision.md](docs/supervision.md)): `SupervisedAgent`
-  turns a supervisor's CONTINUE, GO, HOLD, RETREAT, CAM and THRUST_INHIBIT into set points for a
-  `SetpointTracker`, refusing and recording an order the validity mask does not allow, over the
-  ladder of rungs `ladder` cuts from a hold, berthing, docking or inspection goal. Supervisors:
-  `RuleSupervisor`, `LLMSupervisor` (with `parse_order` and `SUPERVISOR_PROMPT`) and
-  `PolicySupervisor` on `supervisor_features`. `vbar.training.SupervisorEnv` lets a learner pick
-  the commands.
-- `LLMAgent` flies every task kind: hold, berthing, docking, inspection and departure. The default
-  prompt describes the goal, the target's attitude mode and every public constraint in sentences
-  (`vbar.agents.briefing.briefing`) and measures the observation against them each step
-  (`situation`: offsets and speeds relative to a docking port's axis where the briefed mode has
-  turned it, coverage so far, distance to the hold or clear point). New prompt fields `briefing`,
-  `situation` and `thrust`; `target_mode` rebuilds a target mode from its public description.
 - `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` take `--scenario` (a catalogue
   name, variant or identifier) and write the scenario identifier into each result; the MCP
   `describe_task` tool and the `start_episode` reply return the briefing, and each observation the
@@ -280,7 +226,6 @@ release may change the public API, and every such change is listed under Changed
   the commands. `SetpointTracker` flies a Kalman estimate on a noisy sensor (`sensor`,
   `estimate`, `sensor_noise`) and holds the docking standoff until the lateral error is small
   (`lateral_sigma`).
-
 
 ### Changed
 
@@ -312,6 +257,33 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
+- `LLMAgent` read a reply's action with a pattern that stopped at the first closing brace, so an
+  action object holding a nested value was a parse failure, and the search took time quadratic in
+  the reply's opening braces. `parse_action` now decodes the first object that opens at one of the
+  reply's first eight braces (`vbar.agents.llm.first_object`), nested values included; a brace in
+  prose or a malformed object before the action is skipped, so parse failures (A4) can be fewer
+  than an earlier version counted on the same replies.
+- `ToolServer`'s `describe_task` and predictions used the view of the environment as built, not of
+  the episode being flown, so on scenarios that draw their goal at each reset (a docking port's
+  attitude, the Sun direction) a client was told another episode's goal. They now use the view of
+  the episode running, as `run_episode` does; before the first episode `describe_task` gives the
+  environment's view as built.
+- A negative seed crashed `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` before
+  any result was written; both now refuse it with a usage error. The remote host also refuses a
+  timeout that is not a positive number of seconds and a port outside 0 to 65535, and the MCP
+  server a step limit below 1.
+- The agent server and the MCP `command` tool flew quoted numbers and booleans as action numbers
+  (`["0.5", "0", "0"]`, `true`), though the protocol and the tool schema ask for numbers; both now
+  refuse them.
+- `python -m vbar.agents.mcp` decoded its input in the locale's code page, so on Windows a non-ASCII
+  request (an id, a name) sent as UTF-8 came back garbled; it now reads UTF-8 whatever the locale,
+  and a line that is not UTF-8 gets a parse error.
+- `AgentServer.accept` served the first connection only, so one that never said hello held the host
+  until its timeout and the session ended with every seed unflown; it now drops a connection that
+  sends no valid hello within 10 s (`HELLO_WAIT_S`) and waits for the next.
+- `view_to_dict` left the lighting window's central body as a `Body`, so the agent server and the
+  MCP server could not send the view of a scenario with a lighting window (`docking:lit`); it now
+  writes dataclasses as the mapping of their fields.
 - A `ZoneEntry` whose `go_time` fell inside a step, as with 15 s steps in the closing scenario,
   had a `lower_bound` above the true minimum (-0.053 m against -0.400 m with GO 1.4 s into a
   10 s step) and a violation that ended at the last sample before GO. `segment_minimum`,
@@ -635,12 +607,6 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
-- `LLMAgent` read a reply's action with a pattern that stopped at the first closing brace, so an
-  action object holding a nested value was a parse failure, and the search took time quadratic in
-  the reply's opening braces. `parse_action` now decodes the first object that opens at one of the
-  reply's first eight braces (`vbar.agents.llm.first_object`), nested values included; a brace in
-  prose or a malformed object before the action is skipped, so parse failures (A4) can be fewer
-  than an earlier version counted on the same replies.
 - The `pending_commands` channel echoed a command clipped at the true action scale, which in `accel`
   mode with the thrust drive, or `thrust` mode with the acceleration drive, moves with the mass, so
   a saturated command gave away the mass and each burn's delivered delta-v; a command dropped by the
@@ -668,28 +634,6 @@ release may change the public API, and every such change is listed under Changed
   `drift_radius`.
 - F10 `stall_time` (version 2) counted a whole step for a decision whose step a contact cut short,
   so a slow docking with an active safety row read up to one step too long.
-
-- `ToolServer`'s `describe_task` and predictions used the view of the environment as built, not of
-  the episode being flown, so on scenarios that draw their goal at each reset (a docking port's
-  attitude, the Sun direction) a client was told another episode's goal. They now use the view of
-  the episode running, as `run_episode` does; before the first episode `describe_task` gives the
-  environment's view as built.
-- A negative seed crashed `python -m vbar.agents.mcp` and `python -m vbar.agents.remote` before
-  any result was written; both now refuse it with a usage error. The remote host also refuses a
-  timeout that is not a positive number of seconds and a port outside 0 to 65535, and the MCP
-  server a step limit below 1.
-- The agent server and the MCP `command` tool flew quoted numbers and booleans as action numbers
-  (`["0.5", "0", "0"]`, `true`), though the protocol and the tool schema ask for numbers; both now
-  refuse them.
-- `python -m vbar.agents.mcp` decoded its input in the locale's code page, so on Windows a non-ASCII
-  request (an id, a name) sent as UTF-8 came back garbled; it now reads UTF-8 whatever the locale,
-  and a line that is not UTF-8 gets a parse error.
-- `AgentServer.accept` served the first connection only, so one that never said hello held the host
-  until its timeout and the session ended with every seed unflown; it now drops a connection that
-  sends no valid hello within 10 s (`HELLO_WAIT_S`) and waits for the next.
-- `view_to_dict` left the lighting window's central body as a `Body`, so the agent server and the
-  MCP server could not send the view of a scenario with a lighting window (`docking:lit`); it now
-  writes dataclasses as the mapping of their fields.
 
 ## [0.3.1] - 2026-10-24
 
