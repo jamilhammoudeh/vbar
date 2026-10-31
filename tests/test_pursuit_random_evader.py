@@ -115,12 +115,23 @@ def test_an_agent_cannot_find_a_drawn_seed_by_flying_twins():
 
     # A small seed falls to enumeration in a fraction of a second...
     assert attack(first_evader_states(7), range(16)) == [7]
-    # ...a drawn 128-bit seed does not: none of the same number of candidates matches.
-    env = PE1_E2_I2_Env()
-    env.reset()
-    observed = [env.step(COAST)[0][9:15] for _ in range(3)]
+    # ...a drawn 128-bit seed does not: none of the same number of candidates matches. A seed
+    # whose evader idles through the window leaves the fixed start, which about 3 in 1000 seeds
+    # share (seed 1 among them), so it carries no seed information and is drawn again.
+    while True:
+        env = PE1_E2_I2_Env()
+        env.reset()
+        steps = [env.step(COAST) for _ in range(3)]
+        if steps[-1][3]["evader_fuel_usage"] > 0.0:
+            break
+    observed = [step[0][9:15] for step in steps]
     assert env.seed >= 2**64
     assert attack(observed, range(16)) == []
+
+
+def test_an_idle_evader_window_matches_every_idle_seed():
+    # Why the twin attack redraws idle seeds: their windows are identical.
+    assert first_evader_states(1) == first_evader_states(148)
 
 
 @pytest.mark.parametrize(
