@@ -400,6 +400,11 @@ rerun the script to measure yours.
 
 ## Limits
 
+- The agent runs in the same Python process as the environment, so code in it can reach the
+  environment's objects (the evader's current hold and its seed among them) through the
+  interpreter, as any in-process code can. The seed and observation rules above hold for what
+  the runner passes the agent; an agent that is not trusted needs a process of its own, as in
+  KSPDG, whose runner keeps the agent and the game apart.
 - Two-body point masses: no KSP physics engine, part physics, reaction-wheel slew or roll
   dynamics; the pursuer points at the evader exactly.
 - The evaders point exactly and at once, on simulated time; KSPDG's turn under SAS or the
@@ -443,13 +448,13 @@ rerun the script to measure yours.
   rotations, written out in the test, to 1e-6 m and 1e-9 m/s.
 - The start ranges are 4510 m (I1), 456.8 m (I2) and 2660 m (I4) to 1 m.
 - I1: the pursuer's apoapsis is the evader's radius to 0.1 m, and an unpowered coast passes within
-  0.2 m at 121.7 s. I2: the start range equals the chord 2 r sin(u) sin(di / 2) to 1e-12, and an
-  unpowered coast meets again within 0.1 m at 178/360 of a period, 1073.75 s. I4: the pursuer's
-  semi-major axis, eccentricity and inclination recovered from its state by energy and angular
-  momentum match the save.
+  0.2 m at 121.7 s and 37.7 m/s. I2: the start range equals the chord 2 r sin(u) sin(di / 2) to
+  1e-12, and an unpowered coast meets again within 0.1 m at 178/360 of a period, 1073.75 s. I4: the
+  pursuer's semi-major axis, eccentricity and inclination recovered from its state by energy and
+  angular momentum match the save.
 - Every scenario class flies its start and its evader.
-- A fast pass (the I1 coast at 36 m/s) is captured at the capture distance to 1e-6 m at the same
-  instant, to 1e-6 s, whether it is flown in 10 s or 0.5 s steps.
+- A fast pass (the I1 coast, 37.7 m/s at the pass) is captured at the capture distance to 1e-6 m
+  at the same instant, to 1e-6 s, whether it is flown in 10 s or 0.5 s steps.
 
 `tests/test_pursuit_random_evader.py`:
 

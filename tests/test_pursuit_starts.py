@@ -83,6 +83,7 @@ def test_i1_brings_the_vessels_together_where_the_ellipse_touches_the_circle():
     # Unpowered, the two pass within 0.2 m of each other at 121.7 s, at the contact point.
     assert info["closest_approach"] < 0.2
     assert info["closest_approach_time"] == pytest.approx(121.7, abs=0.1)
+    assert info["closest_approach_speed"] == pytest.approx(37.7, abs=0.05)
 
 
 def test_i2_starts_457_m_apart_and_meets_again_at_the_other_node():
@@ -148,7 +149,7 @@ def test_the_e3_classes_take_kspdg_evasion_arguments():
 
 @pytest.mark.parametrize("step", [10.0, 0.5])
 def test_a_fast_pass_inside_one_step_is_captured_at_the_capture_distance(step):
-    # The I1 coast closes at 36 m/s and passes within 0.2 m: in a 10 s step the range falls
+    # The I1 coast passes within 0.2 m at 37.7 m/s: in a 10 s step the range falls
     # under 5 m and rises out again between two integrator steps.
     env = PursuitEvasionEnv(initial="i1")
     env.reset()
