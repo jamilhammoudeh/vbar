@@ -56,8 +56,9 @@ request.
 
 - One change per pull request, with its tests.
 - A change to a feature updates its page in `docs/` in the same pull request.
-- Commit messages are short, lowercase and in the past tense: `added drag model`,
-  `fixed keep-out check`.
+- Commit messages are one line, `<PREFIX>: <summary>`, with a lowercase imperative summary of
+  about three to seven words: `ENH: add drag model`, `BUG: fix keep-out check`. The prefix is one of
+  API, BENCH, BLD, BUG, CI, DEP, DEV, DOC, ENH, MAINT, REL, REV, STY, TST and TYP.
 - Do not copy code from other projects unless its license allows it, and say where it came from.
 - Contributions are released under the MIT license of this repository.
 
