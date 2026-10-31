@@ -103,6 +103,30 @@ def test_axes_along_keep_down_toward_the_body():
         axes_along(r, [0.0, 0.0, 0.0])
 
 
+@pytest.mark.parametrize(
+    ("r", "forward"),
+    [
+        ([7.5e5, 0.0, 0.0], [0.0, 0.0, 0.0]),
+        ([7.5e5, 0.0, 0.0], [math.inf, 0.0, 0.0]),
+        ([7.5e5, 0.0, 0.0], [math.nan, 1.0, 0.0]),
+        ([math.nan, 0.0, 0.0], [0.0, 1.0, 0.0]),
+        ([math.inf, 0.0, 0.0], [0.0, 1.0, 0.0]),
+        ([0.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
+    ],
+)
+def test_axes_along_refuse_a_zero_or_non_finite_input(r, forward):
+    with pytest.raises(ValueError, match="finite"):
+        axes_along(r, forward)
+
+
+@pytest.mark.parametrize("scale", [1e-300, 1e300])
+def test_axes_along_hold_for_tiny_and_huge_directions(scale):
+    r = np.array([7.5e5, 0.0, 0.0])
+    axes = axes_along(r, [0.0, scale, scale])
+    expected = axes_along(r, [0.0, 1.0, 1.0])
+    assert np.allclose(axes, expected, rtol=0, atol=1e-15)
+
+
 def test_the_same_seed_flies_the_same_episode_and_another_seed_differs():
     runs = {}
     for name, seed in (("a", 2**100 + 7), ("b", 2**100 + 7), ("c", 2**100 + 8)):

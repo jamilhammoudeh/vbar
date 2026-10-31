@@ -73,7 +73,7 @@ def body_axes(
     Raises
     ------
     ValueError
-        If the two positions coincide.
+        If the two positions coincide, or a position is at the centre or not finite.
     """
     x, y, z = (float(c) for c in r)
     lx, ly, lz = (float(a) - b for a, b in zip(r_target, (x, y, z), strict=True))
@@ -103,17 +103,20 @@ def axes_along(
     Raises
     ------
     ValueError
-        If `forward` is zero.
+        If `forward` or `r` is zero or not finite.
     """
     # Plain float arithmetic: this runs inside the integrator's derivative, where small numpy
     # calls cost more than the arithmetic.
     x, y, z = (float(c) for c in r)
     lx, ly, lz = (float(c) for c in forward)
-    distance = math.sqrt(lx * lx + ly * ly + lz * lz)
-    if not distance > 0.0:
-        raise ValueError("the body frame needs a target away from the vessel")
+    # hypot neither overflows nor underflows, and is NaN or infinite for any such component.
+    distance = math.hypot(lx, ly, lz)
+    if not 0.0 < distance < math.inf:
+        raise ValueError("the body frame needs a finite target away from the vessel")
     fx, fy, fz = lx / distance, ly / distance, lz / distance
-    r_norm = math.sqrt(x * x + y * y + z * z)
+    r_norm = math.hypot(x, y, z)
+    if not 0.0 < r_norm < math.inf:
+        raise ValueError("the body frame needs a finite position away from the centre")
     for ux, uy, uz in ((-x / r_norm, -y / r_norm, -z / r_norm), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0)):
         along = ux * fx + uy * fy + uz * fz
         dx, dy, dz = ux - along * fx, uy - along * fy, uz - along * fz
