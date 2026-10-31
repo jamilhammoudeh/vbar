@@ -312,7 +312,11 @@ latency cover every call of the consult. `usage()` totals decisions, calls, toke
 failures, `invalid_actions` (consults whose final reply was invalid), `invalid_replies` (every
 invalid reply, repaired or not), `repair_attempts` and `repaired` (consults an invalid reply was
 repaired at). The invalid-action rate of a run is `invalid_actions / decisions`, and the repair
-attempt rate `repair_attempts / decisions`.
+attempt rate `repair_attempts / decisions`. The supervisor judges a reply against the mask only: a
+GO whose destination the agent then refuses (a waypoint inside the keep-out sphere, a speed out of
+the tracker's range) is valid here and shows as a refused step of the `SupervisedAgent`, so a
+run's refusals are the invalid actions plus the agent's refused steps. A consult whose model call
+raises, `BudgetExceeded` included, is not logged; a `BudgetedModel` still counts every call made.
 
 ## Learned supervisor
 
