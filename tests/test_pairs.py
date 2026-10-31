@@ -4,6 +4,7 @@ from metric_cases import ConstantAgent, GuardedApproach
 
 from vbar import ApproachConfig, ApproachEnv
 from vbar.agents import PDAgent
+from vbar.dynamics.cw import CWDiscretizer
 from vbar.metrics import paired_filter_metrics, record_episode
 from vbar.metrics.efficiency import delta_v
 from vbar.metrics.episode import record_pair
@@ -181,6 +182,47 @@ def test_the_agent_cannot_tell_the_filtered_run_from_the_unfiltered_one():
     assert set(orders) == {"on", "off"}
     # Binomial(64, 1/2): outside [12, 52] with probability below 1e-6.
     assert 12 <= guessed_right <= 52
+
+
+class Remembering:
+    """Keeps run 1's observations in a class attribute and fits run 2's start from them."""
+
+    name = "remembering"
+    seen: list = []
+    runs = 0
+    fitted = None
+    first_obs = None
+
+    def reset(self, view, rng=None):
+        self.view, self.k = view, 0
+        type(self).runs += 1
+
+    def act(self, obs, info):
+        o = np.array(obs[:6], dtype=float)
+        cls = type(self)
+        if cls.runs == 1:
+            cls.seen.append(o)
+        elif self.k == 0:
+            d = CWDiscretizer(self.view.n)
+            phi = np.vstack([d.matrices(i * self.view.dt)[0] for i in range(len(cls.seen))])
+            cls.fitted = np.linalg.lstsq(phi, np.concatenate(cls.seen), rcond=None)[0]
+            cls.first_obs = o
+        self.k += 1
+        return np.zeros(3)
+
+
+def test_state_outside_the_agent_instance_carries_one_run_of_a_pair_into_the_other():
+    # The documented limit: both runs share the start and the noise, so a class attribute
+    # recovers the second run's start far better than its first observation does.
+    Remembering.seen, Remembering.runs = [], 0
+    env = ApproachEnv(
+        ApproachConfig(sensor=GaussianNav(2.0, 2e-3), max_steps=300, start_state=None)
+    )
+    pair = record_pair(env, Remembering, Quiet(), seed=SEED, agent_seed=AGENT_SEED)
+    start = np.asarray(pair.on.start, dtype=float)[:3]
+    fitted_error = np.linalg.norm(Remembering.fitted[:3] - start)
+    naive_error = np.linalg.norm(Remembering.first_obs[:3] - start)
+    assert fitted_error < naive_error / 3
 
 
 def test_run_pairs_flies_one_pair_per_seed_and_scores_them():
