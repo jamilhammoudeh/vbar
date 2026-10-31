@@ -111,10 +111,11 @@ scenario whose target really moves as the briefing says.
 
 The first JSON object in the reply is read, nested values included, if it opens at one of the
 reply's first eight braces (`first_object`; prose before it may hold the others); each fraction
-is clipped to [-1, 1] and converted to the action mode. A reply without a valid object (malformed, nested more than 32 levels deep, or
-holding a number too large for a float) is a parse failure (metric A4) and the spacecraft coasts
-for that step; `true` and `false` read as 1 and 0, as the environment reads them. The agent rejects
-the discrete and burn-and-coast action modes.
+is clipped to [-1, 1] and converted to the action mode. A reply without a valid object
+(malformed, nested more than 32 levels deep, or holding a number too large for a float) is a
+parse failure (metric A4) and the spacecraft coasts for that step; `true` and `false` read as 1
+and 0, as the environment reads them. The agent rejects the discrete and burn-and-coast action
+modes.
 
 ## Tool calling
 
