@@ -46,7 +46,9 @@ class BaseAgent(ABC):
         """A KSPDG action for the observation, or None to keep the last action."""
 
 
-def fly(env: Any, agent: Any, runner_timeout: float | None = None) -> dict[str, Any]:
+def fly(
+    env: Any, agent: Any, runner_timeout: float | None = None, seed: int | None = None
+) -> dict[str, Any]:
     """Fly one episode of a KSPDG-format environment, calling the agent once per step.
 
     The environment is reset, then each step passes the latest observation to
@@ -61,6 +63,8 @@ def fly(env: Any, agent: Any, runner_timeout: float | None = None) -> dict[str, 
         Anything with `get_action(observation)`.
     runner_timeout : float, optional
         Wall-clock seconds after which the episode is stopped where it is.
+    seed : int, optional
+        Passed to `env.reset`; by default the environment's own seed rule applies.
 
     Returns
     -------
@@ -70,7 +74,7 @@ def fly(env: Any, agent: Any, runner_timeout: float | None = None) -> dict[str, 
     if runner_timeout is not None:
         _number(runner_timeout, "runner_timeout")
     started = time.perf_counter()
-    observation, info = env.reset()
+    observation, info = env.reset() if seed is None else env.reset(seed=seed)
     action = None
     steps = 0
     done = False

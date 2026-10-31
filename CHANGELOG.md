@@ -11,6 +11,11 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.agents.glideslope_lp.lp_glideslope`: the minimum-fuel V-bar glideslope by linear programming of
   Ariba, Arzelier, Urbina and Louembet (2016); `vbar.reproductions` rebuilds their case 1 and prints
   the match table (`python -m vbar.reproductions`); `docs/reproductions.md` documents it.
+- `vbar.games`: `Segment`, the stretch of an evader bot's flight with constant body-axis throttles,
+  a pointing (prograde or orbit normal), an end time and end triggers; `axes_along`; a `seed`
+  for `PursuitEvasionEnv` and its `reset`, feeding the evader's random stream (a fresh 128-bit
+  seed when none is given, kept in `seed`), passed on by `fly(..., seed=...)`, `PursuitTask` and
+  the Gymnasium environments' `reset(seed=...)`.
 - `vbar.flightdata`: flown orbits replayed through the relative-motion models (`replay`, `hill_states`,
   `earth_fixed_to_inertial`, `gmst`, `sun_direction`, `error_envelope`, a GRACE-FO Level-1B reader and
   an excerpt format), and `TwoBodyDynamics.reset_inertial`. A GRACE-FO excerpt of 2019-12-03
@@ -226,6 +231,24 @@ release may change the public API, and every such change is listed under Changed
   the commands. `SetpointTracker` flies a Kalman estimate on a noisy sensor (`sensor`,
   `estimate`, `sensor_noise`) and holds the docking standoff until the lateral error is small
   (`lateral_sigma`).
+- `vbar.games`: KSPDG's pe1 starts I1, I2 and I4 from its mission saves beside I3, and the scenario
+  classes `PE1_E1_I1_Env` to `PE1_E1_I4_Env` and `PE1_E3_I1_Env` to `PE1_E3_I4_Env` with the
+  parents `PE1_E1_ParentEnv` and `PE1_E3_ParentEnv` (the e3 classes take KSPDG's `evade_dist` and
+  `evade_throttle`), registered as `vbar/PursuitEvasionE1I1-v1` to `vbar/PursuitEvasionE3I4-v1`.
+- `vbar.games.RandomEvader`, V-BAR's version of KSPDG's e2 evader (random throttles held for random
+  times inside the control range, drawn from the episode seed), and its scenarios `PE1_E2_I1_Env`
+  to `PE1_E2_I4_Env` (`PE1_E2_ParentEnv`), registered as `vbar/PursuitEvasionE2I1-v1` to
+  `vbar/PursuitEvasionE2I4-v1`.
+- `vbar.games.ProgradeEvader`, V-BAR's version of KSPDG's e4 evader (a fifth of its forward thrust
+  prograde from 0.5 s on), and its scenarios `PE1_E4_I1_Env` to `PE1_E4_I4_Env`
+  (`PE1_E4_ParentEnv`), registered as `vbar/PursuitEvasionE4I1-v1` to `vbar/PursuitEvasionE4I4-v1`.
+- `vbar.games.pursuers.ClosestApproachAgent` and `closest_approach`: a reimplementation of Jason
+  Cheng's deterministic pe1 agent (github.com/ARCLab-MIT/kspdg) on V-BAR's Kepler propagation,
+  with the original's predictor signature.
+- `vbar.games.compat`: KSPDG's module paths and names (`kspdg.agent_api.base_agent`,
+  `kspdg.pe1.e3_envs`, `kspdg.PE1_E3_I3_V1` and the rest of pe1) for V-BAR's classes once
+  `install()` runs, with `NotImplementedError` and the reason for lbg1, sb1 and LG3 to LG7, and
+  `python -m vbar.games.compat script.py` to run a KSPDG agent file as it is.
 
 ### Changed
 
@@ -254,6 +277,10 @@ release may change the public API, and every such change is listed under Changed
 - `LLMAgent.reset` no longer refuses goals that are not holds or that have no keep-out radius; it
   refuses a goal without a key its task needs, and a template whose `hold`, `dist`, `cap_speed`
   or `keep_out` field the goal cannot fill.
+- `vbar.games.EvaderBot` is one method, `segment(t, r_p, v_p, r_e, v_e, previous, cause, rng)`,
+  returning a `Segment`, in place of `mode`, `force` and `switch`; the game applies the vessel's
+  thrust limits and per-axis propellant flow to the evader as to the pursuer.
+  `NormalEscapeEvader(thrust=...)` is now `throttle`, in [0, 1] (1 is the former 8000 N).
 
 ### Fixed
 
@@ -325,6 +352,12 @@ release may change the public API, and every such change is listed under Changed
   read as a number.
 - `PDAgent` raises `ValueError` for a `wn` that is not positive and finite or a `zeta` that is
   negative or not finite, gains that used to give NaN commands.
+- `vbar.games.NormalEscapeEvader` acts only while the pursuer is inside KSPDG's 2200 m evader
+  control range (`control_range`, `CONTROL_RANGE`) and keeps its last command outside it, as
+  KSPDG's e3 does; it burned at any range below its evasion distance. Episodes with the default
+  200 m evasion distance are unchanged.
+- `vbar.games.PursuitEvasionEnv` captures a fast pass whose range dips under the capture distance
+  and out again within one integrator step; it was missed, and the episode flew on.
 
 ## [0.4.0] - 2026-10-30
 

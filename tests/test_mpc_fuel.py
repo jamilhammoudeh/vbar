@@ -479,7 +479,9 @@ def test_plans_corrected_within_price_rounding_stay_feasible_and_optimal(monkeyp
         clip = np.copysign(np.clip((np.abs(w) / DT - 1.0) * (A_MAX / 1e-6), 0.0, A_MAX), w)
         rounding = (A_MAX / 1e-6) * np.finfo(float).eps * (np.abs(g).T @ np.abs(plan.nu)) / DT
         assert np.all(np.abs(u - clip) <= 16 * rounding)
-        assert DT * np.sum(np.abs(u)) <= 1.1 * lp_fuel(N, DT, x0, np.zeros(6), steps, A_MAX)
+        # The sign case's optimum is about 2.5e-9 m/s, where solver rounding moves the plan by a few
+        # tenths of that (2.86e-9 on Linux with the oldest pins), so 1e-9 m/s is allowed on top.
+        assert DT * np.sum(np.abs(u)) <= 1.1 * lp_fuel(N, DT, x0, np.zeros(6), steps, A_MAX) + 1e-9
     assert converged >= len(cases) - 2
     assert any(accepted)
 

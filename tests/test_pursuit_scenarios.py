@@ -9,6 +9,7 @@ from test_pursuit_evasion import FLOW, NaivePursuitAgent
 import vbar  # noqa: F401  (registers the environments)
 from vbar.eval import Job, run_jobs
 from vbar.games import (
+    GYMNASIUM_IDS,
     AgentEnvRunner,
     NormalEscapeEvader,
     PassiveEvader,
@@ -39,7 +40,16 @@ def test_kspdg_example_runner_call_works_as_written():
     assert results["pursuer_fuel_usage"] == pytest.approx(240 * FLOW, rel=1e-12)
 
 
-@pytest.mark.parametrize("env_id", ["vbar/PursuitEvasionE1I3-v1", "vbar/PursuitEvasionE3I3-v1"])
+PE1_IDS = sorted(key for key in gym.registry if key.startswith("vbar/PursuitEvasion"))
+
+
+def test_every_scenario_is_registered_under_its_gymnasium_id():
+    assert PE1_IDS == sorted(GYMNASIUM_IDS.values())
+    for key, env_id in GYMNASIUM_IDS.items():
+        assert gym.spec(env_id).kwargs == {"scenario": key}
+
+
+@pytest.mark.parametrize("env_id", PE1_IDS)
 def test_the_scenarios_are_registered_and_pass_the_gymnasium_checker(env_id):
     env = gym.make(env_id, episode_timeout=30.0)
     with warnings.catch_warnings():

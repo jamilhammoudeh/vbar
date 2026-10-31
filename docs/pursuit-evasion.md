@@ -8,9 +8,10 @@ KSPDG (github.com/mit-ll/spacegym-kspdg) poses spacecraft differential games ins
 Program and flies agents through kRPC in real time. `vbar.games` rebuilds its pursuit-evasion
 problem pe1 from KSPDG's public definition on two-body dynamics, with the same observation list,
 action dictionary, step return and agent interface. An agent written for KSPDG runs unchanged,
-headless, faster than real time and in parallel. The evader bots are V-BAR's own, written from
-KSPDG's one-line descriptions of its evaders; KSPDG's bots are not used or reproduced, so scores
-against them are not comparable with scores in KSPDG.
+headless, faster than real time and in parallel. The evader bots are V-BAR's versions of KSPDG's
+public evaders, written from their source (`pe1/e1_envs.py` and `e3_envs.py`, MIT licence) without
+copying it; they fly the same rules on V-BAR's model, and the differences that remain are listed
+under [Limits](#limits). No V-BAR episode has yet been compared with one flown in the game.
 
 ## The problem
 
@@ -27,21 +28,61 @@ at the closest approach: $d$ the range (m), $v$ the relative speed (m/s), $f$ th
 propellant used so far (kg) and $t$ the mission elapsed time (s). The reward is $-S$ on the step
 that ends the episode and 0 before it.
 
-Two scenarios start from KSPDG's I3 conditions, read from its `pe1_i3_init.sfs` mission save:
-both vessels on a 750 km circular equatorial orbit, the pursuer 0.2 deg (2618 m) behind, the
-evader's orbit tilted by 1e-4 deg.
+The four starts are KSPDG's, read from the ORBIT blocks of its mission saves
+(`pe1_i1_init.sfs` to `pe1_i4_init.sfs`: semi-major axis, eccentricity, inclination, argument of
+periapsis, longitude of the ascending node, mean anomaly at epoch 0), with the saved digits:
 
-| Class | Gymnasium ID | Evader |
+| Start | Pursuer | Evader | Range at the start |
+|---|---|---|---|
+| I1 | ellipse, a = 724999.9 m, e = 0.0345, apoapsis on the evader's circle | 750 km circle | 4510 m; unpowered, they meet within 0.2 m at 121.7 s where the ellipse touches the circle |
+| I2 | 750 km circle inclined 1 deg | 750 km circle | 456.8 m, both 2 deg past the node they share; unpowered, they meet again at the far node after 1073.75 s |
+| I3 | 750 km circle, 0.2 deg behind | 750 km circle tilted 1e-4 deg | 2618 m |
+| I4 | ellipse, a = 754500.2 m, e = 0.0073, inclined 1 deg, another period | the I3 evader | 2660 m |
+
+With the 5 m capture distance, a pursuer that only coasts captures the passive evader from I1 at
+121.6 s. KSPDG describes the starts as "elliptical and circular orbits with a tangential
+conjunction", "inclined orbits with an unactuated conjunction", "about 3 km apart in the same
+circular orbit" and "inclined, out of phase, unsynchronized periods". Each start is flown against
+each evader; a class is named for both, as in KSPDG (`PE1_E3_I2_Env` is evader e3 from start I2),
+and the classes of one evader share a parent (`PE1_E1_ParentEnv`, `PE1_E2_ParentEnv`,
+`PE1_E3_ParentEnv`, `PE1_E4_ParentEnv`). The e3
+classes take KSPDG's `evade_dist` and `evade_throttle` arguments.
+
+| Classes | Gymnasium IDs | Evader |
 |---|---|---|
-| `PE1_E1_I3_Env` | `vbar/PursuitEvasionE1I3-v1` | `PassiveEvader`: never thrusts (KSPDG's e1 is "passive") |
-| `PE1_E3_I3_Env` | `vbar/PursuitEvasionE3I3-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m |
+| `PE1_E1_I1_Env` to `PE1_E1_I4_Env` | `vbar/PursuitEvasionE1I1-v1` to `vbar/PursuitEvasionE1I4-v1` | `PassiveEvader`: never thrusts (KSPDG's e1 is "passive") |
+| `PE1_E2_I1_Env` to `PE1_E2_I4_Env` | `vbar/PursuitEvasionE2I1-v1` to `vbar/PursuitEvasionE2I4-v1` | `RandomEvader`: random throttles, held for random durations, while the pursuer is within 2200 m |
+| `PE1_E3_I1_Env` to `PE1_E3_I4_Env` | `vbar/PursuitEvasionE3I1-v1` to `vbar/PursuitEvasionE3I4-v1` | `NormalEscapeEvader`: full thrust along its orbit normal while the pursuer is within 200 m, acting only inside 2200 m |
+| `PE1_E4_I1_Env` to `PE1_E4_I4_Env` | `vbar/PursuitEvasionE4I1-v1` to `vbar/PursuitEvasionE4I4-v1` | `ProgradeEvader`: a fifth of its forward thrust along its velocity from 0.5 s on |
 
 `NormalEscapeEvader` is written for V-BAR from KSPDG's description of e3 ("heuristic evasion
-maneuvers") and the evasion distance and throttle in its public code (200 m, full throttle); its
-thrust is 8000 N along the angular momentum of its own orbit, it stops when the range rises back
-through 200 m, and its propellant runs out like the pursuer's. The class names are KSPDG's, so a
-KSPDG script needs only its imports changed; the LLM agents of Carrasco, Rodriguez-Fernandez and
-Linares (arXiv 2408.08676) were evaluated on PE1_I3_E3.
+maneuvers") and its public code: it acts only while the pursuer is inside the 2200 m control range
+of KSPDG's pe1 (`CONTROL_RANGE`), where it points along the angular momentum of its own orbit and
+fires its eight forward nozzles (8000 N) while the range is below the evasion distance (200 m, full
+throttle), stopping when the range rises back through it. Outside the control range it changes
+nothing and keeps its last command, as KSPDG's does; with the default distances that is always
+nothing, but with an evasion distance wider than the control range a burn begun inside continues
+after the pursuer leaves. Its propellant runs out like the pursuer's. The class names are KSPDG's,
+so a KSPDG script needs only its imports changed; the LLM agents of Carrasco, Rodriguez-Fernandez
+and Linares (arXiv 2408.08676) were evaluated on PE1_I3_E3.
+
+`RandomEvader` is V-BAR's version of KSPDG's e2 (`e2_envs.py`, "randomized evasive maneuvers").
+While the pursuer is inside the control range it points prograde and repeats: draw a hold time
+uniform on (0, 2) s (`max_duration`, which may not be set below 1 ms, `MIN_HOLD`, as far shorter
+holds round away against the mission clock) and, with probability one half, a throttle on each axis
+uniform on [-1, 1] (otherwise none), and hold them for that time. It looks at the range only when a
+hold ends; outside the control range it keeps its last throttles until the pursuer is back inside,
+as KSPDG's does. KSPDG's bot draws from numpy's unseeded global generator and times its holds with
+wall-clock sleeps, so no two of its runs are alike; V-BAR's draws from the episode seed on simulated
+time, so a seed replays an episode exactly, and scores against it are compared over many seeds.
+KSPDG's e2 also sets random pitch, yaw and roll inputs with its throttles; V-BAR's keeps its forward
+axis prograde and draws none.
+
+`ProgradeEvader` is V-BAR's version of KSPDG's e4 (`e4_envs.py`, "constant low-thrust burn in
+prograde direction, regardless of pursuer"). KSPDG's bot engages its autopilot toward its orbital
+prograde, waits 0.5 s for it to turn, then sets forward throttle 0.2 for the rest of the episode;
+V-BAR's coasts until mission time 0.5 s and then fires 0.2 forward (1600 N) along its inertial
+velocity, pointed exactly, whatever the pursuer does.
 
 ## Observation
 
@@ -97,11 +138,63 @@ dry, on a smaller `Vessel`, stops the thrust at that instant.
 
 The pursuer holds its forward axis on the evader, as KSPDG's pursuer does with SAS in target
 mode. KSP leaves the roll about that axis to SAS; V-BAR fixes it so that down is the part of the
-direction to Kerbin's centre across the line of sight. The evader turns its forward axis to its
-thrust, so its limit is 8000 N.
+direction to Kerbin's centre across the line of sight.
 
 A malformed action (wrong shape, a number that is not finite, a negative duration, an unknown
 frame or vector type) raises `ValueError` and leaves the episode as it was.
+
+## Evader bots
+
+An evader bot flies a sequence of segments (`vbar.games.Segment`). In a segment its throttles
+along its forward, right and down axes are constant, and its forward axis points prograde (along
+its inertial velocity) or along its orbit normal (its angular momentum), with down toward Kerbin
+as for the pursuer; the evader is the same vessel as the pursuer, with the same thrust limits and
+per-axis propellant flow. A segment ends at a mission time (`until`) or where a function of the
+two vessels' states crosses zero in a given direction (`triggers`), and the game then asks the bot
+for the next one with `segment(t, r_p, v_p, r_e, v_e, previous, cause, rng)`, where `cause` is the
+index of the trigger that fired (None at the start and at `until`) and `rng` is the episode's
+evader stream. A bot decides a switch from `cause` rather than by testing its triggers again,
+because at the located crossing they are zero to rounding. A bot that keeps changing segment
+without letting time pass (1000 segments in a row each ending within a microsecond of its start)
+raises `RuntimeError` instead of hanging the episode, and one that returns anything but a
+`Segment` raises `TypeError`.
+
+```python
+from dataclasses import dataclass
+
+from vbar.games import PursuitEvasionEnv, Segment
+
+
+@dataclass(frozen=True)
+class ShortBurn:
+    """Full forward thrust prograde for the first 2.5 s, then nothing."""
+
+    name: str = "short-burn"
+
+    def segment(self, t, r_p, v_p, r_e, v_e, previous, cause, rng):
+        if t < 2.5:
+            return Segment(throttle=(1.0, 0.0, 0.0), pointing="prograde", until=2.5)
+        return Segment()
+
+
+env = PursuitEvasionEnv(evader=ShortBurn(), seed=1)
+env.reset()
+for _ in range(3):
+    observation, reward, done, info = env.step([0.0, 0.0, 0.0, 1.0])
+print(info["evader_fuel_usage"])  # 2.5 s of 8000 N at 240 s: about 8.50 kg
+```
+
+## Seeds
+
+The evader's random stream is drawn from the episode seed: `reset(seed=...)`, else the
+`seed` given to the environment's constructor (then every reset replays the same episode), else
+a fresh 128-bit seed from the operating system. The seed used is kept in `env.seed`. The
+Gymnasium environment passes its `reset(seed=...)` on, and without one draws the stream's seed
+from its `np_random`; `fly(env, agent, seed=...)` and `PursuitTask` pass theirs on too. Nothing the
+agent receives is derived from the seed other than the observation itself. The passive and
+normal-escape bots draw nothing, so their episodes do not depend on it; the random evader draws
+everything it does from it. An agent that tries seeds by flying twin episodes and matching the
+evader's first seconds finds a small seed among 16 candidates and no 128-bit drawn one.
 
 ## Time and integration
 
@@ -114,8 +207,10 @@ under two-body gravity with Kerbin's $\mu$ = 3.5316e12 m^3/s^2 (no oblateness, a
 thrust; their 14 states (positions, velocities, masses) are
 integrated together with DOP853 at relative tolerance 1e-12, which keeps positions near 7.5e5 m
 accurate to about a micrometre. Events found by root finding on the integrator's dense output end
-or mark a segment: capture (range falls through the capture distance), each local minimum of
-range (range rate rising through zero), a tank running dry, and the evader bot switching modes.
+or mark a segment: capture (range falls through the capture distance; a fast pass that dips
+under it and out again within one integrator step shows as a range minimum below it, and the
+crossing before that minimum is then found by Brent's method), each local minimum of
+range (range rate rising through zero), a tank running dry, and the end of an evader segment.
 The closest approach is therefore found between steps, not only at step ends; KSPDG samples it
 when each step ends, so for the same trajectory V-BAR's $d$ is never larger.
 
@@ -176,8 +271,101 @@ while not (terminated or truncated):
 print(reward, info["closest_approach"])
 ```
 
-The game is deterministic: the same agent gives the same episode on every run, whatever the
-number of workers, and the seed changes nothing.
+The same agent and seed give the same episode on every run, whatever the number of workers; with
+the passive and normal-escape evaders the seed changes nothing.
+
+## KSPDG's import names
+
+`vbar.games.compat.install()` makes KSPDG's module paths import V-BAR's pe1 in the running
+process: `kspdg.agent_api.base_agent.KSPDGBaseAgent` is `BaseAgent`,
+`kspdg.agent_api.runner.AgentEnvRunner` is `AgentEnvRunner`, `kspdg.pe1.e3_envs.PE1_E3_I3_Env`
+is V-BAR's class of that name, and the top-level names such as `kspdg.PE1_E3_I3_V1` are the same
+classes, as in KSPDG v0.15.0's `src/kspdg/__init__.py`. The environments V-BAR does not rebuild
+still import, so a script that only names them keeps working, and building one raises
+`NotImplementedError` with the reason: lady-bandit-guard (`kspdg.lbg1`, LG0 to LG2), sun
+blocking (`kspdg.sb1`), the obfuscated `LBG1_LG3_I1_V1` to `LBG1_LG7_I2_V1`, and the 2022-05-16
+pe1 start. Any other `kspdg` module (`kspdg.utils`, for one) raises `ModuleNotFoundError`, and
+any other name `AttributeError`. `install` refuses when the real `kspdg` package is already
+imported; after it, every `kspdg` import in that process gets V-BAR's names until `uninstall()`.
+None of this imports or copies KSPDG.
+
+A KSPDG agent file then runs with no change at all:
+
+```
+python -m vbar.games.compat my_agent.py [args]
+```
+
+installs the names and runs the file as `__main__`, with its folder first on `sys.path` as
+`python my_agent.py` would. The names exist only in that process: worker processes the script
+starts (a `multiprocessing` pool, or `vbar.eval.run_jobs` with more than one worker) import the
+file again without them and fail, so such a script runs with one worker or imports V-BAR's own
+names (`vbar.games`). In a program or a notebook:
+
+```python
+from vbar.games import compat
+
+compat.install()
+
+from kspdg.agent_api.base_agent import KSPDGBaseAgent
+from kspdg.agent_api.runner import AgentEnvRunner
+from kspdg.pe1.e1_envs import PE1_E1_I3_Env
+
+
+class NaivePursuitAgent(KSPDGBaseAgent):
+    def get_action(self, observation):
+        return {"burn_vec": [1.0, 0, 0, 1.0], "vec_type": 0, "ref_frame": 0}
+
+
+runner = AgentEnvRunner(
+    agent=NaivePursuitAgent(),
+    env_cls=PE1_E1_I3_Env,
+    env_kwargs={"episode_timeout": 10.0},
+    runner_timeout=100,
+    debug=False,
+)
+print(runner.run()["agent_env_results"]["closest_approach"])
+compat.uninstall()
+```
+
+Agents that read the live game through kRPC (its Sun position or vessel frames) need the game,
+and agents that import poliastro need it installed; neither changes with the import names.
+
+## Published agents
+
+`ClosestApproachAgent` is V-BAR's reimplementation of Jason Cheng's deterministic agent in
+github.com/ARCLab-MIT/kspdg (commit a45e5c6,
+`arclab_mit/agents/extended_obs_agent/deterministic_agent.py` and `simulate.py`, MIT licence); Cheng
+is an author of "Language Models are Spacecraft Operators" (Rodriguez-Fernandez, Carrasco, Cheng,
+Scharf, Siew and Linares, arXiv 2404.00413). Each call predicts the closest approach of the two
+vessels if both coast, sampling their two-body conics every second for 300 s (`closest_approach`,
+V-BAR's Kepler propagation in place of poliastro), and fires a 5 s inertial-frame throttle burn:
+
+| Predicted approach | Throttle vector |
+|---|---|
+| now, or 80 s or more ahead | 0.7 toward the evader |
+| 25 s to 80 s ahead | 0.7 along the predicted miss vector (pursuer to evader at the approach) |
+| under 25 s ahead | 0.4 along the miss vector minus 0.8 along the predicted relative velocity |
+
+The constants and the order of the arithmetic are the original's. `closest_approach(state,
+max_time)` has the original's signature and returns its first sample of least range, so the true
+minimum may lie up to half a second from the sample.
+
+```python
+from vbar.games import AgentEnvRunner, PE1_E1_I3_Env
+from vbar.games.pursuers import ClosestApproachAgent
+
+info = AgentEnvRunner(ClosestApproachAgent(), PE1_E1_I3_Env, {"episode_timeout": 60.0}).run()
+print(info["agent_env_results"]["closest_approach"])
+```
+
+The original files run in V-BAR too. `tests/test_pursuit_published_agents.py` downloads
+`deterministic_agent.py` and `no_action_agent.py` from that commit, checks their SHA-256, replaces
+the one line that imports the poliastro predictor with `from vbar.games.pursuers import
+closest_approach`, and runs them through KSPDG's names: the deterministic agent flies the same
+episode as `ClosestApproachAgent` (every result to 1e-9) and, run as its own `__main__` in a fresh
+process, captures the passive evader; the no-action agent coasts through the E3 episode. Without
+network access these tests skip. Agents in that repository that read the live game through kRPC,
+or call an LLM service, are not covered.
 
 ## Running many episodes
 
@@ -212,16 +400,24 @@ rerun the script to measure yours.
 
 ## Limits
 
+- The agent runs in the same Python process as the environment, so code in it can reach the
+  environment's objects (the evader's current hold and its seed among them) through the
+  interpreter, as any in-process code can. The seed and observation rules above hold for what
+  the runner passes the agent; an agent that is not trusted needs a process of its own, as in
+  KSPDG, whose runner keeps the agent and the game apart.
 - Two-body point masses: no KSP physics engine, part physics, reaction-wheel slew or roll
   dynamics; the pursuer points at the evader exactly.
+- The evaders point exactly and at once, on simulated time; KSPDG's turn under SAS or the
+  autopilot in game time, so they fire before they finish turning.
+- The random evader holds its forward axis prograde instead of applying random attitude inputs,
+  and draws from a seeded stream on simulated time instead of an unseeded one on wall-clock time.
 - Lockstep time: a slow agent loses no simulated time, unlike in KSPDG, where game time runs on
   while it decides.
-- The episode starts at mission time 0 at the I3 orbits; KSPDG loads the save and pauses about 3 s
+- The episode starts at mission time 0 at the saved orbits' epoch; the saves were written 0.02 s to
+  0.14 s of game time later, and KSPDG loads the save and pauses about 3 s
   of game time before the first observation.
 - `vec_type` takes 0 and 1; KSPDG declares a third value it does not define. Burn durations above
   10 s are accepted, as KSPDG does not enforce its declared bound.
-- Only the I3 start and the e1 and e3 evaders exist so far; scores against V-BAR's evaders are not
-  comparable with KSPDG's.
 
 ## Validation
 
@@ -243,9 +439,97 @@ rerun the script to measure yours.
   10 s step matches a run in 0.25 s steps to 1e-6 m and is 20 m below every 10 s step end.
 - `None` repeats the last action and coasts before the first; a KSPDG-shaped agent class runs
   through `AgentEnvRunner` with KSPDG's arguments; the agent's list is a copy.
-- Both Gymnasium IDs pass `check_env`; parallel and serial runs give identical metrics.
+- Parallel and serial runs give identical metrics (`tests/test_pursuit_scenarios.py`, which also
+  runs `check_env` on every registered pe1 Gymnasium ID, enumerated from the registry).
+
+`tests/test_pursuit_starts.py`:
+
+- Each start's two states equal the save's elements mapped through the perifocal frame and three
+  rotations, written out in the test, to 1e-6 m and 1e-9 m/s.
+- The start ranges are 4510 m (I1), 456.8 m (I2) and 2660 m (I4) to 1 m.
+- I1: the pursuer's apoapsis is the evader's radius to 0.1 m, and an unpowered coast passes within
+  0.2 m at 121.7 s and 37.7 m/s. I2: the start range equals the chord 2 r sin(u) sin(di / 2) to
+  1e-12, and an unpowered coast meets again within 0.1 m at 178/360 of a period, 1073.75 s. I4: the
+  pursuer's semi-major axis, eccentricity and inclination recovered from its state by energy and
+  angular momentum match the save.
+- Every scenario class flies its start and its evader.
+- A fast pass (the I1 coast, 37.7 m/s at the pass) is captured at the capture distance to 1e-6 m
+  at the same instant, to 1e-6 s, whether it is flown in 10 s or 0.5 s steps.
+
+`tests/test_pursuit_random_evader.py`:
+
+- 4000 draws inside the control range: hold times uniform on (0, 2) s (mean 1 s to 0.04 s), on
+  half the time (to 0.035), throttles uniform on [-1, 1] (mean 0 and mean magnitude 0.5); every
+  draw points prograde and ends only at its time.
+- Outside the control range the last throttles are kept and the segment ends where the range
+  falls through 2200 m, after which the bot draws at once; it never burns on the I3 coast, which
+  stays beyond 2618 m.
+- The same seed replays an I2 episode exactly and another seed differs; a draw on all three axes
+  uses each axis's flow.
+- A cheat agent that flies twin episodes for 16 candidate seeds and matches the evader's first
+  three seconds finds seed 7 and does not find a drawn 128-bit seed.
+
+`tests/test_pursuit_prograde_evader.py`:
+
+- No propellant before 0.5 s, then exactly a fifth of the forward flow, 239.5 s of it by the end.
+- After 10 s of burning the evader's velocity differs from a passive twin's by the rocket-equation
+  amount to 1e-3, along its velocity, and not at all with the pursuer burning; over the episode its
+  semi-major axis rises by 20 km to 60 km. Every E4 start flies this evader.
+
+`tests/test_pursuit_compat.py`:
+
+- After `install`, KSPDG's module paths give V-BAR's base agent, runner, base environment and the
+  pe1 constants, and every scenario class under its `kspdg.pe1.e*_envs` module and its top-level
+  `_V1` name (enumerated from `SCENARIOS`).
+- Each environment V-BAR lacks imports, and building it, directly or through `AgentEnvRunner`,
+  raises `NotImplementedError` naming it and the reason; another module or name fails with a
+  message naming V-BAR's KSPDG names.
+- `install` refuses when `kspdg` itself is imported, adds one finder however often it runs, and
+  `uninstall` removes it and the alias modules.
+- A KSPDG agent script written as KSPDG's example runs as `__main__` through `main` with its
+  arguments and its folder first on `sys.path`.
+
+`tests/test_pursuit_published_agents.py` (downloads the original files; skips offline; the full
+episode run as `__main__` is marked slow):
+
+- Only the import lines change, and the files match their SHA-256 at commit a45e5c6.
+- The no-action agent's `[0, 0, 0, 1]` coasts 240 steps of the E3 I3 episode with no propellant,
+  never nearer than 2617.99 m.
+- The deterministic agent and `ClosestApproachAgent` fly a 60 s E1 I3 episode alike (every result
+  to 1e-9, 12 steps); the original prints its predictions as it did.
+- Run as its own `__main__` in a subprocess, the deterministic agent flies the full episode as
+  `ClosestApproachAgent` does and captures the passive evader at 5 m.
+
+`tests/test_pursuit_closest_approach.py`:
+
+- `closest_approach` returns the whole second of least range of an independent DOP853 coast from
+  I1 and I4, with that sample's states to 1e-9; a pair already separating gives time 0.
+- Each branch fires the original's burn: toward the evader for the I3 start (approach 121 s
+  ahead), along the miss vector 40 s ahead, and the braking combination 10 s ahead.
+- From I3 the agent captures the passive evader, using all three branches.
+
+`tests/test_pursuit_bots.py`:
+
+- The I3 episode of `VelocityMatchingPursuer` against the normal-escape evader matches the one
+  recorded with vbar 0.4.0 (closest approach, both vessels' propellant and the score) to 1e-9.
+- A segment ending at 2.5 s inside a 1 s step uses exactly 2.5 s of full forward flow; lateral
+  throttles draw each axis's flow (8000 + 4000 + 2000 N at 240 s); a forward burn pointed prograde
+  or along the orbit normal changes the evader's velocity along that direction by the
+  rocket-equation amount to 1e-5.
+- The same seed flies the same episode with a random bot and another seed differs; a constructor
+  seed holds for every reset, and without one each reset draws a different seed of 128 bits.
+- The normal-escape evader with a 2500 m evasion distance burns nothing until the pursuer is
+  inside 2200 m, then burns to the end of the episode, after the pursuer has left; its segment
+  choice follows the crossing that fired, not a fresh test of the range.
+- Each body-axis throttle (forward, right, down) pushes the evader along that axis with its
+  thrust limit.
+- The Gymnasium seed and `fly`'s seed reach the evader's stream: equal seeds give equal episodes,
+  and unseeded Gymnasium resets follow from the last seeded one.
+- Malformed segments and seeds are refused; a bot that never lets time pass, or whose segments
+  each end about 1e-10 s after they begin, raises instead of hanging.
 
 Sources: KSPDG v0.15.0 (commit 6251ca3): `src/kspdg/pe1/pe1_base.py` (observation, score, timeout,
 capture distance, thrusters, target-hold), `base_envs.py` (actions, frames), `agent_api/` (agent
 and runner signatures), `pe1/README.md` (evader descriptions), `e3_envs.py` (evasion distance and
-throttle) and `ksp_files/saves/missions/pe1_i3/pe1_i3_init.sfs` (orbits, parts, propellant).
+throttle) and the mission saves `ksp_files/saves/missions/pe1_i1/pe1_i1_init.sfs` to
+`pe1_i4/pe1_i4_init.sfs` (the orbits of every start; parts and propellant from `pe1_i3_init.sfs`).

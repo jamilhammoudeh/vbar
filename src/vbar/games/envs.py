@@ -1,8 +1,9 @@
 """The pe1 scenarios: KSPDG-format classes, the Gymnasium environment and the evaluation task.
 
-`PE1_E1_I3_Env` and `PE1_E3_I3_Env` carry KSPDG's environment class names, so a KSPDG agent
-script needs only its imports changed. They are V-BAR versions on two-body dynamics, and their
-evaders are V-BAR's bots: results are not comparable with KSPDG's.
+The classes carry KSPDG's names (`PE1_E3_I3_Env` is evader e3 from start I3), so a KSPDG agent
+script needs only its imports changed, and are built as KSPDG's are: a parent per evader and a
+class per start. They fly V-BAR's model with V-BAR's versions of KSPDG's evaders; the differences
+are listed under Limits in `docs/pursuit-evasion.md`.
 """
 
 from __future__ import annotations
@@ -14,38 +15,185 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
-from .bots import NormalEscapeEvader, PassiveEvader
+from .bots import NormalEscapeEvader, PassiveEvader, ProgradeEvader, RandomEvader
 from .pursuit import PursuitEvasionEnv
 from .runner import fly
 
 
-class PE1_E1_I3_Env(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
-    """pe1 from the I3 start against V-BAR's passive evader (KSPDG's e1 is passive)."""
+class PE1_E1_ParentEnv(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
+    """pe1 against V-BAR's `PassiveEvader` (KSPDG's e1)."""
 
-    scenario = "pe1-e1-i3"
+    initial = "i3"
 
     def __init__(self, **kwargs: Any):
         kwargs.setdefault("evader", PassiveEvader())
-        super().__init__(initial="i3", **kwargs)
+        super().__init__(initial=self.initial, **kwargs)
 
 
-class PE1_E3_I3_Env(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
-    """pe1 from the I3 start against V-BAR's `NormalEscapeEvader`, not KSPDG's e3 bot."""
+class PE1_E2_ParentEnv(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
+    """pe1 against V-BAR's `RandomEvader` (KSPDG's e2), drawing from the episode seed."""
 
-    scenario = "pe1-e3-i3"
+    initial = "i3"
 
     def __init__(self, **kwargs: Any):
-        kwargs.setdefault("evader", NormalEscapeEvader())
-        super().__init__(initial="i3", **kwargs)
+        kwargs.setdefault("evader", RandomEvader())
+        super().__init__(initial=self.initial, **kwargs)
+
+
+class PE1_E3_ParentEnv(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
+    """pe1 against V-BAR's `NormalEscapeEvader` (KSPDG's e3).
+
+    Parameters
+    ----------
+    evade_dist : float
+        Evasion distance (m), KSPDG's argument; used when no `evader` is given.
+    evade_throttle : float
+        Forward throttle in [0, 1] while evading, KSPDG's argument; used when no `evader` is
+        given.
+    **kwargs
+        `PursuitEvasionEnv` parameters except `initial`.
+    """
+
+    initial = "i3"
+
+    def __init__(self, evade_dist: float = 200.0, evade_throttle: float = 1.0, **kwargs: Any):
+        if "evader" not in kwargs:
+            kwargs["evader"] = NormalEscapeEvader(
+                evade_distance=evade_dist, throttle=evade_throttle
+            )
+        super().__init__(initial=self.initial, **kwargs)
+
+
+class PE1_E4_ParentEnv(PursuitEvasionEnv):  # noqa: N801  KSPDG's class name
+    """pe1 against V-BAR's `ProgradeEvader` (KSPDG's e4)."""
+
+    initial = "i3"
+
+    def __init__(self, **kwargs: Any):
+        kwargs.setdefault("evader", ProgradeEvader())
+        super().__init__(initial=self.initial, **kwargs)
+
+
+class PE1_E1_I1_Env(PE1_E1_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I1 start against the passive evader."""
+
+    initial, scenario = "i1", "pe1-e1-i1"
+
+
+class PE1_E1_I2_Env(PE1_E1_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I2 start against the passive evader."""
+
+    initial, scenario = "i2", "pe1-e1-i2"
+
+
+class PE1_E1_I3_Env(PE1_E1_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I3 start against the passive evader."""
+
+    initial, scenario = "i3", "pe1-e1-i3"
+
+
+class PE1_E1_I4_Env(PE1_E1_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I4 start against the passive evader."""
+
+    initial, scenario = "i4", "pe1-e1-i4"
+
+
+class PE1_E2_I1_Env(PE1_E2_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I1 start against the random evader."""
+
+    initial, scenario = "i1", "pe1-e2-i1"
+
+
+class PE1_E2_I2_Env(PE1_E2_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I2 start against the random evader."""
+
+    initial, scenario = "i2", "pe1-e2-i2"
+
+
+class PE1_E2_I3_Env(PE1_E2_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I3 start against the random evader."""
+
+    initial, scenario = "i3", "pe1-e2-i3"
+
+
+class PE1_E2_I4_Env(PE1_E2_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I4 start against the random evader."""
+
+    initial, scenario = "i4", "pe1-e2-i4"
+
+
+class PE1_E3_I1_Env(PE1_E3_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I1 start against the normal-escape evader."""
+
+    initial, scenario = "i1", "pe1-e3-i1"
+
+
+class PE1_E3_I2_Env(PE1_E3_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I2 start against the normal-escape evader."""
+
+    initial, scenario = "i2", "pe1-e3-i2"
+
+
+class PE1_E3_I3_Env(PE1_E3_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I3 start against the normal-escape evader."""
+
+    initial, scenario = "i3", "pe1-e3-i3"
+
+
+class PE1_E3_I4_Env(PE1_E3_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I4 start against the normal-escape evader."""
+
+    initial, scenario = "i4", "pe1-e3-i4"
+
+
+class PE1_E4_I1_Env(PE1_E4_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I1 start against the prograde evader."""
+
+    initial, scenario = "i1", "pe1-e4-i1"
+
+
+class PE1_E4_I2_Env(PE1_E4_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I2 start against the prograde evader."""
+
+    initial, scenario = "i2", "pe1-e4-i2"
+
+
+class PE1_E4_I3_Env(PE1_E4_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I3 start against the prograde evader."""
+
+    initial, scenario = "i3", "pe1-e4-i3"
+
+
+class PE1_E4_I4_Env(PE1_E4_ParentEnv):  # noqa: N801  KSPDG's class name
+    """pe1 from KSPDG's I4 start against the prograde evader."""
+
+    initial, scenario = "i4", "pe1-e4-i4"
 
 
 SCENARIOS: dict[str, type[PursuitEvasionEnv]] = {
-    "pe1-e1-i3": PE1_E1_I3_Env,
-    "pe1-e3-i3": PE1_E3_I3_Env,
+    cls.scenario: cls
+    for cls in (
+        PE1_E1_I1_Env,
+        PE1_E1_I2_Env,
+        PE1_E1_I3_Env,
+        PE1_E1_I4_Env,
+        PE1_E2_I1_Env,
+        PE1_E2_I2_Env,
+        PE1_E2_I3_Env,
+        PE1_E2_I4_Env,
+        PE1_E3_I1_Env,
+        PE1_E3_I2_Env,
+        PE1_E3_I3_Env,
+        PE1_E3_I4_Env,
+        PE1_E4_I1_Env,
+        PE1_E4_I2_Env,
+        PE1_E4_I3_Env,
+        PE1_E4_I4_Env,
+    )
 }
+# "pe1-e3-i3" is registered as "vbar/PursuitEvasionE3I3-v1".
 GYMNASIUM_IDS = {
-    "pe1-e1-i3": "vbar/PursuitEvasionE1I3-v1",
-    "pe1-e3-i3": "vbar/PursuitEvasionE3I3-v1",
+    key: "vbar/PursuitEvasion{}{}-v1".format(*key.upper().split("-")[1:]) for key in SCENARIOS
 }
 
 
@@ -54,7 +202,8 @@ class PursuitEvasionGymEnv(gym.Env):
 
     The observation is the KSPDG observation as a float64 array of 15; the action is KSPDG's
     dictionary (`burn_vec`, `ref_frame`, `vec_type`). An episode terminates at capture and is
-    truncated at the timeout. The game is deterministic, so the seed changes nothing.
+    truncated at the timeout. The seed of `reset` seeds the evader's random stream; without one,
+    the stream's seed is drawn from `np_random`, so a seeded first reset fixes every later one.
 
     Parameters
     ----------
@@ -89,7 +238,7 @@ class PursuitEvasionGymEnv(gym.Env):
         Parameters
         ----------
         seed : int, optional
-            Seeds `np_random`; the game itself draws nothing.
+            Seeds `np_random` and the evader's random stream.
         options : dict, optional
             Unused, as Gymnasium allows.
 
@@ -99,7 +248,9 @@ class PursuitEvasionGymEnv(gym.Env):
         info : dict
         """
         super().reset(seed=seed)
-        observation, info = self.game.reset()
+        if seed is None:
+            seed = int.from_bytes(self.np_random.bytes(16), "little")
+        observation, info = self.game.reset(seed=seed)
         return np.array(observation), info
 
     def step(self, action):
@@ -125,8 +276,9 @@ class PursuitEvasionGymEnv(gym.Env):
 class PursuitTask:
     """The pe1 scenarios as a task of the evaluation harness (`vbar.eval.run_jobs`).
 
-    Agents are KSPDG-format (`get_action(observation)`). The game is deterministic, so the
-    seeds of a job are recorded but change nothing. Success is a capture.
+    Agents are KSPDG-format (`get_action(observation)`). A job's seed seeds the evader's random
+    stream; KSPDG agents draw nothing, so its agent seed is recorded but unused. Success is a
+    capture.
 
     Parameters
     ----------
@@ -144,7 +296,7 @@ class PursuitTask:
 
     def record(self, env: Any, agent: Any, seed: int, agent_seed: int) -> dict[str, Any]:
         """One episode flown by `fly`; returns its last info."""
-        return fly(env, agent)
+        return fly(env, agent, seed=seed)
 
     def score(self, env: Any, episode: Mapping[str, Any]) -> dict[str, Any]:
         """The KSPDG score terms of the episode, its step count and whether it captured."""
@@ -171,8 +323,26 @@ class PursuitTask:
 
 __all__ = [
     "GYMNASIUM_IDS",
+    "PE1_E1_I1_Env",
+    "PE1_E1_I2_Env",
     "PE1_E1_I3_Env",
+    "PE1_E1_I4_Env",
+    "PE1_E1_ParentEnv",
+    "PE1_E2_I1_Env",
+    "PE1_E2_I2_Env",
+    "PE1_E2_I3_Env",
+    "PE1_E2_I4_Env",
+    "PE1_E2_ParentEnv",
+    "PE1_E3_I1_Env",
+    "PE1_E3_I2_Env",
     "PE1_E3_I3_Env",
+    "PE1_E3_I4_Env",
+    "PE1_E3_ParentEnv",
+    "PE1_E4_I1_Env",
+    "PE1_E4_I2_Env",
+    "PE1_E4_I3_Env",
+    "PE1_E4_I4_Env",
+    "PE1_E4_ParentEnv",
     "SCENARIOS",
     "PursuitEvasionGymEnv",
     "PursuitTask",

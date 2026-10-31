@@ -366,7 +366,8 @@ KSPDG.
 
 `vbar.games` rebuilds KSPDG's pe1 pursuit-evasion problem on two-body dynamics, with KSPDG's
 observation list, action dictionary and agent interface, so an agent written for KSPDG runs
-unchanged, headless, faster than real time and in parallel. The evaders are V-BAR's own bots.
+unchanged, headless, faster than real time and in parallel. The four starts are KSPDG's mission
+saves; the evaders are V-BAR's versions of KSPDG's public evaders.
 
 ```python
 from vbar.games import PE1_E3_I3_Env, AgentEnvRunner
@@ -376,7 +377,9 @@ results = AgentEnvRunner(VelocityMatchingPursuer(), PE1_E3_I3_Env, {"episode_tim
 print(results["agent_env_results"]["weighted_score"])
 ```
 
-The scenarios are also Gymnasium environments (`vbar/PursuitEvasionE3I3-v1`); see
+A KSPDG agent file runs with no change at all through `python -m vbar.games.compat my_agent.py`,
+which gives KSPDG's import names to V-BAR's classes in that process. The scenarios are also Gymnasium
+environments (`vbar/PursuitEvasionE3I3-v1` and the others); see
 [docs/pursuit-evasion.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/pursuit-evasion.md).
 
 ## Scenario catalogue

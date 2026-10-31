@@ -73,17 +73,50 @@ def body_axes(
     Raises
     ------
     ValueError
-        If the two positions coincide.
+        If the two positions coincide, or a position is at the centre or not finite.
+    """
+    x, y, z = (float(c) for c in r)
+    lx, ly, lz = (float(a) - b for a, b in zip(r_target, (x, y, z), strict=True))
+    return axes_along((x, y, z), (lx, ly, lz))
+
+
+def axes_along(
+    r: Sequence[float] | np.ndarray, forward: Sequence[float] | np.ndarray
+) -> np.ndarray:
+    """Rows forward, right, down of a vessel at `r` whose forward axis points along `forward`.
+
+    Down is the part of -r perpendicular to forward, or of the inertial -z axis when forward is
+    radial, as in `body_axes`.
+
+    Parameters
+    ----------
+    r : array_like, shape (3,)
+        Position (m), body-centred inertial.
+    forward : array_like, shape (3,)
+        The forward direction, any nonzero length, inertial.
+
+    Returns
+    -------
+    numpy.ndarray, shape (3, 3)
+        Unit axes forward, right, down as rows, in inertial coordinates.
+
+    Raises
+    ------
+    ValueError
+        If `forward` or `r` is zero or not finite.
     """
     # Plain float arithmetic: this runs inside the integrator's derivative, where small numpy
     # calls cost more than the arithmetic.
     x, y, z = (float(c) for c in r)
-    lx, ly, lz = (float(a) - b for a, b in zip(r_target, (x, y, z), strict=True))
-    distance = math.sqrt(lx * lx + ly * ly + lz * lz)
-    if not distance > 0.0:
-        raise ValueError("the body frame needs a target away from the vessel")
+    lx, ly, lz = (float(c) for c in forward)
+    # hypot neither overflows nor underflows, and is NaN or infinite for any such component.
+    distance = math.hypot(lx, ly, lz)
+    if not 0.0 < distance < math.inf:
+        raise ValueError("the body frame needs a finite target away from the vessel")
     fx, fy, fz = lx / distance, ly / distance, lz / distance
-    r_norm = math.sqrt(x * x + y * y + z * z)
+    r_norm = math.hypot(x, y, z)
+    if not 0.0 < r_norm < math.inf:
+        raise ValueError("the body frame needs a finite position away from the centre")
     for ux, uy, uz in ((-x / r_norm, -y / r_norm, -z / r_norm), (0.0, 0.0, -1.0), (1.0, 0.0, 0.0)):
         along = ux * fx + uy * fy + uz * fz
         dx, dy, dz = ux - along * fx, uy - along * fy, uz - along * fz
@@ -95,4 +128,4 @@ def body_axes(
     return np.array([(fx, fy, fz), right, (dx, dy, dz)])
 
 
-__all__ = ["REF_FRAMES", "body_axes", "ntw_axes"]
+__all__ = ["REF_FRAMES", "axes_along", "body_axes", "ntw_axes"]
