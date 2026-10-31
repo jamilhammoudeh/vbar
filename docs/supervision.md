@@ -238,16 +238,38 @@ the thrust limit needs, then coasts; a CAM is such a burn, so it is finite, not 
 
 ## Rule supervisor
 
-`RuleSupervisor(settle_s=60.0, overspeed=1.2)` decides by the first rule that applies, after the
-staged-approach discipline of Fehse 6.5:
+`RuleSupervisor(settle_s=60.0, overspeed=1.2, warning_s=600.0, brake_margin=0.5, strikes=2)`
+decides by the first rule that applies, after the staged-approach discipline of Fehse 6.5:
 
 1. In the `commit` phase of a docking, THRUST_INHIBIT if valid.
-2. Closer than 1.1 keep-out radii and closing, CAM if valid. The "contact" rung is exempt, since a
+2. Predicted collision, outside the `commit` phase, on a rung that is not "contact" and farther
+   out than the goal's `commit_radius`, while closing. The free drift of the observed state is
+   propagated with the exact transition matrix (`cw_stm`) at the view's mean motion and sampled
+   every 5 s from 5 s up to and including `warning_s`. If a sample comes strictly within the
+   largest keep-out radius $R$, and either the chaser is already inside $R$ or stopping at the
+   sphere needs more than `brake_margin` times `max_accel`, that is
+   $\dot\rho^2 / (2(\rho - R)) > \mathrm{brake\_margin}\cdot a_{max}$, then CAM if valid, else
+   RETREAT if valid. A view without a keep-out sphere has no such rule. The matrices are built at
+   reset.
+3. Braking deficit, in the same places: in `stopped` or `holding`, closing faster than
+   `overspeed` times `speed_cap` at the range and not slower than at the previous consult, on
+   `strikes` consecutive consults: RETREAT if valid, else CAM if valid. A consult where the
+   closing speed fell restarts the count at itself; leaving `stopped` and `holding`, dropping
+   under the threshold, or a reset clears it. The first consult after a reset counts as not
+   slower.
+4. Closer than 1.1 keep-out radii and closing, CAM if valid. The "contact" rung is exempt, since a
    port's keep-out sphere is entered on purpose.
-3. In `transfer`, closing faster than `overspeed` times `speed_cap` at the range: HOLD if valid.
+5. In `transfer`, closing faster than `overspeed` times `speed_cap` at the range: HOLD if valid.
    `stopped` and not closing that fast: GO if valid.
-4. `holding` with GO valid at each consult for at least `settle_s` seconds: GO.
-5. Otherwise CONTINUE.
+6. `holding` with GO valid at each consult for at least `settle_s` seconds: GO.
+7. Otherwise CONTINUE.
+
+`warning_s` and `brake_margin` are positive finite numbers and `strikes` a positive integer;
+anything else raises `ValueError`. The rules read only the situation and the view.
+`tests/test_rule_supervisor_aborts.py` asserts rules 2 and 3 (sample times, the braking
+condition, `brake_margin`, strikes and their resets, mask fallbacks, exemptions, priorities,
+parameter checks) and, in a slow test, that the supervisor still succeeds without a keep-out
+violation on the core scenarios.
 
 ## Language-model supervisor
 
