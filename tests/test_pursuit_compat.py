@@ -137,6 +137,14 @@ def test_a_kspdg_agent_script_runs_as_written(tmp_path, monkeypatch):
     assert results["pursuer_fuel_usage"] == pytest.approx(20 * 8000.0 / (240.0 * 9.80665))
 
 
+def test_main_refuses_a_missing_script_before_changing_the_process(tmp_path):
+    before = (list(sys.path), list(sys.argv), list(sys.meta_path))
+    with pytest.raises(SystemExit, match="no such script"):
+        compat.main([str(tmp_path / "missing.py")])
+    assert (sys.path, sys.argv, sys.meta_path) == before
+    assert "kspdg" not in sys.modules
+
+
 def test_main_without_a_script_prints_its_usage():
     with pytest.raises(SystemExit, match="usage"):
         compat.main([])

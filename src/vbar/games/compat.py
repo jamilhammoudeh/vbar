@@ -177,6 +177,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not args:
         raise SystemExit("usage: python -m vbar.games.compat script.py [args]")
     script = Path(args[0]).resolve()
+    if not script.is_file():
+        raise SystemExit(f"no such script: {args[0]}")
     install()
     sys.argv = [str(script), *args[1:]]
     # As `python script.py` would, so the script's own sibling imports resolve.
