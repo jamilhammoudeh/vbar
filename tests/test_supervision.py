@@ -278,8 +278,8 @@ def test_the_orbit_rung_arrives_within_5_m_and_0_05_m_s_like_the_entry_rung():
     assert [(r.radius, r.speed) for r in rungs] == [(5.0, 0.05), (5.0, 0.05)]
 
 
-def test_the_departure_task_has_no_ladder():
-    name = "separation-flyaround"
+@pytest.mark.parametrize("name", ["separation-flyaround", "tumbling-capture"])
+def test_the_departure_and_capture_tasks_have_no_ladder(name):
     with pytest.raises(ValueError, match="no ladder"):
         ladder(make(name).agent_view(), first_observation(name))
 

@@ -60,7 +60,7 @@ behind the inspector at t = 0 and turns with the Sun afterwards ([Tracker](#set-
 
 `ladder` raises `ValueError` if the goal lacks a key its task needs, if a line of sight or the Sun
 direction is zero, if an approach cone has an infinite active range, or if the task has no ladder.
-The departure task has none.
+The departure and capture tasks have none.
 
 ## Phases
 
@@ -324,8 +324,11 @@ result is added. `action_masks()` is the bool mask for the sb3-contrib conventio
 
 ## Limits
 
-- Only hold, berthing, docking and inspection goals have a ladder. The departure task has none:
-  `ladder` raises `ValueError` for it.
+- Only hold, berthing, docking and inspection goals have a ladder. The departure and capture tasks
+  have none: `ladder` raises `ValueError` for them.
+- `SupervisorEnv` is a training interface: like the base environment and `FilteredEnv`, it passes
+  the inner environment's `info`, `true_state` included, to the learner. The features a
+  `PolicySupervisor` is scored on come from the `Situation` only.
 - RECONFIGURE is refused: the chaser has no redundant units.
 - The drift and CAM checks of the mask sample the arc each 5 s over two orbits and pad each
   interval by the greater end speed. That is a heuristic, not a certificate: a command the mask
@@ -366,7 +369,7 @@ Flights are marked `slow`.
 - `ValueError` for a goal missing a key of the hold, docking or inspection task, naming it (p): `test_a_goal_missing_a_key_its_task_needs_raises_value_error_naming_the_key`, `test_an_inspection_goal_without_a_sun_direction_raises_value_error_naming_it`.
 - `ValueError` for a zero line of sight, hold goal at the target and inspection: `test_a_hold_goal_at_the_target_with_a_zero_first_line_of_sight_raises_value_error`, `test_an_inspection_with_a_zero_first_line_of_sight_raises_value_error`.
 - `ValueError` for a zero Sun direction and one along the orbit normal (p): `test_an_inspection_goal_with_no_sun_direction_in_the_orbit_plane_raises_value_error`.
-- `ValueError` for an infinite cone range and for the departure task: `test_an_approach_cone_with_an_infinite_active_range_raises_value_error`, `test_the_departure_task_has_no_ladder`.
+- `ValueError` for an infinite cone range and for the departure and capture tasks: `test_an_approach_cone_with_an_infinite_active_range_raises_value_error`, `test_the_departure_and_capture_tasks_have_no_ladder`.
 
 `tests/test_supervision.py`, phases, mask and orders:
 
