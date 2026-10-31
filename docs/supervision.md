@@ -297,8 +297,22 @@ reply of more than `MAX_REPLY_CHARS` (8192) characters, which is not read; an or
 hundred characters. The order is the first JSON object among the reply's first eight opening
 braces, so prose before it may hold a few braces and the object may nest. Each log entry holds the
 time, prompt, reply, the order's reason (None on a parse failure), the failure flag, model calls,
-tokens, cost (None without a `price`) and latency; `usage()` totals decisions, calls, tokens, cost
-and parse failures. Errors the model raises, including `ReplayError`, are not caught.
+tokens, cost (None without a `price`) and latency. Errors the model raises, including
+`ReplayError`, are not caught.
+
+A reply is invalid when it holds no order or orders a command that is not valid now. With
+`LLMSupervisor(..., repairs=k)` an invalid reply is sent back: the model gets the conversation so
+far, its reply, the reason ("Your reply was not a command in the requested format." or "RETREAT
+is not available now: ..." with the agent's reason), the commands valid now and the reply format,
+at most k times per consult. The default is 0, no repair. A final reply with no order is CONTINUE,
+as above; a final order for a command that is not valid now is passed on and the agent refuses it,
+so the supervisor fails closed either way. The log entry adds `invalid` (the final reply was
+invalid) and `repair_replies` (the replies sent back, in order), and its calls, tokens, cost and
+latency cover every call of the consult. `usage()` totals decisions, calls, tokens, cost, parse
+failures, `invalid_actions` (consults whose final reply was invalid), `invalid_replies` (every
+invalid reply, repaired or not), `repair_attempts` and `repaired` (consults an invalid reply was
+repaired at). The invalid-action rate of a run is `invalid_actions / decisions`, and the repair
+attempt rate `repair_attempts / decisions`.
 
 ## Learned supervisor
 
@@ -431,6 +445,7 @@ Flights are marked `slow`.
 - It lists the valid commands and each other with its reason, and the last refusal appears in the next prompt only, also in a flown agent: `test_the_prompt_lists_exactly_the_valid_commands_and_each_other_with_its_reason`, `test_the_last_refusal_is_in_the_next_prompt_only`, `test_the_prompt_of_a_flown_agent_lists_the_commands_its_mask_allows`, `test_a_refused_order_reaches_the_next_prompt_of_a_flown_agent`.
 - A goal without a key its task needs is refused at reset: `test_a_goal_without_a_key_its_task_needs_is_refused_at_reset`.
 - Usage totals decisions, tokens, cost and parse failures; an unparseable reply is CONTINUE, leaves the reference and is counted; a reply of `MAX_REPLY_CHARS` parses and one more does not: `test_usage_counts_decisions_tokens_cost_and_parse_failures`, `test_an_unparseable_reply_is_continue`, `test_an_unparseable_reply_leaves_the_tracker_reference_and_is_counted`, `test_a_reply_longer_than_the_bound_is_a_parse_failure`.
+- An unparseable reply or a command not valid now is one invalid action without repairs; a repair sends back the reply with its reason and the valid commands, the repaired order counts, a valid first reply is not repaired, a reply still invalid after every repair is CONTINUE or the refused order, and `repairs` must be a non-negative integer: `test_without_repairs_an_unparseable_reply_is_one_call_and_one_invalid_action`, `test_without_repairs_a_command_not_valid_now_is_passed_on_and_counted_invalid`, `test_a_repaired_reply_is_the_order_and_the_model_saw_its_reply_and_the_reason`, `test_the_repair_of_a_command_not_valid_now_names_it_and_its_reason`, `test_a_valid_first_reply_is_not_repaired`, `test_a_reply_still_invalid_after_every_repair_is_continue_or_the_refused_order`, `test_repairs_must_be_a_non_negative_integer`.
 - `slow`: a stand-in model that reads only the prompt gives the rule supervisor's orders: `test_a_stand_in_reading_only_the_prompt_gives_the_rule_supervisors_orders_early_in_a_flight`, `test_a_stand_in_reading_only_the_prompt_gives_the_rule_supervisors_orders_on_a_drawn_seed`.
 - A recorded run replays to identical steps, and one byte changed in the prompt or request raises `ReplayError`: `test_a_recorded_run_replays_to_identical_supervision_steps_without_the_model`, `test_a_replay_with_one_byte_of_the_prompt_changed_raises_replay_error`, `test_a_replay_with_one_byte_of_the_request_changed_raises_replay_error`.
 - Starts more than 10 m apart give identical prompts, no number of the true state is in a prompt, and a misbriefed target's prompt equals its briefing's: `test_runs_from_true_starts_more_than_10_m_apart_give_identical_prompts`, `test_no_number_of_the_true_state_is_in_the_prompts_of_a_flight`, `test_the_prompt_of_a_misbriefed_target_is_the_prompt_of_its_briefing`.
