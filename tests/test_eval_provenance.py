@@ -15,6 +15,7 @@ from hypothesis import strategies as st
 from vbar.agents import PDAgent
 from vbar.eval import Job, read_results, run_jobs
 from vbar.eval.provenance import provenance_fields, provenance_hash
+from vbar.safety import FilterResult
 from vbar.scenarios import seeds
 
 needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -484,7 +485,7 @@ class GainFilter:
         pass
 
     def filter(self, obs, action):
-        return self.gain * action
+        return FilterResult(self.gain * action, self.gain != 1.0)
 
 
 class HorizonFilter(GainFilter):
