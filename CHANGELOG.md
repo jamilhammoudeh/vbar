@@ -10,6 +10,8 @@ release may change the public API, and every such change is listed under Changed
 
 - `vbar.eval.inference`: `holm` and `benjamini_hochberg` corrections for a family of p-values and
   `sign_flip_test`, a paired randomisation test of two agents flown on the same seeds.
+- `vbar.agents.BudgetedModel` and `BudgetExceeded`: a cap on an LLM agent's or supervisor's model
+  calls or dollars that refuses the call that could pass it; `docs/llm-agents.md` documents it.
 
 ## [0.5.0] - 2026-10-31
 

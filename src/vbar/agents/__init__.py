@@ -30,6 +30,8 @@ from .glideslope import GlideslopeAgent, GlideslopeProfile, glideslope_profile, 
 from .lambert import LambertAgent
 from .learned_supervisor import PolicySupervisor, supervisor_features
 from .llm import (
+    BudgetedModel,
+    BudgetExceeded,
     LLMAgent,
     Price,
     RecordedModel,
@@ -77,6 +79,8 @@ __all__ = [
     "DISC27",
     "MUTANT_KINDS",
     "Agent",
+    "BudgetExceeded",
+    "BudgetedModel",
     "CWTrackingAgent",
     "DeclaredModel",
     "DriftAgent",
