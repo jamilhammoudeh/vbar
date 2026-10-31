@@ -28,6 +28,10 @@ from .vessels import _number
 Switch = Callable[[np.ndarray, np.ndarray, np.ndarray, np.ndarray], float]
 POINTINGS = ("prograde", "normal")
 
+# The shortest RandomEvader.max_duration (s). Far shorter holds round away against the mission
+# clock (redrawn forever below about 1e-14 s) or end segments too fast for the game to accept.
+MIN_HOLD = 1e-3
+
 # KSPDG pe1_base.py, PARAMS.EVADER.CONTROL_RANGE: the pursuer range inside which e2 and e3 act.
 CONTROL_RANGE = 2200.0  # m
 
@@ -188,7 +192,7 @@ class RandomEvader:
     Parameters
     ----------
     max_duration : float
-        Longest hold (s) of one draw.
+        Longest hold (s) of one draw, at least `MIN_HOLD`.
     control_range : float
         Pursuer range (m) inside which the bot draws.
     """
@@ -198,7 +202,8 @@ class RandomEvader:
     name: str = "vbar-random-evader"
 
     def __post_init__(self):
-        _number(self.max_duration, "max_duration")
+        if not _number(self.max_duration, "max_duration") >= MIN_HOLD:
+            raise ValueError(f"max_duration must be at least {MIN_HOLD} s")
         _number(self.control_range, "control_range")
 
     def _control(self, r_p, v_p, r_e, v_e) -> float:
@@ -251,6 +256,7 @@ class ProgradeEvader:
 
 __all__ = [
     "CONTROL_RANGE",
+    "MIN_HOLD",
     "POINTINGS",
     "EvaderBot",
     "NormalEscapeEvader",

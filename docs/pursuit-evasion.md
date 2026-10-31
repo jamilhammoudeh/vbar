@@ -68,14 +68,15 @@ and Linares (arXiv 2408.08676) were evaluated on PE1_I3_E3.
 
 `RandomEvader` is V-BAR's version of KSPDG's e2 (`e2_envs.py`, "randomized evasive maneuvers").
 While the pursuer is inside the control range it points prograde and repeats: draw a hold time
-uniform on (0, 2) s and, with probability one half, a throttle on each axis uniform on [-1, 1]
-(otherwise none), and hold them for that time. It looks at the range only when a hold ends; outside
-the control range it keeps its last throttles until the pursuer is back inside, as KSPDG's does.
-KSPDG's bot draws from numpy's unseeded global generator and times its holds with wall-clock
-sleeps, so no two of its runs are alike; V-BAR's draws from the episode seed on simulated time, so
-a seed replays an episode exactly, and scores against it are compared over many seeds. KSPDG's e2
-also sets random pitch, yaw and roll inputs with its throttles; V-BAR's keeps its forward axis
-prograde and draws none.
+uniform on (0, 2) s (`max_duration`, which may not be set below 1 ms, `MIN_HOLD`, as far shorter
+holds round away against the mission clock) and, with probability one half, a throttle on each axis
+uniform on [-1, 1] (otherwise none), and hold them for that time. It looks at the range only when a
+hold ends; outside the control range it keeps its last throttles until the pursuer is back inside,
+as KSPDG's does. KSPDG's bot draws from numpy's unseeded global generator and times its holds with
+wall-clock sleeps, so no two of its runs are alike; V-BAR's draws from the episode seed on simulated
+time, so a seed replays an episode exactly, and scores against it are compared over many seeds.
+KSPDG's e2 also sets random pitch, yaw and roll inputs with its throttles; V-BAR's keeps its forward
+axis prograde and draws none.
 
 `ProgradeEvader` is V-BAR's version of KSPDG's e4 (`e4_envs.py`, "constant low-thrust burn in
 prograde direction, regardless of pursuer"). KSPDG's bot engages its autopilot toward its orbital

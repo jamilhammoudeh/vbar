@@ -2,6 +2,7 @@
 
 from .bots import (
     CONTROL_RANGE,
+    MIN_HOLD,
     EvaderBot,
     NormalEscapeEvader,
     PassiveEvader,
@@ -49,6 +50,7 @@ from .vessels import PE1_VESSEL, Vessel
 
 __all__ = [
     "CONTROL_RANGE",
+    "MIN_HOLD",
     "CAPTURE_DIST",
     "EPISODE_TIMEOUT",
     "GYMNASIUM_IDS",

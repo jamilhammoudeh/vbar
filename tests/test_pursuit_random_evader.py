@@ -124,8 +124,21 @@ def test_an_agent_cannot_find_a_drawn_seed_by_flying_twins():
 
 
 @pytest.mark.parametrize(
-    "kwargs", [{"max_duration": 0.0}, {"max_duration": float("inf")}, {"control_range": -1.0}]
+    "kwargs",
+    [
+        {"max_duration": 0.0},
+        {"max_duration": float("inf")},
+        {"max_duration": 1e-15},
+        {"max_duration": 0.999e-3},
+        {"control_range": -1.0},
+    ],
 )
 def test_bad_settings_of_the_random_evader_are_refused(kwargs):
     with pytest.raises(ValueError):
         RandomEvader(**kwargs)
+
+
+def test_the_shortest_hold_flies_without_stalling():
+    env = PE1_E2_I2_Env(evader=RandomEvader(max_duration=1e-3), seed=5, episode_timeout=0.05)
+    info = fly(env, Coast())
+    assert info["is_episode_done"] and info["evader_fuel_usage"] > 0.0
