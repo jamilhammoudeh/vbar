@@ -256,9 +256,37 @@ def test_llm_prompt_is_built_from_the_observation_not_the_truth():
     agent.reset(env.agent_view())
     agent.act(obs, env.agent_info())
     prompt = agent.log[0]["prompt"]
-    reported = float(re.search(r"distance to target = ([\d.]+) m", prompt).group(1))
-    assert reported == round(float(np.linalg.norm(obs[:3])), 1)
+    reported = float(re.search(r"distance to the target = ([\d.]+) m", prompt).group(1))
+    assert reported == round(float(np.linalg.norm(obs[:3])), 2)
     assert abs(reported - 400.0) > 0.05
+
+
+@pytest.mark.parametrize(
+    "gains, message",
+    [
+        ({"wn": 0.0}, "wn must be"),
+        ({"wn": -0.01}, "wn must be"),
+        ({"wn": float("nan")}, "wn must be"),
+        ({"wn": float("inf")}, "wn must be"),
+        # wn**2 overflows a double.
+        ({"wn": 1e200}, "wn must be"),
+        ({"zeta": -0.5}, "zeta must be"),
+        ({"zeta": float("nan")}, "zeta must be"),
+        ({"zeta": float("inf")}, "zeta must be"),
+        # 2 * zeta * wn, the kd act() uses, overflows a double.
+        ({"wn": 1.0, "zeta": 1e308}, "zeta must be"),
+    ],
+)
+def test_pd_agent_refuses_gains_that_give_no_finite_command(gains, message):
+    with pytest.raises(ValueError, match=message):
+        PDAgent(**gains)
+
+
+def test_pd_agent_accepts_an_undamped_law():
+    view = ApproachEnv(ApproachConfig()).agent_view()
+    agent = PDAgent(zeta=0.0)
+    agent.reset(view)
+    assert np.all(np.isfinite(agent.act(np.array([-150.0, -400.0, 0.0, 0.1, 0.0, 0.0]), {})))
 
 
 def test_pd_agent_flies_the_same_in_accel_action_mode():

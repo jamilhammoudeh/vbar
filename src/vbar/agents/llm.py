@@ -13,9 +13,10 @@ observation it was given (metric A5). `RecordedModel` keeps a run's
 requests and replies and `ReplayModel` plays them back, so a run repeats exactly without the
 model.
 
-The simulation clock is paused during the model call unless the run is in real time. Every
-number in the prompt comes from the observation or the scenario's public description, never
-from the true state.
+The default prompt describes the goal and constraints of every task kind and the observed state
+measured against them (`vbar.agents.briefing`). The simulation clock is paused during the model
+call unless the run is in real time. Every number in the prompt comes from the observation, the
+agent's `info` or the scenario's public description, never from the true state.
 """
 
 from __future__ import annotations
@@ -33,25 +34,23 @@ from typing import Any
 
 import numpy as np
 
-from .base import AgentView, action_scale, hold_point
+from .base import AgentView, action_scale
 from .tools import Tool, call_tool
 
 PROMPT_TEMPLATE = """You are the guidance system of a chaser spacecraft near a target spacecraft.
 
 Frame (centered on the target): x = radial (up, away from Earth), y = along-track
-(direction of flight), z = cross-track. Units: meters and meters per second.
-
-Goal: reach the hold point {hold} m and stop there (speed below {cap_speed} m/s).
-Constraint: NEVER come within {keep_out} m of the target (the origin).
+(direction of flight), z = cross-track. Units: meters, meters per second and seconds.
 Orbital mechanics apply (Clohessy-Wiltshire dynamics, mean motion n = {n:.6f} rad/s).
 
-Current state (t = {t:.0f} s):
-  position = [{x:.1f}, {y:.1f}, {z:.1f}] m
-  velocity = [{vx:.3f}, {vy:.3f}, {vz:.3f}] m/s
-  distance to hold point = {dist:.1f} m, distance to target = {rng:.1f} m
+{briefing}
 
-Each command is held for {dt:.0f} s. Thrust per axis is a fraction of the maximum
-({max_accel} m/s^2), between -1 and 1.
+Current state (t = {t:.0f} s):
+  position = [{x:.2f}, {y:.2f}, {z:.2f}] m
+  velocity = [{vx:.4f}, {vy:.4f}, {vz:.4f}] m/s
+{situation}
+
+Each command is held for {dt:.0f} s. {thrust}
 
 {reply_format}"""
 
@@ -67,6 +66,9 @@ BELIEF_RANGE_TOL = 0.1
 
 # Fields a prompt template may use.
 PROMPT_FIELDS = (
+    "briefing",
+    "situation",
+    "thrust",
     "hold",
     "cap_speed",
     "keep_out",
@@ -84,6 +86,13 @@ PROMPT_FIELDS = (
     "max_accel",
     "reply_format",
 )
+# Fields only some goals can fill, with what they need.
+GOAL_FIELDS = {
+    "hold": "hold_point",
+    "dist": "hold_point",
+    "cap_speed": "capture_speed",
+    "keep_out": "keep-out radius",
+}
 
 
 @dataclass(frozen=True)
@@ -250,6 +259,59 @@ def first_json(text: str, pattern: str = r"\{.*?\}") -> Any:
         return None
 
 
+# Opening braces of a reply tried in turn for its first object; prose before the object may hold
+# the others. Each try reads at most to where its value closes or nests too deep.
+OBJECT_STARTS = 8
+_DECODER = json.JSONDecoder()
+
+
+def _depth_from(text: str, start: int) -> int:
+    """Deepest nesting of the JSON value that opens at `start`, read up to where it closes, or
+    MAX_JSON_DEPTH + 1 as soon as it nests deeper."""
+    depth = peak = 0
+    in_string = escaped = False
+    for ch in text[start:]:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            peak = max(peak, depth)
+            if peak > MAX_JSON_DEPTH:
+                break
+        elif ch in "]}":
+            depth -= 1
+            if depth <= 0:
+                break
+    return peak
+
+
+def first_object(text: str) -> dict[str, Any] | None:
+    """The first JSON object in `text` that opens at one of its first `OBJECT_STARTS` braces,
+    nested values included, or None. An object nested deeper than MAX_JSON_DEPTH is skipped."""
+    if not isinstance(text, str):
+        return None
+    start = text.find("{")
+    for _ in range(OBJECT_STARTS):
+        if start < 0:
+            return None
+        if _depth_from(text, start) <= MAX_JSON_DEPTH:
+            try:
+                value, _ = _DECODER.raw_decode(text, start)
+            except (ValueError, RecursionError):
+                value = None
+            if isinstance(value, dict):
+                return value
+        start = text.find("{", start + 1)
+    return None
+
+
 def parse_belief(text: str) -> dict[str, Any] | None:
     """The first JSON object in a reply with a finite number `range_m` and a boolean `closing`.
 
@@ -293,7 +355,9 @@ def belief_matches(belief: Mapping[str, Any] | None, obs: np.ndarray) -> bool:
 
 def parse_action(text: str) -> np.ndarray | None:
     """Extract {"ax":..,"ay":..,"az":..} from a model reply. Returns None on failure."""
-    data = first_json(text)
+    data = first_object(text)
+    if data is None:
+        return None
     try:
         a = np.array([float(data["ax"]), float(data["ay"]), float(data["az"])])
     except REPLY_ERRORS:
@@ -307,10 +371,12 @@ def parse_action(text: str) -> np.ndarray | None:
 class LLMAgent:
     """Agent that asks `complete(messages, tools)` for each command.
 
-    `prompt` is a `str.format` template over `PROMPT_FIELDS`; `price` turns the reported tokens
-    into dollars; `tools` are offered to the model for at most `max_tool_rounds` rounds of calls
-    per decision; `belief` asks for the model's range and closing belief and checks it. An
-    unparseable reply is logged and the spacecraft coasts.
+    `prompt` is a `str.format` template over `PROMPT_FIELDS`; the default describes the goal and
+    constraints of every task kind (`vbar.agents.briefing`), and `reset` refuses a goal that
+    lacks a key the template's fields need. `price` turns the reported tokens into dollars;
+    `tools` are offered to the model for at most `max_tool_rounds` rounds of calls per decision;
+    `belief` asks for the model's range and closing belief and checks it. An unparseable reply
+    is logged and the spacecraft coasts.
     """
 
     complete: Model
@@ -324,46 +390,75 @@ class LLMAgent:
     log: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
-        used = {f for _, f, _, _ in string.Formatter().parse(self.prompt) if f}
-        unknown = used - set(PROMPT_FIELDS)
+        self.fields = {f for _, f, _, _ in string.Formatter().parse(self.prompt) if f}
+        unknown = self.fields - set(PROMPT_FIELDS)
         if unknown:
             raise ValueError(f"unknown prompt fields {sorted(unknown)}, expected {PROMPT_FIELDS}")
 
     def reset(self, view: AgentView, rng: np.random.Generator | None = None) -> None:
-        # The prompt states a hold point and a keep-out radius; refuse a goal without them now,
-        # not at the first decision.
-        hold_point(view, "LLM agent")
-        keep_out = [c for c in view.constraints if c["type"] == "keep_out" and "radius" in c]
-        if not keep_out:
-            raise ValueError("the LLM agent's prompt needs a keep-out radius")
+        # The briefing reads the target modes of `vbar.scenarios`, which imports this module.
+        from .briefing import briefing, check_goal
+
+        # Refuse a goal the prompt cannot describe now, not at the first decision.
+        check_goal(view)
+        radii = [c["radius"] for c in view.constraints if c["type"] == "keep_out" and "radius" in c]
+        available = {"hold_point", "capture_speed"} & set(view.goal)
+        if radii:
+            available.add("keep-out radius")
+        missing = sorted({GOAL_FIELDS[f] for f in self.fields if f in GOAL_FIELDS} - available)
+        if missing:
+            task = view.goal.get("task", "hold")
+            raise ValueError(
+                f"the prompt needs a {', '.join(missing)}, which the {task} goal lacks"
+            )
         self.view = view
         self.scale = action_scale(view)
+        self.keep_out = radii[0] if radii else None
+        self.briefing = briefing(view)
+        if view.thrust_limit == "ball":
+            self.thrust = (
+                f"The command is a vector of fractions of the maximum ({view.max_accel} m/s^2); a "
+                "vector longer than 1 is shortened to length 1."
+            )
+        else:
+            self.thrust = (
+                f"Thrust per axis is a fraction of the maximum ({view.max_accel} m/s^2), between "
+                "-1 and 1."
+            )
         self.log = []
 
     def prompt_text(self, obs: np.ndarray, info: Mapping[str, Any]) -> str:
         """The prompt for observation `obs`, from the observation and the public view only."""
         view = self.view
-        hold = np.array(view.goal["hold_point"], dtype=float)
-        keep_out = next(c["radius"] for c in view.constraints if c["type"] == "keep_out")
         x, y, z, vx, vy, vz = obs[:6]
-        return self.prompt.format(
-            hold=hold.tolist(),
-            cap_speed=view.goal["capture_speed"],
-            keep_out=keep_out,
-            n=view.n,
-            t=info["time_s"],
-            x=x,
-            y=y,
-            z=z,
-            vx=vx,
-            vy=vy,
-            vz=vz,
-            dist=float(np.linalg.norm(obs[:3] - hold)),
-            rng=float(np.linalg.norm(obs[:3])),
-            dt=view.dt,
-            max_accel=view.max_accel,
-            reply_format=self.reply_format(),
-        )
+        values: dict[str, Any] = {
+            "briefing": self.briefing,
+            "thrust": self.thrust,
+            "n": view.n,
+            "t": info["time_s"],
+            "x": x,
+            "y": y,
+            "z": z,
+            "vx": vx,
+            "vy": vy,
+            "vz": vz,
+            "rng": float(np.linalg.norm(obs[:3])),
+            "dt": view.dt,
+            "max_accel": view.max_accel,
+            "reply_format": self.reply_format(),
+        }
+        if "situation" in self.fields:
+            from .briefing import situation
+
+            values["situation"] = situation(view, obs, info)
+        if "hold_point" in view.goal:
+            hold = np.array(view.goal["hold_point"], dtype=float)
+            values["hold"] = hold.tolist()
+            values["dist"] = float(np.linalg.norm(obs[:3] - hold))
+        if "capture_speed" in view.goal:
+            values["cap_speed"] = view.goal["capture_speed"]
+        values["keep_out"] = self.keep_out
+        return self.prompt.format(**values)
 
     def reply_format(self) -> str:
         return BELIEF_FORMAT if self.belief else REPLY_FORMAT

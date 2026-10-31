@@ -24,11 +24,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import secrets
 import socket
 import time
 from collections.abc import Mapping
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 from typing import Any
 
 import numpy as np
@@ -36,6 +37,8 @@ import numpy as np
 from .base import Agent, AgentView
 
 PROTOCOL = 1
+# Seconds a new connection has to say hello before the server drops it and waits for another.
+HELLO_WAIT_S = 10.0
 # Longest message line accepted, in bytes; a view or an observation is a few kilobytes.
 MAX_LINE = 1 << 20
 
@@ -44,8 +47,14 @@ class RemoteAgentError(RuntimeError):
     """The remote agent broke the protocol, reported an error or did not answer in time."""
 
 
+def is_number(value: Any) -> bool:
+    """Whether a decoded JSON value is a number; booleans are not."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
 def view_to_dict(view: AgentView) -> dict[str, Any]:
-    """The view as JSON-ready data; tuples become lists."""
+    """The view as JSON-ready data; tuples become lists and dataclasses (a constraint's central
+    body) the mapping of their fields."""
 
     def plain(value):
         if isinstance(value, Mapping):
@@ -54,6 +63,8 @@ def view_to_dict(view: AgentView) -> dict[str, Any]:
             return [plain(v) for v in value]
         if isinstance(value, np.generic):
             return value.item()
+        if is_dataclass(value) and not isinstance(value, type):
+            return {f.name: plain(getattr(value, f.name)) for f in fields(value)}
         return value
 
     return {f.name: plain(getattr(view, f.name)) for f in fields(view)}
@@ -171,9 +182,12 @@ class RemoteAgent:
                 raise RemoteAgentError(f"expected an integer action from 0 to 26, got {action!r}")
             return int(action)
         size = 4 if self.mode == "impulse_coast" else 3
+        # The protocol carries numbers; numpy would also read quoted numbers and booleans.
+        if not isinstance(action, list) or not all(is_number(v) for v in action):
+            raise RemoteAgentError(f"expected {size} numbers, got {action!r}")
         try:
             command = np.array(action, dtype=float)
-        except (TypeError, ValueError, OverflowError) as error:
+        except OverflowError as error:
             raise RemoteAgentError(f"expected {size} numbers, got {action!r}") from error
         if command.shape != (size,) or not np.all(np.isfinite(command)):
             raise RemoteAgentError(f"expected {size} finite numbers, got {action!r}")
@@ -202,24 +216,36 @@ class AgentServer:
         return host, port
 
     def accept(self) -> RemoteAgent:
-        """Wait for one agent to connect and say hello."""
-        self.sock.settimeout(self.timeout)
-        try:
-            conn, _ = self.sock.accept()
-        except TimeoutError as error:
-            raise RemoteAgentError("no agent connected in time") from error
-        conn.settimeout(self.timeout)
-        line = _Line(conn)
-        try:
-            hello = line.receive()
-        except RemoteAgentError:
-            line.close()
-            raise
-        version = hello.get("protocol")
-        if hello.get("type") != "hello" or type(version) is not int or version != PROTOCOL:
-            line.close()
-            raise RemoteAgentError(f"expected a protocol {PROTOCOL} hello, got {hello}")
-        return RemoteAgent(line, str(hello.get("name", "remote")))
+        """Wait for an agent to connect and say a protocol hello.
+
+        A connection that sends no valid hello within `HELLO_WAIT_S` (or `timeout`, if shorter)
+        is closed and the server waits for the next one, so a silent or wrong first connection
+        cannot take the session from the agent behind it. The wait ends after `timeout` s with no
+        new connection.
+        """
+        refused = None
+        while True:
+            self.sock.settimeout(self.timeout)
+            try:
+                conn, _ = self.sock.accept()
+            except TimeoutError as error:
+                if refused is None:
+                    raise RemoteAgentError("no agent connected in time") from error
+                raise RemoteAgentError(f"no agent said a valid hello in time: {refused}") from error
+            conn.settimeout(min(self.timeout, HELLO_WAIT_S))
+            line = _Line(conn)
+            try:
+                hello = line.receive()
+                version = hello.get("protocol")
+                if hello.get("type") != "hello" or type(version) is not int or version != PROTOCOL:
+                    raise RemoteAgentError(f"expected a protocol {PROTOCOL} hello, got {hello}")
+            except RemoteAgentError as error:
+                line.close()
+                refused = str(error)
+                continue
+            conn.settimeout(self.timeout)
+            line.timeout = self.timeout
+            return RemoteAgent(line, str(hello.get("name", "remote")))
 
     def close(self) -> None:
         self.sock.close()
@@ -263,8 +289,57 @@ def serve_agent(agent: Agent, host: str, port: int, timeout: float | None = None
                 return
 
 
+def seed_argument(text: str) -> int:
+    """A seed given on a command line or in a seeds file: a whole number, not negative (an
+    `argparse` type)."""
+    try:
+        seed = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid seed {text!r}") from None
+    if seed < 0:
+        raise argparse.ArgumentTypeError(f"seeds must not be negative, got {seed}")
+    return seed
+
+
+def add_seed_options(parser: argparse.ArgumentParser) -> None:
+    """The seed options both servers take: `--seeds`, `--seeds-file` and `--episodes`."""
+    given = parser.add_mutually_exclusive_group()
+    given.add_argument(
+        "--seeds",
+        type=seed_argument,
+        nargs="+",
+        help="seeds to repeat; by default drawn and recorded",
+    )
+    given.add_argument(
+        "--seeds-file",
+        help="file of seeds to repeat, one per line, which keeps them out of the process list",
+    )
+    parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
+
+
+def session_seeds(parser: argparse.ArgumentParser, args: argparse.Namespace) -> list[int]:
+    """The session's seeds: given, read from `--seeds-file`, or drawn (128 bits) and recorded."""
+    if args.episodes < 1:
+        parser.error("--episodes must be at least 1")
+    if args.seeds:
+        return list(args.seeds)
+    if args.seeds_file is not None:
+        try:
+            # utf-8-sig also reads the byte-order mark some Windows editors write.
+            with open(args.seeds_file, encoding="utf-8-sig") as lines:
+                seeds = [seed_argument(line.strip()) for line in lines if line.strip()]
+        except (OSError, UnicodeDecodeError, argparse.ArgumentTypeError) as error:
+            parser.error(f"--seeds-file: {error}")
+        if not seeds:
+            parser.error("--seeds-file holds no seeds")
+        return seeds
+    # A small seed can be found by matching the first observation, so seeds are drawn.
+    return [secrets.randbits(128) for _ in range(args.episodes)]
+
+
 def main(argv: list[str] | None = None) -> None:
-    """Host the default approach scenario for one remote agent and write its results.
+    """Host a scenario, the approach scenario by default, for one remote agent and write its
+    results.
 
     However the session fails (at hello, during an episode, by a disconnect or a message the
     server cannot use), the episode being flown is written unfinished with the error, and so is
@@ -272,28 +347,33 @@ def main(argv: list[str] | None = None) -> None:
     """
 
     from ..runner import ScoredRun
-    from ..scenarios import ApproachConfig, ApproachEnv
+    from ..scenarios import ApproachConfig, ApproachEnv, make
 
     parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument(
+        "--scenario", help="catalogue name, name:variant or identifier; the approach by default"
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5555)
-    parser.add_argument(
-        "--seeds", type=int, nargs="+", help="seeds to repeat; by default drawn and recorded"
-    )
-    parser.add_argument("--episodes", type=int, default=1, help="episodes with drawn seeds")
+    add_seed_options(parser)
     parser.add_argument("--out", default="results.jsonl", help="JSON lines, one per episode")
-    parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--timeout", type=float, default=60.0, help="s; bounds every wait")
     args = parser.parse_args(argv)
-    if args.episodes < 1:
-        parser.error("--episodes must be at least 1")
-    # A small seed can be found by matching the first observation, so seeds are drawn.
-    seeds = args.seeds or [secrets.randbits(128) for _ in range(args.episodes)]
+    seeds = session_seeds(parser, args)
+    if not 0 <= args.port <= 65535:
+        parser.error("--port must be from 0 to 65535")
+    if not 0.0 < args.timeout < math.inf:
+        parser.error("--timeout must be a positive number of seconds")
+    try:
+        env = make(args.scenario) if args.scenario else ApproachEnv(ApproachConfig())
+    except (KeyError, ValueError) as error:
+        parser.error(str(error.args[0]))
     server = AgentServer(args.host, args.port, args.timeout)
     print(f"waiting for an agent on {args.host}:{server.address[1]}", flush=True)
-    env = ApproachEnv(ApproachConfig())
 
     def write(out, result: dict) -> None:
         plain = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in result.items()}
+        plain["scenario_id"] = env.scenario_id
         out.write(json.dumps(plain) + "\n")
         out.flush()
 

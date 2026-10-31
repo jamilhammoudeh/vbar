@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import sys
 
@@ -16,6 +17,7 @@ from vbar.agents.mcp import (
     ToolServer,
     main,
 )
+from vbar.agents.remote import view_to_dict
 from vbar.agents.tools import predict_coast
 
 # Only a hang should reach this; a loaded machine took 143 s for what takes 3 s idle.
@@ -67,7 +69,8 @@ def test_an_episode_flown_through_tool_calls_is_the_in_process_episode():
         _, snapshot = call(server, "command", ax=ax, ay=ay, az=az)
         if snapshot["episode_over"]:
             break
-        assert set(snapshot) == {"episode_over", "observation", "time_s", "steps_left", "episode"}
+        expected = {"episode_over", "observation", "time_s", "situation", "steps_left", "episode"}
+        assert set(snapshot) == expected
     local = run_episode(ApproachEnv(env.cfg), PDAgent(), seed=3)
     (served,) = server.results
     assert served["agent"] == "pd-over-mcp" and served["captured"]
@@ -324,3 +327,218 @@ def test_a_command_too_large_for_a_float_is_a_tool_error():
 def test_the_tool_server_refuses_modes_without_a_continuous_command(mode):
     with pytest.raises(ValueError, match=f"'{mode}' takes no continuous command"):
         ToolServer(ApproachEnv(ApproachConfig(action_mode=mode)), [0])
+
+
+@pytest.mark.parametrize("name", ["inspection", "docking-offset"])
+def test_the_task_described_is_the_episode_being_flown(name):
+    # Both scenarios draw their goal at each reset: the Sun direction, the port's attitude.
+    from vbar.scenarios import make
+
+    env = make(name)
+    built = env.agent_view()
+    server = ToolServer(env, [5])
+    call(server, "start_episode")
+    _, task = call(server, "describe_task")
+    assert task["view"]["goal"] == view_to_dict(env.agent_view())["goal"]
+    assert task["view"]["goal"] != view_to_dict(built)["goal"]
+
+
+def test_the_task_and_each_observation_come_with_the_episode_s_briefing_and_situation():
+    # docking-offset draws its target's pitch, and so its port, at each reset.
+    from vbar.agents.briefing import briefing, situation
+    from vbar.scenarios import make
+
+    env = make("docking-offset")
+    server = ToolServer(env, [5])
+    _, before = call(server, "describe_task")
+    _, snapshot = call(server, "start_episode")
+    assert snapshot["briefing"] == briefing(env.agent_view()) != before["briefing"]
+    _, task = call(server, "describe_task")
+    assert task["briefing"] == briefing(env.agent_view())
+    assert task["briefing"].startswith("Task: dock at the target's port")
+    obs = np.array(list(snapshot["observation"].values()))
+    assert snapshot["situation"] == situation(env.agent_view(), obs, env.agent_info())
+    assert "lateral offset from the axis" in snapshot["situation"]
+    _, snapshot = call(server, "command", ax=0.0, ay=0.0, az=0.0)
+    obs = np.array(list(snapshot["observation"].values()))
+    assert snapshot["situation"] == situation(env.agent_view(), obs, env.agent_info())
+
+
+def test_the_command_line_serves_a_catalogue_scenario_by_name(tmp_path):
+    # A real subprocess: a few seconds idle, nearly all of it importing numpy and scipy.
+    out = tmp_path / "results.jsonl"
+    lines = [
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "describe_task"}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_episode"}},
+        *[
+            {
+                "jsonrpc": "2.0",
+                "id": 3 + k,
+                "method": "tools/call",
+                "params": {"name": "command", "arguments": {"ax": 0, "ay": 0, "az": 0}},
+            }
+            for k in range(2)
+        ],
+    ]
+    argv = ["--scenario", "docking-afrl", "--seeds", "9", "--max-steps", "2", "--out", str(out)]
+    done = subprocess.run(
+        [sys.executable, "-m", "vbar.agents.mcp", *argv],
+        input="\n".join(json.dumps(m) for m in lines) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=HANG,
+    )
+    task = json.loads(done.stdout.splitlines()[0])["result"]["structuredContent"]
+    assert task["view"]["scenario_id"].startswith("vbar:docking-afrl:")
+    (result,) = [json.loads(line) for line in out.read_text().splitlines()]
+    assert result["scenario_id"] == task["view"]["scenario_id"] and len(result["actions"]) == 2
+
+
+def test_the_command_line_refuses_an_unknown_scenario(capsys):
+    with pytest.raises(SystemExit):
+        main(["--scenario", "docking-sideways"])
+    assert "unknown scenario 'docking-sideways'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["--seeds", "-1", "5"], "seeds must not be negative, got -1"),
+        (["--seeds", "5", "-1"], "seeds must not be negative, got -1"),
+        (["--max-steps", "0"], "--max-steps must be at least 1"),
+        (["--max-steps", "-3"], "--max-steps must be at least 1"),
+    ],
+)
+def test_the_command_line_refuses_bad_options_before_it_serves(argv, message, capsys):
+    with pytest.raises(SystemExit):
+        main(argv)
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"ax": "0.5", "ay": 0, "az": 0},
+        {"ax": True, "ay": False, "az": True},
+        {"ax": 0, "ay": 0},
+        {"ax": 0, "ay": None, "az": 0},
+    ],
+)
+def test_a_command_takes_only_json_numbers_and_flies_nothing_otherwise(arguments):
+    server = ToolServer(ApproachEnv(ApproachConfig(max_steps=2)), [0])
+    call(server, "start_episode")
+    result, _ = call(server, "command", **arguments)
+    assert (
+        result["isError"] and "command needs numbers ax, ay and az" in result["content"][0]["text"]
+    )
+    assert len(server.episode.actions) == 0
+    result, _ = call(server, "predict_coast", seconds=True)
+    assert result["isError"] and "seconds must be a number" in result["content"][0]["text"]
+
+
+def test_the_command_line_reads_utf8_whatever_the_locale(tmp_path):
+    # A real subprocess, a few seconds idle. Windows consoles decode text input in the ANSI code
+    # page, which garbled non-ASCII ids before the server read its input as UTF-8 bytes.
+    ident = "é中\U0001f600"
+    lines = [
+        json.dumps({"jsonrpc": "2.0", "id": ident, "method": "ping"}, ensure_ascii=False).encode(),
+        b'{"jsonrpc": "2.0", "id": 2, "method": "ping", "x": "\xff\xfe"}',
+        json.dumps({"jsonrpc": "2.0", "id": 3, "method": "ping"}).encode(),
+    ]
+    out = tmp_path / "results.jsonl"
+    done = subprocess.run(
+        [sys.executable, "-m", "vbar.agents.mcp", "--max-steps", "1", "--out", str(out)],
+        input=b"\n".join(lines) + b"\n",
+        capture_output=True,
+        timeout=HANG,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"},
+    )
+    responses = [json.loads(line) for line in done.stdout.splitlines()]
+    assert responses[0] == {"jsonrpc": "2.0", "id": ident, "result": {}}
+    assert responses[1]["error"]["code"] == PARSE_ERROR and responses[1]["id"] is None
+    assert responses[2]["id"] == 3
+
+
+def test_a_lit_docking_task_is_described_in_strict_json():
+    from vbar.scenarios import make
+
+    server = ToolServer(make("docking:lit"), [3])
+    response = request(server, "tools/call", name="describe_task")
+    assert not response["result"]["isError"]
+    json.dumps(response, allow_nan=False)
+
+
+def test_the_command_line_reads_its_seeds_from_a_file(tmp_path):
+    # Seeds on the command line are visible to every process that lists the others.
+    seeds_file = tmp_path / "seeds.txt"
+    # With a byte-order mark, as some Windows editors save UTF-8.
+    seeds_file.write_text(f"\ufeff{2**100 + 7}\n\n  12\n", encoding="utf-8")
+    out = tmp_path / "results.jsonl"
+    argv = ["--seeds-file", str(seeds_file), "--max-steps", "1", "--out", str(out)]
+    command = [sys.executable, "-m", "vbar.agents.mcp", *argv]
+    subprocess.run(command, input="", capture_output=True, text=True, timeout=HANG, check=True)
+    assert [json.loads(line)["seed"] for line in out.read_text().splitlines()] == [2**100 + 7, 12]
+
+
+@pytest.mark.parametrize(
+    "lines, message",
+    [
+        ("5\n-1\n", "--seeds-file: seeds must not be negative, got -1"),
+        ("5\nseven\n", "--seeds-file: invalid seed"),
+        ("\n\n", "--seeds-file holds no seeds"),
+        # UTF-16, as Windows PowerShell 5.1 writes with ">".
+        ("5\n".encode("utf-16"), "--seeds-file: 'utf-8' codec can't decode"),
+    ],
+)
+def test_a_bad_seeds_file_is_refused_before_the_session(lines, message, tmp_path, capsys):
+    seeds_file = tmp_path / "seeds.txt"
+    if isinstance(lines, bytes):
+        seeds_file.write_bytes(lines)
+    else:
+        seeds_file.write_text(lines, encoding="utf-8")
+    with pytest.raises(SystemExit):
+        main(["--seeds-file", str(seeds_file)])
+    assert message in capsys.readouterr().err
+
+
+def test_seeds_come_from_the_command_line_or_a_file_not_both(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        main(["--seeds", "1", "--seeds-file", str(tmp_path / "missing.txt")])
+    assert "not allowed with argument" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["--seeds-file", str(tmp_path / "missing.txt")])
+    assert "--seeds-file:" in capsys.readouterr().err
+    # An empty name, as an unset shell variable gives, must not fall back to drawn seeds.
+    with pytest.raises(SystemExit):
+        main(["--seeds-file", ""])
+    assert "--seeds-file:" in capsys.readouterr().err
+
+
+def test_a_killed_and_relaunched_server_keeps_no_record_of_its_episodes(tmp_path):
+    # The documented limit of a session a stdio client starts itself.
+    out = tmp_path / "results.jsonl"
+    argv = ["--seeds", "4", "5", "--max-steps", "1", "--out", str(out)]
+    command = [sys.executable, "-m", "vbar.agents.mcp", *argv]
+    calls = [
+        ("initialize", {}),
+        ("tools/call", {"name": "start_episode"}),
+        ("tools/call", {"name": "command", "arguments": {"ax": 0, "ay": 0, "az": 0}}),
+        ("tools/call", {"name": "start_episode"}),
+    ]
+
+    def launch(calls):
+        server = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        for ident, (method, params) in enumerate(calls, 1):
+            message = {"jsonrpc": "2.0", "id": ident, "method": method, "params": params}
+            server.stdin.write(json.dumps(message) + "\n")
+            server.stdin.flush()
+            assert json.loads(server.stdout.readline())["id"] == ident
+        server.kill()
+        server.wait(HANG)
+        server.stdin.close()
+        server.stdout.close()
+
+    launch(calls)
+    assert [json.loads(line)["seed"] for line in out.read_text().splitlines()] == [4]
+    launch(calls[:1])
+    assert out.read_text() == ""

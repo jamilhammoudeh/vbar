@@ -1,10 +1,11 @@
 # LLM agents
 
 Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `ToolCall`, `Price`, `text_model`, `parse_action`,
-`RecordedModel`, `ReplayModel`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`, `TRANSFER_BURN`,
-`CW_TOOLS`). An LLM agent asks a language model for each command. V-BAR has no model client of its
-own: the model is any function, so a hosted API, a local model or a test stand-in plugs in the same
-way.
+`RecordedModel`, `ReplayModel`), `vbar.agents.briefing` (`briefing`, `situation`, `check_goal`,
+`target_mode`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`, `TRANSFER_BURN`, `CW_TOOLS`). An
+LLM agent flies every task kind (hold, berthing, docking, inspection, departure); it asks a
+language model for each command. V-BAR has no model client of its own: the model is any function,
+so a hosted API, a local model or a test stand-in plugs in the same way.
 
 ## The model function
 
@@ -23,29 +24,98 @@ prompt string to a reply string.
 
 ## Prompt
 
-The default prompt (`PROMPT_TEMPLATE`) gives the frame and its axes, the goal and capture speed,
-the keep-out radius, the mean motion, the time, the observed position and velocity, the
-distances to the hold point and the target, the step length and the thrust limit, and ends with
-the reply format, a JSON object of fractions such as `{"ax": 0.1, "ay": -0.5, "az": 0.0}`.
-`prompt=` replaces it with any `str.format` template over the fields in `PROMPT_FIELDS`:
+The default prompt (`PROMPT_TEMPLATE`) gives the frame and its axes, the mean motion, the briefing
+of the task, the time, the observed position (to 1 cm) and velocity (to 0.1 mm/s), the situation
+lines, the step length and the thrust limit, and ends with the reply format, a JSON object of
+fractions such as `{"ax": 0.1, "ay": -0.5, "az": 0.0}`. `prompt=` replaces it with any
+`str.format` template over the fields in `PROMPT_FIELDS`:
 
 | Field | Value |
 |---|---|
-| `hold`, `cap_speed`, `keep_out` | hold point (m), capture speed (m/s), keep-out radius (m) |
+| `briefing` | the goal, the target's motion and every constraint, in sentences (below) |
+| `situation` | the observed state measured against the goal, one line per quantity (below) |
+| `thrust` | the thrust limit: per axis for box thrusters, the vector's length for a ball |
 | `n`, `dt`, `max_accel` | mean motion (rad/s), step (s), maximum acceleration (m/s^2) |
 | `t` | time since the start (s) |
 | `x`, `y`, `z`, `vx`, `vy`, `vz` | the observed state (m, m/s) |
-| `dist`, `rng` | observed distance to the hold point and to the target (m) |
+| `rng` | observed distance to the target (m) |
+| `hold`, `cap_speed`, `dist` | hold point (m), capture speed (m/s), observed distance to the hold point (m) |
+| `keep_out` | the keep-out radius (m) |
 | `reply_format` | the instruction for the reply's JSON |
 
-Every value comes from the observation or the scenario's public description (`AgentView`),
-never from the true state. A template with an unknown field is refused when the agent is built.
+Every value comes from the observation, the agent's `info` or the scenario's public description
+(`AgentView`), never from the true state. A template with an unknown field is refused when the
+agent is built. `reset` refuses a goal that lacks a key the template needs: `hold`, `dist` and
+`cap_speed` need a goal with a hold point and a capture speed, `keep_out` a `keep_out`
+constraint with a radius, and the briefing the keys of its task (table below). The default
+template uses none of the hold fields, so it flies every task kind.
 
-The first JSON object in the reply is read; each fraction is clipped to [-1, 1] and converted to
-the action mode. A reply without a valid object (malformed, nested more than 32 levels deep, or
-holding a number too large for a float) is a parse failure (metric A4) and the spacecraft coasts
-for that step; `true` and `false` read as 1 and 0, as the environment reads them. The agent rejects
-the discrete and burn-and-coast action modes.
+### Briefing and situation
+
+`vbar.agents.briefing` turns the public view into words. `briefing(view)` describes the goal of
+each task kind from its keys (`TASK_KEYS`, which `check_goal(view)` requires). `check_goal` also
+refuses a numeric goal entry the briefing puts in a sentence that is not finite numbers of the
+right shape and sign: 3-vectors for points and directions, a nonzero port axis and Sun
+direction, an axial speed window with 0 <= low < high, positive radii, limits and ranges, a
+positive whole number of points, a coverage in (0, 1], a Sun exclusion angle in [0, pi], burn and
+waypoint lists of 3-vectors, a station-keeping point at a positive distance with a dwell of 0 or
+more, and inhibit windows that start at or after 0.
+`target_mode` refuses a mode parameter that is not a single finite number, and a zero spin axis.
+An entry the briefing does not know is printed as it is. The task keys:
+
+| Task | Keys | Sentence |
+|---|---|---|
+| `hold` | `hold_point`, `capture_radius`, `capture_speed` | reach the hold point and stop within the radius below the speed, for `hold_time` without a break when it is set |
+| `berth` | the hold keys and `capture_time` | rest in the capture box; the thrusters are inhibited for the capture window while the arm grapples |
+| `dock` | `port`, `port_axis`, `lateral_limit`, `lateral_speed_limit`, `axial_speed_window` | contact is the first crossing of the port plane within `contact_range` of the port, inside the lateral offset, lateral speed and axial speed window |
+| `inspect` | `points`, `target_radius`, `max_range`, `sun_exclusion`, `coverage` | when a point is imaged (range, facing side, lit, Sun out of the camera's view) and the coverage of the points lit at some time that succeeds |
+| `depart` | `port`, `port_axis`, `clear_range`, `drift_horizon` | reach the clear range on a path whose free drift does not return into the keep-out zone, or within `drift_radius` of the target's centre when the goal has one, within the horizon; arrival scored at the clear point |
+| `capture` | `capture_point`, `interface`, `capture_radius`, `capture_speed`, `hold_time`, `body_ends`, `body_radius` | stay within the radius of the capture point, which is fixed to the turning body (given in body axes, stated in Hill axes at t = 0), at a velocity relative to it below the speed, for `hold_time` without a break; the body is a capsule that turns with the target |
+
+A goal of another task is named and its keys are listed as they are. The other goal entries
+each get a sentence: the target's attitude mode (passive, a fixed pitch with an optional limit
+cycle, inertial pointing, a tumble, a torque-free or gravity-gradient rigid body with its moments,
+angular velocity and axes at t = 0, or a manoeuvring target with its burn schedule), suggested
+waypoints and a docking hold point (not scored), thrust-inhibit windows, the range beyond which
+passive safety is scored, the radius inside which abort availability is not, the plume range,
+and the Sun direction at t = 0, which turns about z at -n. Each public constraint gets a line:
+keep-out sphere (open at the port for a docking target, with the reception depth), corridor cone
+(half-angle in degrees, apex, axis and active range), speed and closing-speed limits
+v0 + v1 rho, a gate table, the passive-speed envelopes on the V-bar, n (rho - d) / 0.47755, and
+the R-bar, n sqrt((4 rho - d)^2 - 9 rho^2) (Fehse, *Automated Rendezvous and Docking of
+Spacecraft*, eqs. 3.28 and 3.22), the lighting window, and a zone that may not be entered before
+the GO time. A constraint of an unknown type is shown with its parameters. Every goal entry and
+constraint of the built-in catalogue has its own sentence.
+
+Ports, corridors and the body keep-out are fixed to the target's body; `target_mode(entry)`
+rebuilds the briefed attitude mode from the goal's `"target"` entry, and the briefing gives
+their positions in Hill axes at t = 0. `situation(view, obs, info)` gives, from the observation:
+
+- the distance to the target, the closing speed $-\mathbf r\cdot\mathbf v/\rho$ and the speed;
+- for a hold or berthing, the distance to the hold point;
+- for a docking or departure, the distance along the port axis $(\mathbf r - \mathbf p)\cdot\hat
+  a$, the lateral offset from the axis, the speed along the axis toward the port (outward for a
+  departure) and the lateral speed, measured as the contact check measures them, with the port
+  and its axis where the briefed mode has turned them by now;
+- for a departure, the distance to the clear point;
+- for a capture, the capture point and its velocity now, $R(t)\mathbf c$ and
+  $\boldsymbol\omega\times R(t)\mathbf c$ with $R$ the briefed mode's rotation, the distance to the
+  point and the speed relative to it;
+- for an inspection, the fraction of points imaged so far (from the agent's `info`) and the Sun
+  direction now;
+- on a turning target, each corridor's apex and axis now; inside a thrust-inhibit window, when it
+  ends.
+
+A misbriefed target (`Misbriefed`) is described as briefed: the prompt is the same as for a
+scenario whose target really moves as the briefing says.
+
+The first JSON object in the reply is read, nested values included, if it opens at one of the
+reply's first eight braces (`first_object`; prose before it may hold the others); each fraction
+is clipped to [-1, 1] and converted to the action mode. A reply without a valid object
+(malformed, nested more than 32 levels deep, or holding a number too large for a float) is a
+parse failure (metric A4) and the spacecraft coasts for that step; `true` and `false` read as 1
+and 0, as the environment reads them. The agent rejects the discrete and burn-and-coast action
+modes.
 
 ## Tool calling
 
@@ -54,8 +124,9 @@ the discrete and burn-and-coast action modes.
 runs each tool, appends one `"tool"` message per call with the result as JSON (paired by
 `tool_call_id`), and calls the model again. After `max_tool_rounds` (4) rounds of calls it asks
 once more offering no tools, so every decision ends in an answer. Unknown tools, invalid
-arguments, and calls whose name is not a string or whose arguments are not an object come back
-to the model as `{"error": ...}`.
+arguments (a missing or non-finite one, or one that is not a number: a quoted number or a boolean
+is refused, as the schema asks for numbers), and calls whose name is not a string or whose
+arguments are not an object come back to the model as `{"error": ...}`.
 
 A tool's `run(obs, view, arguments)` sees only the observation the agent received and its
 `AgentView`: tools do arithmetic for the model and cannot reveal the truth. The built-in ones
@@ -129,7 +200,8 @@ In real time the model's latency changes the trajectory; replay it with the reco
   carries the assistant's call and the paired tool result; both tools are offered.
 - A model that calls tools forever is cut off after `max_tool_rounds` rounds and asked once more
   without tools.
-- Unknown tools, missing or non-finite arguments and out-of-range durations return errors.
+- Unknown tools, missing or non-finite arguments, quoted numbers, booleans and out-of-range
+  durations return errors.
 - Applying `transfer_burn`'s first impulse to the observed state arrives at the target within the
   rounding (0.3 m over 1500 s) and the second impulse stops it; a half-orbit transfer is refused as
   singular; arguments of 1e308 give an error, not infinity, and so does a 400-digit integer; a reply
@@ -150,6 +222,50 @@ In real time the model's latency changes the trajectory; replay it with the reco
 `tests/test_agents.py` checks that the prompt is built from the noisy observation, not the
 truth, and that fractions are converted to each action mode.
 
+`tests/test_briefing.py`, for the briefing:
+
+- The briefing of every catalogue scenario has a sentence for each goal entry and one line per
+  constraint, with no raw fallback; an unknown goal entry, constraint type and task are still
+  shown.
+- A goal without a key its task needs is refused, naming the key, for every task; an unknown
+  target mode, or one missing a parameter, is refused.
+- The target mode rebuilt from its public entry turns as the mode does, for every mode and every
+  attitude a manoeuvring target keeps.
+- Through 0.5 m and 5 mm/s of navigation noise, the docking offsets and speeds are those of the
+  observation and differ from the truth's; a turning port and a corridor on a turning target are
+  reported where the scenario puts them (to the 1 cm rounding), and a pitched target's corridor
+  lies along its port axis in Hill axes; the inspection coverage is the one in `info`; a thrust
+  inhibit window is announced only while it lasts; a misbriefed target's briefing and situation
+  equal those of a scenario that flies the briefing; a departure's distance along the port axis,
+  lateral offset, outward and lateral speeds and distance to the clear point are the observation's.
+
+`tests/test_briefing_capture.py`: the capture sentence names the capture point (in Hill axes at
+t = 0) and its radius, speed and hold time; a target mode rebuilt from a torque-free or
+gravity-gradient entry turns as the scenario's briefed mode does; the situation's distance to the
+capture point and the speed relative to it equal the scenario's own at t = 0, 900 s and 3000 s;
+a torque-free entry with a non-finite, mis-shaped or missing parameter is refused, as is a
+capture goal entry of the wrong shape or sign; the departure sentence gives `drift_radius`.
+
+`tests/test_llm_tasks.py`, for the agent:
+
+- The agent resets and flies two steps of every catalogue scenario and variant and of every suite
+  entry, and its first prompt names the task.
+- The catalogue's task kinds are the six of `TASK_KEYS`; for each kind, a goal without any one of
+  its keys is refused at reset with that key named, and the full goal is accepted. The hold fields
+  need a hold point and a capture speed and `keep_out` a keep-out radius (the run time assurance
+  docking task has none, and the default prompt flies it); ball thrusters are described as a limit on the
+  command's length; a misbriefed target's prompt equals the prompt of a scenario that flies the
+  briefing; the prompt at t = 600 s holds the situation at 600 s, where a turning port has moved.
+- Behind the `slow` marker: a stand-in model that reads only the time, position and velocity
+  printed in the prompt, and answers with the command of the reference controller of the scenario
+  audit ([scenarios.md](scenarios.md)), succeeds on three drawn validation seeds of each of 22
+  scenarios, with no parse failure: every entry of the `core-v1` suite (the V-bar and R-bar holds,
+  `docking:axis`, the run time assurance docking task and inspection, each also with `:nav1`), the
+  comparison tasks `afrl-docking`, `afrl-inspection`, `spacegym-docking` and
+  `spacegym-rendezvous`, docking on a still, lit, pitched and turning target, berthing, a hold
+  under a turning target and a departure past a manoeuvring target. A test checks that these
+  flights include every task kind.
+
 ## Example
 
 ```python
@@ -165,4 +281,22 @@ def complete(messages, tools):
 agent = LLMAgent(complete, name="stand-in", price=Price(3.0, 15.0))
 run_episode(ApproachEnv(ApproachConfig(max_steps=10)), agent, seed=0)
 print(agent.usage()["input_tokens"], round(agent.usage()["cost_usd"], 6))  # 8500 0.02925
+```
+
+The same agent docks; the briefing and the first prompt's situation lines read:
+
+```python
+from vbar.agents import LLMAgent, Reply
+from vbar.agents.briefing import briefing
+from vbar.scenarios import make
+
+env = make("docking")
+contact = briefing(env.agent_view()).splitlines()[1]
+print(contact[:41])  # Contact is the first crossing of the port
+
+agent = LLMAgent(lambda messages, tools: Reply('{"ax": 0.0, "ay": 0.0, "az": 0.0}'))
+obs, _ = env.reset(seed=3)
+agent.reset(env.agent_view())
+agent.act(obs, env.agent_info())
+print(agent.log[0]["prompt"].splitlines()[-6])  # the offsets from the port axis
 ```

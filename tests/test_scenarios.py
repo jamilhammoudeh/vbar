@@ -482,9 +482,10 @@ def test_inspection_counts_lit_facing_points_within_range_and_outside_the_glare(
         "departure",
     ],
 )
-def test_built_in_agents_refuse_a_goal_that_is_not_a_hold_at_reset(name):
+def test_hold_point_agents_refuse_a_goal_that_is_not_a_hold_at_reset(name):
     # The departure goal carries a hold point for the mission metrics; flying to it would take a
-    # chaser past its corridor.
+    # chaser past its corridor. The LLM agent's prompt describes every task kind
+    # (tests/test_llm_tasks.py).
     from vbar.agents import LLMAgent
     from vbar.agents.llm import text_model
     from vbar.agents.plan import PlanAgent
@@ -493,16 +494,10 @@ def test_built_in_agents_refuse_a_goal_that_is_not_a_hold_at_reset(name):
     with pytest.raises(ValueError):
         PDAgent().reset(view, np.random.default_rng(0))
     with pytest.raises(ValueError):
-        LLMAgent(text_model(lambda prompt: "{}")).reset(view, np.random.default_rng(0))
-    with pytest.raises(ValueError):
         PlanAgent(lambda obs, view, verdict, left: np.zeros((1, 3))).reset(
             view, np.random.default_rng(0)
         )
-    # The run time assurance task has a hold point but no keep-out sphere.
-    with pytest.raises(ValueError):
-        LLMAgent(text_model(lambda prompt: "{}")).reset(
-            make("docking-afrl").agent_view(), np.random.default_rng(0)
-        )
+    LLMAgent(text_model(lambda prompt: "{}")).reset(view, np.random.default_rng(0))
 
 
 def test_lighting_follows_the_configured_central_body():

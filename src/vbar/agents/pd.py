@@ -16,6 +16,8 @@ unfiltered baseline.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from .base import AgentView, action_scale, hold_point
@@ -30,6 +32,11 @@ class PDAgent:
     """
 
     def __init__(self, wn: float = 0.01, zeta: float = 1.0, name: str = "pd"):
+        # Gains that are not finite make every command NaN.
+        if not (0.0 < wn and math.isfinite(wn * wn)):
+            raise ValueError(f"wn must be a positive finite rate in rad/s, got {wn!r}")
+        if not (0.0 <= zeta and math.isfinite(2.0 * zeta * wn)):
+            raise ValueError(f"zeta must be a finite damping ratio of at least 0, got {zeta!r}")
         self.wn = wn
         self.zeta = zeta
         self.name = name

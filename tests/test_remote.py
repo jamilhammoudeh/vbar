@@ -16,7 +16,14 @@ import pytest
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import DISC27, PDAgent, remote
 from vbar.agents.base import AgentView, agent_generator
-from vbar.agents.remote import AgentServer, RemoteAgentError, main, serve_agent
+from vbar.agents.remote import (
+    AgentServer,
+    RemoteAgentError,
+    main,
+    serve_agent,
+    view_from_dict,
+    view_to_dict,
+)
 from vbar.spacecraft import GaussianNav
 
 CLEAR = (-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)
@@ -84,12 +91,13 @@ def test_remote_runs_match_in_process_runs_exactly(make, fields):
     assert local["captured"] == served["captured"]
 
 
-def raw_session(handle, timeout=HANG, config=None):
+def raw_session(handle, timeout=HANG, config=None, wait=HANG):
     """Run `handle(file)` as a hand-written client against a one-step episode.
 
-    `timeout` (s) bounds each answer the client gives after its hello.
+    `timeout` (s) bounds each answer the client gives after its hello; `wait` (s) is how long the
+    server waits for another connection after one that fails its hello.
     """
-    server = AgentServer(timeout=HANG)
+    server = AgentServer(timeout=wait)
     seen = {}
 
     def client():
@@ -155,7 +163,7 @@ def test_protocol_errors_and_silence_are_reported():
         send(stream, {"type": "hello", "name": "x", "protocol": 2})
 
     with pytest.raises(RemoteAgentError, match="protocol 1 hello"):
-        raw_session(wrong_version)
+        raw_session(wrong_version, wait=1.0)
 
     def silent(stream, seen):
         send(stream, {"type": "hello", "name": "x", "protocol": 1})
@@ -284,6 +292,8 @@ def host_with(client, tmp_path, timeout=HANG, episodes=("--seeds", "1", "2")):
         b'{"type": "action", "action": "abc"}',
         b'{"type": "action"}',
         b'{"type": "action", "action": [NaN, 0.0, 0.0]}',
+        b'{"type": "action", "action": ["0.5", "0", "0"]}',
+        b'{"type": "action", "action": [true, false, true]}',
     ],
 )
 def test_a_malformed_action_ends_the_session_with_every_episode_recorded(line, tmp_path):
@@ -425,7 +435,8 @@ def test_a_failed_hello_records_every_seed_unflown(tmp_path):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     out = tmp_path / "results.jsonl"
-    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)]
+    # The host waits this long for an agent after the refused hello.
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", "2"]
     host = threading.Thread(target=main, args=(argv,))
     host.start()
     sock = when_listening(host, lambda: connect(port))
@@ -537,9 +548,9 @@ def test_one_number_actions_cross_the_server_in_any_shape():
         remote_run(Wrong(np.array([np.nan, 0.0, 0.0])), ApproachConfig(max_steps=2))
 
 
-def raw_host_session(lines_after_hello):
+def raw_host_session(lines_after_hello, wait=HANG):
     """Send raw bytes to `AgentServer.accept` and return the agent or the error."""
-    server = AgentServer(timeout=HANG)
+    server = AgentServer(timeout=wait)
     outcome = {}
 
     def client():
@@ -591,9 +602,9 @@ def test_messages_sent_together_are_read_one_at_a_time():
 def test_hellos_that_fail_close_the_connection():
     long = b'{"type": "hello", "name": "' + b"x" * (remote.MAX_LINE + 10)
     for raw in (b'{"type": "hello", "name": "x", "protocol": true}\n', long):
-        outcome = raw_host_session(raw)
+        outcome = raw_host_session(raw, wait=1.0)
         assert "error" in outcome and outcome["closed"]
-    assert "longer than" in raw_host_session(long)["error"]
+    assert "longer than" in raw_host_session(long, wait=1.0)["error"]
 
 
 def test_the_client_converts_actions_as_the_environment_does():
@@ -619,3 +630,165 @@ def test_a_huge_discrete_index_is_a_protocol_error():
 
     with pytest.raises(RemoteAgentError, match="expected an integer action"):
         raw_session(handle, config=ApproachConfig(max_steps=1, action_mode="disc27"))
+
+
+def test_the_host_flies_a_catalogue_scenario_named_on_the_command_line(tmp_path):
+    def client(stream, sock):
+        stream.close()
+        sock.close()
+
+    results = host_with(
+        client, tmp_path, episodes=("--seeds", "1", "2", "--scenario", "inspection")
+    )
+    assert [r["seed"] for r in results] == [1, 2]
+    assert all(r["scenario_id"].startswith("vbar:inspection:") for r in results)
+
+
+def test_the_host_refuses_an_unknown_scenario(capsys):
+    with pytest.raises(SystemExit):
+        main(["--scenario", "docking-sideways"])
+    assert "unknown scenario 'docking-sideways'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["--seeds", "-1", "3"], "seeds must not be negative, got -1"),
+        (["--seeds", "5", "-1"], "seeds must not be negative, got -1"),
+        (["--seeds", "1.5"], "invalid seed '1.5'"),
+        (["--timeout", "0"], "--timeout must be a positive number of seconds"),
+        (["--timeout", "-1"], "--timeout must be a positive number of seconds"),
+        (["--timeout", "nan"], "--timeout must be a positive number of seconds"),
+        (["--timeout", "inf"], "--timeout must be a positive number of seconds"),
+        (["--port", "70000"], "--port must be from 0 to 65535"),
+        (["--port", "-1"], "--port must be from 0 to 65535"),
+    ],
+)
+def test_the_host_refuses_bad_options_before_it_listens(argv, message, capsys):
+    with pytest.raises(SystemExit):
+        main(argv)
+    assert message in capsys.readouterr().err
+
+
+def test_a_failed_hello_does_not_take_the_session_from_the_next_agent():
+    server = AgentServer(timeout=HANG)
+    with socket.create_connection(server.address, timeout=HANG) as wrong:
+        wrong.sendall(b'{"type": "hello", "name": "old", "protocol": 0}\n')
+        with socket.create_connection(server.address, timeout=HANG) as right:
+            right.sendall(b'{"type": "hello", "name": "pd", "protocol": 1}\n')
+            agent = server.accept()
+            assert agent.name == "pd"
+            assert wrong.recv(1) == b""
+            agent.close()
+    server.close()
+
+
+def test_a_silent_first_connection_does_not_stop_the_agent_behind_it(tmp_path, monkeypatch):
+    # The silent connection holds the host for the 1 s hello wait, then the PD agent flies both.
+    monkeypatch.setattr(remote, "HELLO_WAIT_S", 1.0)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    out = tmp_path / "results.jsonl"
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(HANG)]
+    host = threading.Thread(target=main, args=(argv,))
+    host.start()
+    with when_listening(host, lambda: connect(port)):
+        when_listening(host, lambda: serve_agent(PDAgent(), "127.0.0.1", port, HANG))
+    host.join(HANG)
+    results = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [(r["seed"], r["completed"], r["agent"]) for r in results] == [
+        (1, True, "pd"),
+        (2, True, "pd"),
+    ]
+
+
+def test_an_agent_slower_than_the_hello_wait_still_gets_the_full_timeout(monkeypatch):
+    # The hello must come within 2 s; after it every message may take the 12 s timeout. The pauses
+    # of 3 s sit between the two with seconds to spare, since a loaded machine can delay the
+    # client thread by more than a second (a 0.3 s hello wait failed under load).
+    monkeypatch.setattr(remote, "HELLO_WAIT_S", 2.0)
+
+    def slow(stream, seen):
+        send(stream, {"type": "hello", "name": "slow", "protocol": 1})
+        receive(stream)
+        time.sleep(3.0)
+        send(stream, {"type": "ready"})
+        receive(stream)
+        time.sleep(3.0)
+        send(stream, {"type": "action", "action": [0.0, 0.0, 0.0]})
+        seen["closing"] = receive(stream)
+
+    # Not through raw_session, which sets the line's timeout itself after the accept.
+    server = AgentServer(timeout=12.0)
+    seen = {}
+
+    def client():
+        with socket.create_connection(server.address, timeout=HANG) as sock:
+            slow(sock.makefile("rwb"), seen)
+
+    thread = threading.Thread(target=client, daemon=True)
+    thread.start()
+    agent = server.accept()
+    try:
+        run_episode(ApproachEnv(ApproachConfig(max_steps=1)), agent, seed=0, agent_seed=5)
+    finally:
+        agent.close()
+        server.close()
+        thread.join(HANG)
+    assert seen["closing"]["type"] == "close"
+
+
+def catalogue_names():
+    from vbar.scenarios import SCENARIOS, get
+
+    return [
+        n
+        for name in sorted(SCENARIOS)
+        for n in (name, *(f"{name}:{v}" for v in get(name).variants))
+    ]
+
+
+@pytest.mark.parametrize("name", catalogue_names())
+def test_every_catalogue_view_crosses_the_protocol_as_strict_json(name):
+    from vbar.scenarios import make
+
+    view = make(name).agent_view()
+    sent = json.loads(json.dumps(view_to_dict(view), allow_nan=False))
+    assert view_from_dict(sent).goal.keys() == view.goal.keys()
+    assert len(view_from_dict(sent).constraints) == len(view.constraints)
+
+
+def test_a_lit_docking_episode_flies_through_the_server():
+    # The lighting window's central body is a dataclass, which once stopped the reset message.
+    from vbar.agents import DriftAgent
+    from vbar.scenarios import make
+
+    env = make("docking:lit", max_steps=3)
+    server = AgentServer(timeout=HANG)
+    host, port = server.address
+    client = threading.Thread(
+        target=serve_agent, args=(DriftAgent(), host, port, HANG), daemon=True
+    )
+    client.start()
+    agent = server.accept()
+    try:
+        served = run_episode(env, agent, seed=4, agent_seed=9)
+    finally:
+        agent.close()
+        server.close()
+        client.join(HANG)
+    local = run_episode(make("docking:lit", max_steps=3), DriftAgent(), seed=4, agent_seed=9)
+    assert np.array_equal(served["states"], local["states"]) and len(served["actions"]) == 3
+
+
+def test_the_host_reads_its_seeds_from_a_file(tmp_path):
+    seeds_file = tmp_path / "seeds.txt"
+    seeds_file.write_text("1\n2\n", encoding="utf-8")
+
+    def client(stream, sock):
+        stream.close()
+        sock.close()
+
+    results = host_with(client, tmp_path, episodes=("--seeds-file", str(seeds_file)))
+    assert [r["seed"] for r in results] == [1, 2]
