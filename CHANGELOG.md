@@ -281,6 +281,7 @@ release may change the public API, and every such change is listed under Changed
   `estimate`, `sensor_noise`) and holds the docking standoff until the lateral error is small
   (`lateral_sigma`).
 
+
 ### Changed
 
 - A safety filter's `filter(obs, action)` must return a `FilterResult`; `run_filter`,
@@ -347,26 +348,11 @@ release may change the public API, and every such change is listed under Changed
   exact value is 0, the plan 1.2e-4 off); it is now judged against the cost terms. A violated
   row started with slack 1 in its own units, so the solve depended on the rows' units; it now
   starts with its violation.
-- The default LLM prompt is new, so transcripts recorded with 0.3 do not replay under it; pass
-  0.3's `PROMPT_TEMPLATE` text as `prompt=` to replay them. Positions are printed to 1 cm and
-  velocities to 0.1 mm/s, as docking's 0.1 m lateral limit needs.
-- `LLMAgent.reset` no longer refuses goals that are not holds or that have no keep-out radius; it
-  refuses a goal without a key its task needs, and a template whose `hold`, `dist`, `cap_speed`
-  or `keep_out` field the goal cannot fill.
 - The coast and transfer tools refuse arguments that are not numbers: a quoted number or a boolean
   (`"seconds": "300"`, `"seconds": true`) comes back to the model as an error instead of being
   read as a number.
-- The default LLM prompt is new, so transcripts recorded with 0.3 do not replay under it; pass
-  0.3's `PROMPT_TEMPLATE` text as `prompt=` to replay them. Positions are printed to 1 cm and
-  velocities to 0.1 mm/s, as docking's 0.1 m lateral limit needs.
-- `LLMAgent.reset` no longer refuses goals that are not holds or that have no keep-out radius; it
-  refuses a goal without a key its task needs, and a template whose `hold`, `dist`, `cap_speed`
-  or `keep_out` field the goal cannot fill.
 - `PDAgent` raises `ValueError` for a `wn` that is not positive and finite or a `zeta` that is
   negative or not finite, gains that used to give NaN commands.
-- The coast and transfer tools refuse arguments that are not numbers: a quoted number or a boolean
-  (`"seconds": "300"`, `"seconds": true`) comes back to the model as an error instead of being
-  read as a number.
 
 ## [0.4.0] - 2026-10-30
 
