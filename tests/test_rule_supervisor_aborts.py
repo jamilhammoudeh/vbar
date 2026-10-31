@@ -473,3 +473,19 @@ def test_the_abort_rules_leave_a_nominal_approach_to_succeed_without_a_keep_out_
     info = env._info()
     assert info["success"], info
     assert not result["keep_out_violated"]
+
+
+@pytest.mark.parametrize("name", ["approach-vbar", "docking:axis"])
+@pytest.mark.parametrize(
+    "channels", [("t_remaining",), ("propellant_fraction",), ("t_remaining", "propellant_fraction")]
+)
+def test_the_rule_supervisor_flies_with_extra_observation_channels(name, channels):
+    # Extra channels follow the six-element state; the drift prediction reads the state only.
+    from vbar import run_episode
+    from vbar.agents import SetpointTracker, SupervisedAgent
+    from vbar.scenarios import make
+
+    env = make(name, max_steps=40, observation_channels=channels)
+    agent = SupervisedAgent(RuleSupervisor(), tracker=SetpointTracker())
+    result = run_episode(env, agent, seed=11, agent_seed=12)
+    assert len(result["actions"]) >= 1

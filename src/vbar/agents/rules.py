@@ -161,7 +161,7 @@ class RuleSupervisor:
 
     def _collides(self, obs: np.ndarray) -> bool:
         """Whether the free drift of `obs` is strictly inside the collision radius at a sample."""
-        positions = self._drift @ obs
+        positions = self._drift @ obs[:6]
         return bool(np.any(np.einsum("ij,ij->i", positions, positions) < self._radius**2))
 
     def _cannot_brake(self, rho: float, closing: float) -> bool:
