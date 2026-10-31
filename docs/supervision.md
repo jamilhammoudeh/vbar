@@ -318,6 +318,12 @@ the tracker's range) is valid here and shows as a refused step of the `Supervise
 run's refusals are the invalid actions plus the agent's refused steps. A consult whose model call
 raises, `BudgetExceeded` included, is not logged; a `BudgetedModel` still counts every call made.
 
+In real time (`run_episode(..., real_time=RealTime(time_scale=s))`) the clock runs while the
+supervisor's model answers: each step's order takes effect `s` times the agent's wall-clock
+decision time later, so a slow model's orders arrive late, and a consult costs flight time that a
+rule supervisor's does not. The result's `latencies_s` and a `RecordedModel` transcript repeat such
+a run exactly through `RealTime(latencies=..., time_scale=s)` and `ReplayModel`.
+
 ## Learned supervisor
 
 `supervisor_features(situation, view)` is the vector a learned policy acts on, built from a
@@ -450,6 +456,7 @@ Flights are marked `slow`.
 - A goal without a key its task needs is refused at reset: `test_a_goal_without_a_key_its_task_needs_is_refused_at_reset`.
 - Usage totals decisions, tokens, cost and parse failures; an unparseable reply is CONTINUE, leaves the reference and is counted; a reply of `MAX_REPLY_CHARS` parses and one more does not: `test_usage_counts_decisions_tokens_cost_and_parse_failures`, `test_an_unparseable_reply_is_continue`, `test_an_unparseable_reply_leaves_the_tracker_reference_and_is_counted`, `test_a_reply_longer_than_the_bound_is_a_parse_failure`.
 - An unparseable reply or a command not valid now is one invalid action without repairs; a repair sends back the reply with its reason and the valid commands, the repaired order counts, a valid first reply is not repaired, a reply still invalid after every repair is CONTINUE or the refused order, and `repairs` must be a non-negative integer: `test_without_repairs_an_unparseable_reply_is_one_call_and_one_invalid_action`, `test_without_repairs_a_command_not_valid_now_is_passed_on_and_counted_invalid`, `test_a_repaired_reply_is_the_order_and_the_model_saw_its_reply_and_the_reason`, `test_the_repair_of_a_command_not_valid_now_names_it_and_its_reason`, `test_a_valid_first_reply_is_not_repaired`, `test_a_reply_still_invalid_after_every_repair_is_continue_or_the_refused_order`, `test_repairs_must_be_a_non_negative_integer`.
+- `slow`: in real time a model's latency changes a supervised flight, and the run replays exactly from its recorded replies and latencies: `test_the_models_latency_delays_the_supervised_flight`, `test_a_real_time_supervised_run_replays_with_its_recorded_replies_and_latencies`.
 - `slow`: a stand-in model that reads only the prompt gives the rule supervisor's orders: `test_a_stand_in_reading_only_the_prompt_gives_the_rule_supervisors_orders_early_in_a_flight`, `test_a_stand_in_reading_only_the_prompt_gives_the_rule_supervisors_orders_on_a_drawn_seed`.
 - A recorded run replays to identical steps, and one byte changed in the prompt or request raises `ReplayError`: `test_a_recorded_run_replays_to_identical_supervision_steps_without_the_model`, `test_a_replay_with_one_byte_of_the_prompt_changed_raises_replay_error`, `test_a_replay_with_one_byte_of_the_request_changed_raises_replay_error`.
 - Starts more than 10 m apart give identical prompts, no number of the true state is in a prompt, and a misbriefed target's prompt equals its briefing's: `test_runs_from_true_starts_more_than_10_m_apart_give_identical_prompts`, `test_no_number_of_the_true_state_is_in_the_prompts_of_a_flight`, `test_the_prompt_of_a_misbriefed_target_is_the_prompt_of_its_briefing`.
