@@ -2,8 +2,8 @@
 
 Code: `vbar.scenarios.spec` (`ScenarioSpec`, the dispersion types, `Observation`,
 `per_draw_level`), `vbar.scenarios.registry` (`SCENARIOS`, `make`, `register`, `parse_id`,
-`gymnasium_id`, tags, plugins), `vbar.scenarios.seeds` (`seeds`, `SeedSplit`),
-`vbar.scenarios.suites` (`Suite`, `SUITES`), `vbar.scenarios.targets` (target attitude modes and
+`gymnasium_id`, tags, plugins), `vbar.scenarios.seeds` (`seeds`, `SeedSplit`, `seed_digest`),
+`vbar.scenarios.suites` (`Suite`, `SUITES`, `match_runs`), `vbar.scenarios.targets` (target attitude modes and
 the constraints that follow them), `vbar.scenarios.scenario` (`ScenarioEnv`, identifiers), the
 scenario kinds `vbar.scenarios.hold`, `docking`, `inspection`, `berthing`, `departure`, and the
 catalogue `vbar.scenarios.catalog`. Every scenario is built on the base environment of
@@ -89,18 +89,23 @@ of the scenario with each and keep the one whose first observation matches its o
 public key with the agent label until it reproduces its own stream, and in either case know the
 true state at every step ([environment.md](environment.md)). Public splits are for development and
 for numbers reported as development results; scored comparisons use the test split, whose seeds
-neither search finds without the key.
+neither search finds without the key. Its seeds are not published either: result lines of the
+test split hold `seed_digest(split, seed, index)`, an HMAC of the seed under the split's key,
+instead ([evaluation.md](evaluation.md#the-hidden-test-split)).
 
 ## Suites
 
 A `Suite` is a versioned list of entries (scenario with variants, split, number of seeds);
 `runs()` lists every (scenario identifier, seed, agent seed) and `missing(results)` the runs a
 report lacks, and `require_complete(results)` refuses a report that lacks any, so a suite is
-reported in full or not at all. The core suite carries the headline benchmark: `core-v1` is
+reported in full or not at all. A result belongs to a run by its seed or, if it has none, by its
+`seed_digest`. The core suite carries the headline benchmark: `core-v1` is
 `approach-vbar`, `approach-rbar`, `docking:axis`, `docking-afrl` and `inspection`, each without and
 with `:nav1`, on 100 validation seeds per entry, and `core-test-v1` the same ten entries on 100
 hidden test seeds each. The rest of the catalogue stays available outside it. Also built in:
-`v1-v1` (the four v1
+`comparison-v1` (the four comparison tasks below, `afrl-docking`, `afrl-inspection`,
+`spacegym-docking` and `spacegym-rendezvous`, on 100 validation seeds each, for baselines reported
+on them), `v1-v1` (the four v1
 scenarios, 50 validation seeds each), `v1-nav1-v1` (the same on the `:nav1` track),
 `v1-operations-v2` (closing, R-bar acquisition, berthing box, the on-axis, lit and offset
 dockings, the inertial target and the orbit-normal approach) and `v1-shuttle-v1` (the six
@@ -377,6 +382,15 @@ tests reproduce at 3060 s. SpaceGym, success over 5 seeds: SAC 82 +- 3% and PPO 
 docking, 62 +- 5% and 55 +- 6% on rendezvous; its fuel figures are not reproducible as defined
 (an impulse over a mass budget with no specific impulse). The learned-agent rows need trained
 policies on these tasks; until then a comparison checks the task, not the agents.
+
+The LQR baseline (`LQRAgent` with its default weights) on the suite `comparison-v1`, 100 validation
+seeds per task, as `python -m vbar.eval reproduce reproduce.toml` reports it: `afrl-docking` 100 of
+100 (Clopper-Pearson interval 0.964 to 1.000), with an interquartile mean of 0.81 m/s delta-v;
+`spacegym-docking` 0 of 100 and `spacegym-rendezvous` 0 of 100, every run ending at the step limit
+11 to 23 m and 44 to 74 m from the goal. `afrl-inspection` has no hold point, so the agent refuses
+it and the 100 runs are recorded as errors, which keeps the suite complete. These are the table's
+figures; `tests/test_comparison_baselines.py` flies the first validation seed of each task and
+checks the same outcomes. There is no ZEM/ZEV agent yet, so that row is missing.
 
 ## Audit
 

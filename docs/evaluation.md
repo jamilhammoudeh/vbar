@@ -63,7 +63,8 @@ One JSON object per episode (schema 1):
 |---|---|
 | `schema`, `task`, `suite` | schema version, the task's name, the suite identifier |
 | `scenario`, `scenario_id`, `split`, `index` | entry name with variants, identifier flown, seed split, index in the split |
-| `seed`, `agent_seed` | the seeds, as decimal strings: 128-bit integers do not survive JSON readers that parse numbers as doubles |
+| `seed`, `agent_seed` | the seeds, as decimal strings: 128-bit integers do not survive JSON readers that parse numbers as doubles; null on the test split |
+| `seed_digest`, `agent_seed_digest` | keyed digests of the two seeds, 64 hex digits; null only for a split with no key, never on the test split |
 | `agent`, `filter` | names; `filter` is null without one |
 | `metrics`, `failure_label`, `error` | the task's score; the label of a failed run; the exception of a crashed one |
 | `provenance`, `environment`, `wall_s` | the run's hash, the software and machine it ran on, its wall time |
@@ -73,12 +74,77 @@ The files are strict JSON: NaN and infinite metric values are written as the str
 stores the true states, times, observations and commands of recorded episodes in a compressed
 `.npz` file keyed by provenance hash; `load_trajectories` reads them back.
 
+## The hidden test split
+
+The seeds of the test split are secret: whoever knows one can rebuild that episode's start state
+([scenarios.md](scenarios.md#seeds)). Result files are published, so the lines of the test split
+hold no seed:
+
+- `seed` and `agent_seed` are written as null, whatever the result held in memory, and
+  `read_results` returns None for them. Null is read only for the test split; in any other split
+  it is a refused line. A test split result needs both digests, each 64 lowercase hex digits, when
+  it is written and when it is read.
+- No other field may hold a secret either. An exception message can carry the seeds of the run
+  that raised it, or the key, so in the `error` text of a test split result they are replaced by
+  `<hidden>`, in decimal and in hexadecimal (8 characters or more, any case). Anywhere else in
+  the line, the hidden key in `VBAR_HIDDEN_SEED_KEY` or either seed makes `encode` raise
+  `ValueError` before anything is written. Only those two spellings are searched for: a seed
+  written in another base, with digit groups or encoded is not found. This stops a publication,
+  not a theft: an agent that
+  runs in the harness's own process can read the key from the environment. Run submitted agents in
+  a process of their own, started without the key in its environment, such as a remote agent
+  ([remote-agents.md](remote-agents.md)).
+- `seed_digest` and `agent_seed_digest` name the run instead. `seed_digest(split, seed, index,
+  stream="episode")` in `vbar.scenarios.seeds` is the HMAC-SHA256, keyed with the split's key, of
+  the text `vbar seed digest|<stream>|<index>|<seed>`; the agent seed uses the stream `"agent"`.
+  `run_job` stores both digests in every result of every split, and leaves them None where the
+  split has no key (a custom split name). Without the key a guessed seed cannot be tested against
+  a digest.
+- The provenance hash covers the seeds one way, and a 128-bit seed cannot be searched for, so it
+  reveals nothing. Resuming works on a test split file as on any other.
+
+A maintainer checks a published file with the hidden key in `VBAR_HIDDEN_SEED_KEY`. A line belongs
+to the run of the suite whose seed it holds or, where its seed is null, whose digest it holds, so
+`Suite.require_complete` and `suite_report` accept the published lines of `core-test-v1` as they
+accept the lines of `core-v1`, and `latest_results` identifies a run by its digest where the seed
+is null. A line whose digest matches no run of the suite belongs to none, so a file with an altered
+digest is refused as missing that run. The message about a missing run of a test split entry
+names the scenario and the index in the entry, never the seed. The same check, line by line:
+
+```python
+from vbar.scenarios import seeds
+from vbar.scenarios.seeds import seed_digest
+
+for result in results:
+    seed = seeds(result["scenario"], result["split"], result["index"] + 1).seed(result["index"])
+    assert result["seed_digest"] == seed_digest(result["split"], seed, result["index"])
+```
+
+The block runs on the validation results flown above; on a published test file, whose lines hold
+no seed, it is the same with the key set.
+
+The seeds themselves are kept privately. If the environment variable `VBAR_HIDDEN_SEED_LOG`
+(`HIDDEN_LOG_VARIABLE` in `vbar.scenarios.seeds`) names a file, `write_results`, and with it
+`run_jobs`, `run_suite` and `python -m vbar.eval run`, first appends one JSON line per test split
+result to it: `suite`, `scenario_id`, `split`, `index`, `seed` and `agent_seed` as decimal strings,
+and both digests. Nothing is written when the variable is unset or empty or the result is of
+another split. The file only grows, and a write that cannot open it raises before the result's
+line is written, so no private record is lost. It belongs next to the hidden key in the
+maintainers' private storage, never beside the published results; `write_results` refuses a log
+that is the results file itself. A run killed between the log and
+the results file is flown again and logged twice.
+
+`save_trajectories` stores the true states of the episodes, and the start state of a hidden
+episode follows from them. Trajectory files of the test split are as secret as the seeds and are
+not published.
+
 ## Provenance
 
 `provenance_hash(provenance_fields(...))` is the SHA-256 of the canonical JSON (sorted keys, no
-spaces) of: the package version, the git commit of the source tree and whether it had local
-changes (None and False for an installed package), the task, the identifier flown and its dynamics
-model, both seeds, and the agent's and the filter's names and settings. Settings are a declared
+spaces) of: the package version, the git revision of the source tree, whether it had local changes
+and a SHA-256 digest of those changes (staged and unstaged edits of tracked files, `git diff HEAD`;
+None for a clean tree, False and None for an installed package), the task, the identifier flown and
+its dynamics model, both seeds, and the agent's and the filter's names and settings. Settings are a declared
 `config` mapping, or else the component's public attributes of plain types (numbers, strings,
 booleans and tuples of them), which for the built-in agents are their constructor arguments. The
 interpreter, numpy, scipy and platform are recorded in `environment` but not hashed: results
@@ -115,12 +181,14 @@ Statistical Precipice", NeurIPS 2021:
 with a known rate or mean, builds the interval a report would, and counts how often it covers the
 truth over 1000 repeats (`rate_coverage`, `iqm_coverage`, `paired_coverage`, and
 `mcnemar_false_positives` for two equal controllers). The table, by number of runs, is in
-[validation.md](validation.md): the bootstrap intervals hold from 20 runs per cell, the exact rate
-intervals at every count, and McNemar's test stays under 5% false positives.
+[validation.md](validation.md): the bootstrap intervals hold at 20, 50 and 100 runs per cell and
+fall short at 5 (in the table's run also, narrowly, at 10), the exact rate intervals cover at least
+95% at every number of runs from 1 to 200 on the rates tested, and McNemar's test calls equal
+controllers different in at most 5% of repeats at 5, 10, 20, 50 and 100 runs.
 
 The normal-approximation interval is never used: for rare events its lower end falls below zero
 (3 failures in 10,000 runs give -3.9e-5; Kochenderfer, Wheeler and Wray, *Algorithms for Decision
-Making*, 2022, section 14.1), where the Clopper-Pearson interval is (6.19e-5, 8.77e-4).
+Making*, 2022, section 14.1), where the Clopper-Pearson interval is (6.19e-5, 8.76e-4).
 
 ## Safety tails
 
@@ -178,12 +246,53 @@ python -m vbar.eval reproduce reproduce.toml
 results and table go. `reproduce` flies only what the results files lack and rewrites every table,
 so one command regenerates all of them.
 
+The manifest also lists scripts, one `[[script]]` each, for files the suite runner does not make:
+`name`, `script` (a Python file run with the current interpreter in the manifest's folder), `args`,
+`outputs` (the files it writes), `stdout` (a file that receives its standard output, written only
+when the script exits with status 0), `requires` (module names that must import) and `extra` (the
+`vbar` extra that installs them). Tables run first, then the scripts in order, and every path must
+be relative and inside the manifest's folder; the whole manifest is checked before anything runs. A
+script whose outputs and stdout file all exist is skipped, and `--force` runs it anyway. A missing
+module raises `ImportError` with the command `pip install "vbar[<extra>]"`; on a machine without
+the extras, `--skip-missing` logs a warning and skips that script instead. An entry names one
+extra, so a script that needs a second one, as the agreement table does with `orekit`, says so
+itself. A script that fails raises `RuntimeError` with its exit status, as does one that leaves a
+listed output unwritten. A manifest with an unknown key, a path listed twice, an empty or
+wrongly typed field or a path outside the folder is refused with `ValueError`.
+
+The notebook `examples/quickstart.ipynb`
+([open in Colab](https://colab.research.google.com/github/jamilhammoudeh/vbar/blob/main/examples/quickstart.ipynb))
+installs the package from PyPI, flies the PD baseline, prints its metrics and rebuilds a table of
+two episodes. The command line knows only the built-in suites, so the notebook registers a small
+suite with `register_suite` and calls `vbar.eval.__main__.main(["reproduce", "quickstart.toml"])`,
+the entry point of `python -m vbar.eval`, with a one-table manifest. Running that cell again flies
+nothing, since the results file already holds both episodes.
+
+## Inputs
+
+The statistics raise `ValueError` for a NaN score (the message names the scenario where there is
+one), a NaN `performance_profile` threshold, a bootstrap statistic that is NaN on the data or on a
+resample, and two paired scores that are the same infinity; infinite scores are allowed. Counts
+(`reps`, `n`, `repeats`, the counts of `mcnemar`, seeds, a `Job`'s index, `configurations_tried`, a
+training run's steps and violations) must be integers in range: numpy integers pass, floats (even
+`100.0`) and bools do not. `compare_rates` and `clopper_pearson` are the exception: they read a
+whole float such as `3.0` as its integer. `confidence`, `level`, `coverage` and `alpha` lie in (0, 1), `p` in
+[0, 1], and `widen` is finite and positive. A result line needs every schema field, an object for
+`metrics` and a seed that is decimal text or a JSON integer of at least 0 (null for the test split),
+or `read_results` raises `ValueError` naming the line. A `Job` takes integer seeds, and `encode`
+writes them from integers only; decimal text is read by `decode` but not accepted by `encode`.
+On the test split `encode` takes a seed that is None or a whole number of at least 0 and refuses
+any other, since it could not search for it.
+
 ## Assumptions and limits
 
 - Wall-clock metrics (latency, compute, filter time) differ between repeats of a run;
   `reproducible(result)` leaves them out when two runs are compared.
-- The provenance hash names the code by its git commit; an installed package is named by its
-  version alone.
+- The provenance hash names the code by its git revision and, for a tree with local changes, by a
+  digest of the changes to tracked files, read once per process, so a resumed run is served only
+  results flown with the same edits. Untracked files are not covered, an installed package is
+  named by its version alone, and where git is missing or fails on a checkout the revision is
+  unknown and every edit hashes the same.
 - Trajectories are stored as `.npz`; Parquet output is not provided.
 
 ## Validation
@@ -191,10 +300,26 @@ so one command regenerates all of them.
 `tests/test_eval_runner.py`: serial and parallel results agree; an interrupted run resumes
 without flying a run twice; a crashing agent is recorded, not dropped; the provenance hash changes
 with every field it covers; 128-bit seeds and non-finite metrics survive the file.
+`tests/test_eval_hidden_split.py`: the digest against a standard-library HMAC and fixed vectors,
+test split files holding no seed or key in decimal or hexadecimal, the private log, resuming, and
+complete, partial and altered reports from published lines.
 `tests/test_eval_stats.py`, `tests/test_eval_tails.py`: the IQM and the stratified bootstrap
 against hand cases and their invariances, the Mann-Whitney identity of the probability of
 improvement, the order-statistic and tolerance ranks and their coverage by simulation, the
 Clopper-Pearson cases of Kochenderfer et al. section 14.1, the conformal risk.
-`tests/test_eval_coverage.py`: the coverage table's cells and a narrowed interval failing it.
+`tests/test_eval_coverage.py`: the coverage table's cells at 50 and 100 runs and a narrowed
+interval failing it. `tests/test_eval_documented_figures.py`: the other figures this page and
+validation.md quote: the bootstrap coverage at 5 and 20 runs, McNemar's false-positive rate from 5
+to 100 runs, the exact rate interval's coverage from 1 to 200 runs, the documented defaults and the
+safety-tail figures.
 `tests/test_eval_report.py`: complete reports, refusals, the command line and the manifest.
+`tests/test_eval_reproduce_scripts.py`: `[[script]]` entries run in the manifest folder, capture
+standard output, skip finished outputs, honour `--force` and `--skip-missing`, name a failed script
+or missing output, and reject unknown keys and paths outside the folder before running anything;
+the repository's own manifest lists the three scripts.
 `tests/test_eval_learned.py`: the learned-agent rules. `tests/test_eval_domain.py`: the toy domain.
+Each module's `test_hostile_*` test runs the refusals of the Inputs section.
+`tests/test_quickstart_notebook.py`: the notebook's cells run headless without the install cell,
+the notebook holds no stored outputs, its install cell is the unpinned package name, and a second
+run of the table cell flies nothing. `tests/test_quickstart_links.py`: the README and this page
+link the notebook, and the notebook's own badge points at it.

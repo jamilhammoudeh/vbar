@@ -769,9 +769,10 @@ below. "Matches" means V-BAR's number rounds to the paper's at the paper's print
 
 ## Agreement with Basilisk and Orekit
 
-V-BAR's two-body plus J2 rung, Basilisk 2.12 and Orekit 13.1 fly the same initial inertial states
-with the same constants (`benchmarks/agreement_table.py`, [backends.md](backends.md)); the largest
-Hill-frame differences over each arc, sampled every 100 s for the coasts and 10 s for the episode:
+V-BAR's two-body plus J2 rung, Basilisk 2.12.1 and Orekit 13.1.9 fly the same initial inertial
+states with the same constants (`benchmarks/agreement_table.py`, [backends.md](backends.md)); the
+largest Hill-frame differences over each arc, sampled every 100 s for the coasts and 10 s for the
+episodes:
 
 | Case | Backend | Position (m) | Velocity (m/s) | Loosened backend (m) | Loosened V-BAR (m) |
 |---|---|---|---|---|---|
@@ -788,7 +789,7 @@ Hill-frame differences over each arc, sampled every 100 s for the coasts and 10 
 | coast 10000 m, 10 orbits | Basilisk | 5.72e-06 | 4.99e-10 | 5.72e-06 | 5.45e-06 |
 | coast 10000 m, 10 orbits | Orekit | 8.09e-07 | 3.81e-10 | 6.05e-06 | 9.99e-07 |
 
-Every coast agrees to 6e-6 m over ten orbits and 1.4e-7 m over one, at every range: the residual
+Every coast agrees to 6e-6 m over ten orbits and 1.3e-7 m over one, at every range: the residual
 is the integrators' and does not grow with the range, so no force-model difference shows. The
 last two columns repeat the arc with one tolerance loosened. Orekit's residual grows by up to a
 factor of 7.5 when its own tolerance is loosened from 1e-6 m to 1e-4 m, so its integrator sets it.
@@ -799,26 +800,36 @@ one formula applied to every tool's states, so it adds nothing.
 
 | Case | Backend | Position, 1 s substep (m) | Position, 0.5 s substep (m) | Velocity, 1 s (m/s) |
 |---|---|---|---|---|
+| LQR episode on the V-bar approach, 215 burns | Basilisk | 5.32e-04 | 1.96e-04 | 3.97e-07 |
+| LQR episode on the V-bar approach, 215 burns | Orekit | 5.32e-04 | 1.96e-04 | 3.97e-07 |
 | PD episode on the V-bar approach, 62 burns | Basilisk | 1.07e-04 | 3.17e-05 | 2.56e-07 |
 | PD episode on the V-bar approach, 62 burns | Orekit | 1.07e-04 | 3.17e-05 | 2.56e-07 |
 
-Replayed open loop, the episode agrees to 1.1e-4 m with both tools, and the residual falls by a
-factor of 3.4 when the substep over which a backend holds a burn's inertial direction halves (the
-second-order term of that approximation), identically in both: it comes from that approximation,
-not from V-BAR. The tests assert a one-orbit coast within 1e-4 m and a burn replay within 1e-3 m
-whose residual falls by more than three when the substep halves (`tests/test_backends_external.py`,
-run when the extras are installed).
+Each episode is replayed open loop on its recorded thrust segments. The LQR episode is
+`LQRAgent()` with its defaults on the first validation seed pair of `approach-vbar`: 215 burns over
+2150 s. The PD episode starts at (30, -400, 10)
+m at rest and lasts 620 s. The LQR episode agrees to 5.3e-4 m with both tools and the PD episode to
+1.1e-4 m. Halving the substep over which a backend holds a burn's inertial direction divides the
+residual by 2.7 for the LQR episode and 3.4 for the PD one, identically in both tools, so the
+substep sets the residual, not V-BAR or the tool. A second-order term alone would divide it by
+four; the table does not separate the part that falls more slowly. The tests assert a one-orbit
+coast within 1e-4 m and, for a two-burn replay and for the LQR episode, a burn replay within 1e-3 m
+whose residual falls by more than three when the substep halves from 2 s to 1 s
+(`tests/test_backends_external.py`, run when the extras are installed).
 
 ## Coverage of the scoring intervals
 
 Synthetic outcomes with a known truth, 1000 experiments per cell, each interval at 95%
-(`benchmarks/coverage_table.py`; the cells at 50 and 100 runs and the narrowed interval are
-asserted in `tests/test_eval_coverage.py`). An interval holds when its coverage is within three
-binomial standard errors (2.1 points) of 95%. Success and keep-out rates use Clopper-Pearson;
+(`benchmarks/coverage_table.py`). `tests/test_eval_coverage.py` asserts that the IQM and paired
+intervals hold at 50 and 100 runs and that the narrowed interval fails;
+`tests/test_eval_documented_figures.py` asserts that they hold at 20 runs and fall short at 5, that
+McNemar's rate is at most 5% at every size, and that the exact rate intervals cover at least 95%
+at every number of runs from 1 to 200. An interval holds when its coverage is at most three
+binomial standard errors (2.1 points) below 95%. Success and keep-out rates use Clopper-Pearson;
 the continuous metric (normal, mean 2, sd 1) and the paired difference (two controllers sharing
 90% of each seed's variance, true difference 0.3) use the percentile bootstrap of the IQM with
 1000 resamples; McNemar's exact test compares two equal controllers (success 0.8) flown on the
-same seeds.
+same seeds, with probability 0.5 that a seed gives both one outcome (`shared=0.5`).
 
 | Runs per cell | Success 0.9 | Keep-out 0.05 | IQM | Paired difference | McNemar false positives |
 |---|---|---|---|---|---|
@@ -828,11 +839,14 @@ same seeds.
 | 50 | 0.976 | 0.992 | 0.938 | 0.945 | 0.014 |
 | 100 | 0.962 | 0.987 | 0.948 | 0.954 | 0.034 |
 
-The exact rate intervals cover at every count (they are conservative); the bootstrap intervals
-fall short below 20 runs, so a leaderboard row needs at least 20 runs per cell for its IQM
-interval to mean what it says, and the default of 100 holds with room. McNemar's false-positive
-rate stays below 5% at every count. An IQM interval narrowed to 0.7 of its width covers 0.849 at
-100 runs, so the test catches an interval that is too narrow.
+The exact rate intervals cover at least 95% at every number of runs from 1 to 200 on the rates
+tested (0.001 to 0.999), so the success columns are conservative. The bootstrap intervals fall
+short at 5 runs (and, narrowly, at 10 in the table's run) and hold at 20, 50 and 100, so a
+leaderboard row needs at least 20 runs per cell for its IQM interval to mean what it says; the
+default of 100 holds with room. McNemar's false-positive rate is at most 5% at 5, 10, 20, 50 and 100 runs. An IQM interval
+narrowed to 0.7 of its width falls well below 95% at 100 runs (0.849 in the table's run) and
+fails the coverage test, so the test catches an interval that is too narrow.
+
 ## Examples behind the oracles
 
 The tests of the primer-vector certificates ([oracle-certificates.md](oracle-certificates.md),

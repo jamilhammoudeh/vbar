@@ -1122,4 +1122,10 @@ SUITE_CORE_TEST = register_suite(
     )
 )
 
-__all__ = ["CORE", "FT", "GATES", "N", "N_HST", "N_ISS", "feet", "hold_oracle"]
+# The four tasks rebuilt from their papers, which baselines report on beside the core suite.
+COMPARISON = ("afrl-docking", "afrl-inspection", "spacegym-docking", "spacegym-rendezvous")
+SUITE_COMPARISON = register_suite(
+    Suite("comparison", 1, tuple(SuiteEntry(name, "validation", 100) for name in COMPARISON))
+)
+
+__all__ = ["COMPARISON", "CORE", "FT", "GATES", "N", "N_HST", "N_ISS", "feet", "hold_oracle"]

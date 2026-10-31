@@ -22,7 +22,7 @@ from the constants.
   under one central body whose gravity is a degree-2 spherical-harmonic model holding only the
   normalized coefficient C20 = -J2 / sqrt(5), integrated with Basilisk's adaptive RKF78 at the
   relative and absolute `tolerance` inside each task step of `substep` seconds.
-- **Orekit** (CS GROUP, through orekit-jpype; Apache 2.0 licence): one `NumericalPropagator` per
+- **Orekit** (through orekit-jpype; Apache 2.0 licence): one `NumericalPropagator` per
   spacecraft in GCRF with a Dormand-Prince 8(5,3) integrator whose tolerances come from Orekit's
   rule for a position error of `tolerance` metres, under `NewtonianAttraction` and
   `J2OnlyPerturbation` about the frame's z axis.
@@ -35,6 +35,15 @@ substep: an error second order in the angle the frame turns in a substep. Basili
 an `extForceTorque` force on a hub of `mass`; Orekit as a `ConstantThrustManeuver` in inertial
 attitude with a specific impulse of 1e12 s, so the mass does not change.
 
+Both `propagate` functions and `vbar_arc` check their arguments first and raise `ValueError`
+before the extra is imported, so the checks need neither tool installed. They refuse a state that
+is not six finite real numbers, sample times that are empty, not 1-D, not finite, negative or not
+in time order (a repeated time is fine), a `tolerance`, `substep`, `mass` or (for `vbar_arc`)
+`rtol` that is not a finite positive number, and burns that are not `Burn` objects, start before
+t = 0 or overlap by more than 1e-9 s; burns that touch are accepted, in any order. Overlapping
+burns are refused because only one acceleration can act at a time, and the backends and `vbar_arc`
+would not pick the same one.
+
 `hill_states(target, chaser, body, j2)` turns the inertial states back into Hill relative states
 with the same conversion V-BAR uses (`vbar.conventions.inertial_to_hill`, the frame's rate from the
 target's gravity), so every tool's output is compared in one frame by one formula.
@@ -46,10 +55,10 @@ target's gravity), so every tool's output is compared in one frame by one formul
 velocity differences over the arc. `benchmarks/agreement_table.py` regenerates the table in
 [validation.md](validation.md): coast arcs from (0.1 r, -r, 0.05 r) m with an out-of-plane speed
 of 1e-4 r m/s at r = 100 m, 1 km and 10 km, over one and ten orbits of a 500 km, 51.6 deg target,
-and an episode of the PD baseline on the V-bar approach replayed open loop on its recorded thrust
-segments (`episode_burns`). Each residual is attributed by changing one setting at a time:
-loosening V-BAR's tolerance to 1e-10, the backend's (Basilisk 1e-10, Orekit 1e-4 m), and halving
-the substep over which a burn's direction is held.
+and two controlled episodes on the V-bar approach, the LQR and PD baselines, each replayed open
+loop on its recorded thrust segments (`episode_burns`). Each residual is attributed by changing one
+setting at a time: loosening V-BAR's tolerance to 1e-10, the backend's (Basilisk 1e-10, Orekit
+1e-4 m), and halving the substep over which a burn's direction is held.
 
 ```python
 import math
@@ -73,8 +82,10 @@ assert ours.shape == (7, 6) and math.isclose(ours[0, 1], -1000.0)
 
 - Only the central body's point mass and J2: no drag, solar pressure, third bodies or higher
   harmonics, on any side.
-- The burns' held inertial direction is the backends' one approximation; it is second order in
-  n times the substep and is measured in the table by halving the substep.
+- The burns' held inertial direction is the backends' one approximation, and the table measures
+  its effect by halving the substep. A second-order error in n times the substep would divide the
+  residual by four; in the table's run it falls by 2.7 for the LQR episode and 3.4 for the PD one,
+  so the residual is not purely second order.
 - The Orekit backend needs a Java runtime; `jdk4py` provides one when it is installed, and the
   backend uses it if `JAVA_HOME` is not set.
 
@@ -82,7 +93,9 @@ assert ours.shape == (7, 6) and math.isclose(ours[0, 1], -1000.0)
 
 `tests/test_backends.py` (no extras needed): the shared conversion returns V-BAR's own Hill
 states, the held direction is turned to the hold's middle, V-BAR's arc splits at burn edges, an
-episode's burns are its thrusting segments, and a missing extra names its install command.
+episode's burns are its thrusting segments, malformed input and overlapping burns are refused
+before the extra is imported, and a missing extra names its install command.
 `tests/test_backends_external.py` (each with its extra): a one-orbit coast at 1 km agrees to
-1e-4 m, the tolerance set before any run from the integrators' settings, and a burn replay agrees
-to 1e-3 m with a residual that falls by more than a factor of three when the substep halves.
+1e-4 m, the tolerance set before any run from the integrators' settings, and a burn replay, of two
+burns and of the LQR episode of the table, agrees to 1e-3 m with a residual that falls by more than
+a factor of three when the substep halves from 2 s to 1 s.

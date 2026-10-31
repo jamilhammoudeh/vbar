@@ -30,6 +30,12 @@ CLEAR = (-150.0, -400.0, 0.0, 0.0, 0.0, 0.0)
 THROUGH = (0.0, 400.0, 0.0, 0.0, 0.0, 0.0)
 # Waits that only catch a hang; a loaded machine must not reach them, so they are generous.
 HANG = 600.0
+MATLAB_CLIENTS = Path(__file__).parents[1] / "clients" / "matlab"
+RESET_DELAY_S = 0.3
+needs_matlab = pytest.mark.skipif(
+    not (os.environ.get("VBAR_TEST_MATLAB") and shutil.which("matlab")),
+    reason="needs MATLAB and VBAR_TEST_MATLAB=1 (about a minute to start MATLAB)",
+)
 
 
 class Wander:
@@ -208,15 +214,12 @@ def test_command_line_host_writes_one_result_per_seed(tmp_path):
     assert [r["seed"] for r in results] == [1, 2] and all(r["agent"] == "pd" for r in results)
 
 
-@pytest.mark.skipif(
-    not (os.environ.get("VBAR_TEST_MATLAB") and shutil.which("matlab")),
-    reason="needs MATLAB and VBAR_TEST_MATLAB=1 (about a minute to start MATLAB)",
-)
+@needs_matlab
 def test_matlab_pd_client_flies_the_python_pd_trajectories(tmp_path):
     server = AgentServer(timeout=HANG)
     port = server.address[1]
-    clients = Path(__file__).parents[1] / "clients" / "matlab"
-    command = f"addpath('{clients.as_posix()}'); vbar_agent_client('127.0.0.1', {port}, pd_agent())"
+    clients = MATLAB_CLIENTS.as_posix()
+    command = f"addpath('{clients}'); vbar_agent_client('127.0.0.1', {port}, pd_agent())"
     matlab = subprocess.Popen(["matlab", "-batch", command])
     remote = server.accept()
     try:
@@ -228,6 +231,81 @@ def test_matlab_pd_client_flies_the_python_pd_trajectories(tmp_path):
         remote.close()
         server.close()
         matlab.wait(HANG)
+
+
+# Goals as jsondecode delivers them: the task is a char vector, a hold point a column or row.
+MATLAB_GOALS = {
+    "no_task": "struct('hold_point', [0; -100; 0])",
+    "hold": "struct('task', 'hold', 'hold_point', [0; -100; 0])",
+    "berth": "struct('task', 'berth', 'hold_point', [0, -100, 0])",
+    "inspect": "struct('task', 'inspect', 'points', 12)",
+    "dock": "struct('task', 'dock', 'hold_point', [0; -100; 0])",
+    "hold_without_hold_point": "struct('task', 'hold')",
+}
+
+
+@needs_matlab
+def test_matlab_pd_client_refuses_tasks_that_are_not_holds(tmp_path):
+    labels = ", ".join(f"'{label}'" for label in MATLAB_GOALS)
+    goals = ", ".join(MATLAB_GOALS.values())
+    script = tmp_path / "refusals.m"
+    script.write_text(
+        f"""addpath('{MATLAB_CLIENTS.as_posix()}');
+labels = {{{labels}}};
+goals = {{{goals}}};
+for k = 1:numel(labels)
+    view = struct('n', 1.1e-3, 'max_accel', 0.01, 'goal', goals{{k}});
+    try
+        agent = pd_agent();
+        agent.reset(view, 0);
+        fprintf('CASE %s OK\\n', labels{{k}});
+    catch err
+        fprintf('CASE %s REFUSED %s\\n', labels{{k}}, err.message);
+        fprintf('ID %s %s\\n', labels{{k}}, err.identifier);
+    end
+end
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    done = subprocess.run(
+        ["matlab", "-batch", f"run('{script.as_posix()}')"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=900,
+    )
+    outcome, identifier = {}, {}
+    for line in done.stdout.splitlines():
+        if line.startswith("CASE "):
+            _, label, status, *message = line.split(" ", 3)
+            outcome[label] = (status, "".join(message))
+        elif line.startswith("ID "):
+            _, label, name = line.split(" ", 2)
+            identifier[label] = name
+    shown = done.stdout + done.stderr
+    assert {label: status for label, (status, _) in outcome.items()} == {
+        "no_task": "OK",
+        "hold": "OK",
+        "berth": "OK",
+        "inspect": "REFUSED",
+        "dock": "REFUSED",
+        "hold_without_hold_point": "REFUSED",
+    }, shown
+    assert "cannot fly the inspect task" in outcome["inspect"][1], shown
+    assert "cannot fly the dock task" in outcome["dock"][1], shown
+    assert "this goal has none" in outcome["hold_without_hold_point"][1], shown
+    assert set(identifier) == {"inspect", "dock", "hold_without_hold_point"}, shown
+    assert set(identifier.values()) == {"vbar:pd_agent"}, shown
+
+
+def test_matlab_pd_client_source_checks_the_task():
+    # A smoke check for machines without MATLAB, which cannot run the refusal test above: it only
+    # notices that the check was deleted, not that it works.
+    source = (MATLAB_CLIENTS / "pd_agent.m").read_text(encoding="utf-8")
+    assert "view.goal.task" in source
+    assert "vbar:pd_agent" in source
 
 
 def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
@@ -261,6 +339,122 @@ def test_command_line_host_records_episodes_a_client_abandons(tmp_path):
         (2, False, 0),
     ]
     assert "error" in results[0]
+
+
+def host_against(client, tmp_path, timeout=HANG):
+    """Run the command-line host for seeds 1 and 2, call `client(port)`, and read the results."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    out = tmp_path / "results.jsonl"
+    argv = ["--port", str(port), "--seeds", "1", "2", "--out", str(out), "--timeout", str(timeout)]
+    host = threading.Thread(target=main, args=(argv,))
+    host.start()
+    when_listening(host, lambda: client(port))
+    host.join(HANG)
+    return [json.loads(line) for line in out.read_text().splitlines()]
+
+
+class SlowReset(PDAgent):
+    """A PD controller that spends a fixed time in reset."""
+
+    def reset(self, view, rng=None):
+        time.sleep(RESET_DELAY_S)
+        super().reset(view, rng)
+
+
+class ResetFailed(Exception):
+    pass
+
+
+class FailsSecondReset(PDAgent):
+    """A PD controller that stops answering when the second episode starts."""
+
+    resets = 0
+
+    def reset(self, view, rng=None):
+        self.resets += 1
+        if self.resets == 2:
+            raise ResetFailed
+        super().reset(view, rng)
+
+
+def served_by(agent):
+    return lambda port: serve_agent(agent, "127.0.0.1", port, HANG)
+
+
+def assert_reset_is_outside_the_decisions(result):
+    # The reset and the decisions are disjoint stretches of the episode's wall time.
+    assert result["reset_s"] + sum(result["latencies_s"]) <= result["wall_time_s"]
+
+
+def test_the_host_records_the_time_an_agent_takes_to_reset(tmp_path):
+    results = host_against(served_by(SlowReset()), tmp_path)
+    assert [r["seed"] for r in results] == [1, 2] and not any("error" in r for r in results)
+    for result in results:
+        assert RESET_DELAY_S <= result["reset_s"] < 60.0
+        assert_reset_is_outside_the_decisions(result)
+
+
+def test_the_host_records_a_reset_time_for_an_agent_that_resets_at_once(tmp_path):
+    results = host_against(served_by(PDAgent()), tmp_path)
+    assert len(results) == 2 and not any("error" in r for r in results)
+    for result in results:
+        assert isinstance(result["reset_s"], float) and 0.0 <= result["reset_s"] < 60.0
+        assert_reset_is_outside_the_decisions(result)
+
+
+def test_a_client_that_leaves_during_the_reset_has_no_reset_time(tmp_path):
+    def client(port):
+        with connect(port) as sock, sock.makefile("rwb") as stream:
+            send(stream, {"type": "hello", "name": "quitter", "protocol": 1})
+            assert receive(stream)["type"] == "reset"
+
+    results = host_against(client, tmp_path)
+    assert [(r["seed"], r["completed"], len(r["actions"])) for r in results] == [
+        (1, False, 0),
+        (2, False, 0),
+    ]
+    assert [r["reset_s"] for r in results] == [None, None]
+
+
+def test_a_failed_hello_leaves_every_reset_time_null(tmp_path):
+    def client(port):
+        with connect(port) as sock, sock.makefile("rwb") as stream:
+            send(stream, {"type": "hello", "name": "old", "protocol": 0})
+
+    # The host waits this long for an agent after the refused hello.
+    results = host_against(client, tmp_path, timeout=2)
+    assert [r["reset_s"] for r in results] == [None, None]
+
+
+def test_an_episode_abandoned_after_its_reset_keeps_the_reset_time(tmp_path):
+    def client(port):
+        with connect(port) as sock, sock.makefile("rwb") as stream:
+            send(stream, {"type": "hello", "name": "quitter", "protocol": 1})
+            receive(stream)
+            time.sleep(RESET_DELAY_S)
+            send(stream, {"type": "ready"})
+            assert receive(stream)["type"] == "act"
+
+    results = host_against(client, tmp_path)
+    assert [(r["seed"], r["completed"]) for r in results] == [(1, False), (2, False)]
+    # The first episode got its answer to the reset; the second was never started.
+    assert isinstance(results[0]["reset_s"], float)
+    assert RESET_DELAY_S <= results[0]["reset_s"] < 60.0
+    assert results[1]["reset_s"] is None
+
+
+def test_a_reset_that_fails_in_a_later_episode_does_not_inherit_the_earlier_time(tmp_path):
+    def client(port):
+        with contextlib.suppress(ResetFailed):
+            serve_agent(FailsSecondReset(), "127.0.0.1", port, HANG)
+
+    results = host_against(client, tmp_path)
+    assert [r["seed"] for r in results] == [1, 2]
+    assert "error" not in results[0] and "error" in results[1]
+    assert isinstance(results[0]["reset_s"], float) and results[0]["reset_s"] >= 0.0
+    assert results[1]["reset_s"] is None
 
 
 def host_with(client, tmp_path, timeout=HANG, episodes=("--seeds", "1", "2")):

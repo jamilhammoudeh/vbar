@@ -8,6 +8,10 @@ release may change the public API, and every such change is listed under Changed
 
 ### Added
 
+- `[[script]]` entries in `reproduce.toml` for files the suite runner does not make, with the README
+  figure, the agreement table and the coverage table listed, and `--force` and `--skip-missing` on
+  `python -m vbar.eval reproduce`. A manifest with unknown keys, duplicated output paths or wrong
+  types is refused with `ValueError`.
 - `vbar.agents.glideslope_lp.lp_glideslope`: the minimum-fuel V-bar glideslope by linear programming of
   Ariba, Arzelier, Urbina and Louembet (2016); `vbar.reproductions` rebuilds their case 1 and prints
   the match table (`python -m vbar.reproductions`); `docs/reproductions.md` documents it.
@@ -21,6 +25,12 @@ release may change the public API, and every such change is listed under Changed
   an excerpt format), and `TwoBodyDynamics.reset_inertial`. A GRACE-FO excerpt of 2019-12-03
   (doi:10.5067/GFL1B-ASJ04, CC0) checks the two-body, J2 and drag rungs over ten orbits against a bound
   stated before the run; `docs/flight-data.md` documents it.
+- The suite `comparison-v1` (`afrl-docking`, `afrl-inspection`, `spacegym-docking` and
+  `spacegym-rendezvous`, 100 validation seeds each) and a row of `reproduce.toml` for the LQR
+  baseline on it.
+- `examples/quickstart.ipynb`, a notebook that installs vbar from PyPI, flies the PD baseline, prints
+  its metrics and rebuilds a table of two episodes through the entry point of
+  `python -m vbar.eval reproduce`.
 - `vbar.safety.projections`: halfspace, box, ball and second-order cone projections, and an exact
   projection out of a keep-out sphere with the hard case handled.
 - `vbar.safety.tightening`: box, ball and ellipsoid error sets with halfspace, chance and keep-out
@@ -281,6 +291,28 @@ release may change the public API, and every such change is listed under Changed
   returning a `Segment`, in place of `mode`, `force` and `switch`; the game applies the vessel's
   thrust limits and per-axis propellant flow to the evader as to the pursuer.
   `NormalEscapeEvader(thrust=...)` is now `throttle`, in [0, 1] (1 is the former 8000 N).
+- The result lines of the test split (`core-test-v1`) hold the keyed digest `seed_digest` of each
+  seed instead of the seed, matched to their runs by `Suite.missing` and `match_runs`. A line that
+  would hold a test seed or the hidden key is refused, and `VBAR_HIDDEN_SEED_LOG` names the private
+  file the seeds are appended to instead.
+- Every result line carries `seed_digest` and `agent_seed_digest`, so `read_results` refuses a result
+  file written by 0.4.0, which lacks them; the suite has to be flown again.
+- The provenance hash of a run covers a digest of local edits to tracked source files, so a resumed
+  run is not served results of other edits. `vbar.eval.provenance.source_revision` returns
+  (commit, dirty, digest) where it returned (commit, dirty), and `environment()` gains the key
+  `diff`.
+- `vbar.eval` refuses a result line with a missing field or a bad seed, and a job with a bad seed
+  or index.
+- `vbar.eval.stats` and `vbar.eval.tails` refuse NaN scores, fractional counts and probabilities
+  outside their range; the studies of `vbar.eval.coverage` refuse impossible sizes and
+  probabilities before drawing; the learned-agent entries of `vbar.eval.learned` need whole-number
+  counts and seeds.
+- The Basilisk and Orekit propagators of `vbar.dynamics.backends` refuse malformed states, sample
+  times, tolerances and overlapping burns before the extra is imported.
+- `Episode.reset_s` also appears in the result lines of the agent host
+  (`python -m vbar.agents.remote`).
+- The MATLAB PD client `clients/matlab/pd_agent.m` raises the error `vbar:pd_agent` at reset for a
+  goal whose task is not a hold or a berthing, or that has no hold point, as the Python agents do.
 
 ### Fixed
 
@@ -358,6 +390,9 @@ release may change the public API, and every such change is listed under Changed
   200 m evasion distance are unchanged.
 - `vbar.games.PursuitEvasionEnv` captures a fast pass whose range dips under the capture distance
   and out again within one integrator step; it was missed, and the episode flew on.
+- `vbar.metrics.clopper_pearson` raised `OverflowError` for an infinite count and an unclear
+  `ValueError` for NaN, and `unsafe_tail` took a `level` outside [0, 1] when every value was NaN
+  or there was none; both now raise `ValueError` with a clear message.
 
 ## [0.4.0] - 2026-10-30
 

@@ -19,6 +19,8 @@ from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike
 
+from .stats import _whole
+
 RUN_STATUSES = ("completed", "diverged", "cap_saturated", "non_terminating")
 CHECKPOINTS = ("final", "best_on_validation")
 ACTION_MODES = ("deterministic", "sampled")
@@ -33,26 +35,27 @@ class TrainingRun:
     Parameters
     ----------
     seed : int
-        The run's training seed.
+        The run's training seed, not negative.
     status : str
         One of `RUN_STATUSES`; any but "completed" is a failed run.
     checkpoint : str
         "final" or "best_on_validation", the weights scored.
     env_steps : int
-        Environment steps in training.
+        Environment steps in training, not negative.
     simulated_time_s : float
         Simulated time in training (s).
     wall_clock_s : float
         Wall-clock training time (s).
     violations : int
-        Hard-constraint violations during training.
+        Hard-constraint violations during training, not negative.
     propellant_kg : float
         Propellant used during training (kg).
 
     Raises
     ------
     ValueError
-        If the status or checkpoint is unknown or a cost is negative or not finite.
+        If the status or checkpoint is unknown, the seed, the steps or the violations are not
+        whole numbers, or a cost is negative or not finite.
     """
 
     seed: int
@@ -69,13 +72,10 @@ class TrainingRun:
             raise ValueError(f"unknown run status {self.status!r}, expected one of {RUN_STATUSES}")
         if self.checkpoint not in CHECKPOINTS:
             raise ValueError(f"unknown checkpoint {self.checkpoint!r}, expected {CHECKPOINTS}")
-        for name in (
-            "env_steps",
-            "simulated_time_s",
-            "wall_clock_s",
-            "violations",
-            "propellant_kg",
-        ):
+        _whole("seed", self.seed, 0)
+        _whole("env_steps", self.env_steps, 0)
+        _whole("violations", self.violations, 0)
+        for name in ("simulated_time_s", "wall_clock_s", "propellant_kg"):
             value = getattr(self, name)
             if isinstance(value, bool) or not (math.isfinite(value) and value >= 0):
                 raise ValueError(f"{name} must be finite and not negative")
@@ -101,7 +101,7 @@ class LearnedEntry:
     action_mode : str
         "deterministic" (the default scored mode) or "sampled".
     action_seeds : sequence of int, optional
-        Fixed action-sampling seeds, required when `action_mode` is "sampled".
+        Fixed action-sampling seeds, not negative; required when `action_mode` is "sampled".
     tau_s : float, optional
         The learner's discount as a time constant (s): gamma = exp(-dt / tau); None for no
         discount.
@@ -119,7 +119,8 @@ class LearnedEntry:
     tuned_on : sequence of str
         The scenarios the hyperparameters were tuned on.
     configurations_tried : int
-        Hyperparameter configurations tried, each training-reward variant counting as one.
+        Hyperparameter configurations tried, each training-reward variant counting as one; at
+        least 1.
     offline : bool
         Whether the agent was trained from a fixed data set.
     data_source : str, optional
@@ -129,7 +130,8 @@ class LearnedEntry:
     ------
     ValueError
         If fewer than `MIN_RUNS` runs are declared, two runs share a seed, a sampled mode has no
-        seeds, a field is out of range, or an offline entry names no data source.
+        seeds, an action seed or `configurations_tried` is not a whole number in range, a field is
+        out of range, or an offline entry names no data source.
     """
 
     name: str
@@ -161,6 +163,8 @@ class LearnedEntry:
             raise ValueError(f"unknown action mode {self.action_mode!r}, expected {ACTION_MODES}")
         if self.action_mode == "sampled" and not self.action_seeds:
             raise ValueError("a sampled action mode is scored with fixed action seeds")
+        for seed in self.action_seeds or ():
+            _whole("an action seed", seed, 0)
         if self.tau_s is not None and not (math.isfinite(self.tau_s) and self.tau_s > 0.0):
             raise ValueError("tau_s must be finite and positive")
         if self.trace_lambda is not None and not 0.0 <= self.trace_lambda <= 1.0:
@@ -169,8 +173,7 @@ class LearnedEntry:
             raise ValueError(f"unknown tuning {self.tuning!r}, expected {TUNING}")
         if self.tuning == "shared" and not self.tuned_on:
             raise ValueError("shared hyperparameters name the scenarios they were tuned on")
-        if isinstance(self.configurations_tried, bool) or self.configurations_tried < 1:
-            raise ValueError("configurations_tried must be at least 1")
+        _whole("configurations_tried", self.configurations_tried, 1)
         if self.offline and not self.data_source:
             raise ValueError("an offline entry names its data source")
 
@@ -208,7 +211,7 @@ def run_scores(
         Training seed to the run's evaluation score (the success rate of its weights over the
         suite, say); a failed run may have None.
     failed_score : float
-        The score a failed run counts with (0 for a rate).
+        The score a failed run counts with (0 for a rate); finite.
 
     Returns
     -------
@@ -218,9 +221,11 @@ def run_scores(
     Raises
     ------
     ValueError
-        If a completed run has no finite score, or `scores` names a run the entry does not
-        declare (a run cannot be swapped for a rerun).
+        If a completed run has no finite score, `scores` names a run the entry does not
+        declare (a run cannot be swapped for a rerun), or `failed_score` is not finite.
     """
+    if not math.isfinite(failed_score):
+        raise ValueError("failed_score must be finite")
     known = {run.seed for run in entry.runs}
     unknown = set(scores) - known
     if unknown:
@@ -259,11 +264,13 @@ def normalized(
     Raises
     ------
     ValueError
-        If the shapes differ or a reference pair is equal or not finite.
+        If the shapes differ, a value is NaN, or a reference pair is equal or not finite.
     """
     x, low, high = (np.asarray(a, dtype=float) for a in (values, reference_low, reference_high))
     if not x.shape == low.shape == high.shape:
         raise ValueError("values and references need the same shape")
+    if np.isnan(x).any():
+        raise ValueError("the values hold NaN")
     span = high - low
     if not np.all(np.isfinite(span) & (span != 0.0)):
         raise ValueError("each reference pair must be finite and distinct")

@@ -26,7 +26,8 @@ Reimplemented from MIT-licensed code, without copying it:
             of both repositories)
 
 Dependencies are installed separately and are not redistributed with V-BAR. CI fails if any
-installed dependency, including optional extras, declares a GPL-family license or no license.
+installed dependency of the dev, onnx, plot and replay extras declares a GPL-family license or
+no license; the basilisk and orekit extras are read from their package metadata by hand, below.
 At the time of writing:
   numpy       BSD-3-Clause
   scipy       BSD-3-Clause
@@ -37,3 +38,14 @@ At the time of writing:
               Apache-2.0)
   rerun-sdk   MIT OR Apache-2.0, optional "replay" extra (with pyarrow, Apache-2.0, pillow,
               MIT-CMU, attrs, MIT, psutil, BSD-3-Clause, and typing-extensions, PSF-2.0)
+  bsk         ISC, optional "basilisk" extra (Basilisk, AVS Lab, University of Colorado;
+              version 2.12.1 metadata)
+  orekit-jpype Apache-2.0 (package metadata: Apache Software License, version 13.1.9.0),
+              optional "orekit" extra, with JPype (Apache-2.0) and the Orekit library
+              (Apache-2.0)
+
+The Orekit backend needs a Java runtime, which the user provides (JAVA_HOME). When JAVA_HOME
+is not set it uses the optional package jdk4py, a JDK shipped in a Python package, if the user
+has installed it. jdk4py is not a dependency of any V-BAR extra and V-BAR neither installs nor
+redistributes it; its package metadata (version 25.0.2.1) declares the GNU General Public
+License v2.

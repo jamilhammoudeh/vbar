@@ -343,7 +343,9 @@ def main(argv: list[str] | None = None) -> None:
 
     However the session fails (at hello, during an episode, by a disconnect or a message the
     server cannot use), the episode being flown is written unfinished with the error, and so is
-    every seed not yet flown, so a session cannot drop a bad episode.
+    every seed not yet flown, so a session cannot drop a bad episode. Each line has `reset_s`, the
+    seconds the agent took to answer the reset of its episode (the round trip included), or null
+    when that episode never completed its reset, so work moved into `reset` still counts.
     """
 
     from ..runner import ScoredRun
@@ -379,18 +381,22 @@ def main(argv: list[str] | None = None) -> None:
 
     agent: RemoteAgent | None = None
     episode: ScoredRun | None = None
+    reset_s: float | None = None
     written, reason = 0, "the session ended"
     with open(args.out, "w", encoding="utf-8") as out:
         try:
             agent = server.accept()
             for seed in seeds:
                 episode = ScoredRun(env, seed)
+                reset_s = None
+                t0 = time.perf_counter()
                 agent.reset(env.agent_view(), episode.agent_rng())
+                reset_s = time.perf_counter() - t0
                 while not episode.done:
                     t0 = time.perf_counter()
                     action = agent.act(episode.obs, env.agent_info())
                     episode.step(action, time.perf_counter() - t0)
-                result = episode.result(agent.name)
+                result = {**episode.result(agent.name), "reset_s": reset_s}
                 write(out, result)
                 written, episode = written + 1, None
                 print(f"seed {seed}: captured {result['captured']}", flush=True)
@@ -404,8 +410,16 @@ def main(argv: list[str] | None = None) -> None:
             # Also on an interrupt: the episode being flown and every seed left are written.
             name = agent.name if agent is not None else "unknown"
             for k, seed in enumerate(seeds[written:]):
-                flown = episode if k == 0 and episode is not None else ScoredRun(env, seed)
-                write(out, {**flown.result(name), "error": reason})
+                started = k == 0 and episode is not None
+                flown = episode if started and episode is not None else ScoredRun(env, seed)
+                write(
+                    out,
+                    {
+                        **flown.result(name),
+                        "reset_s": reset_s if started else None,
+                        "error": reason,
+                    },
+                )
             if agent is not None:
                 agent.close()
             server.close()

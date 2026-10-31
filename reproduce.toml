@@ -1,6 +1,8 @@
-# Every published table, rebuilt by `python -m vbar.eval reproduce reproduce.toml`.
+# Every published table and script output, rebuilt by `python -m vbar.eval reproduce reproduce.toml`.
 # Each table names its suite, the agent and filter factories, and where its results and its
 # Markdown table go (relative to this file). Runs already in a results file are not flown again.
+# A [[script]] lists a script, the files it writes and the extra its modules come from; it runs
+# only when one of those files is missing, or with --force.
 
 [[table]]
 name = "core suite, free drift"
@@ -8,3 +10,36 @@ suite = "core-v1"
 agent = "vbar.agents:DriftAgent"
 results = "outputs/core-v1-drift.jsonl"
 markdown = "outputs/core-v1-drift.md"
+
+# The LQR baseline flies to a hold point, so the inspection task, which has none, is recorded as
+# errors rather than left out: the suite is reported in full.
+[[table]]
+name = "comparison tasks, LQR"
+suite = "comparison-v1"
+agent = "vbar.agents:LQRAgent"
+results = "outputs/comparison-v1-lqr.jsonl"
+markdown = "outputs/comparison-v1-lqr.md"
+
+[[script]]
+name = "README figure and animation"
+script = "examples/readme_figures.py"
+outputs = ["docs/images/pd_approach.png", "docs/images/pd_approach.gif"]
+requires = ["matplotlib"]
+extra = "plot"
+
+# The script itself names the orekit extra and needs a Java runtime; the run takes about half an
+# hour.
+[[script]]
+name = "agreement table against Basilisk and Orekit"
+script = "benchmarks/agreement_table.py"
+outputs = []
+stdout = "outputs/agreement-table.md"
+requires = ["Basilisk"]
+extra = "basilisk"
+
+# About ten minutes.
+[[script]]
+name = "coverage table of the scoring intervals"
+script = "benchmarks/coverage_table.py"
+outputs = []
+stdout = "outputs/coverage-table.md"

@@ -20,8 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from ..safety import FilteredAgent
+from ..scenarios.seeds import seed_digest
 from .provenance import environment, provenance_fields, provenance_hash
 from .results import SCHEMA_VERSION, read_results, write_results
+from .stats import _whole
 from .task import SpaceTask, Task
 
 Factory = Callable[[], Any] | str
@@ -43,6 +45,12 @@ class Job:
         Episode and agent seeds.
     suite : str, optional
         The suite identifier the job belongs to.
+
+    Raises
+    ------
+    ValueError
+        If `scenario` is empty or `scenario` or `split` is not text, or `index`, `seed` or
+        `agent_seed` is not a whole number of at least 0.
     """
 
     scenario: str
@@ -51,6 +59,15 @@ class Job:
     seed: int
     agent_seed: int
     suite: str | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.scenario, str) or not self.scenario:
+            raise ValueError("scenario must be a name")
+        if not isinstance(self.split, str):
+            raise ValueError("split must be a name")
+        # Python integers, since gymnasium seeds its generator only from an int.
+        for name in ("index", "seed", "agent_seed"):
+            object.__setattr__(self, name, _whole(name, getattr(self, name), 0))
 
 
 def resolve(factory: Factory | None) -> Callable[[], Any] | None:
@@ -102,6 +119,17 @@ def suite_jobs(suite) -> list[Job]:
     return jobs
 
 
+def _digests(job: Job) -> tuple[str | None, str | None]:
+    """Digests of the job's seeds; None where its split has no key to sign them with."""
+    try:
+        return (
+            seed_digest(job.split, job.seed, job.index),
+            seed_digest(job.split, job.agent_seed, job.index, "agent"),
+        )
+    except ValueError:
+        return None, None
+
+
 def _prepare(job: Job, task: Task, agent_factory, filter_factory) -> tuple[Any, Any, Any, str]:
     env = task.make(job.scenario)
     agent = agent_factory()
@@ -134,10 +162,13 @@ def run_job(job: Job, task: Task, agent: Factory, safety_filter: Factory | None 
     Returns
     -------
     dict
-        The result, with every field of the result schema.
+        The result, with every field of the result schema. `seed_digest` and `agent_seed_digest`
+        are None where the job's split has no key (a custom split name, or the test split without
+        the hidden key); `write_results` refuses such a result of the test split.
     """
     agent_factory, filter_factory = resolve(agent), resolve(safety_filter)
     started = time.perf_counter()
+    seed_hash, agent_seed_hash = _digests(job)
     result: dict[str, Any] = {
         "schema": SCHEMA_VERSION,
         "task": task.name,
@@ -148,6 +179,8 @@ def run_job(job: Job, task: Task, agent: Factory, safety_filter: Factory | None 
         "index": job.index,
         "seed": job.seed,
         "agent_seed": job.agent_seed,
+        "seed_digest": seed_hash,
+        "agent_seed_digest": agent_seed_hash,
         "agent": None,
         "filter": None,
         "metrics": {"success": False},
@@ -205,7 +238,8 @@ def run_jobs(
         Number of processes; 1 runs in this process.
     out : str or Path, optional
         JSON-lines file the results are appended to as they finish; runs it already holds with
-        the same provenance are not flown again and their stored results are returned.
+        the same provenance are not flown again and their stored results are returned. Results of
+        the test split are written without their seeds (`write_results`).
 
     Returns
     -------
@@ -215,7 +249,12 @@ def run_jobs(
     Raises
     ------
     ValueError
-        If `workers` is less than 1.
+        If `workers` is less than 1, or `out` is given and a result of the test split has no
+        digests because the hidden key is unavailable, would publish the hidden key or one of its
+        seeds in a field other than `error`, or `VBAR_HIDDEN_SEED_LOG` names `out` itself.
+    OSError
+        If `out` is given, the variable `VBAR_HIDDEN_SEED_LOG` is set and the log it names cannot
+        be opened for appending.
     """
     if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
         raise ValueError("workers must be a positive integer")

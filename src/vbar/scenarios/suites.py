@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .registry import get, make
-from .seeds import SeedSplit
+from .seeds import SeedSplit, seed_digest
 
 
 @dataclass(frozen=True)
@@ -106,10 +106,14 @@ class Suite:
     ) -> list[tuple[str, int]]:
         """The (scenario_id, seed) runs absent from `results`; empty when a report is complete.
 
+        A result belongs to a run by its "seed", or by its "seed_digest" where the seed is None,
+        as in a published file of the test split (`match_runs`).
+
         Parameters
         ----------
         results : iterable of mapping
-            Episode results, each with "scenario_id" and "seed".
+            Episode results, each with "scenario_id" and "seed", and "seed_digest" where "seed"
+            may be None.
         identifiers : mapping, optional
             As in `runs`.
 
@@ -123,9 +127,15 @@ class Suite:
         KeyError
             If a result lacks "scenario_id" or "seed".
         """
-        seen = {(r["scenario_id"], int(r["seed"])) for r in results}
         runs = self.runs(identifiers)
-        return [(sid, seed) for sid, seed, _ in runs if (sid, seed) not in seen]
+        return [runs[k][:2] for k in self._absent(results, identifiers)]
+
+    def _absent(
+        self, results: Iterable[Mapping[str, Any]], identifiers: Mapping[str, str] | None
+    ) -> list[int]:
+        """Positions in `runs` that no result belongs to."""
+        found = set(match_runs(self, results, identifiers))
+        return [k for k in range(sum(entry.count for entry in self.entries)) if k not in found]
 
     def require_complete(
         self, results: Iterable[Mapping[str, Any]], identifiers: Mapping[str, str] | None = None
@@ -135,24 +145,28 @@ class Suite:
         Parameters
         ----------
         results : iterable of mapping
-            Episode results, each with "scenario_id" and "seed".
+            Episode results, each with "scenario_id" and "seed", and "seed_digest" where "seed"
+            may be None.
         identifiers : mapping, optional
             As in `runs`.
 
         Raises
         ------
         ValueError
-            If a run is missing; the message counts them and names the first.
+            If a run is missing; the message counts them and names the first, by its seed, or by
+            its index in the entry where the entry is on the test split, whose seeds stay secret.
         KeyError
             If a result lacks "scenario_id" or "seed".
         """
-        missing = self.missing(results, identifiers)
-        if missing:
-            total = sum(entry.count for entry in self.entries)
-            scenario_id, seed = missing[0]
+        absent = self._absent(results, identifiers)
+        if absent:
+            scenario_id, seed, _ = self.runs(identifiers)[absent[0]]
+            entry, index = _slots(self)[absent[0]]
+            first = f"index {index}" if entry.split == "test" else f"seed {seed}"
+            total = sum(e.count for e in self.entries)
             raise ValueError(
-                f"{self.id} is reported in full or not at all: {len(missing)} of {total} runs "
-                f"are missing, the first {scenario_id} seed {seed}"
+                f"{self.id} is reported in full or not at all: {len(absent)} of {total} runs "
+                f"are missing, the first {scenario_id} {first}"
             )
 
     def complete(self, results: Iterable[Mapping[str, Any]]) -> bool:
@@ -161,14 +175,77 @@ class Suite:
         Parameters
         ----------
         results : iterable of mapping
-            Episode results, each with "scenario_id" and "seed".
+            Episode results, each with "scenario_id" and "seed", and "seed_digest" where "seed"
+            may be None.
 
         Returns
         -------
         bool
             True when no run is missing.
+
+        Raises
+        ------
+        KeyError
+            If a result lacks "scenario_id" or "seed".
         """
-        return not self.missing(results)
+        return not self._absent(results, None)
+
+
+def _slots(suite) -> list[tuple[Any, int]]:
+    """(entry, index in the entry) of every run, in the order of `suite.runs`."""
+    return [(entry, k) for entry in suite.entries for k in range(entry.count)]
+
+
+def match_runs(
+    suite, results: Iterable[Mapping[str, Any]], identifiers: Mapping[str, str] | None = None
+) -> list[int | None]:
+    """The run of the suite each result belongs to.
+
+    A result belongs to the run with its scenario identifier and its "seed", or else with its
+    scenario identifier and a "seed_digest" equal to `seed_digest(split, seed, index)` of the
+    run, which is how a published result of the test split, whose seed is None, is matched. A
+    result that matches no run belongs to none.
+
+    Parameters
+    ----------
+    suite : Suite
+        A `Suite`, or any object with its `entries` (each with `split` and `count`) and `runs`.
+    results : iterable of mapping
+        Episode results, each with "scenario_id" and "seed", and "seed_digest" where "seed" may
+        be None.
+    identifiers : mapping, optional
+        As in `Suite.runs`.
+
+    Returns
+    -------
+    list of int or None
+        For each result, in order, the position of its run in `suite.runs(identifiers)`, or None.
+
+    Raises
+    ------
+    KeyError
+        If a result lacks "scenario_id" or "seed".
+    """
+    by_seed: dict[tuple[str, int], int] = {}
+    by_digest: dict[tuple[str, str | None], int] = {}
+    runs = suite.runs(identifiers)
+    for k, ((scenario_id, seed, _), (entry, index)) in enumerate(
+        zip(runs, _slots(suite), strict=True)
+    ):
+        by_seed[(scenario_id, seed)] = k
+        try:
+            by_digest[(scenario_id, seed_digest(entry.split, seed, index))] = k
+        except ValueError:
+            # A suite of another domain may name splits that have no key; its results hold seeds.
+            continue
+    found: list[int | None] = []
+    for result in results:
+        scenario_id, seed = result["scenario_id"], result["seed"]
+        position = None if seed is None else by_seed.get((scenario_id, int(seed)))
+        if position is None:
+            position = by_digest.get((scenario_id, result.get("seed_digest")))
+        found.append(position)
+    return found
 
 
 SUITES: dict[str, Suite] = {}
@@ -198,4 +275,4 @@ def register_suite(suite: Suite) -> Suite:
     return suite
 
 
-__all__ = ["SUITES", "Suite", "SuiteEntry", "register_suite"]
+__all__ = ["SUITES", "Suite", "SuiteEntry", "match_runs", "register_suite"]

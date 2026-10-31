@@ -6,17 +6,29 @@ first observation, or its index by hashing the public key with the agent label. 
 comparisons use the test split, whose key is never in this repository and comes from the
 environment variable `VBAR_HIDDEN_SEED_KEY` (the hex string the benchmark's maintainers keep).
 The same scenario and index give the same seed on every platform and release.
+
+A test seed that is published lets anyone rebuild that episode's start state, so a result file
+holds `seed_digest` of each test seed in its place: a keyed hash that only the holder of the key
+can check.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
+from numbers import Integral
 
 SPLITS = ("train", "validation", "test")
 HIDDEN_KEY_VARIABLE = "VBAR_HIDDEN_SEED_KEY"
+HIDDEN_LOG_VARIABLE = "VBAR_HIDDEN_SEED_LOG"
+"""Names the private file that result writing appends the test split's seeds to.
+
+The file belongs next to the hidden key, in the maintainers' private storage, never beside the
+published results.
+"""
 _PUBLIC_KEYS = {"train": "vbar train seeds 1", "validation": "vbar validation seeds 1"}
 
 
@@ -80,6 +92,43 @@ def derive_seed(key: str, scenario: str, index: int, stream: str = "episode") ->
         raise ValueError("index must not be negative")
     material = f"{key}|{scenario}|{stream}|{index}".encode()
     return int.from_bytes(hashlib.sha256(material).digest()[:16])
+
+
+def seed_digest(split: str, seed: int, index: int, stream: str = "episode") -> str:
+    """A keyed digest of a seed, the only form of a test seed a published file may hold.
+
+    The HMAC-SHA256 of the stream label, the index and the seed under the split's key
+    (`split_key`). Whoever holds the key recomputes it for a seed and so checks a published
+    file; without the key a guessed seed cannot be tested against it, as it could against a plain
+    hash.
+
+    Parameters
+    ----------
+    split : {"train", "validation", "test"}
+        The split whose key signs the digest.
+    seed : int
+        The seed to digest, not negative.
+    index : int
+        Episode index of the seed in its split, not negative.
+    stream : str
+        Stream label: "episode" for an episode seed, "agent" for an agent seed.
+
+    Returns
+    -------
+    str
+        64 lowercase hex digits.
+
+    Raises
+    ------
+    ValueError
+        If `split` is unknown, it is "test" and the hidden key is unavailable (`split_key`), or
+        `seed` or `index` is not a whole number of at least 0.
+    """
+    for name, value in (("seed", seed), ("index", index)):
+        if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
+            raise ValueError(f"{name} must be a whole number of at least 0")
+    message = f"vbar seed digest|{stream}|{int(index)}|{int(seed)}".encode()
+    return hmac.digest(split_key(split).encode(), message, "sha256").hex()
 
 
 @dataclass(frozen=True)
@@ -181,4 +230,13 @@ def seeds(scenario: str, split: str = "train", count: int = 100) -> SeedSplit:
     return SeedSplit(scenario, split, count)
 
 
-__all__ = ["HIDDEN_KEY_VARIABLE", "SPLITS", "SeedSplit", "derive_seed", "seeds", "split_key"]
+__all__ = [
+    "HIDDEN_KEY_VARIABLE",
+    "HIDDEN_LOG_VARIABLE",
+    "SPLITS",
+    "SeedSplit",
+    "derive_seed",
+    "seed_digest",
+    "seeds",
+    "split_key",
+]

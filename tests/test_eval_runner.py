@@ -133,10 +133,12 @@ def test_result_lines_keep_128_bit_seeds_and_non_finite_metrics_exactly():
         "suite": None,
         "scenario": "inspection",
         "scenario_id": "vbar:inspection:cw:box:dv:v2",
-        "split": "test",
+        "split": "validation",
         "index": 7,
         "seed": seed,
         "agent_seed": seed - 2,
+        "seed_digest": "cd" * 32,
+        "agent_seed_digest": "ef" * 32,
         "agent": "nan",
         "filter": None,
         "metrics": {
@@ -184,3 +186,108 @@ def test_the_workers_count_is_checked():
     for workers in (0, -1, 1.5, True):
         with pytest.raises(ValueError, match="workers"):
             run_jobs(jobs(count=1), PDAgent, task=ShortTask(), workers=workers)
+
+
+RESULT = {
+    "schema": 1,
+    "task": "space",
+    "suite": None,
+    "scenario": "inspection",
+    "scenario_id": "vbar:inspection:cw:box:dv:v2",
+    "split": "validation",
+    "index": 7,
+    "seed": 11,
+    "agent_seed": 12,
+    "seed_digest": "cd" * 32,
+    "agent_seed_digest": "ef" * 32,
+    "agent": "pd",
+    "filter": None,
+    "metrics": {"success": True},
+    "failure_label": None,
+    "error": None,
+    "provenance": "ab" * 32,
+    "environment": {"vbar": "0.3.1"},
+    "wall_s": 1.5,
+}
+JOB = {"scenario": "approach-vbar", "split": "validation", "index": 0, "seed": 1, "agent_seed": 2}
+NOT_A_SEED = [
+    ("fractional", 1.5),
+    ("nan", math.nan),
+    ("true", True),
+    ("negative", -1),
+]
+
+
+def line(**changes):
+    return json.dumps({**json.loads(encode(RESULT)), **changes})
+
+
+def hostile(function, label, match=None, **arguments):
+    return pytest.param(function, arguments, match, id=f"{function.__name__}-{label}")
+
+
+@pytest.mark.parametrize(
+    "function, arguments, match",
+    [
+        hostile(decode, "a-list", line="[1, 2]"),
+        hostile(decode, "no-fields", line="{}"),
+        hostile(
+            decode,
+            "missing-fields",
+            r"(?=.*agent_seed)(?=.*metrics)(?=.*provenance)",
+            line='{"schema": 1}',
+        ),
+        hostile(decode, "seed-text", r"\bseed\b", line=line(seed="abc")),
+        hostile(decode, "seed-fractional", r"\bseed\b", line=line(seed=1.5)),
+        hostile(decode, "seed-null", r"\bseed\b", line=line(seed=None)),
+        hostile(decode, "seed-true", r"\bseed\b", line=line(seed=True)),
+        hostile(decode, "seed-negative", r"\bseed\b", line=line(seed=-1)),
+        hostile(decode, "agent_seed-negative-text", "agent_seed", line=line(agent_seed="-3")),
+        hostile(decode, "metrics-a-list", "metrics", line=line(metrics=[])),
+        *[
+            hostile(
+                encode,
+                f"{name}-{label}",
+                name if name == "agent_seed" else r"\bseed\b",
+                result={**RESULT, name: value},
+            )
+            for name in ("seed", "agent_seed")
+            for label, value in (*NOT_A_SEED, ("text", "7"))
+        ],
+        *[
+            hostile(Job, f"{name}-{label}", **{**JOB, name: value})
+            for name in ("seed", "agent_seed")
+            for label, value in (*NOT_A_SEED, ("none", None))
+        ],
+        *[
+            hostile(Job, f"index-{label}", **{**JOB, "index": value})
+            for label, value in (("negative", -1), ("fractional", 1.5), ("true", True))
+        ],
+        hostile(Job, "scenario-empty", **{**JOB, "scenario": ""}),
+        hostile(Job, "scenario-number", **{**JOB, "scenario": 3}),
+        hostile(Job, "split-number", **{**JOB, "split": 3}),
+    ],
+)
+def test_hostile_result_and_job_inputs_are_refused(function, arguments, match):
+    with pytest.raises(ValueError, match=match):
+        function(**arguments)
+
+
+def test_a_decimal_string_and_a_json_integer_are_both_read_as_a_seed():
+    for seed in ("7", 7):
+        found = decode(line(seed=seed, agent_seed=seed))
+        assert (found["seed"], found["agent_seed"]) == (7, 7)
+
+
+def test_numpy_integers_are_written_and_read_as_seeds_and_indices():
+    written = {**RESULT, "seed": np.int64(5), "agent_seed": np.uint32(6)}
+    assert decode(encode(written)) == decode(encode({**RESULT, "seed": 5, "agent_seed": 6}))
+    job = Job("approach-vbar", "validation", np.int64(2), np.int64(5), np.uint32(6))
+    assert (job.index, job.seed, job.agent_seed) == (2, 5, 6)
+    # Gymnasium refuses a numpy integer as a seed, so a job holds Python integers.
+    assert all(type(v) is int for v in (job.index, job.seed, job.agent_seed))
+
+
+def test_a_job_takes_any_split_name_the_task_defines():
+    for split in ("validation", "calibration", "planar-train"):
+        assert Job("planar-strong", split, 0, 1, 2).split == split

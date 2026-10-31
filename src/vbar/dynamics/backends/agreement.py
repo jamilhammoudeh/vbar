@@ -14,10 +14,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from ..bodies import EARTH, Body
 from ..models import TwoBodyDynamics
-from .common import Burn, hill_states
+from .common import Burn, _check_positive, _check_state, _check_times, check_burns, hill_states
 
 Propagate = Callable[..., tuple[np.ndarray, np.ndarray]]
 
@@ -45,8 +46,8 @@ class Residual:
 
 
 def vbar_arc(
-    rel: np.ndarray,
-    times: np.ndarray,
+    rel: ArrayLike,
+    times: ArrayLike,
     burns: Sequence[Burn] = (),
     body: Body = EARTH,
     altitude: float = 500e3,
@@ -59,12 +60,12 @@ def vbar_arc(
 
     Parameters
     ----------
-    rel : numpy.ndarray
+    rel : array_like
         Relative start state (m, m/s), Hill frame, shape (6,).
-    times : numpy.ndarray
-        Sample times (s), increasing, from 0.
+    times : array_like
+        Sample times (s) from 0, 1-D, non-negative and in time order; a time may repeat.
     burns : sequence of Burn
-        Burns held constant in the Hill frame.
+        Burns held constant in the Hill frame, not overlapping.
     body : Body
         Central body.
     altitude : float
@@ -79,14 +80,25 @@ def vbar_arc(
     tuple of numpy.ndarray
         Hill states (len(times), 6), target and chaser inertial states at t = 0, each (6,), in
         the body's inertial frame (m, m/s).
+
+    Raises
+    ------
+    ValueError
+        If `rel` is not six finite real numbers, `times` is empty, not 1-D, not finite, negative
+        or not in time order, `rtol` is not a finite positive number, or `burns` has an element
+        that is not a `Burn`, one that starts before t = 0 or two that overlap.
     """
+    rel = _check_state("rel", rel)
+    samples = _check_times(times)
+    _check_positive("rtol", rtol)
+    check_burns(burns)
     model = TwoBodyDynamics(body, altitude, inclination, j2=True, rtol=rtol)
     model.reset(rel)
     start_t, start_c = model.target_state(), model.chaser_state()
     edges = sorted(
-        {0.0, *times.tolist(), *(b.start for b in burns), *(b.start + b.duration for b in burns)}
+        {0.0, *samples.tolist(), *(b.start for b in burns), *(b.start + b.duration for b in burns)}
     )
-    out = {0.0: np.asarray(rel, dtype=float)}
+    out = {0.0: rel}
     for a, b in zip(edges, edges[1:], strict=False):
         accel = np.zeros(3)
         for burn in burns:
@@ -94,7 +106,7 @@ def vbar_arc(
                 accel = np.array(burn.accel_hill)
         state, _ = model.advance(accel, b - a)
         out[b] = state
-    return np.array([out[t] for t in times.tolist()]), start_t, start_c
+    return np.array([out[t] for t in samples.tolist()]), start_t, start_c
 
 
 def residual(case: str, name: str, ours: np.ndarray, theirs: np.ndarray) -> Residual:
