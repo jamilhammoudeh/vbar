@@ -116,11 +116,18 @@ def closest_approach(
     Raises
     ------
     ValueError
-        If `max_time` is not a non-negative integer.
+        If `max_time` is not a non-negative integer, `state` is not four finite 3-vectors or
+        `mu` is not a positive finite number.
     """
     if isinstance(max_time, bool) or not isinstance(max_time, int | np.integer) or max_time < 0:
         raise ValueError("max_time must be a non-negative integer number of seconds")
-    r1, v1, r2, v2 = (np.asarray(x, dtype=float) for x in state)
+    mu = _number(mu, "mu")
+    try:
+        r1, v1, r2, v2 = (np.asarray(x, dtype=float) for x in state)
+    except (TypeError, ValueError):
+        raise ValueError("state must be four 3-vectors (r1, v1, r2, v2)") from None
+    if any(x.shape != (3,) or not np.all(np.isfinite(x)) for x in (r1, v1, r2, v2)):
+        raise ValueError("state must be four finite 3-vectors (r1, v1, r2, v2)")
     best = (np.inf, 0, (r1, v1, r2, v2))
     for t in range(int(max_time) + 1):
         r1_t, v1_t = propagate_kepler(r1, v1, float(t), mu)

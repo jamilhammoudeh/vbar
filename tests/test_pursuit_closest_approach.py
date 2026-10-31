@@ -55,6 +55,29 @@ def test_a_bad_horizon_is_refused(max_time):
         closest_approach(start("i3"), max_time)
 
 
+R, V = [7.5e5, 0.0, 0.0], [0.0, 2170.0, 0.0]
+
+
+@pytest.mark.parametrize(
+    ("state", "mu", "message"),
+    [
+        ((R, V, R), KERBIN.mu, "four 3-vectors"),
+        (5, KERBIN.mu, "four 3-vectors"),
+        ((R, V, "far", V), KERBIN.mu, "four 3-vectors"),
+        ((R[:2], V, R, V), KERBIN.mu, "four finite 3-vectors"),
+        (([1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]), KERBIN.mu, "four finite 3-vectors"),
+        ((R, V, [np.nan, 0.0, 0.0], V), KERBIN.mu, "four finite 3-vectors"),
+        ((R, [np.inf, 0.0, 0.0], R, V), KERBIN.mu, "four finite 3-vectors"),
+        ((R, V, R, V), -1.0, "mu must be positive"),
+        ((R, V, R, V), float("nan"), "mu must be positive"),
+        ((R, V, R, V), True, "mu must be a number"),
+    ],
+)
+def test_a_bad_state_or_mu_is_refused(state, mu, message):
+    with pytest.raises(ValueError, match=message):
+        closest_approach(state, 10, mu)
+
+
 class Branches(ClosestApproachAgent):
     """Records the predicted approach time of each call."""
 
