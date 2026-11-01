@@ -120,6 +120,10 @@ def test_a_text_reply_is_charged_its_worst_case_and_returned_as_a_reply():
         {"max_usd": float("nan"), "price": PRICE, "max_output_tokens": 50},
         {"max_usd": True, "price": PRICE, "max_output_tokens": 50},
         {"max_usd": "1", "price": PRICE, "max_output_tokens": 50},
+        {"max_usd": 1.0, "price": Price(float("nan"), 1.0), "max_output_tokens": 50},
+        {"max_usd": 1.0, "price": Price(1.0, float("inf")), "max_output_tokens": 50},
+        {"max_usd": 1.0, "price": Price(-5.0, -5.0), "max_output_tokens": 50},
+        {"max_calls": 3, "price": Price(1.0, -1.0)},
         {"max_usd": 1.0, "price": PRICE, "max_output_tokens": 0},
     ],
 )

@@ -256,8 +256,8 @@ class BudgetedModel:
     Raises
     ------
     ValueError
-        If neither cap is given, a cap is not positive, or `max_usd` comes without `price` and
-        `max_output_tokens`.
+        If neither cap is given, a cap is not positive, a price rate is not finite or is negative,
+        or `max_usd` comes without `price` and `max_output_tokens`.
     """
 
     def __init__(
@@ -285,6 +285,11 @@ class BudgetedModel:
                 raise ValueError(f"max_usd must be positive and finite, got {max_usd!r}")
             if price is None or max_output_tokens is None:
                 raise ValueError("max_usd needs price and max_output_tokens")
+        if price is not None and not all(
+            math.isfinite(rate) and rate >= 0.0
+            for rate in (price.input_per_mtok, price.output_per_mtok)
+        ):
+            raise ValueError(f"price rates must be finite and not negative, got {price!r}")
         self.model = model
         self.price = price
         self.max_calls = max_calls
@@ -300,6 +305,25 @@ class BudgetedModel:
         return self.price.cost(size, self.max_output_tokens)
 
     def __call__(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply:
+        """The model's reply, if the call fits the budget.
+
+        Parameters
+        ----------
+        messages : list of dict
+            The conversation, as for `Model`.
+        tools : list of dict
+            The tools offered, as for `Model`.
+
+        Returns
+        -------
+        Reply
+            The model's answer, a plain-text answer wrapped as a `Reply`.
+
+        Raises
+        ------
+        BudgetExceeded
+            If the call could pass a cap; the model is not called.
+        """
         if self.max_calls is not None and self.calls >= self.max_calls:
             raise BudgetExceeded(f"the {self.max_calls} allowed model calls are spent")
         worst = self._worst(messages, tools)
