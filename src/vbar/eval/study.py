@@ -131,8 +131,9 @@ class Consult:
 
 def _command(answer: Any) -> Command | None:
     if isinstance(answer, Order):
-        return answer.command
-    return answer if isinstance(answer, Command) else None
+        answer = answer.command
+    # An int subclass that equals every command would hide a disagreement from the log.
+    return answer if type(answer) is Command else None
 
 
 def disagreement(consults: Sequence[Consult]) -> dict[str, Any]:

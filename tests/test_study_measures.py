@@ -402,6 +402,29 @@ class OrdersFlipping:
         return Flipping(Command.HOLD)
 
 
+class EqualsAll(int):
+    def __eq__(self, other):
+        return True
+
+    __hash__ = int.__hash__
+
+
+class OrdersEqualsAll:
+    name = "equals-all"
+
+    def reset(self, view, ladder, rng=None):
+        pass
+
+    def decide(self, situation):
+        return Order(EqualsAll(Command.HOLD))
+
+
+def test_an_order_whose_command_is_not_a_command_is_logged_as_none():
+    (_, consults, *_), metrics = fly(StudyAgent(OrdersEqualsAll(), shadow=True, period_s=10.0))
+    assert all(c.command is None for c in consults)
+    assert metrics["consults_differing"] == metrics["consults"] > 0
+
+
 def test_an_order_that_changes_its_command_is_flown_as_the_command_logged():
     (episode, consults, *_), metrics = fly(StudyAgent(OrdersFlipping(), period_s=10.0))
     (retreat, honest, *_), expected = fly(StudyAgent(Always(Command.RETREAT), period_s=10.0))
