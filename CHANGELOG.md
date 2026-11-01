@@ -6,8 +6,14 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
 ### Added
 
+- `vbar.scenarios.seeds.seed_digest`, the keyed digest a published result of the test split holds
+  in place of its seed; `vbar.scenarios.suites.match_runs`, which matches results to a suite's runs by
+  seed or by that digest; and `vbar.scenarios.seeds.HIDDEN_LOG_VARIABLE`, the environment variable
+  naming the private file the test split's seeds are written to.
 - `[[script]]` entries in `reproduce.toml` for files the suite runner does not make, with the README
   figure, the agreement table and the coverage table listed, and `--force` and `--skip-missing` on
   `python -m vbar.eval reproduce`. A manifest with unknown keys, duplicated output paths or wrong
@@ -989,7 +995,8 @@ release may change the public API, and every such change is listed under Changed
 First release with the validated dynamics layer: exact Clohessy-Wiltshire, nonlinear two-body
 relative motion with J2, Kepler propagation and J2 mean elements.
 
-[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.2.0...v0.3.0
