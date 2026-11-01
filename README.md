@@ -15,16 +15,18 @@ scenarios and are scored with the same metrics.
 
 The PD baseline reaches the hold point from behind the target (blue) but flies through the keep-out zone from ahead of it (orange), closing to 14.4 m.
 
-**Status: early development (0.4).** The dynamics, spacecraft, sensor and constraint layers are
+**Status: early development (0.5).** The dynamics, spacecraft, sensor and constraint layers are
 validated (see [Tests](#tests)). Version 0.3 added the metrics, agent tools (remote and ONNX
 policy agents, the sign check, reward and training interfaces), a scenario catalogue and
 `vbar.solvers` (command projection and horizon quadratic programs). Version 0.4 adds the classical
 baselines and fuel oracles, the evaluation harness, comparison tasks rebuilt from published
 benchmarks, agreement checks against Basilisk and Orekit, pursuit-evasion in KSPDG's format,
 replay export to Rerun, fault injection, mission reconstructions and a tumbling-capture scenario.
-The safety filters (barrier, backup, predictive, corridor and run time assurance filters, and an
-audit of the certified ones) are on the main branch and not in a release yet. The LLM supervisor
-study is in progress, and interfaces may change before 1.0.
+Version 0.5 adds the safety filters (barrier, backup, predictive, corridor and run time assurance
+filters, and an audit of the certified ones), LLM agents for every task kind and a supervisory
+channel for LLM and rule supervisors, KSPDG's pe1 evader bots and starts with a `kspdg` import
+alias, one-command reproduction of the published tables and figures, and a Colab quickstart. The
+LLM supervisor study is in progress, and interfaces may change before 1.0.
 
 ## Why
 
