@@ -41,12 +41,20 @@ def fly(model, real_time=None, steps=120):
 
 
 @pytest.mark.slow
-def test_the_models_latency_delays_the_supervised_flight():
-    paused = fly(Slow(0.02))
-    # 0.02 s of wall time at a scale of 1000 is 20 s of flight per consult.
-    late = fly(Slow(0.02), real_time=RealTime(time_scale=1000.0))
-    assert not np.array_equal(paused["states"], late["states"])
-    assert late["latencies_s"].max() >= 0.02
+def test_the_models_wait_is_measured_as_the_decision_latency():
+    measured = fly(Slow(0.05), real_time=RealTime(time_scale=1000.0))
+    assert measured["latencies_s"].max() >= 0.05
+
+
+@pytest.mark.slow
+def test_a_decision_latency_delays_the_supervised_flight():
+    # Given latencies make both runs deterministic; 0.05 s at a scale of 1000 is 50 s of flight.
+    steps = 120
+    prompt = fly(Slow(0.0), real_time=RealTime(time_scale=1000.0, latencies=(0.0,) * steps))
+    late = fly(Slow(0.0), real_time=RealTime(time_scale=1000.0, latencies=(0.05,) * steps))
+    assert not np.array_equal(prompt["states"], late["states"])
+    again = fly(Slow(0.0), real_time=RealTime(time_scale=1000.0, latencies=(0.05,) * steps))
+    assert np.array_equal(late["states"], again["states"])
 
 
 @pytest.mark.slow
