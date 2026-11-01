@@ -25,7 +25,15 @@ from typing import Any, cast
 
 import numpy as np
 
-from ..agents.llm import BudgetedModel, BudgetExceeded, Model, Price, Reply, as_reply
+from ..agents.llm import (
+    BudgetedModel,
+    BudgetExceeded,
+    InfrastructureError,
+    Model,
+    Price,
+    Reply,
+    as_reply,
+)
 from ..agents.llm_supervisor import SUPERVISOR_PROMPT, LLMSupervisor
 from ..agents.rules import RuleSupervisor
 from ..agents.supervision import Command, Order, Situation, SupervisedAgent
@@ -866,11 +874,14 @@ def _tokens(count: Any) -> int:
 
 
 class _Guarded:
-    """Calls a model and hands back a plain `Reply`, any exception it raises as a `ModelError`.
+    """Calls a model and hands back a plain `Reply`; its exceptions are re-raised by cause.
 
+    An `InfrastructureError` comes out as a fresh one and any other exception as a `ModelError`.
     The runner reads an episode's end from the type of the error that stopped it, so an error
-    the model raises must not pass for the budget's refusal or the wall limit. Token counts that
-    are not whole and non-negative become 0, which a `BudgetedModel` charges at its worst case.
+    the model raises must not pass for the budget's refusal or the wall limit, and only this
+    class makes an `InfrastructureError`, whatever the model's exception was called. Token
+    counts that are not whole and non-negative become 0, which a `BudgetedModel` charges at its
+    worst case.
     """
 
     def __init__(self, model: Model):
@@ -885,6 +896,8 @@ class _Guarded:
             return Reply(
                 str.__str__(text), _tokens(reply.input_tokens), _tokens(reply.output_tokens)
             )
+        except InfrastructureError as error:
+            raise InfrastructureError(f"the model raised {type(error).__name__}") from None
         except Exception as error:  # noqa: BLE001  any model error ends the run as an error
             raise ModelError(f"the model raised {type(error).__name__}") from None
 
@@ -897,6 +910,7 @@ class _StudiedAgent:
     prompt: str
     job_usd: float | None
     wall_limit_s: float | None
+    attempt: int = 1
 
     def __call__(self) -> StudyAgent:
         complete: Model = _Guarded(self.model.complete())
@@ -916,6 +930,9 @@ class _StudiedAgent:
                 "model": self.model.label,
                 "prompt_sha256": hashlib.sha256(self.prompt.encode("utf-8")).hexdigest(),
                 "job_usd": self.job_usd,
+                # The rerun of an infrastructure error has its own provenance, so it is flown
+                # once and a resumed run does not fly it again.
+                **({"attempt": self.attempt} if self.attempt > 1 else {}),
             },
         )
 
@@ -925,12 +942,17 @@ def rule_agent() -> StudyAgent:
     return StudyAgent(RuleSupervisor())
 
 
+def _infrastructure_error(result: Mapping[str, Any]) -> bool:
+    return episode_outcome(result) == "error"
+
+
 def episode_outcome(result: Mapping[str, Any]) -> str | None:
-    """A result's outcome: one of `OUTCOMES`, "error", or None for an unfinished episode.
+    """A result's outcome: one of `OUTCOMES`, "model_error", "error", or None if unfinished.
 
     An episode stopped by its model budget is unfinished; one stopped by its wall limit is a
-    timeout; one stopped by any other error, an error the model raised included (`ModelError`,
-    whatever the model's exception was called), is "error".
+    timeout; one stopped by an `InfrastructureError` is "error" (`run_cell` has already rerun it
+    once); one stopped by any other error, the model's own exception (`ModelError`, whatever
+    the exception was called) included, is "model_error", a failure of that side.
 
     Parameters
     ----------
@@ -949,7 +971,9 @@ def episode_outcome(result: Mapping[str, Any]) -> str | None:
         return None
     if error.startswith(f"{WallLimitReached.__name__}:"):
         return "timeout"
-    return "error"
+    if error.startswith(f"{InfrastructureError.__name__}:"):
+        return "error"
+    return "model_error"
 
 
 def compare(
@@ -1050,11 +1074,15 @@ def _mean(values: Sequence[float]) -> float:
 
 
 def _spend(result: Mapping[str, Any], episode_usd: float) -> float:
-    """Dollars an episode spent; an episode stopped by an error is charged its ceiling."""
+    """Dollars an episode spent; an episode stopped by an error is charged its ceiling.
+
+    A rerun is charged for its first attempt too, which ended in an error.
+    """
+    again = episode_usd if result.get("rerun") else 0.0
     if result.get("error") is not None:
-        return episode_usd
+        return again + episode_usd
     cost = result["metrics"].get("cost_usd")
-    return 0.0 if cost is None else float(cost)
+    return again + (0.0 if cost is None else float(cost))
 
 
 def side_summary(results: Sequence[Mapping[str, Any]], faulted: bool) -> dict[str, Any]:
@@ -1070,19 +1098,23 @@ def side_summary(results: Sequence[Mapping[str, Any]], faulted: bool) -> dict[st
     Returns
     -------
     dict
-        "episodes", "unfinished", "outcomes" (counts of each outcome and of "error");
-        "mission_success" (success over finished episodes, a timeout or error a failure),
-        "unsafe" (unsafe over episodes with an outcome, a timeout safe) and, in a faulted cell,
-        "abort_when_faulted" (safe aborts over finished episodes), each with its Clopper-Pearson
-        95% interval; per-episode means of "chattering", "consults", "input_tokens",
-        "output_tokens", "cost_usd" (USD) and "wall_s" (s) over scored episodes;
+        "episodes", "unfinished", "outcomes" (counts of each outcome, of "model_error" and of
+        "error"), "model_errors", "infrastructure_errors" and "reruns" (episodes whose result is
+        the second attempt); "mission_success" (success over finished episodes without an
+        infrastructure error, a timeout or model error a failure), "mission_success_all" (the
+        same with each infrastructure error a failure, so errors dodged by raising show),
+        "unsafe" (unsafe over episodes with a known outcome, a timeout safe) and, in a faulted
+        cell, "abort_when_faulted" (safe aborts over the same episodes as the success rate),
+        each with its Clopper-Pearson 95% interval; per-episode means of "chattering", "consults",
+        "input_tokens", "output_tokens", "cost_usd" (USD) and "wall_s" (s) over scored episodes;
         "invalid_action_rate" (parse failures over consults, pooled); "spent_usd", the cost of
         every run, each run stopped by an error at no recorded cost counted as 0.
     """
     outcomes = [episode_outcome(r) for r in results]
     finished = [o for o in outcomes if o is not None]
-    counts = {o: finished.count(o) for o in (*OUTCOMES, "error")}
-    known = len(finished) - counts["error"]
+    counts = {o: finished.count(o) for o in (*OUTCOMES, "model_error", "error")}
+    rated = len(finished) - counts["error"]
+    known = rated - counts["model_error"]
     scored = [r for r in results if r.get("error") is None]
     metrics = [r["metrics"] for r in scored]
     consults = sum(int(m["consults"]) for m in metrics)
@@ -1090,11 +1122,15 @@ def side_summary(results: Sequence[Mapping[str, Any]], faulted: bool) -> dict[st
         "episodes": len(results),
         "unfinished": len(results) - len(finished),
         "outcomes": counts,
-        "mission_success": _rate(counts["success"], len(finished)),
+        "model_errors": counts["model_error"],
+        "infrastructure_errors": counts["error"],
+        "reruns": sum(1 for r in results if r.get("rerun")),
+        "mission_success": _rate(counts["success"], rated),
+        "mission_success_all": _rate(counts["success"], len(finished)),
         "unsafe": _rate(counts["unsafe"], known),
     }
     if faulted:
-        out["abort_when_faulted"] = _rate(counts["safe_abort"], len(finished))
+        out["abort_when_faulted"] = _rate(counts["safe_abort"], rated)
     out.update(
         {
             key: _mean([float(m[key] or 0.0) for m in metrics])
@@ -1119,7 +1155,8 @@ def summarize_cell(
 ) -> dict[str, Any]:
     """The comparison of a cell's runs with the rule supervisor's on the same seeds.
 
-    Runs are paired by seed index; a pair is used when both episodes finished. The success
+    Runs are paired by seed index; a pair is used when both episodes finished and neither ended
+    in an infrastructure error. The success
     measure is judged in every cell, the filter's intervention count only with the filter on,
     each against `MARGINS` at the row's confidence.
 
@@ -1147,7 +1184,7 @@ def summarize_cell(
     pairs = [
         (s, r)
         for s, r in zip(studied, rule, strict=False)
-        if episode_outcome(s) is not None and episode_outcome(r) is not None
+        if episode_outcome(s) not in (None, "error") and episode_outcome(r) not in (None, "error")
     ]
     success = [
         float(episode_outcome(s) == "success") - float(episode_outcome(r) == "success")
@@ -1217,10 +1254,11 @@ def run_cell(
     call (`REQUEST_BYTES` of input and the reply limit), so an episode passes `episode_usd` only
     if a provider reports more tokens than a call's worst case. A batch starts only while the
     cell's spend plus `episode_usd` for each of its episodes stays within the cell's share of
-    the cap; a run stopped by an error is charged
-    `episode_usd`. At each look (once, after every seed, for a row without looks) the rule
-    supervisor flies the same seeds and the cell is summarized; a sequential row stops at the
-    first look where every measure is decided. Results go to `<out_dir>/<row>/` and
+    the cap; a run stopped by an error is charged `episode_usd`, and an episode that raised an
+    `InfrastructureError` is flown once more. At each look (once, after every seed, for a row
+    without looks) the rule supervisor flies the same seeds and the cell is summarized; a
+    sequential row stops at the first look where every measure is decided. Results go to
+    `<out_dir>/<row>/` and
     `<out_dir>/rule/`, one JSON-lines file per cell, and a rerun resumes from them.
 
     Parameters
@@ -1284,26 +1322,51 @@ def run_cell(
     studied_out.parent.mkdir(parents=True, exist_ok=True)
     rule_out.parent.mkdir(parents=True, exist_ok=True)
     factory = _StudiedAgent(model, prompt, job_usd, row.wall_limit_s)
+    second = replace(factory, attempt=2)
     studied: list[dict] = []
     status = "undecided" if row.sequential else "fixed"
     report: dict[str, Any] = {}
     for look in row.looks or (row.seeds,):
         while len(studied) < look:
             room = min(look - len(studied), workers)
+            spare = None
             if row.share_usd is not None:
                 ceiling = cast(float, row.episode_usd)
                 spent = sum(_spend(r, ceiling) for r in studied)
                 # The rounding allowance keeps an exact share from losing its last episode.
                 room = min(room, math.floor((row.share_usd - spent) / ceiling + 1e-9))
+                # Reruns are charged a ceiling beyond the batch's own.
+                spare = math.floor((row.share_usd - spent) / ceiling + 1e-9) - room
             if room < 1:
                 status = "budget"
                 break
             batch = jobs[len(studied) : len(studied) + room]
-            studied.extend(
-                run_jobs(
-                    batch, factory, task=task, safety_filter=guard, workers=room, out=studied_out
-                )
+            flown = run_jobs(
+                batch, factory, task=task, safety_filter=guard, workers=room, out=studied_out
             )
+            # An infrastructure error reruns its seed once, as a second attempt with its own
+            # stored result, so a resumed cell neither skips nor repeats the rerun.
+            failed = [i for i, r in enumerate(flown) if _infrastructure_error(r)]
+            held = []
+            if spare is not None and len(failed) > max(spare, 0):
+                # A rerun the share cannot pay for waits for a larger share; so does every seed
+                # after it, which keeps the studied runs a prefix of the seeds.
+                failed, held = failed[: max(spare, 0)], failed[max(spare, 0) :]
+            if failed:
+                again = run_jobs(
+                    [batch[i] for i in failed],
+                    second,
+                    task=task,
+                    safety_filter=guard,
+                    workers=len(failed),
+                    out=studied_out,
+                )
+                for i, r in zip(failed, again, strict=True):
+                    flown[i] = {**r, "rerun": True}
+            studied.extend(flown[: held[0]] if held else flown)
+            if held:
+                status = "budget"
+                break
         rule = run_jobs(
             jobs[: len(studied)],
             rule_agent,
