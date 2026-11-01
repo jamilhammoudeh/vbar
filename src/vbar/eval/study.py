@@ -1166,10 +1166,11 @@ def run_cell(
 
     The supervisor under study flies the cell's seeds in order, `workers` episodes at a time,
     each through its own `BudgetedModel` capped at the row's `episode_usd` less one worst-case
-    call (`REQUEST_BYTES` of input and the reply limit), so an episode cannot spend more than
-    `episode_usd`. A batch starts only while the cell's spend plus `episode_usd` for each of its
-    episodes stays within the cell's share of the cap; a run stopped by an error is charged
-    `episode_usd`. At each look (or after every seed, for a row without looks) the rule
+    call (`REQUEST_BYTES` of input and the reply limit), so an episode passes `episode_usd` only
+    if a provider reports more tokens than a call's worst case. A batch starts only while the
+    cell's spend plus `episode_usd` for each of its episodes stays within the cell's share of
+    the cap; a run stopped by an error is charged
+    `episode_usd`. At each look (once, after every seed, for a row without looks) the rule
     supervisor flies the same seeds and the cell is summarized; a sequential row stops at the
     first look where every measure is decided. Results go to `<out_dir>/<row>/` and
     `<out_dir>/rule/`, one JSON-lines file per cell, and a rerun resumes from them.

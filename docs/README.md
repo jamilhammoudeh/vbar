@@ -27,6 +27,7 @@ and how it is tested.
 | [agents.md](agents.md) | tools around agents: the sign-convention check, real-time runs, plan submission with an external verifier |
 | [llm-agents.md](llm-agents.md) | LLM agents: the model function, the prompt and its fields, the briefing of every task kind, parsing, tool calling and the built-in tools, tokens and cost, reasoning faithfulness, transcript replay |
 | [supervision.md](supervision.md) | supervisory commands: the command set and its validity mask, the ladder of rungs, phases and modes, the set-point tracker, the rule, language-model and learned supervisors, the learning wrapper |
+| [supervisor-study.md](supervisor-study.md) | the supervisor study: episode outcomes, decision points and disagreement with a rule shadow, chattering, the filter count, cells and rows, per-episode model budgets, paired comparisons by two one-sided tests and the sequential stopping rule |
 | [remote-agents.md](remote-agents.md) | agents in another process or language: the agent server, its JSON-lines protocol, the Python and MATLAB clients, the tool server for LLM harnesses |
 | [policy-export.md](policy-export.md) | neural policies with normalization and squashing, ONNX export, the ONNX agent, latency profiles |
 | [solvers.md](solvers.md) | nondimensional Hill-frame units, the exact projection of a command onto linear rows under a box or ball thrust limit, its multipliers, the phase I certificate of infeasibility, stage-structured horizon problems and their Riccati solve, the primal-dual interior-point method and its statuses |

@@ -6,6 +6,16 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+### Added
+
+- `vbar.eval.study`, the supervisor study: `StudyAgent` and `StudyTask` score each supervised
+  episode's outcome (success, safe abort, timeout, unsafe), the filter's intervention count,
+  decision disagreement with a rule supervisor shown the same situations, and decision flips per
+  100 steps; `Cell`, `Row` and `ROWS` define the study's cells and rows; `run_cell` and `run_row`
+  fly a row paired with the rule supervisor on the same seeds, with a `BudgetedModel` per episode
+  inside each cell's share of the cap, and compare the pair by two one-sided tests at sequential
+  looks. `docs/supervisor-study.md` documents it.
+
 ## [0.6.0] - 2026-11-01
 
 0.5.0 was tagged and archived on Zenodo but never published to PyPI: its release build failed on
