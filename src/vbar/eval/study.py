@@ -252,6 +252,17 @@ class _Shadowed:
         shadow = None if self.shadow is None else _command(self.shadow.decide(situation))
         point = decision_point(situation, self._radius)
         answer = self.supervisor.decide(situation)
+        if isinstance(answer, Order) and type(answer) is not Order:
+            # A subclass could show the log one command and the agent another, so its fields
+            # are read once into a plain order that both get.
+            answer = Order(
+                answer.command,
+                point=answer.point,
+                velocity=answer.velocity,
+                speed=answer.speed,
+                unit=answer.unit,
+                reason=answer.reason,
+            )
         self.consults.append(
             Consult(t=t, command=_command(answer), shadow=shadow, decision_point=point)
         )

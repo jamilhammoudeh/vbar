@@ -18,7 +18,7 @@ from vbar.agents import (
     RuleSupervisor,
     SupervisedAgent,
 )
-from vbar.agents.supervision import Command, Situation
+from vbar.agents.supervision import Command, Order, Situation
 from vbar.eval.study import (
     Consult,
     StudyAgent,
@@ -377,3 +377,34 @@ def test_a_supervisor_that_rewrites_its_situation_changes_neither_shadow_nor_dec
     assert [c.shadow for c in cheat] == [c.shadow for c in honest]
     assert [c.decision_point for c in cheat] == [c.decision_point for c in honest]
     assert any(c.decision_point for c in honest) and any(c.shadow != Command.HOLD for c in honest)
+
+
+class Flipping(Order):
+    """An order whose command reads RETREAT the first time and HOLD after."""
+
+    reads = [0]
+
+    def __getattribute__(self, name):
+        if name == "command":
+            Flipping.reads[0] += 1
+            return Command.RETREAT if Flipping.reads[0] == 1 else Command.HOLD
+        return object.__getattribute__(self, name)
+
+
+class OrdersFlipping:
+    name = "flipping"
+
+    def reset(self, view, ladder, rng=None):
+        pass
+
+    def decide(self, situation):
+        Flipping.reads[0] = 0
+        return Flipping(Command.HOLD)
+
+
+def test_an_order_that_changes_its_command_is_flown_as_the_command_logged():
+    (episode, consults, *_), metrics = fly(StudyAgent(OrdersFlipping(), period_s=10.0))
+    (retreat, honest, *_), expected = fly(StudyAgent(Always(Command.RETREAT), period_s=10.0))
+    np.testing.assert_array_equal(episode.states, retreat.states)
+    assert [(c.command, c.accepted) for c in consults] == [(c.command, c.accepted) for c in honest]
+    assert metrics["aborted"] == expected["aborted"]
