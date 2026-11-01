@@ -105,10 +105,33 @@ declared `Price` and the reply limit it is called with.
   `test_a_batch_of_workers_starts_only_as_many_episodes_as_the_share_holds`,
   `test_an_episode_its_budget_stops_is_unfinished_and_charged_its_ceiling`).
 - Outcomes of runs that stopped. A run its budget refused is unfinished and leaves the pairs; a
-  run past its wall limit is a timeout; a run ended by any other error is an `error`, a failure in
-  the mission success rate and left out of the unsafe rate
-  (`test_the_rates_count_timeouts_as_failures_and_errors_as_neither_safe_nor_unsafe`,
+  run past its wall limit is a timeout; a run ended by an `InfrastructureError` is rerun once (see
+  Errors); a run ended by any other error is a `model_error`, a failure in the mission success
+  rate and left out of the unsafe rate
+  (`test_the_rates_count_model_errors_as_failures_and_infrastructure_errors_not_at_all`,
   `test_a_run_past_its_wall_limit_is_a_timeout`).
+- Errors. A model adapter raises `vbar.agents.InfrastructureError` for a network failure, a
+  request timeout, a rate limit or a 5xx response; every other exception the model raises, and
+  output that stays unparseable or invalid after the allowed repairs, is a model error. The
+  runner re-raises an `InfrastructureError` as a fresh one and every other exception as a
+  `ModelError`, so a model's own exception cannot pass for either by its name
+  (`test_an_error_the_model_raises_is_a_model_error_whatever_its_name`). An episode that ended in
+  an `InfrastructureError` is flown once more, as a second attempt with its own provenance and
+  stored result; if that also ends in one the outcome is `error`, neither a success nor a failure:
+  it is left out of the success, unsafe and abort rates and of the pairs
+  (`test_an_infrastructure_error_reruns_its_seed_once_and_the_rerun_counts`,
+  `test_an_infrastructure_error_that_repeats_is_left_out_of_the_rates`). A resumed cell reads both
+  attempts back and flies neither again
+  (`test_a_resumed_cell_does_not_rerun_a_repeated_infrastructure_error_again`,
+  `test_a_resumed_first_attempt_that_failed_is_rerun_once`). A rerun is charged `episode_usd`
+  beyond its first attempt, and a rerun the cell's share cannot pay for waits for a larger share
+  (`test_reruns_are_paid_from_the_cell_share_and_wait_when_it_runs_out`). Each side reports
+  `model_errors`, `infrastructure_errors` and `reruns`, and `mission_success_all`, the success
+  rate with every infrastructure error counted as a failure, so a model that raises
+  `InfrastructureError` to drop seeds shows in the counts and in the gap between the two rates
+  (`test_a_model_cannot_raise_an_infrastructure_error_to_drop_a_seed_unseen`). A study run reports
+  the counts with each cell; whether an adapter's retries before raising are enough is the
+  adapter's concern.
 - Pairing. At each look the rule supervisor (`rule_agent`) flies the same seeds with the same
   filter; runs pair by seed index, and a pair counts when both episodes finished
   (`test_a_fixed_row_flies_every_seed_paired_with_the_rule_supervisor`,
@@ -146,7 +169,8 @@ looks flies every seed and reports the 90% interval, the two one-sided tests' in
 `status` "fixed".
 
 Each report also gives, per side (`side_summary`): the outcome counts, the mission success rate
-(timeouts and errors fail), the unsafe rate (timeouts are safe) and, in a fault cell, the
+(timeouts and model errors fail; infrastructure errors are left out), the unsafe rate (timeouts
+are safe) and, in a fault cell, the
 abort-when-faulted rate (safe aborts over finished episodes), each with its Clopper-Pearson 95%
 interval; per-episode means of chattering, consults, tokens, dollars and wall time; the
 invalid-action rate pooled over consults; and the dollars spent. The studied side's disagreement
@@ -154,6 +178,8 @@ is pooled over its episodes.
 
 ## Assumptions and limits
 
+- An exception raised outside the model call, in the situation or order the supervisor returns,
+  counts as a model error, so a fault in the study's own code reads as a failure of the model.
 - A run stopped by its wall limit or its budget leaves no trajectory, so a keep-out entry before
   the stop is not seen; a wall-limited run is a timeout by the study's rule.
 - The shadow sees the situations of the supervisor under study, so its own state (strike counts,

@@ -15,6 +15,10 @@ release may change the public API, and every such change is listed under Changed
   fly a row paired with the rule supervisor on the same seeds, with a `BudgetedModel` per episode
   inside each cell's share of the cap, and compare the pair by two one-sided tests at sequential
   looks. `docs/supervisor-study.md` documents it.
+- `vbar.agents.InfrastructureError`, raised by a model adapter for a network failure, a request
+  timeout, a rate limit or a 5xx response. The study reruns such an episode once and leaves it out
+  of the rates if the rerun fails the same way; every other model error is a failure of the model.
+  Study summaries report `model_errors`, `infrastructure_errors` and `reruns`.
 
 ## [0.6.0] - 2026-11-01
 
