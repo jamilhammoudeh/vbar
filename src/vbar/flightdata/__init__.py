@@ -18,15 +18,16 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import ArrayLike
 
-from .conventions import inertial_to_hill
-from .dynamics.bodies import EARTH, Body
-from .dynamics.cw import cw_stm
-from .dynamics.models import TwoBodyDynamics, gravity
+from ..conventions import inertial_to_hill
+from ..dynamics.bodies import EARTH, Body
+from ..dynamics.cw import cw_stm
+from ..dynamics.models import TwoBodyDynamics, gravity
 
 __all__ = [
     "GPS_MINUS_UTC_S",
@@ -34,6 +35,7 @@ __all__ = [
     "earth_fixed_to_inertial",
     "error_envelope",
     "gmst",
+    "gracefo_excerpt",
     "hill_states",
     "read_level1b",
     "read_orbit_excerpt",
@@ -398,6 +400,26 @@ def read_orbit_excerpt(path: str | Path) -> dict[str, np.ndarray]:
         "chaser": table[:, 7:13],
         "range": table[:, 13],
     }
+
+
+def gracefo_excerpt() -> dict[str, np.ndarray]:
+    """The GRACE-FO excerpt installed with the package, read by `read_orbit_excerpt`.
+
+    Every 120 s of the first 16 h of 2019-12-03: GRACE-C (target) and GRACE-D (chaser) GNV1B
+    states, Earth-fixed (ITRF2014), and the KBR1B range with its light-time and antenna-offset
+    corrections, 481 samples. Source: GRACE-FO (2019), GRACEFO_L1B_ASCII_GRAV_JPL_RL04, ver. 4,
+    PO.DAAC, CA, USA, doi:10.5067/GFL1B-ASJ04. Licence: CC0, under the NASA Earthdata data use
+    policy for NASA-led missions; no endorsement by NASA is implied.
+
+    Returns
+    -------
+    dict of str to numpy.ndarray
+        "t" (GPS seconds past 2000-01-01 12:00:00 GPS, shape (481,)), "target" and "chaser"
+        (Earth-fixed [r, v] in m and m/s, shape (481, 6)) and "range" (the corrected biased range,
+        m, shape (481,); its constant bias is unknown).
+    """
+    with resources.as_file(resources.files(__name__) / "gracefo_2019-12-03.csv") as path:
+        return read_orbit_excerpt(path)
 
 
 def write_orbit_excerpt(

@@ -41,6 +41,25 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest -q
 
+  # The release job tests the built wheel, where a docs example that reads a file the wheel leaves
+  # out fails although it passes against the checkout.
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build
+      - run: python -m build
+      - run: |
+          python -m venv "$RUNNER_TEMP/wheel"
+          "$RUNNER_TEMP/wheel/bin/python" -m pip install dist/*.whl "pytest>=8" "hypothesis>=6.100"
+      # The tests run from the checkout's root; vbar has to come from the wheel, not from src.
+      - run: |
+          "$RUNNER_TEMP/wheel/bin/python" -c "import vbar; assert 'site-packages' in vbar.__file__, vbar.__file__"
+          "$RUNNER_TEMP/wheel/bin/python" -m pytest -q tests/test_docs.py tests/test_package_data.py
+
   scenario-audit:
     runs-on: ubuntu-latest
     steps:

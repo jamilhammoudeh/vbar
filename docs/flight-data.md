@@ -21,7 +21,7 @@ formation under 1 km with open terms was found.
 | Day | 2019-12-03, daily bundle `gracefo_1B_2019-12-03_RL04.ascii.noLRI.tgz` (Earthdata login needed to download) |
 | Products used | GNV1B (1 Hz states in the Earth-fixed frame, ITRF2014) for GRACE-C (target) and GRACE-D (chaser); KBR1B (K-band range every 5 s) |
 | Why this day | after the 2019-06-16 correction of an antenna calibration error; no orbit-control thruster firing on either satellite (THR1B); no events in the mission's event notes for 1 to 3 December; one continuous K-band segment for the day; geomagnetically quiet |
-| Excerpt committed | `tests/data/gracefo_2019-12-03.csv`: every 120 s of the first 16 h, both satellites' Earth-fixed states and the corrected K-band range (89 kB). `examples/gracefo_excerpt.py` writes it from the extracted bundle. |
+| Excerpt installed | `src/vbar/flightdata/gracefo_2019-12-03.csv`, installed with the package and read by `gracefo_excerpt()` (`tests/test_package_data.py`): every 120 s of the first 16 h, both satellites' Earth-fixed states and the corrected K-band range (89 kB). `examples/gracefo_excerpt.py` writes it from the extracted bundle. |
 
 The full daily files are not part of V-BAR.
 
@@ -117,21 +117,15 @@ rung's numbers and the bound's values to 0.5 m), so a change to the models that 
 
 ## Example
 
-Replay the J2 rung over the first orbit of the excerpt, from a clone of the repository (the
-excerpt is a test fixture, not installed with the package):
+Replay the J2 rung over the first orbit of the excerpt:
 
 ```python
-import math
-from pathlib import Path
-
 import numpy as np
 
-import vbar
 from vbar.dynamics import EARTH, TwoBodyDynamics
-from vbar.flightdata import earth_fixed_to_inertial, gmst, read_orbit_excerpt, replay
+from vbar.flightdata import earth_fixed_to_inertial, gmst, gracefo_excerpt, replay
 
-root = Path(vbar.__file__).resolve().parents[2]
-excerpt = read_orbit_excerpt(root / "tests" / "data" / "gracefo_2019-12-03.csv")
+excerpt = gracefo_excerpt()
 t = excerpt["t"] - excerpt["t"][0]
 theta0 = float(gmst(excerpt["t"][0]))
 target = np.hstack(earth_fixed_to_inertial(t, *np.hsplit(excerpt["target"], 2), theta0))
