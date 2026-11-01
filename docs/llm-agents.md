@@ -199,8 +199,10 @@ that raised are charged their worst case, since the provider may have billed the
 ```python
 from vbar.agents import BudgetedModel, LLMSupervisor, Price, Reply
 
+
 def model(messages, tools):
     return Reply('{"command": "CONTINUE"}', input_tokens=900, output_tokens=20)
+
 
 price = Price(input_per_mtok=1.0, output_per_mtok=5.0)
 capped = BudgetedModel(model, price=price, max_usd=0.50, max_output_tokens=2000)
