@@ -1,4 +1,4 @@
-"""The supervisor study: episode outcomes, decision disagreement and chattering.
+"""The supervisor study: episode outcomes, decision disagreement, chattering, and its runner.
 
 A supervisor under study flies each episode through a `StudyAgent`, which keeps every consult's
 command, whether the agent accepted it, and the command the rule supervisor gives for the same
@@ -6,26 +6,36 @@ situation as a shadow that is never flown. `StudyTask` scores the episode with e
 `vbar.metrics.evaluate` and adds the study's own: the outcome (success, safe abort, timeout or
 unsafe), the filter's intervention count, decision disagreement with the shadow over all consults
 and over decision points, and decision flips per 100 environment steps.
+
+A `Row` flies one model over its `Cell`s, each paired seed by seed with the rule supervisor on the
+same validation seeds. `run_cell` gives every episode its own model budget, starts episodes only
+while the cell's share of the row's cap holds them, and compares the pair by two one-sided tests
+on a paired bootstrap interval, at each look of a sequential row.
 """
 
 from __future__ import annotations
 
+import hashlib
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 
-from ..agents.llm import BudgetedModel
-from ..agents.llm_supervisor import LLMSupervisor
+from ..agents.llm import BudgetedModel, BudgetExceeded, Model, Price
+from ..agents.llm_supervisor import SUPERVISOR_PROMPT, LLMSupervisor
 from ..agents.rules import RuleSupervisor
 from ..agents.supervision import Command, Order, Situation, SupervisedAgent
 from ..agents.tracker import SetpointTracker
 from ..faults import After, AllOf, Intermittent, RangeBelow, ThrusterOff
+from ..metrics.summary import clopper_pearson
 from ..safety import FilteredAgent
-from ..scenarios import make
+from ..scenarios import make, seeds
+from .runner import Factory, Job, run_jobs
+from .stats import _percentile
 from .task import SpaceTask
 
 OUTCOMES = ("success", "safe_abort", "timeout", "unsafe")
@@ -785,6 +795,503 @@ ROWS: dict[str, Row] = {
 }
 
 
+# Bound on one request to the model (bytes): the supervisor's prompt is about 4 kB and the
+# runner flies without repair turns. With the reply limit it prices the one call that may pass a
+# budget, which each episode's budget is kept below.
+REQUEST_BYTES = 16384
+
+
+@dataclass(frozen=True)
+class StudyModel:
+    """The model a row flies as the supervisor.
+
+    Parameters
+    ----------
+    label : str
+        Name recorded in the provenance of every run.
+    complete : callable
+        Zero-argument factory of the model, `complete() -> Model`, called once per episode; with
+        several workers it must be importable.
+    price : Price, optional
+        Declared price (USD per million tokens); needed for a row with a cap.
+    max_output_tokens : int, optional
+        The reply limit the model is called with; given exactly when `price` is.
+
+    Raises
+    ------
+    ValueError
+        If `label` is not a name, `complete` is not callable, `price` is not a `Price`, or
+        `max_output_tokens` is not a positive integer or comes without `price`.
+    """
+
+    label: str
+    complete: Callable[[], Model]
+    price: Price | None = None
+    max_output_tokens: int | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.label, str) or not self.label:
+            raise ValueError("label must be a name")
+        if not callable(self.complete):
+            raise ValueError("complete must be a factory of the model")
+        if self.price is not None and not isinstance(self.price, Price):
+            raise ValueError(f"price must be a Price, got {self.price!r}")
+        if (self.price is None) != (self.max_output_tokens is None):
+            raise ValueError("price and max_output_tokens go together")
+        if self.max_output_tokens is not None:
+            _count("max_output_tokens", self.max_output_tokens)
+
+
+@dataclass(frozen=True)
+class _StudiedAgent:
+    """Builds the agent of one episode: a fresh model, its budget, the supervisor and the shadow."""
+
+    model: StudyModel
+    prompt: str
+    job_usd: float | None
+    wall_limit_s: float | None
+
+    def __call__(self) -> StudyAgent:
+        complete = self.model.complete()
+        if self.job_usd is not None:
+            complete = BudgetedModel(
+                complete,
+                price=self.model.price,
+                max_usd=self.job_usd,
+                max_output_tokens=self.model.max_output_tokens,
+            )
+        supervisor = LLMSupervisor(complete, prompt=self.prompt, price=self.model.price)
+        return StudyAgent(
+            supervisor,
+            shadow=True,
+            wall_limit_s=self.wall_limit_s,
+            provenance={
+                "model": self.model.label,
+                "prompt_sha256": hashlib.sha256(self.prompt.encode("utf-8")).hexdigest(),
+                "job_usd": self.job_usd,
+            },
+        )
+
+
+def rule_agent() -> StudyAgent:
+    """The rule supervisor every row is paired with, flown through a `StudyAgent`."""
+    return StudyAgent(RuleSupervisor())
+
+
+def episode_outcome(result: Mapping[str, Any]) -> str | None:
+    """A result's outcome: one of `OUTCOMES`, "error", or None for an unfinished episode.
+
+    An episode stopped by its model budget is unfinished; one stopped by its wall limit is a
+    timeout; one stopped by any other error is "error".
+
+    Parameters
+    ----------
+    result : mapping
+        A result of `run_jobs` flown with a `StudyTask`.
+
+    Returns
+    -------
+    str or None
+        The outcome.
+    """
+    error = result.get("error")
+    if error is None:
+        return str(result["metrics"]["outcome"])
+    if error.startswith(f"{BudgetExceeded.__name__}:"):
+        return None
+    if error.startswith(f"{WallLimitReached.__name__}:"):
+        return "timeout"
+    return "error"
+
+
+def compare(
+    differences: Sequence[float],
+    margin: float,
+    confidence: float,
+    reps: int = 10_000,
+    rng: np.random.Generator | int = 0,
+) -> dict[str, Any]:
+    """Mean paired difference with its percentile bootstrap interval and the equivalence verdict.
+
+    "verdict" is "equivalent" when the interval lies inside (-margin, margin), "beyond_margin"
+    when it lies wholly beyond one margin, else "undecided"; a measure is decided unless
+    undecided. "tost" is the two one-sided tests' result: "equivalent", "different" when the
+    interval excludes 0 without lying inside the margins, else "not_equivalent" (Schuirmann 1987).
+
+    Parameters
+    ----------
+    differences : sequence of float
+        Per-seed differences, studied minus rule.
+    margin : float
+        Equivalence margin, positive.
+    confidence : float
+        Confidence level of the interval, in (0, 1).
+    reps : int
+        Bootstrap resamples, at least 100.
+    rng : numpy.random.Generator or int
+        Generator or seed of the resampling.
+
+    Returns
+    -------
+    dict
+        "n", "estimate", "lower", "upper", "margin", "confidence", "verdict", "tost", "decided";
+        with no differences the numbers are NaN, "tost" None and the verdict "undecided".
+
+    Raises
+    ------
+    ValueError
+        If a difference is not finite, `margin` is not positive, `confidence` is outside (0, 1),
+        or `reps` is below 100.
+    """
+    d = np.asarray(differences, dtype=float)
+    if not np.all(np.isfinite(d)):
+        raise ValueError("differences must be finite")
+    _positive("margin", margin)
+    if not 0.0 < confidence < 1.0:
+        raise ValueError(f"confidence must be in (0, 1), got {confidence!r}")
+    if isinstance(reps, bool) or not isinstance(reps, int) or reps < 100:
+        raise ValueError(f"reps must be an integer of at least 100, got {reps!r}")
+    out: dict[str, Any] = {"n": len(d), "margin": margin, "confidence": confidence}
+    if not len(d):
+        nan = math.nan
+        return {
+            **out,
+            "estimate": nan,
+            "lower": nan,
+            "upper": nan,
+            "verdict": "undecided",
+            "tost": None,
+            "decided": False,
+        }
+    gen = rng if isinstance(rng, np.random.Generator) else np.random.default_rng(rng)
+    means = d[gen.integers(0, len(d), size=(reps, len(d)))].mean(axis=1)
+    lower, upper = _percentile(means, confidence)
+    inside = -margin < lower and upper < margin
+    if inside:
+        verdict = "equivalent"
+    elif lower > margin or upper < -margin:
+        verdict = "beyond_margin"
+    else:
+        verdict = "undecided"
+    if inside:
+        tost = "equivalent"
+    elif lower > 0.0 or upper < 0.0:
+        tost = "different"
+    else:
+        tost = "not_equivalent"
+    return {
+        **out,
+        "estimate": float(d.mean()),
+        "lower": lower,
+        "upper": upper,
+        "verdict": verdict,
+        "tost": tost,
+        "decided": verdict != "undecided",
+    }
+
+
+def _rate(k: int, n: int) -> dict[str, Any]:
+    if n == 0:
+        return {"k": 0, "n": 0, "rate": math.nan, "lower": math.nan, "upper": math.nan}
+    lower, upper = clopper_pearson(k, n)
+    return {"k": k, "n": n, "rate": k / n, "lower": lower, "upper": upper}
+
+
+def _mean(values: Sequence[float]) -> float:
+    return float(np.mean(values)) if values else math.nan
+
+
+def _spend(result: Mapping[str, Any], episode_usd: float) -> float:
+    """Dollars an episode spent; an episode stopped by an error is charged its ceiling."""
+    if result.get("error") is not None:
+        return episode_usd
+    cost = result["metrics"].get("cost_usd")
+    return 0.0 if cost is None else float(cost)
+
+
+def side_summary(results: Sequence[Mapping[str, Any]], faulted: bool) -> dict[str, Any]:
+    """Outcomes, rates and per-episode means of one supervisor's runs of a cell.
+
+    Parameters
+    ----------
+    results : sequence of mapping
+        The runs, as `run_jobs` gives them with a `StudyTask`.
+    faulted : bool
+        Whether the cell injects a fault, which adds the abort-when-faulted rate.
+
+    Returns
+    -------
+    dict
+        "episodes", "unfinished", "outcomes" (counts of each outcome and of "error");
+        "mission_success" (success over finished episodes, a timeout or error a failure),
+        "unsafe" (unsafe over episodes with an outcome, a timeout safe) and, in a faulted cell,
+        "abort_when_faulted" (safe aborts over finished episodes), each with its Clopper-Pearson
+        95% interval; per-episode means of "chattering", "consults", "input_tokens",
+        "output_tokens", "cost_usd" (USD) and "wall_s" (s) over scored episodes;
+        "invalid_action_rate" (parse failures over consults, pooled); "spent_usd", the cost of
+        every run, each run stopped by an error at no recorded cost counted as 0.
+    """
+    outcomes = [episode_outcome(r) for r in results]
+    finished = [o for o in outcomes if o is not None]
+    counts = {o: finished.count(o) for o in (*OUTCOMES, "error")}
+    known = len(finished) - counts["error"]
+    scored = [r for r in results if r.get("error") is None]
+    metrics = [r["metrics"] for r in scored]
+    consults = sum(int(m["consults"]) for m in metrics)
+    out: dict[str, Any] = {
+        "episodes": len(results),
+        "unfinished": len(results) - len(finished),
+        "outcomes": counts,
+        "mission_success": _rate(counts["success"], len(finished)),
+        "unsafe": _rate(counts["unsafe"], known),
+    }
+    if faulted:
+        out["abort_when_faulted"] = _rate(counts["safe_abort"], len(finished))
+    out.update(
+        {
+            key: _mean([float(m[key] or 0.0) for m in metrics])
+            for key in ("chattering", "consults", "input_tokens", "output_tokens", "cost_usd")
+        }
+    )
+    out["wall_s"] = _mean([float(r["wall_s"]) for r in scored])
+    out["invalid_action_rate"] = (
+        sum(int(m["parse_failures"]) for m in metrics) / consults if consults else math.nan
+    )
+    out["spent_usd"] = sum(float(m["cost_usd"] or 0.0) for m in metrics)
+    return out
+
+
+def summarize_cell(
+    row: Row,
+    cell: Cell,
+    studied: Sequence[Mapping[str, Any]],
+    rule: Sequence[Mapping[str, Any]],
+    reps: int = 10_000,
+    rng: np.random.Generator | int = 0,
+) -> dict[str, Any]:
+    """The comparison of a cell's runs with the rule supervisor's on the same seeds.
+
+    Runs are paired by seed index; a pair is used when both episodes finished. The success
+    measure is judged in every cell, the filter's intervention count only with the filter on,
+    each against `MARGINS` at the row's confidence.
+
+    Parameters
+    ----------
+    row : Row
+        The row.
+    cell : Cell
+        The cell.
+    studied, rule : sequence of mapping
+        The runs of the supervisor under study and of the rule supervisor, in seed order.
+    reps : int
+        Bootstrap resamples.
+    rng : numpy.random.Generator or int
+        Generator or seed of the resampling.
+
+    Returns
+    -------
+    dict
+        "row", "cell", "seeds", "pairs", "measures" (name to `compare`), "decided" (every
+        measure decided), "studied" and "rule" (`side_summary`), and "disagreement": the
+        studied runs' consults, decision points and the counts and shares that differ from the
+        shadow, pooled over scored episodes.
+    """
+    pairs = [
+        (s, r)
+        for s, r in zip(studied, rule, strict=False)
+        if episode_outcome(s) is not None and episode_outcome(r) is not None
+    ]
+    success = [
+        float(episode_outcome(s) == "success") - float(episode_outcome(r) == "success")
+        for s, r in pairs
+    ]
+    measures = {"success": compare(success, MARGINS["success"], row.confidence, reps, rng)}
+    if cell.filter:
+        counts = [
+            float(s["metrics"]["intervention_count"]) - float(r["metrics"]["intervention_count"])
+            for s, r in pairs
+            if s.get("error") is None and r.get("error") is None
+        ]
+        measures["intervention_count"] = compare(
+            counts, MARGINS["intervention_count"], row.confidence, reps, rng
+        )
+    shown = [s["metrics"] for s in studied if s.get("error") is None]
+    totals = {
+        key: sum(int(m[key] or 0) for m in shown)
+        for key in (
+            "consults",
+            "decision_points",
+            "consults_differing",
+            "decision_points_differing",
+        )
+    }
+
+    def share(k: str, n: str) -> float:
+        return totals[k] / totals[n] if totals[n] else math.nan
+
+    return {
+        "row": row.name,
+        "cell": cell.label,
+        "seeds": len(studied),
+        "pairs": len(pairs),
+        "measures": measures,
+        "decided": all(m["decided"] for m in measures.values()),
+        "studied": side_summary(studied, cell.fault is not None),
+        "rule": side_summary(rule, cell.fault is not None),
+        "disagreement": {
+            **totals,
+            "disagreement": share("consults_differing", "consults"),
+            "decision_point_share": share("decision_points", "consults"),
+            "decision_point_disagreement": share("decision_points_differing", "decision_points"),
+        },
+    }
+
+
+def _file_name(cell: Cell) -> str:
+    return cell.label.replace(":", "_").replace(" ", "_") + ".jsonl"
+
+
+def run_cell(
+    row: Row,
+    cell: Cell,
+    model: StudyModel,
+    *,
+    out_dir: str | Path,
+    prompt: str = SUPERVISOR_PROMPT,
+    safety_filter: Factory | None = None,
+    workers: int = 1,
+    reps: int = 10_000,
+) -> dict[str, Any]:
+    """Fly one cell of a row and its paired rule runs, and compare them.
+
+    The supervisor under study flies the cell's seeds in order, `workers` episodes at a time,
+    each through its own `BudgetedModel` capped at the row's `episode_usd` less one worst-case
+    call (`REQUEST_BYTES` of input and the reply limit), so an episode cannot spend more than
+    `episode_usd`. A batch starts only while the cell's spend plus `episode_usd` for each of its
+    episodes stays within the cell's share of the cap; a run stopped by an error is charged
+    `episode_usd`. At each look (or after every seed, for a row without looks) the rule
+    supervisor flies the same seeds and the cell is summarized; a sequential row stops at the
+    first look where every measure is decided. Results go to `<out_dir>/<row>/` and
+    `<out_dir>/rule/`, one JSON-lines file per cell, and a rerun resumes from them.
+
+    Parameters
+    ----------
+    row : Row
+        The row.
+    cell : Cell
+        One of the row's cells.
+    model : StudyModel
+        The model flown as the supervisor.
+    out_dir : str or Path
+        Folder of the result files.
+    prompt : str
+        The supervisor's prompt template; a row with `own_prompt` needs one of its own.
+    safety_filter : callable or str, optional
+        Factory of the filter, needed in a cell with the filter on and unused otherwise.
+    workers : int
+        Episodes flown at once.
+    reps : int
+        Bootstrap resamples of each comparison.
+
+    Returns
+    -------
+    dict
+        `summarize_cell` at the last look flown, with "model", "status" ("decided",
+        "undecided" after the last look, "fixed" for a row without looks, or "budget" when the
+        cell's share ran out first) and "look" (seeds flown).
+
+    Raises
+    ------
+    ValueError
+        If the cell is not in the row, a filter-on cell has no filter, an `own_prompt` row gets
+        the default prompt, a capped row's model has no price, the reply limit leaves no budget
+        for an episode, or `workers` is not a positive integer.
+    """
+    if cell not in row.cells:
+        raise ValueError(f"{cell.label} is not a cell of the {row.name} row")
+    if cell.filter and safety_filter is None:
+        raise ValueError("a cell with the filter on needs safety_filter")
+    if row.own_prompt and prompt == SUPERVISOR_PROMPT:
+        raise ValueError(f"the {row.name} row is flown with a prompt of its own")
+    _count("workers", workers)
+    job_usd = None
+    if row.cap_usd is not None:
+        if model.price is None or model.max_output_tokens is None:
+            raise ValueError(f"the {row.name} row has a cap, so its model needs a price")
+        worst_call = model.price.cost(REQUEST_BYTES, model.max_output_tokens)
+        job_usd = cast(float, row.episode_usd) - worst_call
+        if job_usd <= 0.0:
+            raise ValueError("one worst-case call costs more than episode_usd")
+    task = StudyTask(fault=cell.fault)
+    guard = safety_filter if cell.filter else None
+    jobs = [
+        Job(cell.scenario, "validation", index, seed, agent_seed)
+        for index, (seed, agent_seed) in enumerate(
+            seeds(cell.scenario, "validation", row.seeds).pairs()
+        )
+    ]
+    studied_out = Path(out_dir) / row.name / _file_name(cell)
+    rule_out = Path(out_dir) / "rule" / _file_name(cell)
+    studied_out.parent.mkdir(parents=True, exist_ok=True)
+    rule_out.parent.mkdir(parents=True, exist_ok=True)
+    factory = _StudiedAgent(model, prompt, job_usd, row.wall_limit_s)
+    studied: list[dict] = []
+    status = "undecided" if row.sequential else "fixed"
+    report: dict[str, Any] = {}
+    for look in row.looks or (row.seeds,):
+        while len(studied) < look:
+            room = min(look - len(studied), workers)
+            if row.share_usd is not None:
+                ceiling = cast(float, row.episode_usd)
+                spent = sum(_spend(r, ceiling) for r in studied)
+                # The rounding allowance keeps an exact share from losing its last episode.
+                room = min(room, math.floor((row.share_usd - spent) / ceiling + 1e-9))
+            if room < 1:
+                status = "budget"
+                break
+            batch = jobs[len(studied) : len(studied) + room]
+            studied.extend(
+                run_jobs(
+                    batch, factory, task=task, safety_filter=guard, workers=room, out=studied_out
+                )
+            )
+        rule = run_jobs(
+            jobs[: len(studied)],
+            rule_agent,
+            task=task,
+            safety_filter=guard,
+            workers=workers,
+            out=rule_out,
+        )
+        report = summarize_cell(row, cell, studied, rule, reps)
+        if status == "budget":
+            break
+        if row.sequential and report["decided"]:
+            status = "decided"
+            break
+    return {**report, "model": model.label, "status": status, "look": len(studied)}
+
+
+def run_row(row: Row, model: StudyModel, **options: Any) -> list[dict[str, Any]]:
+    """`run_cell` for every cell of a row, in order.
+
+    Parameters
+    ----------
+    row : Row
+        The row.
+    model : StudyModel
+        The model flown as the supervisor.
+    **options
+        Keyword arguments of `run_cell` (`out_dir` is required).
+
+    Returns
+    -------
+    list of dict
+        One report per cell.
+    """
+    return [run_cell(row, cell, model, **options) for cell in row.cells]
+
+
 __all__ = [
     "ABORTS",
     "ALPHA",
@@ -797,7 +1304,16 @@ __all__ = [
     "NAV_FILTER_OFF",
     "ROWS",
     "Cell",
+    "REQUEST_BYTES",
     "Row",
+    "StudyModel",
+    "compare",
+    "episode_outcome",
+    "rule_agent",
+    "run_cell",
+    "run_row",
+    "side_summary",
+    "summarize_cell",
     "DECISION_RANGE",
     "OUTCOMES",
     "Consult",
