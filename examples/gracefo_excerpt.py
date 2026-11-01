@@ -1,4 +1,4 @@
-"""Write the GRACE-FO orbit excerpt used by the flight-data replay test.
+"""Write the GRACE-FO orbit excerpt installed with vbar.flightdata.
 
 Takes the folder holding the extracted files GNV1B_2019-12-03_C_04.txt, GNV1B_2019-12-03_D_04.txt
 and KBR1B_2019-12-03_Y_04.txt from the PO.DAAC daily bundle gracefo_1B_2019-12-03_RL04.ascii.noLRI
@@ -6,7 +6,7 @@ and KBR1B_2019-12-03_Y_04.txt from the PO.DAAC daily bundle gracefo_1B_2019-12-0
 second of the first 16 hours: both satellites' Earth-fixed states and the K-band range with its
 light-time and antenna-offset corrections.
 
-    python examples/gracefo_excerpt.py <folder> tests/data/gracefo_2019-12-03.csv
+    python examples/gracefo_excerpt.py <folder> src/vbar/flightdata/gracefo_2019-12-03.csv
 """
 
 import sys

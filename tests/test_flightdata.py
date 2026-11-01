@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import vbar.flightdata
 from vbar.dynamics import EARTH, TwoBodyDynamics, cw_stm
 from vbar.dynamics.kepler import elements_from_state
 from vbar.dynamics.perturbations import Drag, HarrisPriester
@@ -28,7 +29,7 @@ from vbar.flightdata import (
     write_orbit_excerpt,
 )
 
-EXCERPT = Path(__file__).parent / "data" / "gracefo_2019-12-03.csv"
+EXCERPT = Path(vbar.flightdata.__file__).parent / "gracefo_2019-12-03.csv"
 # The bound stated before the run: 30 m plus 66 m per orbit for the geopotential beyond J2
 # (1.5 times the simulated envelope against EGM96 to degree 30), plus the response to a 5e-8
 # m/s^2 bound on drag model error, lunar and solar tides and the frame's precession.

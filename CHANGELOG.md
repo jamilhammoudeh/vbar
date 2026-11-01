@@ -15,6 +15,13 @@ release may change the public API, and every such change is listed under Changed
   `repair_attempts` and `repaired`, and the log entries `invalid` and `repair_replies`.
 - `vbar.agents.BudgetedModel` and `BudgetExceeded`: a cap on an LLM agent's or supervisor's model
   calls or dollars that refuses the call that could pass it; `docs/llm-agents.md` documents it.
+- `vbar.flightdata.gracefo_excerpt`, which reads the GRACE-FO excerpt of 2019-12-03 now installed
+  with the package.
+
+### Fixed
+
+- The example in `docs/flight-data.md` runs from an installed package; it read the excerpt from
+  `tests/data`, which only a clone of the repository has.
 
 ## [0.5.0] - 2026-10-31
 

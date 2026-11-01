@@ -11,6 +11,14 @@ Contributor Covenant, version 2.1
             repository at that commit
   Credit:   Organization for Ethical Source and the Contributor Covenant contributors
 
+GRACE-FO Level-1B data, 2019-12-03
+  Used in:  src/vbar/flightdata/gracefo_2019-12-03.csv (an excerpt of the GNV1B and KBR1B files,
+            installed with the package), written by examples/gracefo_excerpt.py
+  Source:   GRACE-FO (2019), GRACEFO_L1B_ASCII_GRAV_JPL_RL04, ver. 4, PO.DAAC, CA, USA,
+            doi:10.5067/GFL1B-ASJ04
+  License:  CC0, under the NASA Earthdata data use policy for NASA-led missions; no endorsement
+            by NASA is implied
+
 No third-party source code is included. Methods taken from the literature are reimplemented
 and cited where they are used.
 
