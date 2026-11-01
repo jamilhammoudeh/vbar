@@ -391,6 +391,22 @@ def test_token_counts_that_are_not_whole_and_positive_are_recorded_as_none_repor
     assert report["studied"]["cost_usd"] > 0.0
 
 
+class Exploding(int):
+    """A count that raises once anything but the model reads it as a number."""
+
+    def __add__(self, other):
+        raise ValueError("fake")
+
+    __radd__ = __mul__ = __rmul__ = __float__ = __add__
+
+
+def test_token_counts_are_plain_integers():
+    guarded = study_module._Guarded(lambda messages, tools: Reply("{}", Exploding(5), Exploding(7)))
+    reply = guarded([], [])
+    assert type(reply.input_tokens) is int and type(reply.output_tokens) is int
+    assert (reply.input_tokens, reply.output_tokens) == (5, 7)
+
+
 class Trapped(str):
     """Text whose methods raise the budget's refusal once the parser reads it."""
 

@@ -858,7 +858,11 @@ class ModelError(RuntimeError):
 
 
 def _tokens(count: Any) -> int:
-    return count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else 0
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        return 0
+    # int.__int__ copies an int subclass into a plain int, whose operators the model cannot
+    # override to raise later, inside the budget.
+    return int.__int__(count)
 
 
 class _Guarded:
