@@ -32,6 +32,7 @@ from .learned_supervisor import PolicySupervisor, supervisor_features
 from .llm import (
     BudgetedModel,
     BudgetExceeded,
+    InfrastructureError,
     LLMAgent,
     Price,
     RecordedModel,
@@ -91,6 +92,7 @@ __all__ = [
     "GlideslopeAgent",
     "GlideslopeProfile",
     "Impulse",
+    "InfrastructureError",
     "LLMAgent",
     "LQGAgent",
     "LQGConfig",

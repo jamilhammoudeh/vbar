@@ -6,6 +6,21 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+### Added
+
+- `vbar.eval.study`, the supervisor study: `StudyAgent` and `StudyTask` score each supervised
+  episode's outcome (success, safe abort, timeout, unsafe), the filter's intervention count,
+  decision disagreement with a rule supervisor shown the same situations, and decision flips per
+  100 steps; `Cell`, `Row` and `ROWS` define the study's cells and rows; `run_cell` and `run_row`
+  fly a row paired with the rule supervisor on the same seeds, with a `BudgetedModel` per episode
+  inside each cell's share of the cap, and compare the pair by two one-sided tests at sequential
+  looks. `docs/supervisor-study.md` documents it.
+- `vbar.agents.InfrastructureError`, raised by a model adapter for a network failure, a request
+  timeout, a rate limit or a 5xx response. The study reruns such an episode once and leaves it out
+  of the rates if the rerun fails the same way; every other model error is a failure of the model.
+  Study summaries report `model_errors`, `infrastructure_errors`, `reruns` and
+  `mission_success_all`, the success rate with infrastructure errors counted as failures.
+
 ## [0.6.0] - 2026-11-01
 
 0.5.0 was tagged and archived on Zenodo but never published to PyPI: its release build failed on

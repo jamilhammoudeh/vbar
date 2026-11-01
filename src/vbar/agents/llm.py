@@ -220,6 +220,15 @@ class BudgetExceeded(RuntimeError):
     """A model call was refused because it could pass the budget."""
 
 
+class InfrastructureError(RuntimeError):
+    """A model adapter could not get an answer from its provider.
+
+    Raised for a network failure, a request timeout, a rate limit or a 5xx response, never for
+    a reply the model gave. The supervisor study reruns such an episode once and leaves it out
+    of the rates if the rerun fails the same way; any other exception counts against the model.
+    """
+
+
 def _counted(reply: Reply) -> bool:
     """Whether a reply's token counts are whole, non-negative and include its input."""
     counts = (reply.input_tokens, reply.output_tokens)
