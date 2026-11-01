@@ -17,7 +17,6 @@ from __future__ import annotations
 import math
 import string
 import time
-from numbers import Integral
 from typing import Any
 
 import numpy as np
@@ -247,7 +246,7 @@ class LLMSupervisor:
     ):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {', '.join(MODES)}, got {mode!r}")
-        if isinstance(repairs, bool) or not isinstance(repairs, Integral) or repairs < 0:
+        if isinstance(repairs, bool) or not isinstance(repairs, int) or repairs < 0:
             raise ValueError(f"repairs must be a non-negative integer, got {repairs!r}")
         fields = {f for _, f, _, _ in string.Formatter().parse(prompt) if f is not None}
         unknown = fields - set(SUPERVISOR_FIELDS)
@@ -259,7 +258,7 @@ class LLMSupervisor:
         self.prompt = prompt
         self.price = price
         self.mode = mode
-        self.repairs: int = int(repairs)
+        self.repairs = repairs
         self.log: list[dict[str, Any]] = []
 
     def reset(
