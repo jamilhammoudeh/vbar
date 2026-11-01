@@ -253,6 +253,25 @@ not the grid.
   another seed fails at request 0 and a truncated transcript fails when it runs out; a real-time
   run replayed with its recorded latencies gives identical states.
 
+`tests/test_llm_budget.py`, for `BudgetedModel`:
+
+- The call past `max_calls` is refused and never reaches the model; the spend is the declared
+  price of the reported tokens; a call whose worst case would pass `max_usd` is refused:
+  `test_the_call_past_the_call_cap_is_refused_and_never_reaches_the_model`,
+  `test_spend_is_the_declared_price_of_the_reported_tokens`,
+  `test_a_call_whose_worst_case_would_pass_the_dollar_cap_is_refused`.
+- A reply without token counts, a reply with unusable counts (NaN, negative, fractional, boolean,
+  missing, or no input), a failed call and a plain-text reply are charged the worst case, and the
+  error of a failed call passes through: `test_a_reply_without_token_counts_is_charged_its_worst_case`,
+  `test_a_reply_with_unusable_token_counts_is_charged_its_worst_case`,
+  `test_a_failed_call_is_charged_its_worst_case_and_the_error_passes_through`,
+  `test_a_text_reply_is_charged_its_worst_case_and_returned_as_a_reply`.
+- A budget needs a positive cap, and a dollar cap a price with finite, non-negative rates and a
+  reply limit: `test_a_budget_needs_a_positive_cap_and_a_dollar_cap_needs_a_price_and_a_reply_limit`.
+- An `LLMAgent` run and a supervised flight stop at the cap, and the refusal is not read as
+  CONTINUE: `test_an_llm_agent_stops_its_run_at_the_cap`,
+  `test_a_supervised_flight_stops_at_the_cap_and_the_refusal_is_not_read_as_continue`.
+
 `tests/test_agents.py` checks that the prompt is built from the noisy observation, not the
 truth, and that fractions are converted to each action mode.
 
