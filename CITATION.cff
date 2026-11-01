@@ -14,7 +14,7 @@ authors:
 doi: 10.5281/zenodo.23632751
 repository-code: "https://github.com/jamilhammoudeh/vbar"
 license: MIT
-version: 0.5.0
+version: 0.6.0
 keywords:
   - spacecraft
   - rendezvous
