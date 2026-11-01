@@ -476,6 +476,18 @@ least window bound, `impulsive_lower` the same for the impulsive bounds, `upper`
 `"cw"` and `accel_limit` = `max_accel`. A start, in the bank or not, costs one matrix product per
 kept set of multipliers.
 
+**Undecided LPs.** HiGHS can end a window LP with no verdict (model status 15, unknown, which
+scipy reports as status 4); dual simplex did so with and without presolve on window 301 of
+approach-vbar box validation start 19 of 100. Every LP of the oracle, in the bank and in `solve`,
+is then solved again by the interior point method (`highs-ipm`) and, if still undecided, by dual
+simplex (`highs-ds`) with presolve switched. A start whose LP `build` still cannot decide keeps
+none of its multipliers, those of its earlier windows included, and its row in `starts` goes to
+`DualBank.uncertified`; the other starts are solved as before. `bounds` of an uncertified start is
+still a theorem, from the other starts' multipliers, but nothing in the bank was solved for it, so
+the lower-bound check holds its runs to no bound. `solve` raises `RuntimeError` on an LP left
+undecided, as on any other HiGHS failure, except a ball layout's LP within the thrust limit, which
+falls back to the LP without it as above.
+
 **Free final time in `solve`.** A one-start bank at `bank_stride` comes first; then the LP of the
 window whose bound is least is solved, and again, until that window has its own multipliers or
 `max_refinements` LPs are added; with 0 the bound is the bank's. The
@@ -579,6 +591,16 @@ LP shifted to it.
   ball.
 - `hold_time` 5 s and 9.999 s at $\Delta t$ = 10 s give 0 from `solve` and from a bank; 10 s and
   0 give positive bounds.
+- Undecided LPs (`tests/test_fuel_bank_undecided.py`): approach-vbar box validation start 19 of
+  100, windows 1 and 301, gets a positive bound with no start uncertified
+  (`test_approach_vbar_validation_start_19_gets_a_bound_from_the_retry`; before the retry the
+  build raised on window 301). With every solve for the second of three starts forced to status 4
+  from its window 21 on, after window 11 added multipliers, each method is tried once in order,
+  `uncertified` is `(1,)`, and `window_lowers` and `bounds` of all three starts equal those of a
+  bank of the other two (`test_a_start_left_undecided_is_uncertified_and_the_other_starts_keep_their_bounds`).
+  An end the interior point method decides leaves every start certified
+  (`test_a_status_the_retry_decides_leaves_every_start_certified`), and a fixed-window `solve` left
+  undecided raises (`test_a_fixed_window_left_undecided_raises`).
 - A briefed `Maneuvering` target raises in `solve` (free and fixed), `bounds` and
   `DualBank.build`; the docking scenario raises; `bounds` equals the free-time solve's bounds;
   `arrival_candidates` and `bank_stride` default to 16 and 10 and refuse 0.
@@ -676,7 +698,12 @@ ends by raising `RuntimeError` (`OracleAgent` when its solve verifies no plan) c
 run, and the reason is logged once per scenario and agent with the seed indices it ended. A bank
 the oracle refuses (`ValueError`) leaves the scenario without certified bounds and its agents are
 flown; a bank whose solver fails (`RuntimeError`, a HiGHS error) leaves the scenario not scored,
-with the reason on standard error, and the script goes on to the next scenario.
+with the reason on standard error, and the script goes on to the next scenario. A start the bank
+left uncertified (an LP HiGHS could not decide after its retries, see the bank above) keeps the
+scenario scored: the runs from that start are flown and held to no bound, so they count as runs
+and successes but never as certified or E3f, and standard error has one line per scenario with the
+count and the seed indices, `<scenario>: <count> of <seeds> starts uncertified, <split> indices
+<i,j,...>` (`tests/test_lower_bound_uncertified.py`).
 
 ```bash
 python benchmarks/lower_bound_check.py
@@ -719,7 +746,8 @@ Every row has `--count` runs. The exit status is:
 
 Status 3 covers a sweep where every scenario was not scored, refused by the bank or without
 successes. Raised runs and unscored scenarios change the status only through the certified count.
-Standard error has the skipped agents, the scenarios not scored, the reasons of raised runs, the
+Standard error has the skipped agents, the scenarios not scored, the uncertified starts of each
+scenario with their count and indices, the reasons of raised runs, the
 time of each bank and row, and one line per flagged run with the scenario, the agent, the split,
 the seed index, the run's delta-v and the bank's `lower` and `impulsive_lower` for its start. A
 row with fewer certified runs than successes has runs that no bound covers; a row with no
@@ -793,6 +821,10 @@ candidates and a stride of 20.
 - The oracle agent's 120-step run on seed 0, scored against an empty bank built on the 210-step
   view, raises `RuntimeError`
   (`test_lower_bound_script_refuses_a_run_scored_against_a_bank_built_on_another_view`).
+- A bank on approach-vbar that left start 1 of 3 uncertified keeps the scenario: its row has
+  3 runs, the run from start 1 is scored with no bounds while starts 0 and 2 get the bank's, and
+  `1 of 3 starts uncertified, validation indices 1` reaches standard error
+  (`tests/test_lower_bound_uncertified.py`).
 
 ## Exact constrained LQ value
 

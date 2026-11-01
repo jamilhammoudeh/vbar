@@ -316,6 +316,13 @@ release may change the public API, and every such change is listed under Changed
 
 ### Fixed
 
+- `DualBank.build` raised `RuntimeError` when HiGHS ended one window LP with no verdict (model
+  status 15, scipy status 4), as on window 301 of approach-vbar box validation start 19 of 100, so
+  `benchmarks/lower_bound_check.py` left the whole scenario unscored. Every fuel-oracle LP so ended
+  is now solved again by the interior point method and then by dual simplex with presolve
+  switched, which decides that window; a start still undecided adds no multipliers and is listed
+  in the new `DualBank.uncertified`, the other starts keep their bounds, and the check holds that
+  start's runs to no bound and logs the count and indices of uncertified starts.
 - `LLMAgent` read a reply's action with a pattern that stopped at the first closing brace, so an
   action object holding a nested value was a parse failure, and the search took time quadratic in
   the reply's opening braces. `parse_action` now decodes the first object that opens at one of the
