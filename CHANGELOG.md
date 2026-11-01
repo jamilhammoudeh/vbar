@@ -18,7 +18,8 @@ release may change the public API, and every such change is listed under Changed
 - `vbar.agents.InfrastructureError`, raised by a model adapter for a network failure, a request
   timeout, a rate limit or a 5xx response. The study reruns such an episode once and leaves it out
   of the rates if the rerun fails the same way; every other model error is a failure of the model.
-  Study summaries report `model_errors`, `infrastructure_errors` and `reruns`.
+  Study summaries report `model_errors`, `infrastructure_errors`, `reruns` and
+  `mission_success_all`, the success rate with infrastructure errors counted as failures.
 
 ## [0.6.0] - 2026-11-01
 

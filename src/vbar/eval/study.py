@@ -873,6 +873,12 @@ def _tokens(count: Any) -> int:
     return int.__int__(count)
 
 
+def _by_cause(error: Exception) -> Exception:
+    """A fresh `InfrastructureError` for one, else a `ModelError`; the message names the type."""
+    kind = InfrastructureError if isinstance(error, InfrastructureError) else ModelError
+    return kind(f"the model raised {type(error).__name__}")
+
+
 class _Guarded:
     """Calls a model and hands back a plain `Reply`; its exceptions are re-raised by cause.
 
@@ -896,10 +902,8 @@ class _Guarded:
             return Reply(
                 str.__str__(text), _tokens(reply.input_tokens), _tokens(reply.output_tokens)
             )
-        except InfrastructureError as error:
-            raise InfrastructureError(f"the model raised {type(error).__name__}") from None
         except Exception as error:  # noqa: BLE001  any model error ends the run as an error
-            raise ModelError(f"the model raised {type(error).__name__}") from None
+            raise _by_cause(error) from None
 
 
 @dataclass(frozen=True)
@@ -913,7 +917,12 @@ class _StudiedAgent:
     attempt: int = 1
 
     def __call__(self) -> StudyAgent:
-        complete: Model = _Guarded(self.model.complete())
+        # The factory is the model's code too, so its exceptions are sorted the same way.
+        try:
+            built = self.model.complete()
+        except Exception as error:  # noqa: BLE001
+            raise _by_cause(error) from None
+        complete: Model = _Guarded(built)
         if self.job_usd is not None:
             complete = BudgetedModel(
                 complete,

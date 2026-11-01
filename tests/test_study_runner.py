@@ -493,6 +493,18 @@ def test_a_model_cannot_raise_an_infrastructure_error_to_drop_a_seed_unseen(tmp_
     assert report["studied"]["mission_success_all"]["n"] == 1
 
 
+@pytest.mark.parametrize("error", [FakeInfrastructureError("x"), study_module.BudgetExceeded("x")])
+def test_an_exception_of_the_model_factory_is_a_model_error_whatever_its_name(tmp_path, error):
+    def factory():
+        raise error
+
+    model = StudyModel("broken", factory, PRICE, max_output_tokens=100)
+    row = Row(name="broken", cells=(OFF,), seeds=1, cap_usd=4 * CEILING, episode_usd=CEILING)
+    side = run_cell(row, OFF, model, out_dir=tmp_path, reps=200)["studied"]
+    assert (side["model_errors"], side["infrastructure_errors"], side["reruns"]) == (1, 0, 0)
+    assert side["unfinished"] == 0 and side["mission_success"]["n"] == 1
+
+
 def test_a_rerun_is_charged_with_its_first_attempt():
     ran = {"error": None, "metrics": {"cost_usd": 0.5}, "rerun": True}
     assert study_module._spend(ran, 1.0) == 1.5
