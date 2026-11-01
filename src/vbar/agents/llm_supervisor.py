@@ -201,8 +201,13 @@ class LLMSupervisor:
 
     The log holds, for each consult, "time_s", "prompt", "reply", the order's "reason" (None
     when the reply was not an order), "parse_failed", "model_calls", "input_tokens",
-    "output_tokens", "cost_usd" and "latency_s". An unparseable reply, or one of more than
-    `MAX_REPLY_CHARS` characters, is logged as a parse failure and answered with CONTINUE. Errors
+    "output_tokens", "cost_usd" and "latency_s" (tokens, cost and latency summed over the
+    consult's calls), "invalid" (whether the final reply was invalid) and "repair_replies" (the
+    replies that were repaired, in order). A reply is invalid when it is not an order or orders a
+    command that is not valid now. With `repairs` above 0 an invalid reply is sent back to the
+    model with its reason, at most `repairs` times. A final reply that is not an order, or has more
+    than `MAX_REPLY_CHARS` characters, is logged as a parse failure and answered with CONTINUE; a
+    final order for a command that is not valid now is passed on, and the agent refuses it. Errors
     the model raises, `ReplayError` included, are not caught.
 
     `mode` has to be the mode of the `SupervisedAgent` this supervisor is given to; the first
@@ -218,12 +223,14 @@ class LLMSupervisor:
         USD per million tokens; the cost is None without it.
     mode : str
         "ladder", "waypoint" or "velocity": which reply the prompt asks for and `parse_order` reads.
+    repairs : int
+        Most times an invalid reply is sent back for repair at one consult.
 
     Raises
     ------
     ValueError
-        If `mode` is unknown or the template is malformed or uses a field outside
-        `SUPERVISOR_FIELDS`.
+        If `mode` is unknown, `repairs` is not a non-negative integer, or the template is malformed
+        or uses a field outside `SUPERVISOR_FIELDS`.
     """
 
     name = "llm"
@@ -235,9 +242,12 @@ class LLMSupervisor:
         prompt: str = SUPERVISOR_PROMPT,
         price: Price | None = None,
         mode: str = "ladder",
+        repairs: int = 0,
     ):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {', '.join(MODES)}, got {mode!r}")
+        if isinstance(repairs, bool) or not isinstance(repairs, int) or repairs < 0:
+            raise ValueError(f"repairs must be a non-negative integer, got {repairs!r}")
         fields = {f for _, f, _, _ in string.Formatter().parse(prompt) if f is not None}
         unknown = fields - set(SUPERVISOR_FIELDS)
         if unknown:
@@ -248,6 +258,7 @@ class LLMSupervisor:
         self.prompt = prompt
         self.price = price
         self.mode = mode
+        self.repairs = repairs
         self.log: list[dict[str, Any]] = []
 
     def reset(
@@ -296,10 +307,25 @@ class LLMSupervisor:
                 f"the supervisor reads {self.mode!r} orders but the agent flies {situation.mode!r}"
             )
         prompt = self._prompt(situation)
+        messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+        repaired: list[str] = []
+        tokens_in = tokens_out = 0
         t0 = time.perf_counter()
-        reply = as_reply(self.complete([{"role": "user", "content": prompt}], []))
+        while True:
+            reply = as_reply(self.complete(messages, []))
+            tokens_in += reply.input_tokens
+            tokens_out += reply.output_tokens
+            order = parse_order(reply.text, self.mode)
+            fault = _fault(order, situation)
+            if fault is None or len(repaired) == self.repairs:
+                break
+            repaired.append(reply.text)
+            messages = [
+                *messages,
+                {"role": "assistant", "content": reply.text},
+                {"role": "user", "content": f"{fault} {self._again(situation)}"},
+            ]
         latency = time.perf_counter() - t0
-        order = parse_order(reply.text, self.mode)
         self.log.append(
             {
                 "time_s": situation.t,
@@ -307,22 +333,25 @@ class LLMSupervisor:
                 "reply": reply.text,
                 "reason": None if order is None else order.reason,
                 "parse_failed": order is None,
-                "model_calls": 1,
-                "input_tokens": reply.input_tokens,
-                "output_tokens": reply.output_tokens,
-                "cost_usd": (
-                    None
-                    if self.price is None
-                    else self.price.cost(reply.input_tokens, reply.output_tokens)
-                ),
+                "invalid": fault is not None,
+                "repair_replies": repaired,
+                "model_calls": 1 + len(repaired),
+                "input_tokens": tokens_in,
+                "output_tokens": tokens_out,
+                "cost_usd": None if self.price is None else self.price.cost(tokens_in, tokens_out),
                 "latency_s": latency,
             }
         )
         return Command.CONTINUE if order is None else order
 
+    def _again(self, sit: Situation) -> str:
+        valid = ", ".join(c.name for c in Command if sit.mask[c])
+        return f"Commands you may give now: {valid}. {_REPLY[self.mode]}"
+
     def usage(self) -> dict[str, Any]:
-        """Episode totals: decisions, model calls, tokens, cost (None without a price) and parse
-        failures."""
+        """Episode totals: decisions, model calls, tokens, cost (None without a price), parse
+        failures, invalid actions (consults whose final reply was invalid), invalid replies, repair
+        attempts, and consults repaired to a valid order."""
         tokens_in = sum(e["input_tokens"] for e in self.log)
         tokens_out = sum(e["output_tokens"] for e in self.log)
         return {
@@ -332,6 +361,10 @@ class LLMSupervisor:
             "output_tokens": tokens_out,
             "cost_usd": None if self.price is None else self.price.cost(tokens_in, tokens_out),
             "parse_failures": sum(e["parse_failed"] for e in self.log),
+            "invalid_actions": sum(e["invalid"] for e in self.log),
+            "invalid_replies": sum(len(e["repair_replies"]) + e["invalid"] for e in self.log),
+            "repair_attempts": sum(len(e["repair_replies"]) for e in self.log),
+            "repaired": sum(bool(e["repair_replies"]) and not e["invalid"] for e in self.log),
         }
 
     def _prompt(self, sit: Situation) -> str:
@@ -355,6 +388,16 @@ class LLMSupervisor:
             refused=last,
             reply_format=_REPLY[self.mode],
         )
+
+
+def _fault(order: Order | None, sit: Situation) -> str | None:
+    """Why a parsed reply is invalid at the situation, or None if it is valid."""
+    if order is None:
+        return "Your reply was not a command in the requested format."
+    if not sit.mask[order.command]:
+        name = order.command.name
+        return f"{name} is not available now: {sit.reasons.get(order.command, 'not valid')}."
+    return None
 
 
 def _rung_line(number: int, rung: Rung) -> str:

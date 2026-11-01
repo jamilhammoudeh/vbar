@@ -29,6 +29,7 @@ import string
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import KW_ONLY, dataclass, field
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -213,6 +214,136 @@ class ReplayModel:
             raise ReplayError(f"request {self.position} differs from the transcript")
         self.position += 1
         return _reply_from_dict(entry["reply"])
+
+
+class BudgetExceeded(RuntimeError):
+    """A model call was refused because it could pass the budget."""
+
+
+def _counted(reply: Reply) -> bool:
+    """Whether a reply's token counts are whole, non-negative and include its input."""
+    counts = (reply.input_tokens, reply.output_tokens)
+    whole = all(isinstance(c, Integral) and not isinstance(c, bool) and c >= 0 for c in counts)
+    return whole and reply.input_tokens > 0
+
+
+class BudgetedModel:
+    """Calls `model` until a cap on calls or on dollars would be passed, then refuses.
+
+    A call is refused, without reaching the model, when `max_calls` calls have been made or when
+    the spend so far plus the call's worst case would pass `max_usd`. The worst case prices one
+    input token per UTF-8 byte of the request's JSON (a token covers at least one byte) and
+    `max_output_tokens` output tokens. After a call the spend grows by the declared price of the
+    reported tokens, or by the worst case if the reply reports none, is plain text, or the call
+    raised (it may still have been billed). Counts that are not whole and non-negative, or that
+    report no input, are treated as missing. Reported tokens beyond the worst case, or tokens the
+    provider adds on its side, can take the spend past `max_usd` on that call; the next call is
+    then refused.
+
+    Parameters
+    ----------
+    model : Model
+        The model to call, `complete(messages, tools) -> Reply | str`.
+    price : Price, optional
+        Declared price; needed with `max_usd`.
+    max_calls : int, optional
+        Most calls allowed.
+    max_usd : float, optional
+        Most dollars allowed (USD).
+    max_output_tokens : int, optional
+        The reply limit the model is called with; needed with `max_usd`.
+
+    Raises
+    ------
+    ValueError
+        If neither cap is given, a cap is not positive, a price rate is not finite or is negative,
+        or `max_usd` comes without `price` and `max_output_tokens`.
+    """
+
+    def __init__(
+        self,
+        model: Model,
+        *,
+        price: Price | None = None,
+        max_calls: int | None = None,
+        max_usd: float | None = None,
+        max_output_tokens: int | None = None,
+    ):
+        if max_calls is None and max_usd is None:
+            raise ValueError("a budget needs max_calls or max_usd")
+        for label, value in (("max_calls", max_calls), ("max_output_tokens", max_output_tokens)):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, Integral) or value < 1
+            ):
+                raise ValueError(f"{label} must be a positive integer, got {value!r}")
+        if max_usd is not None:
+            if (
+                isinstance(max_usd, bool)
+                or not isinstance(max_usd, (int, float))
+                or not (math.isfinite(max_usd) and max_usd > 0.0)
+            ):
+                raise ValueError(f"max_usd must be positive and finite, got {max_usd!r}")
+            if price is None or max_output_tokens is None:
+                raise ValueError("max_usd needs price and max_output_tokens")
+        if price is not None and not all(
+            math.isfinite(rate) and rate >= 0.0
+            for rate in (price.input_per_mtok, price.output_per_mtok)
+        ):
+            raise ValueError(f"price rates must be finite and not negative, got {price!r}")
+        self.model = model
+        self.price = price
+        self.max_calls = max_calls
+        self.max_usd = max_usd
+        self.max_output_tokens = max_output_tokens
+        self.calls = 0
+        self.spent_usd = 0.0
+
+    def _worst(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> float:
+        if self.price is None or self.max_output_tokens is None:
+            return 0.0
+        size = len(json.dumps({"messages": messages, "tools": tools}).encode("utf-8"))
+        return self.price.cost(size, self.max_output_tokens)
+
+    def __call__(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply:
+        """The model's reply, if the call fits the budget.
+
+        Parameters
+        ----------
+        messages : list of dict
+            The conversation, as for `Model`.
+        tools : list of dict
+            The tools offered, as for `Model`.
+
+        Returns
+        -------
+        Reply
+            The model's answer, a plain-text answer wrapped as a `Reply`.
+
+        Raises
+        ------
+        BudgetExceeded
+            If the call could pass a cap; the model is not called.
+        """
+        if self.max_calls is not None and self.calls >= self.max_calls:
+            raise BudgetExceeded(f"the {self.max_calls} allowed model calls are spent")
+        worst = self._worst(messages, tools)
+        if self.max_usd is not None and self.spent_usd + worst > self.max_usd:
+            raise BudgetExceeded(
+                f"a call could cost ${worst:.4f} with ${self.spent_usd:.4f} of "
+                f"${self.max_usd:.4f} spent"
+            )
+        self.calls += 1
+        try:
+            answer = self.model(messages, tools)
+        except BaseException:
+            self.spent_usd += worst
+            raise
+        reply = as_reply(answer)
+        if isinstance(answer, Reply) and _counted(reply) and self.price is not None:
+            self.spent_usd += self.price.cost(reply.input_tokens, reply.output_tokens)
+        else:
+            self.spent_usd += worst
+        return reply
 
 
 # Everything converting a model's JSON can raise; a reply that triggers any of them is unusable.

@@ -1,7 +1,7 @@
 # LLM agents
 
 Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `ToolCall`, `Price`, `text_model`, `parse_action`,
-`RecordedModel`, `ReplayModel`), `vbar.agents.briefing` (`briefing`, `situation`, `check_goal`,
+`RecordedModel`, `ReplayModel`, `BudgetedModel`), `vbar.agents.briefing` (`briefing`, `situation`, `check_goal`,
 `target_mode`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`, `TRANSFER_BURN`, `CW_TOOLS`). An
 LLM agent flies every task kind (hold, berthing, docking, inspection, departure); it asks a
 language model for each command. V-BAR has no model client of its own: the model is any function,
@@ -184,6 +184,40 @@ does a run that asks for more replies than were recorded.
 In real time the model's latency changes the trajectory; replay it with the recorded latencies,
 `RealTime(latencies=result["latencies_s"], time_scale=s)` ([agents.md](agents.md)).
 
+## Budgets
+
+`BudgetedModel(model, max_calls=..., max_usd=..., price=..., max_output_tokens=...)` wraps a model
+and refuses, with `BudgetExceeded`, the call that could pass a cap, before the model sees it. With
+`max_calls` it allows that many calls. With `max_usd` it checks the spend so far plus the call's
+worst case: one input token per UTF-8 byte of the request's JSON, since a token covers at least one
+byte, and `max_output_tokens` output tokens at the declared `price`. After the call the spend grows
+by the price of the reported tokens; a reply without token counts, a plain-text reply and a call
+that raised are charged their worst case, since the provider may have billed them. `calls` and
+`spent_usd` hold the totals. The same wrapper caps an `LLMAgent` or an `LLMSupervisor`, and
+`BudgetExceeded` ends the run rather than reading as a refused or unparseable reply:
+
+```python
+from vbar.agents import BudgetedModel, LLMSupervisor, Price, Reply
+
+
+def model(messages, tools):
+    return Reply('{"command": "CONTINUE"}', input_tokens=900, output_tokens=20)
+
+
+price = Price(input_per_mtok=1.0, output_per_mtok=5.0)
+capped = BudgetedModel(model, price=price, max_usd=0.50, max_output_tokens=2000)
+supervisor = LLMSupervisor(capped, price=price)
+```
+
+Token counts that are not whole and non-negative, or that report no input, are charged the worst
+case too. The worst case assumes the adapter passes `max_output_tokens` to the provider as its reply
+limit, and it counts only the request V-BAR builds: tokens the provider adds on its side (a system
+prompt for tool use, for example) or bills beyond the reply limit (reasoning tokens) are outside
+it. Such a call is charged what it reports and can take `spent_usd` past `max_usd`; the next call
+is then refused. A cap set a little under the money available covers that last call. Each
+`BudgetedModel` keeps its own totals, so a grid run with several worker processes caps each job,
+not the grid.
+
 ## How it is tested
 
 `tests/test_llm.py` with stand-in models:
@@ -218,6 +252,25 @@ In real time the model's latency changes the trajectory; replay it with the reco
   to a file and replayed, gives identical states, actions, messages and token counts; replay of
   another seed fails at request 0 and a truncated transcript fails when it runs out; a real-time
   run replayed with its recorded latencies gives identical states.
+
+`tests/test_llm_budget.py`, for `BudgetedModel`:
+
+- The call past `max_calls` is refused and never reaches the model; the spend is the declared
+  price of the reported tokens; a call whose worst case would pass `max_usd` is refused:
+  `test_the_call_past_the_call_cap_is_refused_and_never_reaches_the_model`,
+  `test_spend_is_the_declared_price_of_the_reported_tokens`,
+  `test_a_call_whose_worst_case_would_pass_the_dollar_cap_is_refused`.
+- A reply without token counts, a reply with unusable counts (NaN, negative, fractional, boolean,
+  missing, or no input), a failed call and a plain-text reply are charged the worst case, and the
+  error of a failed call passes through: `test_a_reply_without_token_counts_is_charged_its_worst_case`,
+  `test_a_reply_with_unusable_token_counts_is_charged_its_worst_case`,
+  `test_a_failed_call_is_charged_its_worst_case_and_the_error_passes_through`,
+  `test_a_text_reply_is_charged_its_worst_case_and_returned_as_a_reply`.
+- A budget needs a positive cap, and a dollar cap a price with finite, non-negative rates and a
+  reply limit: `test_a_budget_needs_a_positive_cap_and_a_dollar_cap_needs_a_price_and_a_reply_limit`.
+- An `LLMAgent` run and a supervised flight stop at the cap, and the refusal is not read as
+  CONTINUE: `test_an_llm_agent_stops_its_run_at_the_cap`,
+  `test_a_supervised_flight_stops_at_the_cap_and_the_refusal_is_not_read_as_continue`.
 
 `tests/test_agents.py` checks that the prompt is built from the noisy observation, not the
 truth, and that fractions are converted to each action mode.
