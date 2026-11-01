@@ -25,7 +25,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from ..agents.llm import BudgetedModel, BudgetExceeded, Model, Price
+from ..agents.llm import BudgetedModel, BudgetExceeded, Model, Price, Reply, as_reply
 from ..agents.llm_supervisor import SUPERVISOR_PROMPT, LLMSupervisor
 from ..agents.rules import RuleSupervisor
 from ..agents.supervision import Command, Order, Situation, SupervisedAgent
@@ -852,6 +852,38 @@ class StudyModel:
             _count("max_output_tokens", self.max_output_tokens)
 
 
+class ModelError(RuntimeError):
+    """The model function raised; the exception's type is named only in the message."""
+
+
+def _tokens(count: Any) -> int:
+    return count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else 0
+
+
+class _Guarded:
+    """Calls a model and hands back a plain `Reply`, any exception it raises as a `ModelError`.
+
+    The runner reads an episode's end from the type of the error that stopped it, so an error
+    the model raises must not pass for the budget's refusal or the wall limit. Token counts that
+    are not whole and non-negative become 0, which a `BudgetedModel` charges at its worst case.
+    """
+
+    def __init__(self, model: Model):
+        self.model = model
+
+    def __call__(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply:
+        try:
+            reply = as_reply(self.model(messages, tools))
+            text = reply.text if isinstance(reply.text, str) else str(reply.text)
+            # str.__str__ copies a str subclass into a plain str, whose methods the model
+            # cannot override to raise later, inside the parser.
+            return Reply(
+                str.__str__(text), _tokens(reply.input_tokens), _tokens(reply.output_tokens)
+            )
+        except Exception as error:  # noqa: BLE001  any model error ends the run as an error
+            raise ModelError(f"the model raised {type(error).__name__}") from None
+
+
 @dataclass(frozen=True)
 class _StudiedAgent:
     """Builds the agent of one episode: a fresh model, its budget, the supervisor and the shadow."""
@@ -862,7 +894,7 @@ class _StudiedAgent:
     wall_limit_s: float | None
 
     def __call__(self) -> StudyAgent:
-        complete = self.model.complete()
+        complete: Model = _Guarded(self.model.complete())
         if self.job_usd is not None:
             complete = BudgetedModel(
                 complete,
@@ -892,7 +924,8 @@ def episode_outcome(result: Mapping[str, Any]) -> str | None:
     """A result's outcome: one of `OUTCOMES`, "error", or None for an unfinished episode.
 
     An episode stopped by its model budget is unfinished; one stopped by its wall limit is a
-    timeout; one stopped by any other error is "error".
+    timeout; one stopped by any other error, an error the model raised included (`ModelError`,
+    whatever the model's exception was called), is "error".
 
     Parameters
     ----------
@@ -1312,6 +1345,7 @@ __all__ = [
     "FAULTS",
     "FAULT_CELL",
     "MARGINS",
+    "ModelError",
     "NAV_FILTER_OFF",
     "ROWS",
     "Cell",

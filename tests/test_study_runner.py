@@ -339,3 +339,81 @@ def test_runs_of_another_model_or_prompt_are_not_resumed(tmp_path):
     calls = len(CALLS)
     run_cell(row, OFF, FREE, out_dir=tmp_path, prompt=SUPERVISOR_PROMPT + " ", reps=200)
     assert len(CALLS) > calls
+
+
+class BudgetExceeded(RuntimeError):
+    """Not the harness's budget refusal, only its name."""
+
+
+def raising(error):
+    def factory():
+        def complete(messages, tools):
+            raise error
+
+        return complete
+
+    return factory
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        BudgetExceeded("spent"),
+        study_module.BudgetExceeded("spent"),
+        study_module.WallLimitReached("slow"),
+        ValueError("bad"),
+    ],
+)
+def test_an_error_the_model_raises_is_an_error_whatever_its_name(tmp_path, error):
+    model = StudyModel("raising", raising(error), PRICE, max_output_tokens=100)
+    row = Row(name="raise", cells=(OFF,), seeds=1, cap_usd=CEILING, episode_usd=CEILING)
+    report = run_cell(row, OFF, model, out_dir=tmp_path, reps=200)
+    studied = read_results(tmp_path / "raise" / "approach-vbar_filter_off.jsonl")
+    assert studied[0]["error"].startswith("ModelError:")
+    assert episode_outcome(studied[0]) == "error"
+    assert report["pairs"] == 1 and report["studied"]["unfinished"] == 0
+
+
+def miscounting():
+    def complete(messages, tools):
+        return Reply(json.dumps({"command": "CONTINUE"}), -5, math.nan)
+
+    return complete
+
+
+def test_token_counts_that_are_not_whole_and_positive_are_recorded_as_none_reported(tmp_path):
+    model = StudyModel("miscounting", miscounting, PRICE, max_output_tokens=100)
+    row = Row(name="count", cells=(OFF,), seeds=1, cap_usd=CEILING, episode_usd=CEILING)
+    report = run_cell(row, OFF, model, out_dir=tmp_path, reps=200)
+    assert report["studied"]["input_tokens"] == 0 and report["studied"]["output_tokens"] == 0
+    # Without counts every call is charged its worst case, so the spend is not zero.
+    assert report["studied"]["cost_usd"] > 0.0
+
+
+class Trapped(str):
+    """Text whose methods raise the budget's refusal once the parser reads it."""
+
+    def __str__(self):
+        return self
+
+    def find(self, *args, **kwargs):
+        raise study_module.BudgetExceeded("spent")
+
+    def __getitem__(self, key):
+        raise study_module.BudgetExceeded("spent")
+
+
+def trapping():
+    def complete(messages, tools):
+        return Reply(Trapped(json.dumps({"command": "CONTINUE"})), 1000, 20)
+
+    return complete
+
+
+def test_reply_text_is_read_as_plain_text_so_its_methods_cannot_stop_the_run(tmp_path):
+    model = StudyModel("trapping", trapping, PRICE, max_output_tokens=100)
+    row = Row(name="trap", cells=(OFF,), seeds=1, cap_usd=CEILING, episode_usd=CEILING)
+    report = run_cell(row, OFF, model, out_dir=tmp_path, reps=200)
+    studied = read_results(tmp_path / "trap" / "approach-vbar_filter_off.jsonl")
+    assert studied[0]["error"] is None and episode_outcome(studied[0]) == "timeout"
+    assert report["pairs"] == 1
