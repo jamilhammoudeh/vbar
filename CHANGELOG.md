@@ -6,6 +6,11 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-01
+
+0.5.0 was tagged and archived on Zenodo but never published to PyPI: its release build failed on
+the flight-data example fixed below. Install 0.6.0, which contains everything in 0.5.0.
+
 ### Added
 
 - `vbar.eval.inference`: `holm` and `benjamini_hochberg` corrections for a family of p-values and
@@ -1012,7 +1017,8 @@ release may change the public API, and every such change is listed under Changed
 First release with the validated dynamics layer: exact Clohessy-Wiltshire, nonlinear two-body
 relative motion with J2, Kepler propagation and J2 mean elements.
 
-[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.0...v0.3.1

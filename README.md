@@ -15,7 +15,7 @@ scenarios and are scored with the same metrics.
 
 The PD baseline reaches the hold point from behind the target (blue) but flies through the keep-out zone from ahead of it (orange), closing to 14.4 m.
 
-**Status: early development (0.5).** The dynamics, spacecraft, sensor and constraint layers are
+**Status: early development (0.6).** The dynamics, spacecraft, sensor and constraint layers are
 validated (see [Tests](#tests)). Version 0.3 added the metrics, agent tools (remote and ONNX
 policy agents, the sign check, reward and training interfaces), a scenario catalogue and
 `vbar.solvers` (command projection and horizon quadratic programs). Version 0.4 adds the classical
@@ -25,8 +25,10 @@ replay export to Rerun, fault injection, mission reconstructions and a tumbling-
 Version 0.5 adds the safety filters (barrier, backup, predictive, corridor and run time assurance
 filters, and an audit of the certified ones), LLM agents for every task kind and a supervisory
 channel for LLM and rule supervisors, KSPDG's pe1 evader bots and starts with a `kspdg` import
-alias, one-command reproduction of the published tables and figures, and a Colab quickstart. The
-LLM supervisor study is in progress, and interfaces may change before 1.0.
+alias, one-command reproduction of the published tables and figures, and a Colab quickstart; 0.5.0
+was not published to PyPI, so these ship in 0.6. Version 0.6 adds Holm and Benjamini-Hochberg
+corrections and a paired sign-flip test, a call and dollar cap for LLM agents, and repair counts for
+the LLM supervisor. The LLM supervisor study is in progress, and interfaces may change before 1.0.
 
 ## Why
 
