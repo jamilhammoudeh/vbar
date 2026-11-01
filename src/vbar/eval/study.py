@@ -246,15 +246,14 @@ class _Shadowed:
                 raise WallLimitReached(
                     f"the episode ran {elapsed:.0f} s, over its {self.wall_limit_s:.0f} s limit"
                 )
-        answer = self.supervisor.decide(situation)
+        # The shadow and the decision point read the situation before the supervisor under
+        # study is given it, so a supervisor that rewrites it cannot change either.
+        t = float(situation.t)
         shadow = None if self.shadow is None else _command(self.shadow.decide(situation))
+        point = decision_point(situation, self._radius)
+        answer = self.supervisor.decide(situation)
         self.consults.append(
-            Consult(
-                t=float(situation.t),
-                command=_command(answer),
-                shadow=shadow,
-                decision_point=decision_point(situation, self._radius),
-            )
+            Consult(t=t, command=_command(answer), shadow=shadow, decision_point=point)
         )
         return answer
 

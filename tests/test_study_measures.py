@@ -352,3 +352,28 @@ def test_an_order_for_a_refused_command_is_invalid_but_not_a_parse_failure():
     _, metrics = fly(StudyAgent(supervisor, period_s=10.0))
     assert metrics["invalid_actions"] == 12 and metrics["parse_failures"] == 0
     assert metrics["invalid_action_rate"] == 0.0
+
+
+class Mutating:
+    """Orders HOLD after rewriting the situation it was shown: no valid command, another phase,
+    and the chaser moved far away."""
+
+    name = "mutating"
+
+    def reset(self, view, ladder, rng=None):
+        pass
+
+    def decide(self, situation):
+        object.__setattr__(situation, "mask", (True,) + (False,) * (len(Command) - 1))
+        object.__setattr__(situation, "phase", "aborted")
+        situation.obs.setflags(write=True)
+        situation.obs[:] = 1e6
+        return Command.HOLD
+
+
+def test_a_supervisor_that_rewrites_its_situation_changes_neither_shadow_nor_decision_points():
+    honest = fly(StudyAgent(Always(Command.HOLD), shadow=True, period_s=10.0))[0][1]
+    cheat = fly(StudyAgent(Mutating(), shadow=True, period_s=10.0))[0][1]
+    assert [c.shadow for c in cheat] == [c.shadow for c in honest]
+    assert [c.decision_point for c in cheat] == [c.decision_point for c in honest]
+    assert any(c.decision_point for c in honest) and any(c.shadow != Command.HOLD for c in honest)
