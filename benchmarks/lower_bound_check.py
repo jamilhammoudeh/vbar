@@ -5,10 +5,12 @@ Run with `python benchmarks/lower_bound_check.py [--scenario ID ...] [--agent NA
 `DualBank` built from the true starts of its seeds, and every run is scored against the bank's
 bound for its start with `optimality_gap`. The table on standard output has one row per scenario
 and agent: runs, successes, successful runs held to a certified bound, and runs flagged E3f.
-A run the agent ends by raising `RuntimeError` counts as a failed run. Skipped agents, scenarios
-whose bank fails to solve, the reasons of raised runs, flagged runs and progress go to standard
-error. The exit status is 1 when any run is flagged, 3 when no successful run anywhere was held
-to a certified bound, so nothing was checked, 2 on a usage error, and 0 otherwise.
+A run the agent ends by raising `RuntimeError` counts as a failed run, and a run from a start the
+bank left uncertified is held to no bound. Skipped agents, scenarios whose bank fails to solve,
+the count and indices of uncertified starts, the reasons of raised runs, flagged runs and progress
+go to standard error. The exit status is 1 when any run is flagged, 3 when no successful run
+anywhere was held to a certified bound, so nothing was checked, 2 on a usage error, and 0
+otherwise.
 """
 
 import argparse
@@ -177,6 +179,18 @@ def main(argv: list[str]) -> int:
             logging.warning("not scored %s: %s", scenario_id, err)
             continue
         logging.info("%s: bank built in %.0f s", scenario_id, time.perf_counter() - start_time)
+        # Any object with `view` and `bounds` serves as a bank; one without the attribute has
+        # no uncertified starts.
+        uncertified = set(getattr(bank, "uncertified", ()))
+        if uncertified:
+            logging.warning(
+                "%s: %d of %d starts uncertified, %s indices %s",
+                scenario_id,
+                len(uncertified),
+                args.count,
+                args.split,
+                ",".join(map(str, sorted(uncertified))),
+            )
         for name in names:
             try:
                 known[name]().reset(view, agent_generator(split.agent_seed(0)))
@@ -202,7 +216,8 @@ def main(argv: list[str]) -> int:
                     raise RuntimeError(
                         f"{scenario_id} seed index {i} ran on a view other than the bank's"
                     )
-                bounds = None if bank is None else bank.bounds(ep.start)
+                # An uncertified start's LPs were never decided, so its runs are held to no bound.
+                bounds = None if bank is None or i in uncertified else bank.bounds(ep.start)
                 gap = optimality_gap(ep, bounds)
                 if success(ep):
                     counts["successes"] += 1

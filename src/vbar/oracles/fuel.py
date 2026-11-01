@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import ArrayLike
 from scipy import sparse
-from scipy.optimize import linprog
+from scipy.optimize import OptimizeResult, linprog
 
 from ..agents.base import AgentView, hold_point
 from ..constraints import KeepOut, interval_bounds, segment_minima
@@ -198,10 +198,35 @@ def _fibonacci(count: int) -> np.ndarray:
     return np.c_[np.cos(azimuth) * np.sin(polar), np.sin(azimuth) * np.sin(polar), np.cos(polar)]
 
 
+class _Undecided(RuntimeError):
+    """HiGHS ended an LP with no verdict on optimality or feasibility after every retry."""
+
+
+# scipy's status for a HiGHS model status with no verdict, such as 15 (unknown).
+_NO_VERDICT = 4
+
+
+def _highs(presolve: bool, **problem: object) -> OptimizeResult:
+    """`linprog` by HiGHS; an end with no verdict is retried by the interior point method, then
+    by dual simplex with presolve switched.
+
+    Dual simplex at both presolve settings ended window 301 of a 360-step approach-vbar start at
+    model status 15, and the interior point method solved it.
+    """
+    attempts = (("highs", presolve), ("highs-ipm", presolve), ("highs-ds", not presolve))
+    for method, pre in attempts:
+        res = linprog(**problem, method=method, options={"presolve": pre})
+        if res.status != _NO_VERDICT:
+            break
+    return res
+
+
 def _checked(status: int, message: str, infeasible: tuple[int, ...]) -> bool:
     """Whether HiGHS solved the LP: False for the statuses that mean infeasible, raise otherwise."""
     if status in infeasible:
         return False
+    if status == _NO_VERDICT:
+        raise _Undecided(f"HiGHS failed: {message}")
     if status != 0:
         raise RuntimeError(f"HiGHS failed: {message}")
     return True
@@ -251,12 +276,12 @@ def _box_lp(win: _Window, ball: np.ndarray, limit: bool, inhibit: bool) -> _Solu
     if inhibit:
         top[np.repeat(win.inhibited, 3)] = 0.0
     half = np.tile(ball, count)
-    res = linprog(
-        np.r_[np.full(2 * width, win.cost), np.zeros(6 * count)],
+    res = _highs(
+        True,
+        c=np.r_[np.full(2 * width, win.cost), np.zeros(6 * count)],
         A_eq=sparse.hstack([inputs, -inputs, errors], format="csr"),
         b_eq=np.r_[-win.miss[0], np.tile(win.drift, count - 1)],
         bounds=np.c_[np.r_[np.zeros(2 * width), -half], np.r_[top, top, half]],
-        method="highs",
     )
     if not _checked(res.status, res.message, (2,)):
         return None
@@ -288,14 +313,13 @@ def _cut_lp(
     rows, bound = _terminal_rows(np.hstack([reach, np.zeros((len(miss), k))]), miss, ball)
     blocks.append(sparse.csr_matrix(rows))
     rhs.append(bound)
-    res = linprog(
-        np.concatenate(rhs),
+    # Presolve takes about 40% of these solves and removes almost nothing from them.
+    res = _highs(
+        False,
+        c=np.concatenate(rhs),
         A_eq=sparse.vstack(blocks, format="csr").T,
         b_eq=-np.r_[np.zeros(3 * k), np.full(k, win.cost)],
         bounds=(0.0, None),
-        method="highs",
-        # Presolve takes about 40% of these solves and removes almost nothing from them.
-        options={"presolve": False},
     )
     # An unbounded dual is an infeasible primal.
     if not _checked(res.status, res.message, (2, 3)):
@@ -325,17 +349,16 @@ def _hull_lp(win: _Window, ball: np.ndarray, directions: np.ndarray) -> _Solutio
     along = np.einsum("ikc,dc->ikd", reach.reshape(-1, k, 3), directions).reshape(-1, k * m)
     rows, bound = _terminal_rows(along, miss, ball)
     top = np.where(np.repeat(win.inhibited, m), 0.0, np.inf)
-    res = linprog(
-        np.full(k * m, win.cost),
+    # Presolve takes half of this solve and removes almost nothing.
+    res = _highs(
+        False,
+        c=np.full(k * m, win.cost),
         A_ub=sparse.vstack(
             [sparse.csr_matrix(rows), sparse.kron(sparse.identity(k), np.ones((1, m)))],
             format="csr",
         ),
         b_ub=np.r_[bound, np.ones(k)],
         bounds=np.c_[np.zeros(k * m), top],
-        method="highs",
-        # Presolve takes half of this solve and removes almost nothing.
-        options={"presolve": False},
     )
     if not _checked(res.status, res.message, (2,)):
         return None
@@ -843,6 +866,13 @@ class DualBank:
         `cells_per_step`, `bank_stride` and, for a ball layout, the Kelley settings; the
         defaults when omitted.
 
+    Attributes
+    ----------
+    uncertified : tuple of int
+        Rows of the starts given to `build` that added no multipliers because HiGHS ended one of
+        their window LPs with no verdict after its retries, in increasing order; empty for a
+        bank not built by `build`.
+
     Raises
     ------
     ValueError
@@ -866,12 +896,18 @@ class DualBank:
         self._basis = np.swapaxes(phi[..., :, 3:6], -1, -2)
         self._entries: list[tuple[float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]
         self._entries = []
+        self.uncertified: tuple[int, ...] = ()
 
     @classmethod
     def build(
         cls, view: AgentView, starts: ArrayLike, *, config: OracleConfig | None = None
     ) -> DualBank:
         """A bank of the LPs of every `bank_stride`-th window, and the last, for each start.
+
+        A window LP that HiGHS ends with no verdict is retried by the interior point method and
+        by dual simplex with presolve switched. A start whose LP is still undecided adds no
+        multipliers, those of its earlier windows included, and its row goes to `uncertified`;
+        the other starts are solved as before.
 
         Parameters
         ----------
@@ -892,17 +928,25 @@ class DualBank:
         ValueError
             As `FuelOracle.solve` for the view, or if `starts` is not N rows of 6 finite numbers.
         RuntimeError
-            If HiGHS fails for a reason other than infeasibility.
+            If HiGHS fails for a reason other than infeasibility or an end with no verdict.
         """
         bank = cls(view, config=config)
         points = np.asarray(starts, dtype=float)
         if points.ndim != 2:
             raise ValueError("starts must have shape (N, 6)")
-        if bank._count > 0:
-            for row in points:
-                x0 = _start(row)
+        if bank._count == 0:
+            return bank
+        uncertified = []
+        for i, row in enumerate(points):
+            x0 = _start(row)
+            kept = len(bank._entries)
+            try:
                 for k in bank._strided():
                     bank._solve(x0, k)
+            except _Undecided:
+                del bank._entries[kept:]
+                uncertified.append(i)
+        bank.uncertified = tuple(uncertified)
         return bank
 
     def bounds(self, start: ArrayLike) -> FuelBounds:
