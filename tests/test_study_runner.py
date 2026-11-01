@@ -28,6 +28,7 @@ from vbar.eval.study import (
 )
 from vbar.safety import PassThroughFilter
 from vbar.scenarios import make as catalogue_make
+from vbar.scenarios import seeds
 
 PRICE = Price(input_per_mtok=1.0, output_per_mtok=10.0)
 OFF = Cell("approach-vbar", False)
@@ -417,3 +418,30 @@ def test_reply_text_is_read_as_plain_text_so_its_methods_cannot_stop_the_run(tmp
     studied = read_results(tmp_path / "trap" / "approach-vbar_filter_off.jsonl")
     assert studied[0]["error"] is None and episode_outcome(studied[0]) == "timeout"
     assert report["pairs"] == 1
+
+
+def test_a_cell_stops_only_when_every_measure_is_decided(tmp_path, monkeypatch):
+    # Success ties exactly, so it is decided at the first look; the intervention counts swing by
+    # 3 either way, so their interval is far wider than the 0.5 margin at every look.
+    def fake_run_jobs(jobs, agent, **options):
+        sign = 1 if agent is study_module.rule_agent else -1
+        return [result("timeout", intervention_count=3 * sign * (-1) ** job.index) for job in jobs]
+
+    monkeypatch.setattr(study_module, "run_jobs", fake_run_jobs)
+    row = Row(name="both", cells=(ON,), seeds=4, looks=(2, 4))
+    report = run_cell(row, ON, FREE, out_dir=tmp_path, safety_filter=PassThroughFilter, reps=200)
+    assert report["measures"]["success"]["decided"]
+    assert not report["measures"]["intervention_count"]["decided"]
+    assert report["status"] == "undecided" and report["look"] == 4
+
+
+def test_a_cell_flies_the_first_seeds_of_its_validation_draw_in_order(tmp_path):
+    row = Row(name="slice", cells=(OFF,), seeds=2)
+    run_cell(row, OFF, FREE, out_dir=tmp_path, reps=200)
+    expected = [list(map(int, pair)) for pair in seeds("approach-vbar", "validation", 2).pairs()]
+    for side in ("slice", "rule"):
+        flown = read_results(tmp_path / side / "approach-vbar_filter_off.jsonl")
+        assert [[int(r["seed"]), int(r["agent_seed"])] for r in flown] == expected
+        assert [r["index"] for r in flown] == [0, 1] and {r["split"] for r in flown} == {
+            "validation"
+        }
