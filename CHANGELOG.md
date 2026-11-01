@@ -6,6 +6,11 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+### Added
+
+- `vbar.eval.inference`: `holm` and `benjamini_hochberg` corrections for a family of p-values and
+  `sign_flip_test`, a paired randomisation test of two agents flown on the same seeds.
+
 ## [0.5.0] - 2026-10-31
 
 ### Added

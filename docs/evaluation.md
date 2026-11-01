@@ -190,6 +190,33 @@ The normal-approximation interval is never used: for rare events its lower end f
 (3 failures in 10,000 runs give -3.9e-5; Kochenderfer, Wheeler and Wray, *Algorithms for Decision
 Making*, 2022, section 14.1), where the Clopper-Pearson interval is (6.19e-5, 8.76e-4).
 
+## Corrections and the paired test
+
+`vbar.eval.inference` holds two corrections for a family of comparisons and a paired test:
+
+- `holm(pvalues, alpha=0.05)`: Holm's step-down procedure (Holm 1979). With the p-values sorted
+  ascending and m of them, the adjusted value of the i-th is min(1, max over j <= i of
+  (m - j + 1) p_(j)); a hypothesis is rejected when its adjusted value is at most `alpha`. It
+  controls the family-wise error rate and assumes nothing about the dependence between the tests.
+- `benjamini_hochberg(pvalues, q=0.05)`: the step-up procedure of Benjamini and Hochberg (1995).
+  The adjusted value of the i-th is min(1, min over j >= i of m p_(j) / j), rejected when at most
+  `q`. It controls the false discovery rate for independent tests and for positively dependent
+  ones; under other dependence it can exceed `q`.
+- `sign_flip_test(x, y, reps=10_000, rng)`: `x` and `y` map each scenario to the scores of two
+  agents flown on the same seeds, paired by index within the scenario. The statistic is the mean
+  of all differences x - y pooled. Each of `reps` random assignments flips the sign of every
+  difference independently (Fisher 1935); the two-sided p-value is
+  (1 + #{|T*| >= |T|}) / (reps + 1), so it is never below 1 / (reps + 1). Equal-magnitude
+  statistics that differ in the last bits count as ties.
+
+Both corrections return the adjusted values and the rejections in the order of the input, and
+give empty arrays for no p-values. The sign-flip test assumes the paired differences are
+symmetric about zero under the null; with skewed differences its level is only approximate. It
+tests the mean, which a few large differences move, and pools scenarios without rescaling, so
+a scenario with large scores dominates; pass scores on a common scale. NaN, p-values outside
+[0, 1], mismatched scenarios or run counts, non-finite differences and fewer than 100 `reps`
+raise `ValueError`.
+
 ## Safety tails
 
 `tail_summary(values, worse)` gives a safety metric's unsafe tail, the worst run, the 5th
@@ -307,6 +334,10 @@ complete, partial and altered reports from published lines.
 against hand cases and their invariances, the Mann-Whitney identity of the probability of
 improvement, the order-statistic and tolerance ranks and their coverage by simulation, the
 Clopper-Pearson cases of Kochenderfer et al. section 14.1, the conformal risk.
+`tests/test_eval_inference.py`: Holm and Benjamini-Hochberg against hand-computed adjustments, ties,
+ordering, the family-wise error rate and false discovery rate under the global null, and the
+sign-flip test against full enumeration of the sign assignments, its calibration under the null
+and its power at a one-sigma shift.
 `tests/test_eval_coverage.py`: the coverage table's cells at 50 and 100 runs and a narrowed
 interval failing it. `tests/test_eval_documented_figures.py`: the other figures this page and
 validation.md quote: the bootstrap coverage at 5 and 20 runs, McNemar's false-positive rate from 5
