@@ -79,9 +79,20 @@ LVLH frame, converted with `iss_to_hill`.
 - Eq. 3.34 and fig. 3.20: radial impulse responses.
 - Eq. 3.55: holding 100 m below the target takes a constant radial acceleration of 3 n^2 |x|
   (3.840e-4 m/s^2).
+- Eqs. 3.55, 3.56 and 3.58: a radial hover costs 3 n^2 |x| per second and an out-of-plane hover
+  n^2 |z| per second, and a V-bar hold costs nothing; flown for one orbit through the environment
+  and summed by the delta-v metric (`tests/test_hold_cost.py`).
 - Eqs. 3.59 to 3.74: one orbit of constant thrust from rest.
 - Figs. 4.17 and 4.18: a 0.3 m/s radial collision-avoidance impulse from d = 20, 50 and 100 m
   below the target, drifting 12 pi d per orbit.
+
+**Hettrick, "Autonomous Rendezvous and Docking with Tumbling, Uncooperative, and Fragile
+Targets Under Uncertain Knowledge"** (MIT S.M. thesis, 2019)
+
+- Eq. 3.6 and listing 3.1, pp. 54 to 56: Sternberg's matched-acceleration equation, integrated
+  from [10, 0, 0] m at rest for 100 s under a 5 deg/s flat spin about z, spirals away from the
+  target (range 10 sqrt(1 + (omega t)^2), about 88 m at 100 s, as in fig. 3-7). It is kept as a
+  negative reference (`tests/test_sternberg_reference.py`).
 
 **Hull, Enright, Fellen and Sedgwick, "Comparing numerical methods for ordinary differential
 equations"** (*SIAM Journal on Numerical Analysis* 9, 1972)
