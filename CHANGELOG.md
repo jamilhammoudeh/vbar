@@ -21,6 +21,13 @@ release may change the public API, and every such change is listed under Changed
   Study summaries report `model_errors`, `infrastructure_errors`, `reruns` and
   `mission_success_all`, the success rate with infrastructure errors counted as failures.
 
+### Fixed
+
+- `LQGAgent` under `FilteredAgent` predicted from the command it issued, not the one the filter
+  let through, so its estimate drifted on scenarios without a pending-command channel.
+  `FilteredAgent` now calls the wrapped agent's optional `applied(action)` with the flown command,
+  and `LQGAgent.applied` replaces the issued command in its prediction.
+
 ## [0.6.0] - 2026-11-01
 
 0.5.0 was tagged and archived on Zenodo but never published to PyPI: its release build failed on

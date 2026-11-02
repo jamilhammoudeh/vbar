@@ -343,6 +343,7 @@ class LQGAgent:
         self.gain, _, self.covariance = kalman_gain(self.phi, self.c, qd, np.diag(sigma**2))
         self.estimate = np.full(6 + nd, np.nan)
         self.predicted: np.ndarray | None = None
+        self._coast = np.zeros(6 + nd)
 
     def act(self, obs: np.ndarray, info: dict) -> np.ndarray:
         """Update the estimate with the measurement and command toward the hold point.
@@ -378,5 +379,23 @@ class LQGAgent:
             in_effect = obs[self.slots[0][1:]] * self.accel_per_unit
         else:
             in_effect = command * self.accel_per_unit
-        self.predicted = self.phi @ self.estimate + self.gamma @ in_effect
+        self._coast = self.phi @ self.estimate
+        self.predicted = self._coast + self.gamma @ in_effect
         return command
+
+    def applied(self, action: np.ndarray) -> None:
+        """Replace the issued command in the prediction by the command that was flown.
+
+        Called by a wrapper that changes the command, such as `FilteredAgent`. Without a
+        pending-command channel the prediction used the issued command; with one the channel
+        already reports what is in effect, so the call changes nothing.
+
+        Parameters
+        ----------
+        action : numpy.ndarray, shape (3,)
+            Command flown at the last decision, in the view's action mode.
+        """
+        if not self.slots:
+            self.predicted = self._coast + self.gamma @ (
+                np.asarray(action, dtype=float) * self.accel_per_unit
+            )

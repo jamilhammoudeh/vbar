@@ -576,6 +576,9 @@ $[0, \theta^*]$; otherwise it returns an accepted value that need not be the lar
 `vbar.safety.cbf` holds three filters built from the pieces above. Each one has a keyword-only
 constructor, `reset(view)` and `filter(obs, action)` returning a `FilterResult`, and can be wrapped
 around any agent with `FilteredAgent`.
+`FilteredAgent` flies the filter's command and, when the wrapped agent has an `applied(action)`
+method, passes it that command after each decision; `LQGAgent` uses it to predict from the command
+that was flown.
 
 ### What every filter does
 

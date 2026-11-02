@@ -392,7 +392,9 @@ class FilteredAgent:
     Parameters
     ----------
     agent : Agent
-        The wrapped agent; its commands go to the filter.
+        The wrapped agent; its commands go to the filter. An agent with an `applied(action)`
+        method is told the command that was flown after each decision, for a state estimate that
+        predicts from its own commands.
     safety_filter : SafetyFilter
         Has `reset(view)` and `filter(obs, action)` returning a `FilterResult`, and optionally
         `prepare()`, called before each `filter`.
@@ -435,6 +437,9 @@ class FilteredAgent:
         self.last_command = raw
         self.last_result = result
         self.last_filter_s = elapsed
+        applied = getattr(self.agent, "applied", None)
+        if applied is not None:
+            applied(result.action)
         return result.action
 
 
