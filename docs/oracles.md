@@ -619,6 +619,12 @@ LP shifted to it.
   An end the interior point method decides leaves every start certified
   (`test_a_status_the_retry_decides_leaves_every_start_certified`), and a fixed-window `solve` left
   undecided raises (`test_a_fixed_window_left_undecided_raises`).
+- Certificate check (`tests/test_fuel_certificate.py`): window 301 of the same start, solved by
+  `solve` at `arrival_step=301`, passes the check with `finite_optimum` 0.3493889553 m/s to 1e-7
+  relative, the interior point optimum 0.5431506395 of the scaled LP, where dual simplex's
+  undecided end had primal and dual objectives 8.9e-4 apart, 1.6e-3 relative. A solve reported
+  optimal whose point is moved by 0.1 is solved again by the next method, and one no method
+  certifies is left undecided.
 - A briefed `Maneuvering` target raises in `solve` (free and fixed), `bounds` and
   `DualBank.build`; the docking scenario raises; `bounds` equals the free-time solve's bounds;
   `arrival_candidates` and `bank_stride` default to 16 and 10 and refuse 0.

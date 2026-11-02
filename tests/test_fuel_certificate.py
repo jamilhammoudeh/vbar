@@ -7,7 +7,11 @@ import numpy as np
 import pytest
 from scipy.optimize import OptimizeResult, linprog
 
-from vbar.oracles import fuel
+from vbar.oracles import FuelOracle, fuel
+from vbar.scenarios import make
+from vbar.scenarios.seeds import SeedSplit
+
+VBAR_BOX = "vbar:approach-vbar:cw:box:dv:v1"
 
 # Boyd and Vandenberghe, Exercise 5.28 (p282): x* = (1, 1, 1, 1), p* = 64, multipliers
 # (3, 2, 2, 7, 0); scipy's inequality marginals are their negatives.
@@ -162,3 +166,24 @@ def test_an_optimal_status_no_attempt_certifies_is_undecided(monkeypatch):
     assert res.status == fuel._NO_VERDICT
     with pytest.raises(fuel._Undecided, match="certificate check"):
         fuel._checked(res.status, res.message, (2,))
+
+
+def test_approach_vbar_validation_start_19_window_301_optimum_is_certified(monkeypatch):
+    # Dual simplex ends this LP at model status 15 with primal and dual objectives 0.544044 and
+    # 0.543151 in the LP's units; the interior point method's optimum is 0.5431506395, which is
+    # 0.3493889553 m/s at this start's scale. The certificate's gap tolerance is 1e-7, so the
+    # value is held to that, 1e4 times finer than the disagreement of the undecided end.
+    env = make(VBAR_BOX)
+    start = env.reset(seed=SeedSplit(VBAR_BOX, "validation", 100).seed(19))[1]["true_state"]
+    checked = []
+    certify = fuel._certified
+
+    def recorded(problem, res):
+        checked.append(certify(problem, res))
+        return checked[-1]
+
+    monkeypatch.setattr(fuel, "_certified", recorded)
+    sol = FuelOracle().solve(env.agent_view(), start, arrival_step=301, hard=frozenset())
+    assert checked and all(checked)
+    assert sol.finite_optimum == pytest.approx(0.3493889553, rel=1e-7)
+    assert 0.0 < sol.impulsive_lower <= sol.finite_lower
