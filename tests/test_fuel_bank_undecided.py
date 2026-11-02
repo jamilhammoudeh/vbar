@@ -121,3 +121,43 @@ def test_a_fixed_window_left_undecided_raises(monkeypatch):
     poisoned["row"] = point
     with pytest.raises(RuntimeError, match="HiGHS failed"):
         FuelOracle().solve(view, point, arrival_step=20, hard=frozenset())
+
+
+def no_window_feasible(monkeypatch, row):
+    """Makes every window LP of the start `row` infeasible, with and without the limit."""
+    real_window, real_outer = fuel._window, fuel._outer
+    from_row = {}
+
+    def window(view, x0, *args):
+        win = real_window(view, x0, *args)
+        from_row[id(win)] = np.array_equal(x0, row)
+        return win
+
+    def outer(win, norm, config):
+        lp, optimum, cuts, verdict = real_outer(win, norm, config)
+        if from_row[id(win)]:
+            return None, math.inf, cuts, fuel.INFEASIBLE_WITHOUT_LIMIT
+        return lp, optimum, cuts, verdict
+
+    monkeypatch.setattr(fuel, "_window", window)
+    monkeypatch.setattr(fuel, "_outer", outer)
+
+
+def test_a_start_with_no_feasible_window_is_listed_as_infeasible(monkeypatch):
+    view = small_view()
+    points = starts(3)
+    reference = DualBank.build(view, points[[0, 2]])
+    no_window_feasible(monkeypatch, points[1])
+    bank = DualBank.build(view, points)
+    assert bank.infeasible == {1: "no_feasible_window"}
+    assert bank.uncertified == ()
+    # The other starts' multipliers are those of a bank without it.
+    assert np.array_equal(bank.window_lowers(points[0]), reference.window_lowers(points[0]))
+
+
+def test_a_free_final_time_with_no_feasible_window_reports_it_on_the_bounds(monkeypatch):
+    view = small_view()
+    point = starts(1)[0]
+    no_window_feasible(monkeypatch, point)
+    bounds = FuelOracle().bounds(view, point)
+    assert bounds.infeasible == "no_feasible_window" and bounds.lower == 0.0

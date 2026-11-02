@@ -636,3 +636,33 @@ def test_a_non_finite_goal_state_raises(goal):
     )
     with pytest.raises(ValueError, match="hold point and goal velocity"):
         solve(view, random_starts(35, 1)[0])
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+def test_a_verdict_infeasible_within_the_limit_is_recorded_on_the_bounds(layout):
+    sol = solve(property_view(layout=layout), [0.0, -200.0, 0.0, 0.0, 0.0, 0.0], arrival_step=2)
+    assert sol.bounds.infeasible == "infeasible_within_limit"
+    assert sol.bounds.lower > 0.0
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+def test_a_verdict_infeasible_without_the_limit_is_recorded_on_the_bounds(layout):
+    sol = solve(property_view(layout=layout), [0.0, -200.0, 0.0, 0.0, 0.0, 0.0], arrival_step=1)
+    assert sol.bounds.infeasible == "infeasible_without_limit"
+    assert sol.bounds.lower == 0.0
+
+
+@pytest.mark.parametrize("layout", ["box", "ball"])
+def test_a_window_with_a_plan_records_no_infeasible_verdict(layout):
+    view = property_view(layout=layout)
+    assert solve(view, random_starts(33, 1)[0], arrival_step=20).bounds.infeasible == ""
+    assert FuelOracle().bounds(view, random_starts(33, 1)[0]).infeasible == ""
+
+
+def test_the_oracle_reasons_are_the_ones_fuel_bounds_accepts():
+    from vbar.metrics.efficiency import INFEASIBLE_REASONS
+
+    reasons = {fuel.INFEASIBLE_WITHIN_LIMIT, fuel.INFEASIBLE_WITHOUT_LIMIT, fuel.NO_FEASIBLE_WINDOW}
+    assert reasons | {""} == set(INFEASIBLE_REASONS)
+    with pytest.raises(ValueError, match="infeasible reason"):
+        FuelBounds(0.0, 1.0, "l1", "cw", infeasible="because")

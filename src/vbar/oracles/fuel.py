@@ -44,6 +44,10 @@ _IDLE_SOLVES = 3
 # Samples per step of the keep-out and dwell checks, as the environment samples its constraint
 # checks.
 _SAMPLES = 20
+# Reasons a lower bound rests on an infeasible LP verdict (`FuelBounds.infeasible`).
+INFEASIBLE_WITHIN_LIMIT = "infeasible_within_limit"
+INFEASIBLE_WITHOUT_LIMIT = "infeasible_without_limit"
+NO_FEASIBLE_WINDOW = "no_feasible_window"
 _FIRST_CUTS = np.vstack(
     [
         np.eye(3),
@@ -145,6 +149,16 @@ class OracleSolution:
         None without a plan.
     unmodelled : tuple of str
         Hard constraints the plan was not checked against.
+
+    Notes
+    -----
+    `bounds.infeasible` names an infeasible verdict the bounds rest on: for a fixed arrival step,
+    `INFEASIBLE_WITHIN_LIMIT` when the outer LP is infeasible within the thrust limit (the bounds
+    then come from the LP without it) and `INFEASIBLE_WITHOUT_LIMIT` when that is infeasible too
+    (both lower bounds 0); at a free final time, `NO_FEASIBLE_WINDOW` when every window solved
+    was infeasible without the limit. A bound from any multipliers is valid, so these lower
+    bounds hold either way; the verdict says the oracle found no success possible, which a
+    successful run contradicts.
     """
 
     bounds: FuelBounds
@@ -468,12 +482,15 @@ def _kelley(
 
 def _outer(
     win: _Window, norm: str, config: OracleConfig
-) -> tuple[_Solution | None, float, np.ndarray]:
+) -> tuple[_Solution | None, float, np.ndarray, str]:
     """The outer LP within the thrust limit, or without it if that is infeasible or HiGHS fails
     on a ball layout's LP within it; its optimum (m/s) within the limit, inf if infeasible and
-    NaN if HiGHS failed; and the final cuts of a ball layout."""
+    NaN if HiGHS failed; the final cuts of a ball layout; and the infeasible verdict, if any:
+    `INFEASIBLE_WITHIN_LIMIT` when only the LP within the limit was reported infeasible,
+    `INFEASIBLE_WITHOUT_LIMIT` when the LP without it was too."""
     cuts = _FIRST_CUTS
     optimum = math.inf
+    verdict = ""
     for limit in (True, False):
         if norm == "l1":
             lp = _box_lp(win, win.ball, limit, inhibit=False)
@@ -488,9 +505,11 @@ def _outer(
                 if not limit:
                     raise
                 lp, optimum = None, math.nan
+                continue
         if lp is not None:
-            return lp, lp.value * win.scale[3] if limit else optimum, cuts
-    return None, optimum, cuts
+            return lp, lp.value * win.scale[3] if limit else optimum, cuts, verdict
+        verdict = INFEASIBLE_WITHIN_LIMIT if limit else INFEASIBLE_WITHOUT_LIMIT
+    return None, optimum, cuts, verdict
 
 
 def _multipliers(lp: _Solution, win: _Window) -> np.ndarray:
@@ -783,7 +802,9 @@ class FuelOracle:
         keep_out, unmodelled = _hard(view, hard)
 
         if arrival_step is None:
-            finite_lower, impulsive_lower, cut_sets, least = self._free_lower(view, x0, count)
+            finite_lower, impulsive_lower, cut_sets, least, infeasible = self._free_lower(
+                view, x0, count
+            )
             finite_optimum = math.nan
             last = steps - hold
             arrivals = np.rint(np.linspace(last, 1, self.config.arrival_candidates)).astype(int)
@@ -793,7 +814,7 @@ class FuelOracle:
         else:
             k = operator.index(arrival_step)
             win = _window(view, x0, x_g, rho, k, min(max(count, 1), steps - k + 1))
-            lp, finite_optimum, cuts = _outer(win, norm, self.config)
+            lp, finite_optimum, cuts, infeasible = _outer(win, norm, self.config)
             finite_lower = impulsive_lower = 0.0
             if lp is not None:
                 nus = _multipliers(lp, win)
@@ -841,6 +862,7 @@ class FuelOracle:
             rung="cw",
             accel_limit=view.max_accel,
             impulsive_lower=impulsive_lower,
+            infeasible=infeasible,
         )
         return OracleSolution(
             bounds=bounds,
@@ -855,17 +877,27 @@ class FuelOracle:
 
     def _free_lower(
         self, view: AgentView, x0: np.ndarray, count: int
-    ) -> tuple[float, float, dict[int, np.ndarray], int | None]:
+    ) -> tuple[float, float, dict[int, np.ndarray], int | None, str]:
         """Finite-thrust and impulsive lower bounds (m/s) at a free final time, the cut sets of
-        the windows solved, and the window whose bound is least (None for the trivial bound).
+        the windows solved, the window whose bound is least (None for the trivial bound) and
+        `NO_FEASIBLE_WINDOW` if every window solved was reported infeasible without the thrust
+        limit, else "".
+
+        A bound from any multipliers is valid, so a window reported infeasible only leaves out
+        its multipliers and the others still bound every window; the bound then does not rest on
+        the verdict. With no multipliers at all the bound is the trivial 0, and a plan-less start
+        is a claim no run should contradict, so the start is reported.
 
         The bank starts with every `bank_stride`-th window and solves the window whose bound is
         least until that window has its own LP, at most `max_refinements` times.
         """
         if count == 0:
-            return 0.0, 0.0, {}, None
+            return 0.0, 0.0, {}, None, ""
         bank = DualBank(view, config=self.config)
-        cut_sets = {k: bank._solve(x0, k) for k in bank._strided()}
+        cut_sets = {}
+        for k in bank._strided():
+            cut_sets[k] = bank._solve(x0, k)
+        infeasible = NO_FEASIBLE_WINDOW if not bank._entries else ""
         refinements = 0
         while True:
             finite, impulsive = bank._window_bounds(x0)
@@ -874,7 +906,13 @@ class FuelOracle:
                 break
             cut_sets[least] = bank._solve(x0, least)
             refinements += 1
-        return max(0.0, float(finite.min())), max(0.0, float(impulsive.min())), cut_sets, least
+        return (
+            max(0.0, float(finite.min())),
+            max(0.0, float(impulsive.min())),
+            cut_sets,
+            least,
+            infeasible,
+        )
 
     def _plan(
         self,
@@ -939,6 +977,12 @@ class DualBank:
         Rows of the starts given to `build` that added no multipliers because HiGHS ended one of
         their window LPs with no verdict after its retries, in increasing order; empty for a
         bank not built by `build`.
+    infeasible : dict of int to str
+        Rows of the starts given to `build` whose every window LP was reported infeasible without
+        the thrust limit, so they added no multipliers, mapped to `NO_FEASIBLE_WINDOW`; empty for
+        a bank not built by `build`. Their bounds in the bank are still valid, from the other
+        starts' multipliers, but no window of theirs has a plan, so `optimality_gap` leaves them
+        uncertified through `FuelBounds.infeasible`, which `bounds` does not set.
 
     Raises
     ------
@@ -964,6 +1008,7 @@ class DualBank:
         self._entries: list[tuple[float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]
         self._entries = []
         self.uncertified: tuple[int, ...] = ()
+        self.infeasible: dict[int, str] = {}
 
     @classmethod
     def build(
@@ -974,7 +1019,8 @@ class DualBank:
         A window LP that HiGHS ends with no verdict is retried by the interior point method and
         by dual simplex with presolve switched. A start whose LP is still undecided adds no
         multipliers, those of its earlier windows included, and its row goes to `uncertified`;
-        the other starts are solved as before.
+        the other starts are solved as before. A start none of whose window LPs is feasible
+        without the thrust limit is listed in `infeasible`.
 
         Parameters
         ----------
@@ -1013,6 +1059,9 @@ class DualBank:
             except _Undecided:
                 del bank._entries[kept:]
                 uncertified.append(i)
+                continue
+            if len(bank._entries) == kept:
+                bank.infeasible[i] = NO_FEASIBLE_WINDOW
         bank.uncertified = tuple(uncertified)
         return bank
 
@@ -1087,7 +1136,7 @@ class DualBank:
         """Adds the multipliers of window `first`'s outer LP from `x0`, if it has any; returns the
         final cut set of a ball layout."""
         win = _window(self.view, x0, self._goal, self._rho, first, self._count)
-        lp, _, cuts = _outer(win, self._norm, self.config)
+        lp, _, cuts, _ = _outer(win, self._norm, self.config)
         if lp is not None:
             self._add(_multipliers(lp, win))
         return cuts

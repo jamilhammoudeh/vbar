@@ -77,6 +77,14 @@ def chatter(ep: Episode) -> float:
     return changes / ep.duration if ep.duration > 0.0 else 0.0
 
 
+INFEASIBLE_REASONS = (
+    "",
+    "infeasible_within_limit",
+    "infeasible_without_limit",
+    "no_feasible_window",
+)
+
+
 @dataclass(frozen=True)
 class FuelBounds:
     """Bounds on the least delta-v from a start state to the scenario's success set.
@@ -104,12 +112,18 @@ class FuelBounds:
     impulsive_lower : float or None
         Lower bound for impulsive control on the same rung (m/s), which holds for any
         acceleration; used in place of `lower` for a run that exceeded `accel_limit`.
+    infeasible : str
+        Why the solver called the start impossible, "" when it did not: one of
+        "infeasible_within_limit" (the LP within `accel_limit` is infeasible; `lower` comes from
+        the LP without the limit), "infeasible_without_limit" (that LP is infeasible too, so
+        `lower` is the trivial 0) and "no_feasible_window" (no window of a free final time has
+        a feasible LP). Such a bound is not certified for any run.
 
     Raises
     ------
     ValueError
-        For an unknown norm, bounds outside 0 <= lower <= upper, a negative or NaN
-        `accel_limit`, or a negative or non-finite `impulsive_lower` or one above `upper`.
+        For an unknown norm or infeasible reason, bounds outside 0 <= lower <= upper, a negative
+        or NaN `accel_limit`, or a negative or non-finite `impulsive_lower` or one above `upper`.
     """
 
     lower: float
@@ -118,6 +132,7 @@ class FuelBounds:
     rung: str
     accel_limit: float = math.inf
     impulsive_lower: float | None = None
+    infeasible: str = ""
 
     def __post_init__(self):
         if self.norm not in ("l1", "l2"):
@@ -130,6 +145,8 @@ class FuelBounds:
             math.isfinite(self.impulsive_lower) and self.impulsive_lower >= 0.0
         ):
             raise ValueError("impulsive_lower must be finite and nonnegative")
+        if self.infeasible not in INFEASIBLE_REASONS:
+            raise ValueError(f"unknown infeasible reason {self.infeasible!r}")
         if self.impulsive_lower is not None and self.impulsive_lower > self.upper:
             raise ValueError("impulsive_lower must not exceed upper")
 
