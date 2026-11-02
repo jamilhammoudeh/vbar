@@ -182,8 +182,20 @@ def test_approach_vbar_validation_start_19_window_301_optimum_is_certified(monke
         checked.append(certify(problem, res))
         return checked[-1]
 
+    outer = fuel._outer
+    outer_checks = []
+
+    def recorded_outer(*args, **kwargs):
+        lp = outer(*args, **kwargs)
+        outer_checks.append(len(checked))
+        return lp
+
     monkeypatch.setattr(fuel, "_certified", recorded)
+    monkeypatch.setattr(fuel, "_outer", recorded_outer)
     sol = FuelOracle().solve(env.agent_view(), start, arrival_step=301, hard=frozenset())
-    assert checked and all(checked)
+    # Older HiGHS releases report an optimum here that fails the check; the retry behind
+    # finite_optimum must pass it.
+    n = outer_checks[0]
+    assert n > 0 and checked[n - 1]
     assert sol.finite_optimum == pytest.approx(0.3493889553, rel=1e-7)
     assert 0.0 < sol.impulsive_lower <= sol.finite_lower
