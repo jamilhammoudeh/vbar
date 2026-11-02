@@ -20,7 +20,7 @@ import math
 import operator
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -204,11 +204,74 @@ class _Undecided(RuntimeError):
 
 # scipy's status for a HiGHS model status with no verdict, such as 15 (unknown).
 _NO_VERDICT = 4
+# Bounds on the residuals of an accepted solve, relative to 1 + the largest right-hand side,
+# bound or cost. HiGHS meets its feasibility tolerances of 1e-7 on its own scaling of the LP, so
+# the residuals of solves it calls optimal reach 6e-8 on the scenario LPs; ten times its
+# tolerance passes those and rejects a solve whose multipliers do not fit the costs.
+_PRIMAL_TOL = 1e-6
+_DUAL_TOL = 1e-6
+# Bound on |c^T x - dual objective| / (1 + |c^T x|), HiGHS's own tolerance on its relative
+# objective error. Solves HiGHS calls optimal show 8e-11 or less on the scenario LPs, and the
+# dual simplex end it could not decide on window 301 of approach-vbar validation start 19 was
+# 5.8e-4.
+_GAP_TOL = 1e-7
+
+
+def _certified(problem: Mapping[str, Any], res: OptimizeResult) -> bool:
+    """Whether `res` is optimal for `problem` by its own residuals, whatever HiGHS's status.
+
+    The multipliers are first given their dual signs (bound marginals nonnegative at lower and
+    nonpositive at upper bounds, inequality marginals nonpositive, zero at an infinite bound), so
+    a wrong sign shows in the stationarity residual c - A_ub^T z - A_eq^T y - lower - upper; then
+    the primal residuals, that residual and the gap between c^T x and the dual objective must be
+    within `_PRIMAL_TOL`, `_DUAL_TOL` and `_GAP_TOL` (Boyd and Vandenberghe, Convex Optimization,
+    2004, section 5.5.3: feasibility and zero gap make both points optimal).
+    """
+    c = np.asarray(problem["c"], dtype=float)
+    x = res.x
+    if x is None:
+        return False
+    # scipy writes an infinite bound as None, which a float array holds as NaN.
+    given = problem.get("bounds")
+    # scipy reads no bounds as x >= 0.
+    given = (0.0, None) if given is None else given
+    bounds = np.broadcast_to(np.array(given, dtype=float), (len(c), 2))
+    low = np.where(np.isnan(bounds[:, 0]), -np.inf, bounds[:, 0])
+    high = np.where(np.isnan(bounds[:, 1]), np.inf, bounds[:, 1])
+    at_low, at_high = np.isfinite(low), np.isfinite(high)
+    lower = np.where(at_low, np.maximum(res.lower.marginals, 0.0), 0.0)
+    upper = np.where(at_high, np.minimum(res.upper.marginals, 0.0), 0.0)
+    finite = np.r_[np.abs(low[at_low]), np.abs(high[at_high])]
+    primal = [np.max(np.r_[low - x, x - high, 0.0]) / (1.0 + np.max(finite, initial=0.0))]
+    stationarity = c - lower - upper
+    dual = lower[at_low] @ low[at_low] + upper[at_high] @ high[at_high]
+    if problem.get("A_ub") is not None:
+        a, b = problem["A_ub"], np.asarray(problem["b_ub"], dtype=float)
+        z = np.minimum(res.ineqlin.marginals, 0.0)
+        over = np.max(np.maximum(a @ x - b, 0.0), initial=0.0)
+        primal.append(over / (1.0 + np.max(np.abs(b), initial=0.0)))
+        stationarity = stationarity - a.T @ z
+        dual += b @ z
+    if problem.get("A_eq") is not None:
+        a, b = problem["A_eq"], np.asarray(problem["b_eq"], dtype=float)
+        y = res.eqlin.marginals
+        primal.append(
+            np.max(np.abs(a @ x - b), initial=0.0) / (1.0 + np.max(np.abs(b), initial=0.0))
+        )
+        stationarity = stationarity - a.T @ y
+        dual += b @ y
+    value = float(c @ x)
+    return bool(
+        max(primal) <= _PRIMAL_TOL
+        and np.max(np.abs(stationarity)) <= _DUAL_TOL * (1.0 + np.max(np.abs(c)))
+        and abs(value - dual) <= _GAP_TOL * (1.0 + abs(value))
+    )
 
 
 def _highs(presolve: bool, **problem: object) -> OptimizeResult:
-    """`linprog` by HiGHS; an end with no verdict is retried by the interior point method, then
-    by dual simplex with presolve switched.
+    """`linprog` by HiGHS, accepted only if `_certified`; an end with no verdict or an optimum
+    that fails the check is retried by the interior point method, then by dual simplex with
+    presolve switched, and a result no attempt certified comes back at status `_NO_VERDICT`.
 
     Dual simplex at both presolve settings ended window 301 of a 360-step approach-vbar start at
     model status 15, and the interior point method solved it.
@@ -216,6 +279,10 @@ def _highs(presolve: bool, **problem: object) -> OptimizeResult:
     attempts = (("highs", presolve), ("highs-ipm", presolve), ("highs-ds", not presolve))
     for method, pre in attempts:
         res = linprog(**problem, method=method, options={"presolve": pre})
+        if res.status == 0 and not _certified(problem, res):
+            res = OptimizeResult(
+                {**res, "status": _NO_VERDICT, "message": "optimum failed the certificate check"}
+            )
         if res.status != _NO_VERDICT:
             break
     return res

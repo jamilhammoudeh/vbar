@@ -280,6 +280,11 @@ Earth constants and converted from Fehse's ISS-style axes.
   margin equals a direct search for the signed distance on 12 random cones.
 - Secs. 5.1, 5.5 and 3.1.8: lower bounds need the dual norm of the cost (the optimality gap rejects
   bounds in the wrong norm), and zero-mean dither cannot lower expected fuel (the dither mutants).
+- Exercise 5.28 and sec. 5.5.3: the LP with optimum $x^* = (1, 1, 1, 1)$, $p^* = 64$ and
+  multipliers (3, 2, 2, 7, 0) passes the fuel oracle's certificate check, and the same check
+  rejects perturbed multipliers, points outside their bounds or rows, a point whose cost is below
+  the dual objective, multipliers of the wrong sign and a dual feasible point with a gap
+  (`tests/test_fuel_certificate.py`).
 
 **Goodman, *History of Space Shuttle Rendezvous*** (NASA JSC-63400, revision 3, 2011)
 

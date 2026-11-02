@@ -252,6 +252,22 @@ $\sum_d\lambda_{jd} \le 1$, at cost $a\Delta t\sum_{j,d}\lambda_{jd}$. Then
 $|\mathbf u_j|_2 \le a\sum_d\lambda_{jd} \le a$, so every solution lies within the thrust ball
 and costs at most the LP value.
 
+**Accepted solves.** A solve counts only if its own point and multipliers prove it optimal,
+whatever status HiGHS reports (Boyd and Vandenberghe, section 5.5.3). The bound and inequality
+multipliers are first given their dual signs, with zero at an infinite bound, so a wrong sign
+shows in the stationarity residual $c - A_{ub}^T z - A_{eq}^T y - \lambda_{lo} - \lambda_{up}$.
+Then the primal residuals, over $1 +$ the largest right-hand side or finite bound, and the
+stationarity residual, over $1 + |c|_\infty$, must be at most $10^{-6}$, and
+$|c^T x - \text{dual objective}| / (1 + |c^T x|)$ at most $10^{-7}$, HiGHS's own tolerance on its
+relative objective error. HiGHS meets its $10^{-7}$ feasibility tolerances on its own scaling of
+the LP, and the residuals of the solves it calls optimal reach $6 \times 10^{-8}$ and their gaps
+$8 \times 10^{-11}$ on the scenario LPs, so the check passes those; a solve that fails it is
+treated as an end with no verdict (see undecided LPs below). The check guards `finite_optimum`
+and the multipliers passed to the bounds. The lower bounds do not rest on it, since multipliers
+of any value give a valid bound; a poor solve could only weaken them. Infeasibility is still
+HiGHS's verdict: an LP it reports infeasible adds no multipliers, which also only weakens a bound,
+and makes `finite_optimum` inf.
+
 **Lower bounds.** The terminal multipliers $\nu$ of the outer LP, unscaled to the Hill state, go
 into `dual_bound` with the one constraint time $k\Delta t$ and `cells_per_step` cells per step:
 with the acceleration limit `max_accel` for `finite_lower`, without one for `impulsive_lower`.
@@ -478,15 +494,17 @@ kept set of multipliers.
 
 **Undecided LPs.** HiGHS can end a window LP with no verdict (model status 15, unknown, which
 scipy reports as status 4); dual simplex did so with and without presolve on window 301 of
-approach-vbar box validation start 19 of 100. Every LP of the oracle, in the bank and in `solve`,
-is then solved again by the interior point method (`highs-ipm`) and, if still undecided, by dual
-simplex (`highs-ds`) with presolve switched. A start whose LP `build` still cannot decide keeps
-none of its multipliers, those of its earlier windows included, and its row in `starts` goes to
-`DualBank.uncertified`; the other starts are solved as before. `bounds` of an uncertified start is
-still a theorem, from the other starts' multipliers, but nothing in the bank was solved for it, so
-the lower-bound check holds its runs to no bound. `solve` raises `RuntimeError` on an LP left
-undecided, as on any other HiGHS failure, except a ball layout's LP within the thrust limit, which
-falls back to the LP without it as above.
+approach-vbar box validation start 19 of 100, where its primal and dual objectives were
+0.544044 and 0.543151. A solve HiGHS calls optimal that fails the certificate check above counts
+as such an end. Every LP of the oracle, in the bank and in `solve`, is then solved again by the
+interior point method (`highs-ipm`) and, if still undecided, by dual simplex (`highs-ds`) with
+presolve switched. A start whose LP `build` still cannot decide keeps none of its multipliers,
+those of its earlier windows included, and its row in `starts` goes to `DualBank.uncertified`;
+the other starts are solved as before. `bounds` of an uncertified start is still a theorem, from
+the other starts' multipliers, but nothing in the bank was solved for it, so the lower-bound
+check holds its runs to no bound. `solve` raises `RuntimeError` on an LP left undecided, as on any
+other HiGHS failure, except a ball layout's LP within the thrust limit, which falls back to the LP
+without it as above.
 
 **Free final time in `solve`.** A one-start bank at `bank_stride` comes first; then the LP of the
 window whose bound is least is solved, and again, until that window has its own multipliers or
