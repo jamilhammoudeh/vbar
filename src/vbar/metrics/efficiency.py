@@ -7,6 +7,7 @@ the minimum impulse bit, run-out and safety filters are counted as flown, not as
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Protocol
@@ -182,9 +183,48 @@ def _peak_accel(ep: Episode) -> float:
     )
 
 
+def _constant_over_steps(ep: Episode) -> bool:
+    """Whether every step's executed acceleration is one constant vector."""
+    return all(
+        all(
+            np.array_equal(accel, rec.actuation.segments[0][1])
+            for _, accel in rec.actuation.segments
+        )
+        for rec in ep.records
+        if rec.actuation.segments
+    )
+
+
 def _ratio(dv: float, bound: float) -> float:
     """Delta-v over a bound, inf for a zero bound."""
     return dv / bound if bound > 0.0 else math.inf
+
+
+def _uncertified(
+    ep: Episode, bounds: FuelBounds, gap: dict[str, float | bool | str]
+) -> dict[str, float | bool | str]:
+    """The gap dict of a start the solver called infeasible: no bound is certified, and a
+    success the verdict contradicts is a solver error."""
+    gap.update(bound_rung=bounds.rung, bound_reason=bounds.infeasible)
+    if not (bounds.rung == ep.dynamics and not ep.target_misbriefed and success(ep)):
+        return gap
+    # The outer LP is a relaxation of a run that holds one acceleration over each step: the
+    # capture ball is widened to its bounding box, there are no path constraints and the step grid
+    # is the run's, so such a run that reached the ball is feasible for it. Without the limit it
+    # is feasible whatever it delivered; within the limit, only if its delivered acceleration
+    # stayed inside it. A run that splits a step (delay, run-out, the constant-thrust drive) is
+    # not a point of the LP, so its success says nothing about the verdict.
+    contradicted = _constant_over_steps(ep)
+    if bounds.infeasible == "infeasible_within_limit":
+        contradicted = contradicted and _peak_accel(ep) <= bounds.accel_limit * (1.0 + _ACCEL_TOL)
+    if contradicted:
+        gap["bound_solver_error"] = True
+        warnings.warn(
+            f"fuel LP reported {bounds.infeasible} but the run succeeded: solver error",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return gap
 
 
 def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | bool | str]:
@@ -197,7 +237,9 @@ def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | 
     instead, when given. A run whose target moved otherwise than briefed
     (`Episode.target_misbriefed`) is certified for neither, since the bounds were computed for
     the briefed motion. A lower bound not certified for the run gives the model ratio, which may
-    fall below 1 and is never flagged.
+    fall below 1 and is never flagged. A bound that rests on an infeasible verdict
+    (`FuelBounds.infeasible`) is certified for no run: the ratios are NaN, `bound_reason` holds
+    the verdict, and a success it contradicts sets `bound_solver_error` and warns.
 
     Parameters
     ----------
@@ -212,7 +254,8 @@ def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | 
         "optimality_gap" (E3), "optimality_gap_model" (E3m) and "optimality_gap_upper" (E3u),
         each NaN for a failed run, without bounds or where it does not apply, E3u also for an
         infinite upper bound; "below_lower_bound" (E3f), "bound_certified" (E3c) and
-        "bound_rung" (E3r).
+        "bound_rung" (E3r), "bound_reason" (the bounds' infeasible verdict, "" if none) and
+        "bound_solver_error" (a success contradicts that verdict).
 
     Raises
     ------
@@ -226,12 +269,16 @@ def optimality_gap(ep: Episode, bounds: FuelBounds | None) -> dict[str, float | 
         "below_lower_bound": False,
         "bound_certified": False,
         "bound_rung": "",
+        "bound_reason": "",
+        "bound_solver_error": False,
     }
     if bounds is None:
         return gap
     expected = "l1" if ep.view.thrust_limit == "box" else "l2"
     if bounds.norm != expected:
         raise ValueError(f"{ep.view.thrust_limit} thrusters need {expected} bounds")
+    if bounds.infeasible:
+        return _uncertified(ep, bounds, gap)
     lower_certified = False
     certified_lower = None
     if bounds.rung == ep.dynamics and not ep.target_misbriefed:

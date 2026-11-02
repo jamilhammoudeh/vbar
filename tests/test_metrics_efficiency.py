@@ -1,9 +1,15 @@
+import math
+import warnings
+
 import numpy as np
 import pytest
 from metric_cases import ConstantAgent, episode, pd_episode
 
 from vbar.conventions import G0
 from vbar.metrics import FuelBounds, efficiency_metrics, evaluate, optimality_gap
+from vbar.metrics.mission import success
+from vbar.oracles import FuelOracle, OracleConfig, fuel
+from vbar.oracles.fuel import bounds_for
 
 
 class ScriptedAgent:
@@ -142,3 +148,85 @@ def test_a_bound_for_another_dynamics_rung_is_a_model_ratio_and_never_flagged():
     certified = optimality_gap(ep, FuelBounds(0.5 * dv, 2.0 * dv, "l1", "twobody"))
     assert certified["bound_certified"] and certified["optimality_gap"] == pytest.approx(2.0)
     assert np.isnan(certified["optimality_gap_model"])
+
+
+def infeasible_bounds(ep, reason, **fields):
+    dv = efficiency_metrics(ep)["delta_v_axes"]
+    return FuelBounds(0.0, math.inf, "l1", "cw", infeasible=reason, **fields), dv
+
+
+@pytest.mark.parametrize(
+    "reason", ["infeasible_within_limit", "infeasible_without_limit", "no_feasible_window"]
+)
+def test_a_bound_on_an_infeasible_verdict_is_uncertified_with_no_infinite_ratio(reason):
+    ep = pd_episode()
+    bounds, _ = infeasible_bounds(ep, reason, accel_limit=ep.view.max_accel)
+    with pytest.warns(RuntimeWarning, match=reason):
+        gap = optimality_gap(ep, bounds)
+    assert not gap["bound_certified"] and gap["bound_reason"] == reason
+    assert gap["bound_rung"] == "cw" and not gap["below_lower_bound"]
+    for key in ("optimality_gap", "optimality_gap_model", "optimality_gap_upper"):
+        assert np.isnan(gap[key])
+    assert not any(isinstance(v, float) and math.isinf(v) for v in gap.values())
+
+
+def test_a_success_the_infeasible_verdict_forbids_is_a_solver_error():
+    ep = pd_episode()
+    with pytest.warns(RuntimeWarning, match="solver error"):
+        gap = optimality_gap(ep, infeasible_bounds(ep, "infeasible_without_limit")[0])
+    assert gap["bound_solver_error"]
+
+
+def test_a_run_over_the_limit_does_not_contradict_an_infeasible_verdict_within_it():
+    ep = pd_episode()
+    bounds, _ = infeasible_bounds(ep, "infeasible_within_limit", accel_limit=1e-9)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        gap = optimality_gap(ep, bounds)
+    assert not gap["bound_solver_error"] and not gap["bound_certified"]
+
+
+def test_a_run_that_splits_its_steps_does_not_contradict_an_infeasible_verdict():
+    # A delayed command spans two steps, so the run is no point of the LP with one input a step.
+    ep = pd_episode(delay_s=5.0)
+    assert success(ep)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        gap = optimality_gap(ep, infeasible_bounds(ep, "infeasible_without_limit")[0])
+    assert not gap["bound_solver_error"] and not gap["bound_certified"]
+
+
+def test_a_failure_or_another_rung_does_not_contradict_an_infeasible_verdict():
+    failed = episode()
+    other = pd_episode(dynamics="twobody")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for ep in (failed, other):
+            gap = optimality_gap(ep, infeasible_bounds(ep, "infeasible_without_limit")[0])
+            assert not gap["bound_solver_error"] and gap["bound_reason"]
+
+
+def test_a_forced_infeasible_oracle_verdict_flags_the_successful_run(monkeypatch):
+    # The window LP of a start the PD controller flies to success is made to report infeasible;
+    # the run satisfies the outer relaxation, so the verdict is the error.
+    ep = pd_episode()
+    assert success(ep)
+    real = fuel._outer
+
+    def outer(win, norm, config):
+        _, _, cuts, _ = real(win, norm, config)
+        return None, math.inf, cuts, fuel.INFEASIBLE_WITHOUT_LIMIT
+
+    monkeypatch.setattr(fuel, "_outer", outer)
+    bounds = bounds_for(ep, oracle=FuelOracle(config=OracleConfig(bank_stride=50)))
+    assert bounds.infeasible == "no_feasible_window"
+    with pytest.warns(RuntimeWarning, match="solver error"):
+        gap = optimality_gap(ep, bounds)
+    assert gap["bound_solver_error"] and np.isnan(gap["optimality_gap"])
+
+
+def test_a_start_without_an_infeasible_verdict_keeps_its_certified_gap():
+    ep = pd_episode()
+    gap = optimality_gap(ep, FuelBounds(0.5, 2.0, "l1", "cw"))
+    assert gap["bound_reason"] == "" and not gap["bound_solver_error"]
+    assert gap["bound_certified"]

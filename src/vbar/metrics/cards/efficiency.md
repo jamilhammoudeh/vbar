@@ -102,7 +102,7 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Changelog: v1, first version; v2, set only within the bound's acceleration limit, against `impulsive_lower` beyond it, and never for a run whose target moved otherwise than briefed.
 
 ## E3c bound_certified (v2)
-- Definition: whether a lower bound is certified for the run: the rung matches the episode's dynamics, the target moved as briefed and the delivered acceleration stayed within `accel_limit`, or the bound gives `impulsive_lower`.
+- Definition: whether a lower bound is certified for the run: the rung matches the episode's dynamics, the target moved as briefed and the delivered acceleration stayed within `accel_limit`, or the bound gives `impulsive_lower`; never when the bound rests on an infeasible LP verdict (`FuelBounds.infeasible`), which also sets `bound_reason` and, for a success the verdict contradicts, `bound_solver_error`.
 - Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
 - Why it matters: says whether E3 >= 1 is a theorem for this run.
 - Known-answer tests: False for a CW bound on a two-body run, True for a two-body bound there and for a CW bound on CW; False for a limit at `max_accel` under the constant-thrust drive or a 5% scale bias and True at the acceleration flown; a ball run at 0.021 m/s^2 in the 2-norm fails a 0.0205 m/s^2 limit (`tests/test_fuel_bounds_accel.py`).
@@ -125,6 +125,34 @@ Definitions in full: [docs/metrics.md](../../../../docs/metrics.md). Tests:
 - Mutation detection: not applicable.
 - Anti-gaming: as E3c.
 - Reproducibility: exact (label).
+- Power: not applicable.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## E3n bound_reason (v1)
+- Definition: the infeasible LP verdict the lower bound rests on (`FuelBounds.infeasible`), empty when it rests on none.
+- Summary: not summarised across episodes (a label, a record or already an aggregate).
+- Why it matters: says why a start has no certified bound, so an uncertified start is not read as a weak controller.
+- Known-answer tests: each of the three reasons is carried to the result and gives E3c False and NaN ratios (`tests/test_metrics_efficiency.py`).
+- Convergence: not applicable.
+- Invariance: not applicable.
+- Mutation detection: not applicable.
+- Anti-gaming: as E3c.
+- Reproducibility: exact (label).
+- Power: not applicable.
+- Validity: not applicable.
+- Changelog: v1, first version.
+
+## E3s bound_solver_error (v1)
+- Definition: whether a successful run contradicts the infeasible verdict behind its bound: the run holds one acceleration over each step, and for a verdict within the thrust limit stayed within it, so it is a point of the relaxed outer LP.
+- Summary: a rate across episodes, with its Clopper-Pearson interval (resolution table in README.md).
+- Why it matters: an infeasible verdict can only be wrong where some run succeeded; the start is flagged and its verdict not trusted.
+- Known-answer tests: True for a successful run on a forced infeasible verdict, False for a run that exceeded the limit, split its steps with a delay, failed, or ran on another rung (`tests/test_metrics_efficiency.py`).
+- Convergence: not applicable.
+- Invariance: not applicable.
+- Mutation detection: not applicable.
+- Anti-gaming: the acceleration is read from the record, as for E3c.
+- Reproducibility: exact (boolean).
 - Power: not applicable.
 - Validity: not applicable.
 - Changelog: v1, first version.

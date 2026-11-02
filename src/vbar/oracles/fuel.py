@@ -981,8 +981,10 @@ class DualBank:
         Rows of the starts given to `build` whose every window LP was reported infeasible without
         the thrust limit, so they added no multipliers, mapped to `NO_FEASIBLE_WINDOW`; empty for
         a bank not built by `build`. Their bounds in the bank are still valid, from the other
-        starts' multipliers, but no window of theirs has a plan, so `optimality_gap` leaves them
-        uncertified through `FuelBounds.infeasible`, which `bounds` does not set.
+        starts' multipliers, but none of their windows has a plan. `bounds` does not set
+        `FuelBounds.infeasible` for them; a caller that scores a run from such a start passes
+        `bounds` with `infeasible` replaced by the reason, so `optimality_gap` leaves it
+        uncertified.
 
     Raises
     ------

@@ -50,6 +50,8 @@ CATALOGUE = (
     MetricInfo("E3f", "below_lower_bound", "bool", version=2, summary="rate"),
     MetricInfo("E3c", "bound_certified", "bool", version=2, summary="rate"),
     MetricInfo("E3r", "bound_rung", "label", summary="none"),
+    MetricInfo("E3n", "bound_reason", "label", summary="none"),
+    MetricInfo("E3s", "bound_solver_error", "bool", summary="rate"),
     MetricInfo("E4", "burn_count", "count"),
     MetricInfo("E5", "duty_cycle", "fraction"),
     MetricInfo("E6", "chatter", "1/s"),
