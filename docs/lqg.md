@@ -81,6 +81,12 @@ issued, or with an actuation delay and the pending-commands channel
 `max_accel / action_scale(view)`. Predicting with the command just issued under a delay puts the
 estimate one command ahead of the plant.
 
+Under `FilteredAgent` the command flown is the filter's, not the one the agent issued. The wrapper
+calls `LQGAgent.applied` with the flown command after each decision, and the prediction uses it in
+place of the issued one; with the pending-commands channel the slot already holds what is in
+effect and the call changes nothing. Any agent with an `applied(action)` method is told the same
+way ([safety-filters.md](safety-filters.md)).
+
 **Regulator.** The command is the `LQRAgent` law with the weights of `LQGConfig.regulator`
 applied to the state estimate $\hat{\mathbf x}_k^+$ (the first six entries) and the pending slots
 as observed: $\mathbf u = \mathbf u_s - K(\mathbf z - \mathbf z_s)$, delay-augmented when the

@@ -349,3 +349,19 @@ def test_agent_runs_on_a_hand_made_view_and_reads_only_the_time(slots):
         assert info.read <= {"time_s"}
     assert np.array_equal(np.array(poisoned), np.array(plain))
     assert np.all(np.isfinite(plain)) and np.array(plain).shape == (3, 3)
+
+
+def test_filtered_lqg_estimate_follows_the_filtered_command():
+    # The passive-safety filter intervenes on this seed; the estimate has to predict from the
+    # command that was flown, not the one the agent issued.
+    from vbar.safety import FilteredAgent
+    from vbar.safety.cbf import BackupFilter
+    from vbar.scenarios import make
+
+    env = make("approach-vbar")
+    safety = BackupFilter(barrier="passive", ignore=("closing_speed_limit", "passive_speed"))
+    agent = FilteredAgent(LQGAgent(), safety)
+    result = run_episode(env, agent, seed=0, agent_seed=1)
+    assert agent.interventions > 0
+    assert np.linalg.norm(agent.agent.estimate[:3] - env.state[:3]) < 3.0
+    assert result["captured"]
