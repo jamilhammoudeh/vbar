@@ -6,16 +6,16 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-02
+
 ### Added
 
 - `DualBank.build` takes `workers`: with more than one, the starts are solved in separate
   processes and the bank equals the serial bank exactly.
-
 - `FuelBounds.infeasible` names the infeasible LP verdict a fuel bound rests on
   (`"infeasible_within_limit"`, `"infeasible_without_limit"`, `"no_feasible_window"`), and
   `DualBank.infeasible` maps the rows of starts with no feasible window to the reason.
   `optimality_gap` adds `bound_reason` (E3n) and `bound_solver_error` (E3s).
-
 - `vbar.eval.study`, the supervisor study: `StudyAgent` and `StudyTask` score each supervised
   episode's outcome (success, safe abort, timeout, unsafe), the filter's intervention count,
   decision disagreement with a rule supervisor shown the same situations, and decision flips per
@@ -1059,7 +1059,8 @@ the flight-data example fixed below. Install 0.6.0, which contains everything in
 First release with the validated dynamics layer: exact Clohessy-Wiltshire, nonlinear two-body
 relative motion with J2, Kepler propagation and J2 mean elements.
 
-[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/jamilhammoudeh/vbar/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jamilhammoudeh/vbar/compare/v0.3.1...v0.4.0
