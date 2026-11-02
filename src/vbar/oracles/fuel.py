@@ -981,10 +981,8 @@ class DualBank:
         Rows of the starts given to `build` whose every window LP was reported infeasible without
         the thrust limit, so they added no multipliers, mapped to `NO_FEASIBLE_WINDOW`; empty for
         a bank not built by `build`. Their bounds in the bank are still valid, from the other
-        starts' multipliers, but none of their windows has a plan. `bounds` does not set
-        `FuelBounds.infeasible` for them; a caller that scores a run from such a start passes
-        `bounds` with `infeasible` replaced by the reason, so `optimality_gap` leaves it
-        uncertified.
+        starts' multipliers, but none of their windows has a plan, so `bounds` of exactly
+        such a start sets `FuelBounds.infeasible` and `optimality_gap` leaves it uncertified.
 
     Raises
     ------
@@ -1011,6 +1009,7 @@ class DualBank:
         self._entries = []
         self.uncertified: tuple[int, ...] = ()
         self.infeasible: dict[int, str] = {}
+        self._infeasible_starts: dict[bytes, str] = {}
 
     @classmethod
     def build(
@@ -1064,6 +1063,7 @@ class DualBank:
                 continue
             if len(bank._entries) == kept:
                 bank.infeasible[i] = NO_FEASIBLE_WINDOW
+                bank._infeasible_starts[x0.tobytes()] = NO_FEASIBLE_WINDOW
         bank.uncertified = tuple(uncertified)
         return bank
 
@@ -1079,7 +1079,9 @@ class DualBank:
         -------
         FuelBounds
             `lower` max(0, least of `window_lowers`), `impulsive_lower` the same for the
-            impulsive bounds, `upper` inf, rung "cw" and `accel_limit` the view's `max_accel`.
+            impulsive bounds, `upper` inf, rung "cw" and `accel_limit` the view's `max_accel`;
+            `infeasible` is "no_feasible_window" when `start` equals a start `build` listed in
+            `infeasible`, else "".
 
         Raises
         ------
@@ -1101,6 +1103,7 @@ class DualBank:
             rung="cw",
             accel_limit=self.view.max_accel,
             impulsive_lower=impulsive_lower,
+            infeasible=self._infeasible_starts.get(x0.tobytes(), ""),
         )
 
     def window_lowers(self, start: ArrayLike) -> np.ndarray:

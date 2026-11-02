@@ -7,6 +7,7 @@ Optimization, 2004, section 5.1.3), so a retried solve gives a valid bound like 
 """
 
 import math
+import warnings
 
 import numpy as np
 import pytest
@@ -161,3 +162,27 @@ def test_a_free_final_time_with_no_feasible_window_reports_it_on_the_bounds(monk
     no_window_feasible(monkeypatch, point)
     bounds = FuelOracle().bounds(view, point)
     assert bounds.infeasible == "no_feasible_window" and bounds.lower == 0.0
+
+
+def test_a_bank_start_with_no_feasible_window_scores_uncertified_through_its_bounds(monkeypatch):
+    # The pattern of benchmarks/lower_bound_check.py: build the bank from the true starts, then
+    # score each run with bank.bounds(ep.start).
+    from vbar.agents import DriftAgent
+    from vbar.metrics import optimality_gap, record_episode
+    from vbar.metrics.mission import success
+
+    env = make(VBAR_BOX)
+    ep = record_episode(env, DriftAgent(), seed=3, agent_seed=4)
+    other = starts(1)[0]
+    no_window_feasible(monkeypatch, np.asarray(ep.start, dtype=float))
+    bank = DualBank.build(ep.view, np.array([ep.start, other]), config=ENDS_ONLY)
+    assert bank.infeasible == {0: "no_feasible_window"}
+    assert bank.bounds(other).infeasible == ""
+    bounds = bank.bounds(ep.start)
+    assert bounds.infeasible == "no_feasible_window"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        gap = optimality_gap(ep, bounds)
+    assert not gap["bound_certified"] and gap["bound_reason"] == "no_feasible_window"
+    assert not any(isinstance(v, float) and math.isinf(v) for v in gap.values())
+    assert gap["bound_solver_error"] == bool(success(ep))
