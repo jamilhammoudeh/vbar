@@ -21,6 +21,15 @@ release may change the public API, and every such change is listed under Changed
   Study summaries report `model_errors`, `infrastructure_errors`, `reruns` and
   `mission_success_all`, the success rate with infrastructure errors counted as failures.
 
+### Changed
+
+- The fuel oracle and `DualBank` accept an LP solve only if its point and multipliers pass a
+  certificate check of their own: primal residuals and the stationarity residual, with the
+  multipliers given their dual signs, within 1e-6 of the problem's scale, and a duality gap within
+  1e-7 relative. A solve HiGHS reports optimal that fails the check is retried like an end with no
+  verdict. The lower bounds were already valid for any multipliers and are unchanged on the
+  scenario starts checked; the check guards `finite_optimum` and the multipliers behind them.
+
 ### Fixed
 
 - `LQGAgent` under `FilteredAgent` predicted from the command it issued, not the one the filter
