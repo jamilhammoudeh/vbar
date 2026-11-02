@@ -494,6 +494,19 @@ least window bound, `impulsive_lower` the same for the impulsive bounds, `upper`
 `"cw"` and `accel_limit` = `max_accel`. A start, in the bank or not, costs one matrix product per
 kept set of multipliers.
 
+**Parallel build.** The LPs of a start depend on that start and the bank's constants only, never
+on the multipliers kept for earlier starts, so `DualBank.build(view, starts, workers=w)` with
+$w > 1$ solves them in `concurrent.futures.ProcessPoolExecutor` workers. `starts` is split into
+contiguous chunks, about four per worker so a chunk of slow starts does not hold up the rest;
+each worker builds a bank for its chunk and returns only its multipliers and the chunk-relative
+rows of its uncertified and infeasible starts. The parent concatenates the multipliers in the order
+of `starts` and shifts the rows by the chunk's offset, so the bank, `uncertified`, `infeasible`,
+`bounds` and `window_lowers` equal those of the serial build bit for bit, because a bound takes the
+best over all multipliers and each start's solves run the same code on the same inputs. `workers`
+is an integer of at least 1, and 1 builds in the calling process. An error in a worker, a
+`RuntimeError` from HiGHS included, is raised by `build`. Each worker process holds its chunk's
+multipliers while it runs and the parent holds them all once the build ends.
+
 **Undecided LPs.** HiGHS can end a window LP with no verdict (model status 15, unknown, which
 scipy reports as status 4); dual simplex did so with and without presolve on window 301 of
 approach-vbar box validation start 19 of 100, where its primal and dual objectives were

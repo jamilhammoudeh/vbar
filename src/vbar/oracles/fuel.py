@@ -16,10 +16,13 @@ Vandenberghe, section 5.1.3).
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import operator
 from collections.abc import Collection, Mapping
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from itertools import repeat
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -1018,7 +1021,12 @@ class DualBank:
 
     @classmethod
     def build(
-        cls, view: AgentView, starts: ArrayLike, *, config: OracleConfig | None = None
+        cls,
+        view: AgentView,
+        starts: ArrayLike,
+        *,
+        config: OracleConfig | None = None,
+        workers: int = 1,
     ) -> DualBank:
         """A bank of the LPs of every `bank_stride`-th window, and the last, for each start.
 
@@ -1028,6 +1036,11 @@ class DualBank:
         the other starts are solved as before. A start none of whose window LPs is feasible
         without the thrust limit is listed in `infeasible`.
 
+        The LPs of a start depend only on that start, so with `workers` above 1 the starts are
+        split into contiguous chunks solved in separate processes, each returning only its
+        entries and rows. The parent concatenates them in the order of `starts`, so the bank,
+        its lists and every bound equal those of the serial build.
+
         Parameters
         ----------
         view : AgentView
@@ -1036,6 +1049,8 @@ class DualBank:
             Hill states at t = 0 (m, m/s).
         config : OracleConfig, optional
             Settings; the defaults when omitted.
+        workers : int, default 1
+            Processes solving starts; 1 builds in the calling process.
 
         Returns
         -------
@@ -1045,32 +1060,65 @@ class DualBank:
         Raises
         ------
         ValueError
-            As `FuelOracle.solve` for the view, or if `starts` is not N rows of 6 finite numbers.
+            As `FuelOracle.solve` for the view, if `starts` is not N rows of 6 finite numbers, or
+            if `workers` is not an integer of at least 1.
         RuntimeError
-            If HiGHS fails for a reason other than infeasibility or an end with no verdict.
+            If HiGHS fails for a reason other than infeasibility or an end with no verdict; in a
+            worker the error is raised here.
         """
+        try:
+            count = operator.index(workers)
+        except TypeError:
+            count = 0
+        if isinstance(workers, bool) or count < 1:
+            raise ValueError("workers must be an integer of at least 1")
         bank = cls(view, config=config)
         points = np.asarray(starts, dtype=float)
         if points.ndim != 2:
             raise ValueError("starts must have shape (N, 6)")
         if bank._count == 0:
             return bank
+        if count == 1 or len(points) < 2:
+            bank._fill(points)
+            return bank
+        # Several chunks per worker, so a start with slow LPs does not hold up a whole share.
+        size = -(-len(points) // (4 * count))
+        chunks = [points[i : i + size] for i in range(0, len(points), size)]
+        # The view holds read-only mappings, which do not pickle, so workers get its fields.
+        fields = {f.name: getattr(view, f.name) for f in dataclasses.fields(view)}
+        fields["goal"] = dict(view.goal)
+        fields["constraints"] = tuple(dict(c) for c in view.constraints)
+        with ProcessPoolExecutor(max_workers=min(count, len(chunks))) as pool:
+            results = list(pool.map(_build_chunk, repeat(fields), repeat(bank.config), chunks))
+        offset = 0
+        uncertified: list[int] = []
+        for chunk, (entries, rows, infeasible) in zip(chunks, results, strict=True):
+            bank._entries.extend(entries)
+            uncertified.extend(offset + i for i in rows)
+            for i in infeasible:
+                bank.infeasible[offset + i] = NO_FEASIBLE_WINDOW
+                bank._infeasible_starts[_key(_start(chunk[i]))] = NO_FEASIBLE_WINDOW
+            offset += len(chunk)
+        bank.uncertified = tuple(uncertified)
+        return bank
+
+    def _fill(self, points: np.ndarray) -> None:
+        """Solves the windows of each row of `points` in turn, filling the lists of `build`."""
         uncertified = []
         for i, row in enumerate(points):
             x0 = _start(row)
-            kept = len(bank._entries)
+            kept = len(self._entries)
             try:
-                for k in bank._strided():
-                    bank._solve(x0, k)
+                for k in self._strided():
+                    self._solve(x0, k)
             except _Undecided:
-                del bank._entries[kept:]
+                del self._entries[kept:]
                 uncertified.append(i)
                 continue
-            if len(bank._entries) == kept:
-                bank.infeasible[i] = NO_FEASIBLE_WINDOW
-                bank._infeasible_starts[_key(x0)] = NO_FEASIBLE_WINDOW
-        bank.uncertified = tuple(uncertified)
-        return bank
+            if len(self._entries) == kept:
+                self.infeasible[i] = NO_FEASIBLE_WINDOW
+                self._infeasible_starts[_key(x0)] = NO_FEASIBLE_WINDOW
+        self.uncertified = tuple(uncertified)
 
     def bounds(self, start: ArrayLike) -> FuelBounds:
         """Lower bounds at a free final time: the least window bound.
@@ -1210,6 +1258,15 @@ class DualBank:
         safe = np.where(peak > 0.0, peak, 1.0)
         impulsive = np.where(peak > 0.0, (displacement - floor) / safe, 0.0)
         return np.maximum(finite, impulsive).max(axis=0), impulsive.max(axis=0)
+
+
+def _build_chunk(
+    fields: dict[str, Any], config: OracleConfig, points: np.ndarray
+) -> tuple[list[Any], tuple[int, ...], list[int]]:
+    """Entries, uncertified rows and infeasible rows of a chunk of starts, indexed within it."""
+    bank = DualBank(AgentView(**fields), config=config)
+    bank._fill(points)
+    return bank._entries, bank.uncertified, list(bank.infeasible)
 
 
 def bounds_for(ep: Episode, oracle: FuelOracle | None = None) -> FuelBounds:

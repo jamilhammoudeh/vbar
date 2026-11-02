@@ -8,6 +8,9 @@ release may change the public API, and every such change is listed under Changed
 
 ### Added
 
+- `DualBank.build` takes `workers`: with more than one, the starts are solved in separate
+  processes and the bank equals the serial bank exactly.
+
 - `FuelBounds.infeasible` names the infeasible LP verdict a fuel bound rests on
   (`"infeasible_within_limit"`, `"infeasible_without_limit"`, `"no_feasible_window"`), and
   `DualBank.infeasible` maps the rows of starts with no feasible window to the reason.
