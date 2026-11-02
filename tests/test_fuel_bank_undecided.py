@@ -186,3 +186,15 @@ def test_a_bank_start_with_no_feasible_window_scores_uncertified_through_its_bou
     assert not gap["bound_certified"] and gap["bound_reason"] == "no_feasible_window"
     assert not any(isinstance(v, float) and math.isinf(v) for v in gap.values())
     assert gap["bound_solver_error"] == bool(success(ep))
+
+
+def test_a_start_equal_but_for_the_sign_of_a_zero_matches_its_bank_row(monkeypatch):
+    view = small_view()
+    row = starts(1)[0]
+    row[2] = 0.0
+    no_window_feasible(monkeypatch, row)
+    bank = DualBank.build(view, row[None, :])
+    assert bank.infeasible == {0: "no_feasible_window"}
+    signed = row.copy()
+    signed[2] = -0.0
+    assert bank.bounds(row).infeasible == bank.bounds(signed).infeasible == "no_feasible_window"

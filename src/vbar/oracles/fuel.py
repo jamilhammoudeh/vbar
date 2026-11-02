@@ -640,6 +640,11 @@ def _start(start: ArrayLike) -> np.ndarray:
     return x0
 
 
+def _key(x0: np.ndarray) -> bytes:
+    """Bytes of a start with -0.0 turned into 0.0, so equal starts share a key."""
+    return (x0 + 0.0).tobytes()
+
+
 def _window(
     view: AgentView, x0: np.ndarray, x_g: np.ndarray, rho: np.ndarray, first: int, count: int
 ) -> _Window:
@@ -1063,7 +1068,7 @@ class DualBank:
                 continue
             if len(bank._entries) == kept:
                 bank.infeasible[i] = NO_FEASIBLE_WINDOW
-                bank._infeasible_starts[x0.tobytes()] = NO_FEASIBLE_WINDOW
+                bank._infeasible_starts[_key(x0)] = NO_FEASIBLE_WINDOW
         bank.uncertified = tuple(uncertified)
         return bank
 
@@ -1103,7 +1108,7 @@ class DualBank:
             rung="cw",
             accel_limit=self.view.max_accel,
             impulsive_lower=impulsive_lower,
-            infeasible=self._infeasible_starts.get(x0.tobytes(), ""),
+            infeasible=self._infeasible_starts.get(_key(x0), ""),
         )
 
     def window_lowers(self, start: ArrayLike) -> np.ndarray:
