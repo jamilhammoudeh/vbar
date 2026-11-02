@@ -4,6 +4,8 @@
  "below_lower_bound": false,
  "bound_certified": false,
  "bound_rung": "",
+ "bound_reason": "",
+ "bound_solver_error": false,
  "burn_count": 0,
  "cam_margin": -36.25312543215362,
  "capture_margin": NaN,

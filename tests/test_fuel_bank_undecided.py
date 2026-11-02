@@ -7,6 +7,7 @@ Optimization, 2004, section 5.1.3), so a retried solve gives a valid bound like 
 """
 
 import math
+import warnings
 
 import numpy as np
 import pytest
@@ -121,3 +122,79 @@ def test_a_fixed_window_left_undecided_raises(monkeypatch):
     poisoned["row"] = point
     with pytest.raises(RuntimeError, match="HiGHS failed"):
         FuelOracle().solve(view, point, arrival_step=20, hard=frozenset())
+
+
+def no_window_feasible(monkeypatch, row):
+    """Makes every window LP of the start `row` infeasible, with and without the limit."""
+    real_window, real_outer = fuel._window, fuel._outer
+    from_row = {}
+
+    def window(view, x0, *args):
+        win = real_window(view, x0, *args)
+        from_row[id(win)] = np.array_equal(x0, row)
+        return win
+
+    def outer(win, norm, config):
+        lp, optimum, cuts, verdict = real_outer(win, norm, config)
+        if from_row[id(win)]:
+            return None, math.inf, cuts, fuel.INFEASIBLE_WITHOUT_LIMIT
+        return lp, optimum, cuts, verdict
+
+    monkeypatch.setattr(fuel, "_window", window)
+    monkeypatch.setattr(fuel, "_outer", outer)
+
+
+def test_a_start_with_no_feasible_window_is_listed_as_infeasible(monkeypatch):
+    view = small_view()
+    points = starts(3)
+    reference = DualBank.build(view, points[[0, 2]])
+    no_window_feasible(monkeypatch, points[1])
+    bank = DualBank.build(view, points)
+    assert bank.infeasible == {1: "no_feasible_window"}
+    assert bank.uncertified == ()
+    # The other starts' multipliers are those of a bank without it.
+    assert np.array_equal(bank.window_lowers(points[0]), reference.window_lowers(points[0]))
+
+
+def test_a_free_final_time_with_no_feasible_window_reports_it_on_the_bounds(monkeypatch):
+    view = small_view()
+    point = starts(1)[0]
+    no_window_feasible(monkeypatch, point)
+    bounds = FuelOracle().bounds(view, point)
+    assert bounds.infeasible == "no_feasible_window" and bounds.lower == 0.0
+
+
+def test_a_bank_start_with_no_feasible_window_scores_uncertified_through_its_bounds(monkeypatch):
+    # The pattern of benchmarks/lower_bound_check.py: build the bank from the true starts, then
+    # score each run with bank.bounds(ep.start).
+    from vbar.agents import DriftAgent
+    from vbar.metrics import optimality_gap, record_episode
+    from vbar.metrics.mission import success
+
+    env = make(VBAR_BOX)
+    ep = record_episode(env, DriftAgent(), seed=3, agent_seed=4)
+    other = starts(1)[0]
+    no_window_feasible(monkeypatch, np.asarray(ep.start, dtype=float))
+    bank = DualBank.build(ep.view, np.array([ep.start, other]), config=ENDS_ONLY)
+    assert bank.infeasible == {0: "no_feasible_window"}
+    assert bank.bounds(other).infeasible == ""
+    bounds = bank.bounds(ep.start)
+    assert bounds.infeasible == "no_feasible_window"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        gap = optimality_gap(ep, bounds)
+    assert not gap["bound_certified"] and gap["bound_reason"] == "no_feasible_window"
+    assert not any(isinstance(v, float) and math.isinf(v) for v in gap.values())
+    assert gap["bound_solver_error"] == bool(success(ep))
+
+
+def test_a_start_equal_but_for_the_sign_of_a_zero_matches_its_bank_row(monkeypatch):
+    view = small_view()
+    row = starts(1)[0]
+    row[2] = 0.0
+    no_window_feasible(monkeypatch, row)
+    bank = DualBank.build(view, row[None, :])
+    assert bank.infeasible == {0: "no_feasible_window"}
+    signed = row.copy()
+    signed[2] = -0.0
+    assert bank.bounds(row).infeasible == bank.bounds(signed).infeasible == "no_feasible_window"

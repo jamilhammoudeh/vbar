@@ -8,6 +8,14 @@ release may change the public API, and every such change is listed under Changed
 
 ### Added
 
+- `DualBank.build` takes `workers`: with more than one, the starts are solved in separate
+  processes and the bank equals the serial bank exactly.
+
+- `FuelBounds.infeasible` names the infeasible LP verdict a fuel bound rests on
+  (`"infeasible_within_limit"`, `"infeasible_without_limit"`, `"no_feasible_window"`), and
+  `DualBank.infeasible` maps the rows of starts with no feasible window to the reason.
+  `optimality_gap` adds `bound_reason` (E3n) and `bound_solver_error` (E3s).
+
 - `vbar.eval.study`, the supervisor study: `StudyAgent` and `StudyTask` score each supervised
   episode's outcome (success, safe abort, timeout, unsafe), the filter's intervention count,
   decision disagreement with a rule supervisor shown the same situations, and decision flips per
@@ -23,6 +31,9 @@ release may change the public API, and every such change is listed under Changed
 
 ### Changed
 
+- A fuel bound that rests on an infeasible LP verdict is no longer certified: `optimality_gap`
+  gives `bound_certified` False and NaN for E3, E3m and E3u (E3 was inf against a zero bound), and
+  a successful run that the verdict contradicts sets `bound_solver_error` and warns.
 - The fuel oracle and `DualBank` accept an LP solve only if its point and multipliers pass a
   certificate check of their own: primal residuals and the stationarity residual, with the
   multipliers given their dual signs, within 1e-6 of the problem's scale, and a duality gap within

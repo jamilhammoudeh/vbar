@@ -275,7 +275,9 @@ Dividing $\nu$ by its certified primer peak removes the excess integral and turn
 value into a finite-thrust bound, so `finite_lower` is the larger of the two; both are at least
 0. The certificate does not depend on the solver: a poor $\nu$ gives a weaker bound, not a wrong
 one. If the outer LP is infeasible within the limit, $\nu$ comes from the LP without the limit
-and `finite_optimum` is inf; if that is infeasible too, both lower bounds are 0. For a ball,
+and `finite_optimum` is inf; if that is infeasible too, both lower bounds are 0. Either verdict is
+recorded in `FuelBounds.infeasible` (`"infeasible_within_limit"`, `"infeasible_without_limit"`),
+and the metrics treat the start as uncertified (see the certification rule below). For a ball,
 HiGHS can report a solve error instead of an unbounded dual on a window with no plan within the
 limit; $\nu$ then also comes from the LP without the limit, `finite_optimum` is NaN, and the plan
 is still tried. That LP is a relaxation, its optimum no larger, and its $\nu$ goes through
@@ -492,6 +494,19 @@ least window bound, `impulsive_lower` the same for the impulsive bounds, `upper`
 `"cw"` and `accel_limit` = `max_accel`. A start, in the bank or not, costs one matrix product per
 kept set of multipliers.
 
+**Parallel build.** The LPs of a start depend on that start and the bank's constants only, never
+on the multipliers kept for earlier starts, so `DualBank.build(view, starts, workers=w)` with
+$w > 1$ solves them in `concurrent.futures.ProcessPoolExecutor` workers. `starts` is split into
+contiguous chunks, about four per worker so a chunk of slow starts does not hold up the rest;
+each worker builds a bank for its chunk and returns only its multipliers and the chunk-relative
+rows of its uncertified and infeasible starts. The parent concatenates the multipliers in the order
+of `starts` and shifts the rows by the chunk's offset, so the bank, `uncertified`, `infeasible`,
+`bounds` and `window_lowers` equal those of the serial build bit for bit, because a bound takes the
+best over all multipliers and each start's solves run the same code on the same inputs. `workers`
+is an integer of at least 1, and 1 builds in the calling process. An error in a worker, a
+`RuntimeError` from HiGHS included, is raised by `build`. Each worker process holds its chunk's
+multipliers while it runs and the parent holds them all once the build ends.
+
 **Undecided LPs.** HiGHS can end a window LP with no verdict (model status 15, unknown, which
 scipy reports as status 4); dual simplex did so with and without presolve on window 301 of
 approach-vbar box validation start 19 of 100, where its primal and dual objectives were
@@ -505,6 +520,19 @@ the other starts' multipliers, but nothing in the bank was solved for it, so the
 check holds its runs to no bound. `solve` raises `RuntimeError` on an LP left undecided, as on any
 other HiGHS failure, except a ball layout's LP within the thrust limit, which falls back to the LP
 without it as above.
+
+**Infeasible windows at a free final time.** A window LP that is infeasible without the limit adds
+no multipliers. The bound of every window comes from the multipliers of the windows that do have
+them, moved by the time shift, and a bound from any multipliers is valid, so excluding infeasible
+windows leaves the bound a theorem whether or not those verdicts are right. A start whose every
+window LP is infeasible without the limit has no multipliers of its own, and the free-final-time
+bound is the trivial 0; `FuelBounds.infeasible` is then `"no_feasible_window"`, and a bank lists
+the row in `DualBank.infeasible`. The solver is then claiming that no success is possible from that
+start. The bank solves only every `bank_stride`-th window, so a success in an unsolved window is
+not strictly contradicted, but without the limit any controllable start reaches the ball in the
+last window (the outer LP has no path constraints and ignores thrust inhibit windows), so the
+verdict is taken as a solver error. A single infeasible window is not reported: early
+windows are infeasible for a thrust-limited start in the normal case.
 
 **Free final time in `solve`.** A one-start bank at `bank_stride` comes first; then the LP of the
 window whose bound is least is solved, and again, until that window has its own multipliers or
@@ -706,7 +734,15 @@ read from the record and never from the agent, stayed within `accel_limit` (per 
 thrusters, in the 2-norm for one engine, $10^{-12}$ relative). A run that exceeded the limit is
 held to `impulsive_lower`, which holds for any acceleration. E3c reports whether a bound is
 certified. A successful run below the certified bound by more than $10^{-9}$ relative, in E1b for
-box thrusters and E1 for one engine, is flagged E3f. On another rung, or when the target burned or
+box thrusters and E1 for one engine, is flagged E3f. A bound that rests on an infeasible LP verdict
+(`FuelBounds.infeasible` not empty) is certified for no run: E3c is False, E3, E3m and E3u are NaN
+(never inf), and `bound_reason` holds the verdict. If the run succeeded and satisfies the
+infeasible LP, `bound_solver_error` is True and a `RuntimeWarning` is raised. The outer LP is a
+relaxation of any run that holds one acceleration over each step (the capture ball is widened to
+its bounding box, there are no path constraints, and the step grid is the run's), so such a
+success contradicts "infeasible without the limit", and "infeasible within the limit" when its
+delivered acceleration stayed within `accel_limit`. A run that splits a step (a delay, run-out or
+the constant-thrust drive) is no point of the LP and is never flagged. On another rung, or when the target burned or
 turned otherwise than briefed, the bound is a model bound: E3c is False, E3f is never set, and the
 ratio goes to E3m. A target burn the briefing omits can carry a chaser to the hold with no
 thrust, which a bound computed for a passive target would otherwise report as a saving.

@@ -171,6 +171,7 @@ no plan was verified. With $\Delta v$ = E1b for box and E1 for ball:
 | E3m | `optimality_gap_model` | $\Delta v / \text{lower}$ when the bound is not certified for the run: another dynamics rung, more acceleration than `accel_limit`, or a target that moved otherwise than briefed; may fall below 1 |
 | E3f | `below_lower_bound` | a successful run spent less than the bound E3 divides by, by more than 1e-9 relative: a simulator, actuator-accounting or metric bug |
 | E3c, E3r | `bound_certified`, `bound_rung` | whether a lower bound is certified for the run, and the rung the bounds are for |
+| | `bound_reason`, `bound_solver_error` | the infeasible LP verdict the bounds rest on (empty if none), and whether a successful run contradicts it |
 
 A bound is a theorem only for the model it is computed on, its rung: the `Episode.dynamics` name of
 that model (`"cw"`, `"twobody"`, ...), given as `FuelBounds.rung`. On two-body truth the optimum
@@ -198,6 +199,11 @@ A bound computed from the briefing also assumes the target moved as briefed. For
 target (`Episode.target_misbriefed`, read from the environment's true target mode, never from the
 agent) no lower bound is certified: the ratio goes to E3m, E3 is NaN, and E3f and E3c are False,
 since a target burn the briefing omits can carry the chaser for free.
+A bound that rests on an infeasible LP verdict (`FuelBounds.infeasible`) is not certified for any
+run: E3c is False, E3, E3m and E3u are NaN rather than inf, and `bound_reason` names the verdict. A
+successful run that the verdict contradicts (a run that holds one acceleration over each step is
+a point of the outer LP, a relaxation) sets
+`bound_solver_error` and emits a `RuntimeWarning`; the verdict is not trusted.
 Bounds in the wrong norm are rejected, since a 2-norm bound under-counts a box actuator's cost by
 up to $\sqrt3$.
 
