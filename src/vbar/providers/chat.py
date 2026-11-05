@@ -103,8 +103,12 @@ def _count(usage: Any, name: str) -> int:
 
 def _reply(body: Any) -> Reply:
     message = body["choices"][0]["message"]
+    content = message.get("content")
+    # Content parts and other shapes are not part of the format's text reply.
+    if content is not None and not isinstance(content, str):
+        raise provider_error("server")
     return Reply(
-        text=message.get("content") or "",
+        text=content or "",
         input_tokens=_count(body.get("usage"), "prompt_tokens"),
         output_tokens=_count(body.get("usage"), "completion_tokens"),
         tool_calls=tuple(_tool_call(call) for call in message.get("tool_calls") or ()),
@@ -133,7 +137,7 @@ class ChatModel:
     Raises
     ------
     ValueError
-        If the address is refused, the key is empty or holds a control character, or
+        If the address is refused, the key is empty or holds a control or non-ASCII character, or
         `max_output_tokens` is not a positive integer.
     """
 
@@ -150,8 +154,8 @@ class ChatModel:
         self.url = base_url.rstrip("/") + "/chat/completions"
         check_url(self.url)
         # http.client would refuse such a key with an error that quotes it.
-        if not key or any(ord(c) < 32 or ord(c) == 127 for c in key):
-            raise ValueError("the API key is empty or holds a control character")
+        if not key or not key.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in key):
+            raise ValueError("the API key is empty or holds a control or non-ASCII character")
         if (
             isinstance(max_output_tokens, bool)
             or not isinstance(max_output_tokens, int)

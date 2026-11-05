@@ -12,16 +12,24 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 FAKE_KEY = "test-key-7f3a9c1e5b2d8f4a6c0e"
+# Stands in a JSON body for `Response.pad` bytes of filler streamed in its place.
+PAD = "@@pad@@"
 
 
 @dataclass(frozen=True)
 class Response:
-    """What the fake answers: status, headers and a body (a dict is sent as JSON)."""
+    """What the fake answers: status, headers and a body (a dict is sent as JSON).
+
+    With `pad`, the body's `PAD` marker is replaced by that many bytes of "a", streamed in
+    chunks, with a Content-Length header only if `length` is set.
+    """
 
     status: int = 200
     body: Any = None
     headers: Mapping[str, str] = field(default_factory=dict)
     delay_s: float = 0.0
+    pad: int = 0
+    length: bool = True
 
 
 @dataclass(frozen=True)
@@ -50,6 +58,8 @@ class FakeProvider:
     def __init__(self, responses: Sequence[Response] | Responder = ()):
         self.responses = responses
         self.requests: list[Request] = []
+        # Bytes of each response body written so far, in request order.
+        self.sent: list[int] = []
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -83,6 +93,9 @@ class FakeProvider:
         )
         self.requests.append(request)
         response = self._respond(request)
+        if response.pad:
+            self._stream(handler, response)
+            return
         if response.delay_s:
             time.sleep(response.delay_s)
         body = response.body
@@ -102,6 +115,31 @@ class FakeProvider:
             handler.wfile.write(payload)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # A client that timed out has closed the connection.
+            pass
+
+    def _stream(self, handler: BaseHTTPRequestHandler, response: Response) -> None:
+        head, tail = json.dumps(response.body).encode("utf-8").split(PAD.encode("utf-8"))
+        index = len(self.sent)
+        self.sent.append(0)
+        chunk = b"a" * 65536
+        try:
+            handler.send_response(response.status)
+            handler.send_header("Content-Type", "application/json")
+            if response.length:
+                handler.send_header("Content-Length", str(len(head) + response.pad + len(tail)))
+            handler.end_headers()
+            handler.wfile.write(head)
+            self.sent[index] += len(head)
+            left = response.pad
+            while left:
+                part = chunk[: min(left, len(chunk))]
+                handler.wfile.write(part)
+                self.sent[index] += len(part)
+                left -= len(part)
+            handler.wfile.write(tail)
+            self.sent[index] += len(tail)
+        except OSError:
+            # The client stopped reading and closed the connection.
             pass
 
     def __enter__(self) -> FakeProvider:

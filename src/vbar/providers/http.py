@@ -29,6 +29,8 @@ MAX_RETRIES = 2
 # Longest wait before a retry, s, whatever Retry-After asks for.
 MAX_WAIT_S = 30.0
 RETRIED_KINDS = frozenset({"rate", "server"})
+# Largest response body read, bytes; a reply this long is far past any reply limit V-BAR sets.
+MAX_BODY_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -68,10 +70,13 @@ def check_url(url: str) -> None:
     Raises
     ------
     ValueError
-        If the scheme is not https, or is http with a host other than localhost or a loopback
-        address.
+        If the address holds a user name or password, the scheme is not https, or it is http with
+        a host other than localhost or a loopback address.
     """
     parts = urllib.parse.urlsplit(url)
+    # urllib would send user:password as a header; the messages below quote the address.
+    if "@" in parts.netloc:
+        raise ValueError("the address must not hold a user name or password")
     if not parts.hostname:
         raise ValueError(f"no host in the address {url!r}")
     if parts.scheme == "https":
@@ -128,7 +133,8 @@ def post_json(*, url: str, headers: Mapping[str, str], body: Any, timeout: float
         If the URL is refused by `check_url`.
     ProviderError
         Kind "network" for a refused connection, a timeout, a dropped connection or a redirect;
-        kind "tls" when the certificate cannot be verified.
+        kind "tls" when the certificate cannot be verified; kind "server" for a body longer
+        than `MAX_BODY_BYTES`.
     """
     check_url(url)
     request = urllib.request.Request(
@@ -137,17 +143,18 @@ def post_json(*, url: str, headers: Mapping[str, str], body: Any, timeout: float
         headers={"Content-Type": "application/json", "Accept": "application/json", **headers},
         method="POST",
     )
-    host = urllib.parse.urlsplit(url).netloc
+    host = urllib.parse.urlsplit(url).hostname
     t0 = time.perf_counter()
     try:
         with _opener(url).open(request, timeout=timeout) as response:
-            answer = Answer(response.status, _lower(response.headers), _parse(response.read()))
+            status, received = response.status, response.headers
+            raw = response.read(MAX_BODY_BYTES + 1)
     except urllib.error.HTTPError as error:
+        status, received = error.code, error.headers
         try:
-            raw = error.read()
+            raw = error.read(MAX_BODY_BYTES + 1)
         except (OSError, http.client.HTTPException):
             raw = b""
-        answer = Answer(error.code, _lower(error.headers), _parse(raw))
         error.close()
     except urllib.error.URLError as error:
         tls = isinstance(error.reason, ssl.SSLCertVerificationError)
@@ -159,7 +166,11 @@ def post_json(*, url: str, headers: Mapping[str, str], body: Any, timeout: float
     except (OSError, http.client.HTTPException) as error:
         logger.debug("POST to %s failed: %s", host, type(error).__name__)
         raise provider_error("network") from None
-    logger.debug("POST to %s: %d in %.2f s", host, answer.status, time.perf_counter() - t0)
+    logger.debug("POST to %s: %d in %.2f s", host, status, time.perf_counter() - t0)
+    if len(raw) > MAX_BODY_BYTES:
+        logger.debug("answer from %s longer than %d bytes", host, MAX_BODY_BYTES)
+        raise provider_error("server")
+    answer = Answer(status, _lower(received), _parse(raw))
     if 300 <= answer.status < 400:
         logger.debug("redirect from %s refused", host)
         raise provider_error("network")

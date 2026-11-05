@@ -34,8 +34,10 @@ Permissions:
 written. It suits CI jobs and shared machines. An empty value is ignored.
 
 `save_key` removes surrounding whitespace and refuses an empty key or one holding a control
-character such as a line break, which would split the HTTP header the key is sent in. `forget_key`
-deletes `credentials.json` and keeps the settings.
+character such as a line break, which would split the HTTP header the key is sent in. It also
+refuses any character outside ASCII, since look-alike and invisible characters come along with a
+key copied from a web page; the error never quotes the key. `forget_key` deletes
+`credentials.json` and keeps the settings.
 
 ```python
 from vbar.providers.store import config_dir

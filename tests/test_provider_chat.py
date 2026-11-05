@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from provider_fakes import (
     FAKE_KEY,
+    PAD,
     FakeProvider,
     Response,
     Sleeps,
@@ -30,7 +31,7 @@ from vbar.agents import (
 from vbar.agents.tools import CW_TOOLS
 from vbar.providers import MESSAGES, ProviderError
 from vbar.providers.chat import ChatModel
-from vbar.providers.http import post_json
+from vbar.providers.http import check_url, post_json
 from vbar.spacecraft import GaussianNav
 
 MODEL = "test-model"
@@ -532,3 +533,146 @@ def test_credit_key_model_and_refused_errors_are_not_retried(response):
         with pytest.raises(ProviderError):
             chat_model(fake.url, sleep=sleep)(PROMPT, [])
     assert len(fake.requests) == 1 and sleep.delays == []
+
+
+# HTTP layer: credentials in the address and the size of a reply
+
+SECRET = "pw-5d1c8e2f9a7b"
+USERINFO_URLS = [
+    f"https://user:{SECRET}@api.example.com/v1",
+    f"https://{SECRET}@api.example.com/v1",
+    f"http://user:{SECRET}@127.0.0.1:9/v1",
+    f"http://user:{SECRET}@10.0.0.5:8080/v1",
+]
+
+
+def exception_texts(error):
+    """str, repr and args of an exception and of every exception chained to it."""
+    texts = []
+    while error is not None:
+        texts += [str(error), repr(error), str(error.args)]
+        error = error.__cause__ or error.__context__
+    return texts
+
+
+@pytest.mark.parametrize("url", USERINFO_URLS)
+def test_a_base_url_with_credentials_is_refused_without_quoting_them(url, no_connections, caplog):
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(ValueError) as caught:
+        ChatModel(base_url=url, model=MODEL, key=FAKE_KEY, max_output_tokens=64, sleep=Sleeps())(
+            PROMPT, []
+        )
+    for text in exception_texts(caught.value):
+        assert SECRET not in text and "user:" not in text
+    assert all(SECRET not in r.getMessage() for r in caplog.records)
+    assert no_connections == []
+
+
+@pytest.mark.parametrize("url", USERINFO_URLS)
+def test_post_json_and_check_url_refuse_credentials_without_quoting_them(
+    url, no_connections, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    full = url + "/chat/completions"
+    with pytest.raises(ValueError) as checked:
+        check_url(full)
+    with pytest.raises(ValueError) as posted:
+        post_json(
+            url=full,
+            headers={"Authorization": f"Bearer {FAKE_KEY}"},
+            body={"model": MODEL},
+            timeout=5.0,
+        )
+    for text in exception_texts(checked.value) + exception_texts(posted.value):
+        assert SECRET not in text and "user:" not in text
+    assert all(SECRET not in r.getMessage() for r in caplog.records)
+    assert no_connections == []
+
+
+MiB = 1024 * 1024
+LIMIT = 8 * MiB
+
+
+def padded_reply(total):
+    """A valid chat reply of exactly `total` bytes, its text padded with "a"."""
+    body = chat_reply(PAD)
+    return body, total - (len(json.dumps(body).encode("utf-8")) - len(PAD))
+
+
+def padded_error(total):
+    body = chat_error(PAD, "invalid_request_error", "invalid_api_key")
+    return body, total - (len(json.dumps(body).encode("utf-8")) - len(PAD))
+
+
+@pytest.mark.parametrize("length", [True, False])
+@pytest.mark.parametrize(("status", "padded"), [(200, padded_reply), (401, padded_error)])
+def test_a_reply_one_byte_over_8_mib_is_a_server_error(status, padded, length):
+    body, pad = padded(LIMIT + 1)
+    with FakeProvider([Response(status, body, pad=pad, length=length)]) as fake:
+        with pytest.raises(ProviderError) as caught:
+            chat_model(fake.url)(PROMPT, [])
+    assert caught.value.kind == "server"
+
+
+@pytest.mark.parametrize("length", [True, False])
+@pytest.mark.parametrize(("status", "padded"), [(200, padded_reply), (401, padded_error)])
+def test_a_reply_far_over_8_mib_is_not_read_past_the_limit(status, padded, length):
+    # 64 MiB of valid JSON: a client that reads it all accepts it; socket buffers on loopback
+    # hold far less than the 24 MiB margin, so a client that stops near 8 MiB stays under it.
+    body, pad = padded(64 * MiB)
+    with FakeProvider([Response(status, body, pad=pad, length=length)]) as fake:
+        with pytest.raises(ProviderError) as caught:
+            chat_model(fake.url)(PROMPT, [])
+    assert caught.value.kind == "server"
+    assert fake.sent and max(fake.sent) < LIMIT + 24 * MiB
+
+
+def test_a_reply_of_exactly_8_mib_is_accepted():
+    body, pad = padded_reply(LIMIT)
+    with FakeProvider([Response(200, body, pad=pad)]) as fake:
+        reply = chat_model(fake.url)(PROMPT, [])
+    assert len(reply.text) == pad and set(reply.text) == {"a"}
+
+
+# Input checks: the key's characters and the reply's content field
+
+NON_ASCII_KEYS = [
+    f"{FAKE_KEY[:8]}é{FAKE_KEY[8:]}",
+    f"{FAKE_KEY[:8]}\u200b{FAKE_KEY[8:]}",
+    f"{FAKE_KEY[:8]}\u00a0{FAKE_KEY[8:]}",
+    f"{FAKE_KEY[:8]}а{FAKE_KEY[8:]}",
+]
+
+
+@pytest.mark.parametrize("key", NON_ASCII_KEYS)
+def test_a_key_with_a_non_ascii_character_is_refused_before_connecting(key, no_connections):
+    with pytest.raises(ValueError) as caught:
+        ChatModel(
+            base_url="http://127.0.0.1:9/v1",
+            model=MODEL,
+            key=key,
+            max_output_tokens=64,
+            sleep=Sleeps(),
+        )(PROMPT, [])
+    for text in exception_texts(caught.value):
+        assert key not in text and FAKE_KEY[8:] not in text
+    assert no_connections == []
+
+
+@pytest.mark.parametrize(
+    "content", [[{"type": "text", "text": ANSWER}], 42, 0, True, {"text": ANSWER}]
+)
+def test_a_reply_content_that_is_not_text_or_null_is_a_server_error(content):
+    body = chat_reply(ANSWER)
+    body["choices"][0]["message"]["content"] = content
+    with FakeProvider([Response(200, body)]) as fake:
+        with pytest.raises(ProviderError) as caught:
+            chat_model(fake.url)(PROMPT, [])
+    assert caught.value.kind == "server" and str(caught.value) == sentence("server")
+
+
+def test_a_null_reply_content_is_empty_text():
+    body = chat_reply("", tool_calls=[("call-1", "predict_coast", '{"seconds": 60}')])
+    assert body["choices"][0]["message"]["content"] is None
+    with FakeProvider([Response(200, body)]) as fake:
+        assert chat_model(fake.url)(PROMPT, []).text == ""

@@ -105,6 +105,16 @@ def test_empty_keys_and_keys_with_line_breaks_are_refused(bad, config_dir):
     assert not (config_dir / "credentials.json").exists()
 
 
+@pytest.mark.parametrize("bad", ["sk-é", f"{KEY[:8]}\u200b{KEY[8:]}", f"{KEY[:8]}а{KEY[8:]}"])
+def test_keys_with_non_ascii_characters_are_refused_without_quoting_them(bad, config_dir):
+    # Look-alike and invisible characters come in with a key copied from a web page.
+    with pytest.raises(ValueError) as caught:
+        save_key(bad)
+    assert bad not in str(caught.value) and bad not in repr(caught.value)
+    assert KEY[8:] not in str(caught.value)
+    assert not (config_dir / "credentials.json").exists()
+
+
 def test_saving_leaves_no_temporary_file_behind(config_dir):
     save_key(KEY)
     save_settings({"provider": "other", "model": "m-1"})

@@ -263,15 +263,19 @@ the key as `Authorization: Bearer` and returns a `Reply`. It uses only the stand
 | `Reply.input_tokens`, `output_tokens` | `usage.prompt_tokens`, `usage.completion_tokens` (0 when missing) |
 
 No temperature is sent. A tool call whose `arguments` string is not a JSON object reaches the
-agent as that string, and the agent answers it with an error result. A local server that ignores
-the key still gets one; any non-empty string does.
+agent as that string, and the agent answers it with an error result. A reply whose `content` is
+neither a string nor null is kind `server`. A local server that ignores the key still gets one; any
+non-empty string of printable ASCII does, and `ChatModel` refuses any other key with a `ValueError`
+that does not quote it.
 
 The transport, `vbar.providers.http.post_json`, refuses redirects, since urllib would resend a
 POST answered with 301, 302 or 303 as a GET to the new address, which may be another host, with
 the same headers. It verifies certificates with Python's default TLS context and allows plain
 `http://` only to `localhost` or a loopback address, checked before any connection; such a request
-bypasses any proxy set in the environment. `timeout` (120 s by default) bounds the connection and
-each read.
+bypasses any proxy set in the environment. An address holding a user name or password
+(`https://user:secret@host`) is refused with a `ValueError` that does not quote it, and the debug
+log names only the host. At most 8 MiB of a response body is read, whatever its status; a longer
+body is kind `server`. `timeout` (120 s by default) bounds the connection and each read.
 
 A failure raises `vbar.providers.ProviderError` whose `kind` names it and whose text is the fixed
 sentence `MESSAGES[kind]`, never the provider's own text, which may quote the key; only the model
@@ -286,7 +290,7 @@ provider will not accept however often it is sent, so its sentence asks to check
 | any other 429 | `rate` | yes |
 | 404 (assumed; the format's reference does not list it) | `model` | no |
 | any other 4xx, such as 400, 403 or 422 | `refused` | no |
-| 5xx, any other status, a success body without `choices` | `server` | 5xx only |
+| 5xx, any other status, a body over 8 MiB, a success body without `choices` or with a `content` that is not a string or null | `server` | 5xx only |
 | refused connection, timeout, dropped connection, redirect | `network` | no |
 | certificate not verified | `tls` | no |
 

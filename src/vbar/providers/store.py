@@ -88,8 +88,8 @@ def save_key(key: str) -> None:
     Raises
     ------
     ValueError
-        If the key is empty or holds a control character such as a line break, which would split
-        the HTTP header it is sent in.
+        If the key is empty, holds a control character such as a line break, which would split
+        the HTTP header it is sent in, or holds a character that is not ASCII.
     """
     if not isinstance(key, str):
         raise ValueError("the API key must be a string")
@@ -98,6 +98,10 @@ def save_key(key: str) -> None:
         raise ValueError("the API key is empty")
     if any(ord(c) < 32 or ord(c) == 127 for c in key):
         raise ValueError("the API key holds a control character")
+    # Look-alike and invisible characters arrive with a key copied from a web page, and an HTTP
+    # header carries only ASCII reliably.
+    if not key.isascii():
+        raise ValueError("the API key holds a character that is not ASCII")
     _write_private(CREDENTIALS, json.dumps({"api_key": key}))
 
 
