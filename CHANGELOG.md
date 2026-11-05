@@ -14,6 +14,15 @@ release may change the public API, and every such change is listed under Changed
   function to fill in with a model client. It reads `VBAR_LLM_API_KEY` and `VBAR_LLM_MODEL` from
   the environment or a `.env` file (copy `.env.example`; `.env` is git-ignored), and flies a
   scripted stand-in when no key is set.
+- `vbar.providers.store` keeps one API key in `credentials.json` and the provider settings in
+  `config.json`, in `%APPDATA%\vbar` on Windows and `$XDG_CONFIG_HOME/vbar` or `~/.config/vbar`
+  elsewhere (0600 files in a 0700 folder on POSIX). `VBAR_LLM_API_KEY` overrides the stored key and
+  `VBAR_CONFIG_DIR` the folder. `docs/setup.md` documents it.
+- `vbar.providers.chat.ChatModel`, a model function for servers that speak the chat format, built
+  on the standard library. It refuses redirects and plain HTTP to other hosts, retries rate limits
+  and server errors at most twice, and raises `vbar.providers.ProviderError` with a `kind` and a
+  fixed sentence from `MESSAGES`; rate, network and server failures are also
+  `InfrastructureError`. The key never appears in its errors, logs or `repr`.
 
 ## [0.7.0] - 2026-11-02
 

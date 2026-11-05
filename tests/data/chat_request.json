@@ -1,0 +1,94 @@
+{
+  "model": "test-model",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hold at the V-bar point."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call-1",
+          "type": "function",
+          "function": {
+            "name": "predict_coast",
+            "arguments": "{\"seconds\": 600.0}"
+          }
+        },
+        {
+          "id": "call-2",
+          "type": "function",
+          "function": {
+            "name": "transfer_burn",
+            "arguments": "{\"x\": 0.0, \"y\": -100.0, \"z\": 0.0, \"seconds\": 1500.0}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call-1",
+      "content": "{\"position_m\": [1.0, 2.0, 0.0]}"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call-2",
+      "content": "{\"error\": \"singular transfer\"}"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "predict_coast",
+        "description": "Predict the position and velocity after coasting (no thrust) for a number of seconds from the current observed state, and the closest distance to the target on the way.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "seconds": {
+              "type": "number",
+              "description": "coast duration, s"
+            }
+          },
+          "required": [
+            "seconds"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "transfer_burn",
+        "description": "Compute the two velocity changes (impulses) that move the spacecraft from its current observed state to rest at a point (x, y, z, in meters) in a given number of seconds.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "z": {
+              "type": "number"
+            },
+            "seconds": {
+              "type": "number",
+              "description": "transfer duration, s"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "z",
+            "seconds"
+          ]
+        }
+      }
+    }
+  ],
+  "max_completion_tokens": 2048
+}
