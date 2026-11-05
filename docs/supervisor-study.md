@@ -93,7 +93,8 @@ a cap without a ceiling or the reverse, and a ceiling above a cell's share
 `run_cell(row, cell, model, out_dir=..., prompt=..., safety_filter=..., workers=...)` flies one
 cell; `run_row` flies each cell of a row in turn. `model` is a `StudyModel`: a label, a
 zero-argument factory of the model function (called once per episode), and, for a capped row, its
-declared `Price` and the reply limit it is called with.
+declared `Price` and the reply limit it is called with. The factory reads whatever keys the user's
+client needs; the runner reads none ([API keys](llm-agents.md#api-keys)).
 
 - Budget. Each episode gets a fresh `BudgetedModel` capped at the row's `episode_usd` less one
   worst-case call, `price.cost(REQUEST_BYTES, max_output_tokens)` with `REQUEST_BYTES` = 16384, so

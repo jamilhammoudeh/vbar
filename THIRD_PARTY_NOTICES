@@ -46,6 +46,7 @@ At the time of writing:
               Apache-2.0)
   rerun-sdk   MIT OR Apache-2.0, optional "replay" extra (with pyarrow, Apache-2.0, pillow,
               MIT-CMU, attrs, MIT, psutil, BSD-3-Clause, and typing-extensions, PSF-2.0)
+  python-dotenv BSD-3-Clause, optional "llm" extra
   bsk         ISC, optional "basilisk" extra (Basilisk, AVS Lab, University of Colorado;
               version 2.12.1 metadata)
   orekit-jpype Apache-2.0 (package metadata: Apache Software License, version 13.1.9.0),
