@@ -14,7 +14,15 @@ from typing import Any
 
 from ..agents.llm import Reply, ToolCall
 from . import provider_error
-from .http import Answer, check_url, post_with_retries
+from .http import (
+    Answer,
+    check_key,
+    check_reply_limit,
+    check_url,
+    error_field,
+    post_with_retries,
+    token_count,
+)
 
 # The error codes and type of a 429 that means the balance or a spend limit is used up.
 CREDIT_CODES = frozenset(
@@ -28,11 +36,6 @@ CREDIT_CODES = frozenset(
 )
 
 
-def _error_field(body: Any, name: str) -> Any:
-    error = body.get("error") if isinstance(body, dict) else None
-    return error.get(name) if isinstance(error, dict) else None
-
-
 def classify(answer: Answer) -> str | None:
     """The failure kind of a chat-format answer, or None for a 2xx answer."""
     status = answer.status
@@ -41,8 +44,8 @@ def classify(answer: Answer) -> str | None:
     if status == 401:
         return "key"
     if status == 429:
-        error_type = _error_field(answer.body, "type")
-        code = _error_field(answer.body, "code")
+        error_type = error_field(answer.body, "type")
+        code = error_field(answer.body, "code")
         if error_type == "insufficient_quota" or code in CREDIT_CODES:
             return "credit"
         return "rate"
@@ -96,11 +99,6 @@ def _tool_call(call: Mapping[str, Any]) -> ToolCall:
     return ToolCall(call["function"]["name"], arguments, call.get("id") or "")
 
 
-def _count(usage: Any, name: str) -> int:
-    value = usage.get(name) if isinstance(usage, dict) else None
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
 def _reply(body: Any) -> Reply:
     message = body["choices"][0]["message"]
     content = message.get("content")
@@ -109,8 +107,8 @@ def _reply(body: Any) -> Reply:
         raise provider_error("server")
     return Reply(
         text=content or "",
-        input_tokens=_count(body.get("usage"), "prompt_tokens"),
-        output_tokens=_count(body.get("usage"), "completion_tokens"),
+        input_tokens=token_count(body.get("usage"), "prompt_tokens"),
+        output_tokens=token_count(body.get("usage"), "completion_tokens"),
         tool_calls=tuple(_tool_call(call) for call in message.get("tool_calls") or ()),
     )
 
@@ -153,17 +151,8 @@ class ChatModel:
     ):
         self.url = base_url.rstrip("/") + "/chat/completions"
         check_url(self.url)
-        # http.client would refuse such a key with an error that quotes it.
-        if not key or not key.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in key):
-            raise ValueError("the API key is empty or holds a control or non-ASCII character")
-        if (
-            isinstance(max_output_tokens, bool)
-            or not isinstance(max_output_tokens, int)
-            or max_output_tokens < 1
-        ):
-            raise ValueError(
-                f"max_output_tokens must be a positive integer, got {max_output_tokens!r}"
-            )
+        check_key(key)
+        check_reply_limit(max_output_tokens)
         self.model = model
         self.max_output_tokens = max_output_tokens
         self.timeout = timeout

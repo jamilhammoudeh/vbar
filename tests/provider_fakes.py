@@ -204,3 +204,102 @@ def chat_reply(text="", tool_calls=(), prompt_tokens=812, completion_tokens=45):
 def chat_error(message, type_, code):
     """A chat-format error body."""
     return {"error": {"message": message, "type": type_, "param": None, "code": code}}
+
+
+def messages_reply(text="", tool_calls=(), thinking=(), input_tokens=812, output_tokens=45):
+    """A messages-format response body: thinking blocks, then text, then tool_use blocks.
+
+    `tool_calls` holds (id, name, input) triples; `thinking` holds content blocks as sent.
+    """
+    content: list[dict[str, Any]] = [dict(block) for block in thinking]
+    if text:
+        content.append({"type": "text", "text": text})
+    content += [
+        {"type": "tool_use", "id": id_, "name": name, "input": input_}
+        for id_, name, input_ in tool_calls
+    ]
+    return {
+        "id": "msg-0001",
+        "type": "message",
+        "role": "assistant",
+        "model": "test-model",
+        "content": content,
+        "stop_reason": "tool_use" if tool_calls else "end_turn",
+        "stop_sequence": None,
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        },
+    }
+
+
+def thinking_block(thinking, signature):
+    return {"type": "thinking", "thinking": thinking, "signature": signature}
+
+
+def redacted_block(data):
+    return {"type": "redacted_thinking", "data": data}
+
+
+def messages_error(type_, message, error_code=None):
+    """A messages-format error body; `error_code` goes in `error.details`."""
+    error: dict[str, Any] = {"type": type_, "message": message}
+    if error_code is not None:
+        error["details"] = {"error_code": error_code}
+    return {"type": "error", "error": error, "request_id": "req-0001"}
+
+
+def generate_reply(
+    text="",
+    calls=(),
+    signature=None,
+    prompt_tokens=812,
+    candidates_tokens=40,
+    thoughts_tokens=5,
+    tool_use_prompt_tokens=None,
+    thought_text=None,
+):
+    """A generateContent response body with one candidate.
+
+    `calls` holds (id or None, name, args) triples; `signature` goes on the first call's part,
+    or on the text part when there is no call. `thought_text` adds a thought part first.
+    """
+    parts: list[dict[str, Any]] = []
+    if thought_text is not None:
+        parts.append({"text": thought_text, "thought": True})
+    if text:
+        parts.append({"text": text})
+    for id_, name, args in calls:
+        call: dict[str, Any] = {"name": name, "args": args}
+        if id_ is not None:
+            call["id"] = id_
+        parts.append({"functionCall": call})
+    if signature is not None:
+        parts[-len(calls) if calls else -1]["thoughtSignature"] = signature
+    usage: dict[str, Any] = {
+        "promptTokenCount": prompt_tokens,
+        "candidatesTokenCount": candidates_tokens,
+        "thoughtsTokenCount": thoughts_tokens,
+        "totalTokenCount": prompt_tokens + candidates_tokens + thoughts_tokens,
+    }
+    if tool_use_prompt_tokens is not None:
+        usage["toolUsePromptTokenCount"] = tool_use_prompt_tokens
+        usage["totalTokenCount"] += tool_use_prompt_tokens
+    return {
+        "candidates": [
+            {"content": {"role": "model", "parts": parts}, "finishReason": "STOP", "index": 0}
+        ],
+        "usageMetadata": usage,
+        "modelVersion": "test-model",
+        "responseId": "resp-0001",
+    }
+
+
+def generate_error(code, message, status, reason=None):
+    """A generateContent error body; `reason` goes in an ErrorInfo detail."""
+    error: dict[str, Any] = {"code": code, "message": message, "status": status}
+    if reason is not None:
+        error["details"] = [{"reason": reason, "domain": "api.example.com"}]
+    return {"error": error}

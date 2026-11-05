@@ -23,6 +23,10 @@ release may change the public API, and every such change is listed under Changed
   and server errors at most twice, and raises `vbar.providers.ProviderError` with a `kind` and a
   fixed sentence from `MESSAGES`; rate, network and server failures are also
   `InfrastructureError`. The key never appears in its errors, logs or `repr`.
+- `vbar.providers.messages.MessagesModel` and `vbar.providers.generate.GenerateModel`, model
+  functions for the messages and generate formats with the same checks and error kinds. Both send
+  back each reply's thinking blocks or thought signatures unchanged with the tool results; the
+  caller passes the provider's version and key header names.
 
 ## [0.7.0] - 2026-11-02
 

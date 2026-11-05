@@ -268,6 +268,28 @@ neither a string nor null is kind `server`. A local server that ignores the key 
 non-empty string of printable ASCII does, and `ChatModel` refuses any other key with a `ValueError`
 that does not quote it.
 
+Two more adapters take the same arguments: `vbar.providers.messages.MessagesModel`, which also
+takes `headers=` for the API version header its server requires, and
+`vbar.providers.generate.GenerateModel`, which takes `auth_header=`, the name of the provider's key
+header. Their `base_url` is the API root without a version.
+
+| | Messages format | Generate format |
+|---|---|---|
+| Endpoint and key | `{base_url}/v1/messages`, `Authorization: Bearer` | `{base_url}/v1beta/models/{model}:generateContent`, the provider's key header; a model name other than letters, digits, `.`, `_` and `-` is refused |
+| Tools | `{name, description, input_schema}` | one `{"functionDeclarations": [...]}` entry |
+| Assistant turn | thinking blocks, text, `tool_use` blocks | role `model`; the reply's parts as received |
+| Tool results | consecutive results merged into one user message, `tool_result` blocks first, a following user text appended | `functionResponse` parts of one user turn, the result parsed as a JSON object |
+| Reply limit | `max_tokens` | `generationConfig.maxOutputTokens` |
+| Tokens | `usage.input_tokens`, `usage.output_tokens` | input `promptTokenCount + toolUsePromptTokenCount`, output `candidatesTokenCount + thoughtsTokenCount` |
+
+Hidden reasoning goes back unchanged: the messages adapter keeps each reply's `thinking` and
+`redacted_thinking` blocks and sends them before the tool calls they came with, since the format
+refuses a tool round whose thinking was dropped; the generate adapter sends back the parts of a
+reply that called tools as received, thought signatures included (whether the format needs the
+signature inside the `functionCall` part is not confirmed). Each keeps these for its last 1024 tool
+calls, and neither puts thinking in `Reply.text`. A generate call without an id gets one from the
+adapter, which is not sent back.
+
 The transport, `vbar.providers.http.post_json`, refuses redirects, since urllib would resend a
 POST answered with 301, 302 or 303 as a GET to the new address, which may be another host, with
 the same headers. It verifies certificates with Python's default TLS context and allows plain
@@ -293,6 +315,20 @@ provider will not accept however often it is sent, so its sentence asks to check
 | 5xx, any other status, a body over 8 MiB, a success body without `choices` or with a `content` that is not a string or null | `server` | 5xx only |
 | refused connection, timeout, dropped connection, redirect | `network` | no |
 | certificate not verified | `tls` | no |
+
+The other two formats map their answers the same way where the table is silent, with these
+differences (the generate format's codes are documented for another API, so its mapping is
+assumed):
+
+| Answer | Messages format | Generate format |
+|---|---|---|
+| 401 | `key` | `key` |
+| 400 with reason `API_KEY_INVALID` | `refused` | `key` |
+| 402 | `credit` | `refused` |
+| 429 with `error.details.error_code` `enforced_spend_limit_reached` | `credit` | `rate` |
+| 400 whose message starts "You have reached your specified API usage limits" | `credit` | `refused` |
+| 529 | `server`, retried | `server`, retried |
+| a success body without `content` (messages) or a candidate (generate) | `server` | `server` |
 
 `rate`, `network` and `server` errors are also `InfrastructureError`, so the supervisor study
 reruns such an episode instead of counting it against the model. A retried answer is tried at most

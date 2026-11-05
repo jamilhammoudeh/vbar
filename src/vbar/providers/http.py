@@ -86,6 +86,48 @@ def check_url(url: str) -> None:
     raise ValueError(f"{url!r} must use https; plain http is allowed only to this computer")
 
 
+def check_key(key: str) -> None:
+    """Refuse an API key that is empty or holds a control or non-ASCII character.
+
+    http.client would refuse such a header itself, with an error that quotes the key.
+
+    Raises
+    ------
+    ValueError
+        With a message that does not quote the key.
+    """
+    if not key or not key.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in key):
+        raise ValueError("the API key is empty or holds a control or non-ASCII character")
+
+
+def check_reply_limit(max_output_tokens: int) -> None:
+    """Refuse a reply limit that is not a positive integer.
+
+    Raises
+    ------
+    ValueError
+        If `max_output_tokens` is not a positive integer.
+    """
+    if (
+        isinstance(max_output_tokens, bool)
+        or not isinstance(max_output_tokens, int)
+        or max_output_tokens < 1
+    ):
+        raise ValueError(f"max_output_tokens must be a positive integer, got {max_output_tokens!r}")
+
+
+def token_count(usage: Any, name: str) -> int:
+    """The whole count `usage[name]`, or 0 when it is missing or not an integer."""
+    value = usage.get(name) if isinstance(usage, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def error_field(body: Any, name: str) -> Any:
+    """`body["error"][name]`, or None when the body has no such field."""
+    error = body.get("error") if isinstance(body, dict) else None
+    return error.get(name) if isinstance(error, dict) else None
+
+
 def _opener(url: str) -> urllib.request.OpenerDirector:
     handlers: list[urllib.request.BaseHandler] = [
         _RefuseRedirects(),
