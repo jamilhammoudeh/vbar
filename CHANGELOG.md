@@ -27,6 +27,11 @@ release may change the public API, and every such change is listed under Changed
   functions for the messages and generate formats with the same checks and error kinds. Both send
   back each reply's thinking blocks or thought signatures unchanged with the tool results; the
   caller passes the provider's version and key header names.
+- `vbar.scorecard` reads a flight's metrics as a plain-language card: `flight_card` gives a
+  verdict, one sentence on why (`WHY` has one for every failure label and for a crashed flight)
+  and the arrival, keep-out zone, fuel, cost and advisory checks, each a measured fact and the
+  rule it was held to. `graded_card` gives the pass count over several starts with its exact 95%
+  range. `docs/evaluation.md` documents it.
 
 ## [0.7.0] - 2026-11-02
 
