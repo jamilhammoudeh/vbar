@@ -6,6 +6,11 @@ release may change the public API, and every such change is listed under Changed
 
 ## [Unreleased]
 
+### Added
+
+- The `llm` extra, `pip install "vbar[llm]"`, installs python-dotenv, which the language-model
+  example uses to read a `.env` file. The core install is unchanged.
+
 ## [0.7.0] - 2026-11-02
 
 ### Added
