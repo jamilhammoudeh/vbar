@@ -10,6 +10,10 @@ release may change the public API, and every such change is listed under Changed
 
 - The `llm` extra, `pip install "vbar[llm]"`, installs python-dotenv, which the language-model
   example uses to read a `.env` file. The core install is unchanged.
+- `examples/llm_controller.py` flies one episode with `LLMAgent` and a `complete(messages, tools)`
+  function to fill in with a model client. It reads `VBAR_LLM_API_KEY` and `VBAR_LLM_MODEL` from
+  the environment or a `.env` file (copy `.env.example`; `.env` is git-ignored), and flies a
+  scripted stand-in when no key is set.
 
 ## [0.7.0] - 2026-11-02
 

@@ -22,6 +22,27 @@ An adapter for a provider's client turns `messages` into its request and its res
 `Reply`, with the token counts the provider reports. `text_model(fn)` adapts a function from a
 prompt string to a reply string.
 
+## API keys
+
+V-BAR reads no API key and no model name. `LLMAgent` calls the function it is given, and that
+function reads whatever its client needs. The only environment variables the package looks at are
+`JAVA_HOME`, for the Orekit backend, and `VBAR_HIDDEN_SEED_KEY` and `VBAR_HIDDEN_SEED_LOG`, for the
+hidden seed split; `tests/test_environment_variables.py` parses the source and fails on any other
+read.
+
+`examples/llm_controller.py` flies one episode and shows one way to keep the settings. Its
+`complete(messages, tools)` is the function to fill in with a call to your model client; as shipped
+it raises `NotImplementedError`. It takes two variables, `VBAR_LLM_API_KEY` and `VBAR_LLM_MODEL`,
+which are the example's own names. An unset or empty value counts as missing, and with no key the
+example flies a scripted stand-in that commands no thrust, so it runs offline.
+
+To keep the values in a file, copy `.env.example` to `.env` and fill in the two lines. Reading the
+file needs python-dotenv, which `pip install "vbar[llm]"` installs. The example looks for `.env`
+in the working folder, then in each parent, and a variable already set in the environment wins over
+the file. Without python-dotenv it reads the environment only. `.env` is listed in `.gitignore`.
+`tests/test_llm_example.py` and `tests/test_extra_llm.py` cover the example with and without the
+loader.
+
 ## Prompt
 
 The default prompt (`PROMPT_TEMPLATE`) gives the frame and its axes, the mean motion, the briefing
