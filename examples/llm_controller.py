@@ -8,6 +8,8 @@ The key and model name are read from VBAR_LLM_API_KEY and VBAR_LLM_MODEL. Copy .
 """
 
 import os
+import sys
+from pathlib import Path
 
 from vbar import ApproachConfig, ApproachEnv, run_episode
 from vbar.agents import LLMAgent, Reply
@@ -17,12 +19,14 @@ def settings():
     """The API key and model name, each None when unset or empty.
 
     With python-dotenv installed, a .env file in the working folder or a parent is read first; a
-    variable that is already set is kept.
+    variable that is already set is kept. Without it a .env file in the working folder is not read,
+    and a line on stderr says so.
     """
     try:
         import dotenv
     except ImportError:
-        pass
+        if Path(".env").is_file():
+            print('.env not read, python-dotenv missing: pip install "vbar[llm]"', file=sys.stderr)
     else:
         dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))
     return os.environ.get("VBAR_LLM_API_KEY") or None, os.environ.get("VBAR_LLM_MODEL") or None

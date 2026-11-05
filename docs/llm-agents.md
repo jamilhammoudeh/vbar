@@ -42,9 +42,10 @@ example flies a scripted stand-in that commands no thrust, so it runs offline.
 To keep the values in a file, copy `.env.example` to `.env` and fill in the two lines. Reading the
 file needs python-dotenv, which `pip install "vbar[llm]"` installs. The example looks for `.env`
 in the working folder, then in each parent, and a variable already set in the environment wins over
-the file. Without python-dotenv it reads the environment only. `.env` is listed in `.gitignore`.
-`tests/test_llm_example.py` and `tests/test_extra_llm.py` cover the example with and without the
-loader.
+the file. Without python-dotenv it reads the environment only and, if a `.env` is in the working
+folder, prints a line to stderr naming the extra. `.env` is listed in `.gitignore` and `.env.example`
+holds only blank names (`tests/test_env_files.py`). `tests/test_llm_example.py` and
+`tests/test_extra_llm.py` cover the example with and without the loader.
 
 ## Prompt
 

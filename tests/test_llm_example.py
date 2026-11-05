@@ -155,6 +155,26 @@ def test_settings_gives_none_for_an_empty_value(monkeypatch, no_dotenv, key, mod
     assert module.settings() == expected
 
 
+def test_settings_without_dotenv_names_the_extra_when_an_env_file_is_present(
+    monkeypatch, tmp_path, capsys, no_dotenv, unset_names
+):
+    (tmp_path / ".env").write_text("VBAR_LLM_API_KEY=file-key\n")
+    monkeypatch.chdir(tmp_path)
+    module = load_example()
+    assert module.settings() == (None, None)
+    lines = capsys.readouterr().err.splitlines()
+    assert any('pip install "vbar[llm]"' in line for line in lines)
+
+
+def test_settings_without_dotenv_is_silent_when_there_is_no_env_file(
+    monkeypatch, tmp_path, capsys, no_dotenv, unset_names
+):
+    monkeypatch.chdir(tmp_path)
+    module = load_example()
+    assert module.settings() == (None, None)
+    assert capsys.readouterr().err == ""
+
+
 def test_settings_gives_none_for_unset_variables(no_dotenv, unset_names):
     module = load_example()
     assert module.settings() == (None, None)
