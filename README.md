@@ -11,50 +11,11 @@ V-BAR is a headless Python benchmark for spacecraft rendezvous and proximity-ope
 controllers. Classical guidance laws, reinforcement learning agents and LLM agents fly the same
 scenarios and are scored with the same metrics.
 
-![The PD baseline in the target's Hill frame. From 400 m behind the target it flies straight to the hold point 100 m behind. From a seeded start 523 m ahead it flies through the 50 m keep-out zone, 14.4 m from the target at closest, before stopping at the hold point. Range and speed against time are shown below.](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/images/pd_approach.png)
-
-The PD baseline reaches the hold point from behind the target (blue) but flies through the keep-out zone from ahead of it (orange), closing to 14.4 m.
-
-**Status: early development (0.7).** The dynamics, spacecraft, sensor and constraint layers are
-validated (see [Tests](#tests)). Version 0.3 added the metrics, agent tools (remote and ONNX
-policy agents, the sign check, reward and training interfaces), a scenario catalogue and
-`vbar.solvers` (command projection and horizon quadratic programs). Version 0.4 adds the classical
-baselines and fuel oracles, the evaluation harness, comparison tasks rebuilt from published
-benchmarks, agreement checks against Basilisk and Orekit, pursuit-evasion in KSPDG's format,
-replay export to Rerun, fault injection, mission reconstructions and a tumbling-capture scenario.
-Version 0.5 adds the safety filters (barrier, backup, predictive, corridor and run time assurance
-filters, and an audit of the certified ones), LLM agents for every task kind and a supervisory
-channel for LLM and rule supervisors, KSPDG's pe1 evader bots and starts with a `kspdg` import
-alias, one-command reproduction of the published tables and figures, and a Colab quickstart; 0.5.0
-was not published to PyPI, so these ship in 0.6. Version 0.6 adds Holm and Benjamini-Hochberg
-corrections and a paired sign-flip test, a call and dollar cap for LLM agents, and repair counts for
-the LLM supervisor. Version 0.7 checks every fuel LP's certificate itself, leaves bounds on
-infeasible verdicts uncertified, builds fuel banks in parallel, adds the supervisor study runner
-and fixes the LQG agent under safety filters. Interfaces may change before 1.0.
-
-## Why
-
-KSPDG, the main existing environment for this kind of work, runs on Kerbal Space Program in real
-time and needs a copy of the game. V-BAR is a plain Python package that runs much faster than
-real time on Linux, macOS and Windows, so experiments with hundreds of seeds and many controllers
-are practical. Its physics is checked against closed-form solutions and published textbook
-examples, so a result reflects the controller and not a simulator error.
-
-## Install
+## Quick start
 
 ```bash
 pip install vbar
 ```
-
-Python 3.12 or later. The core dependencies are numpy, scipy and gymnasium. Plotting needs the
-`plot` extra: `pip install "vbar[plot]"`; ONNX policy export and inference need the `onnx` extra:
-`pip install "vbar[onnx]"`; replays for the Rerun viewer need the `replay` extra:
-`pip install "vbar[replay]"`. The agreement checks against Basilisk and Orekit need the `basilisk`
-extra, `pip install "vbar[basilisk]"`, and the `orekit` extra, `pip install "vbar[orekit]"` with a
-Java runtime (11 or later) on `JAVA_HOME`. To work on V-BAR itself, see
-[CONTRIBUTING.md](https://github.com/jamilhammoudeh/vbar/blob/main/CONTRIBUTING.md).
-
-## Quickstart
 
 ```python
 from vbar import ApproachConfig, ApproachEnv, run_episode
@@ -66,38 +27,49 @@ print(result["captured"], result["keep_out_violated"], result["dv_used_mps"])
 ```
 
 This flies the PD baseline from 400 m behind the target to the hold point 100 m behind it, about
-620 s of flight, and prints `True False 2.41...`: it arrived, it never entered the keep-out zone,
-and it used 2.4 m/s of delta-v.
+620 s of simulated flight, and prints `True False 2.41...`: it arrived, it never entered the
+keep-out zone, and it used 2.4 m/s of delta-v.
 
-The quickstart notebook runs without a local install. It installs the package from PyPI, flies
+![The PD baseline in the target's Hill frame. From 400 m behind the target it flies straight to the hold point 100 m behind. From a seeded start 523 m ahead it flies through the 50 m keep-out zone, 14.4 m from the target at closest, before stopping at the hold point. Range and speed against time are shown below.](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/images/pd_approach.png)
+
+The PD baseline reaches the hold point from behind the target (blue) but flies through the keep-out zone from ahead of it (orange), closing to 14.4 m.
+
+The quick start notebook runs without a local install. It installs the package from PyPI, flies
 this baseline, prints its metrics and rebuilds a two-episode results table with the evaluation
 harness ([docs/evaluation.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/evaluation.md)).
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jamilhammoudeh/vbar/blob/main/examples/quickstart.ipynb)
 
-Benchmarks need many runs, not one. With the default random starts, which put the chaser 200 to
-600 m ahead of the target so the target sits between it and the hold point:
+## Install
 
-```python
-import numpy as np
-from vbar import ApproachEnv, run_many
-from vbar.agents import PDAgent
+`pip install vbar` installs the core package, which needs Python 3.12 or later and depends on
+numpy, scipy and gymnasium. Each optional feature has an extra:
 
-results = run_many(ApproachEnv(), PDAgent(), seeds=range(100))
-print(np.mean([r["captured"] for r in results]), np.mean([r["keep_out_violated"] for r in results]))
-```
+| Extra | Install | Adds |
+|---|---|---|
+| `plot` | `pip install "vbar[plot]"` | plots and animations |
+| `onnx` | `pip install "vbar[onnx]"` | ONNX policy export and inference |
+| `replay` | `pip install "vbar[replay]"` | replays for the Rerun viewer |
+| `llm` | `pip install "vbar[llm]"` | python-dotenv, which reads model settings from a `.env` file ([LLM controllers](#llm-controllers)) |
+| `basilisk` | `pip install "vbar[basilisk]"` | agreement checks against Basilisk |
+| `orekit` | `pip install "vbar[orekit]"` | agreement checks against Orekit; needs a Java runtime (11 or later) on `JAVA_HOME` |
 
-The PD baseline reaches the hold point and flies through the keep-out zone on every default seed,
-because it ignores the target. That gap is what safety filters and better controllers are measured
-against. In a clone of the repository, `python examples/v0_demo.py` shows both cases and saves a
-plot to `outputs/` (needs the `plot` extra).
+To work on V-BAR itself, see
+[CONTRIBUTING.md](https://github.com/jamilhammoudeh/vbar/blob/main/CONTRIBUTING.md).
 
-![Animation of the PD baseline from seed 5 in the Hill frame. A marker leaves its start 523 m ahead of the target, crosses the 50 m keep-out zone with a readout showing time, range and speed, passes 14.4 m from the target, and stops at the hold point 100 m behind it.](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/images/pd_approach.gif)
+## Status
 
-The orange run animated: it spends about 2.3 minutes inside the keep-out zone.
+Early development (0.7). The dynamics, spacecraft, sensor and constraint layers are validated (see
+[Tests](#tests)). Interfaces may change before 1.0; what each release added, changed and fixed is
+in [CHANGELOG.md](https://github.com/jamilhammoudeh/vbar/blob/main/CHANGELOG.md).
 
-`python examples/readme_figures.py` regenerates this animation and the figure above
-([docs/viz.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/viz.md)).
+## Why
+
+KSPDG, the main existing environment for this kind of work, runs on Kerbal Space Program in real
+time and needs a copy of the game. V-BAR is a plain Python package that runs much faster than
+real time on Linux, macOS and Windows, so experiments with hundreds of seeds and many controllers
+are practical. Its physics is checked against closed-form solutions and published textbook
+examples, so a result reflects the controller and not a simulator error.
 
 ## Frame and units
 
@@ -138,6 +110,31 @@ certified bound on the keep-out margin are in `info`.
 
 The environment propagates with Clohessy-Wiltshire dynamics by default;
 `ApproachConfig(dynamics="twobody")` or `"twobody_j2"` selects one of the nonlinear models below.
+
+### Many seeds
+
+Benchmarks need many runs, not one. With the default random starts, which put the chaser 200 to
+600 m ahead of the target so the target sits between it and the hold point:
+
+```python
+import numpy as np
+from vbar import ApproachEnv, run_many
+from vbar.agents import PDAgent
+
+results = run_many(ApproachEnv(), PDAgent(), seeds=range(100))
+print(np.mean([r["captured"] for r in results]), np.mean([r["keep_out_violated"] for r in results]))
+```
+
+On every default seed the PD baseline reaches the hold point and flies through the keep-out zone,
+because it ignores the target. That gap is what safety filters and better controllers are measured
+against. In a clone of the repository, `python examples/v0_demo.py` shows both cases and saves a
+plot to `outputs/` (needs the `plot` extra).
+
+![Animation of the PD baseline from seed 5 in the Hill frame. A marker leaves its start 523 m ahead of the target, crosses the 50 m keep-out zone with a readout showing time, range and speed, passes 14.4 m from the target, and stops at the hold point 100 m behind it.](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/images/pd_approach.gif)
+
+The orange run animated: it spends about 2.3 minutes inside the keep-out zone.
+`python examples/readme_figures.py` regenerates this animation and the figure in the quick start
+([docs/viz.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/viz.md)).
 
 ## Scoring
 
@@ -249,46 +246,6 @@ trajectories ([oracles.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs
 [passing-side-oracle.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/passing-side-oracle.md),
 [expert-datasets.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/expert-datasets.md)).
 
-### LLM agents
-
-`LLMAgent` wraps any model through a function that takes the decision's messages and the tools
-offered and returns the reply; `text_model` adapts a plain prompt-to-text function:
-
-```python
-from vbar import ApproachConfig, ApproachEnv, run_episode
-from vbar.agents import LLMAgent, Price, Reply, text_model
-
-
-def complete(messages, tools):
-    """Send the conversation to any hosted or local model and return its reply."""
-    return Reply('{"ax": 0.0, "ay": 0.0, "az": 0.0}', input_tokens=900, output_tokens=20)
-
-
-env = ApproachEnv(ApproachConfig(start_state=(0, -400, 0, 0, 0, 0)))
-agent = LLMAgent(complete, name="my-model", price=Price(3.0, 15.0))
-result = run_episode(env, agent)
-print(agent.usage())  # decisions, model calls, tokens, cost and parse failures
-
-plain = LLMAgent(text_model(lambda prompt: '{"ax": 0.0, "ay": 0.0, "az": 0.0}'))
-```
-
-Each step's prompt gives the frame, the mean motion, the task's goal and constraints in words, the
-current state measured against them (offsets from a docking port's axis, coverage of an
-inspection) and the thrust limit, and asks for a JSON reply such as
-`{"ax": 0.1, "ay": -0.5, "az": 0.0}`; the agent flies every task kind of the catalogue.
-A reply that cannot be parsed counts as a parse failure and the spacecraft coasts for that step.
-The prompt is configurable, the agent can offer tools (coast and transfer predictions from its
-own observation), every run can be recorded and replayed without the model, and an optional
-belief check measures whether the model's stated reasoning matches its inputs
-([docs/llm-agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/llm-agents.md)). The simulation clock is paused while the model
-answers, unless the run is in real time.
-
-Agents can also run in another process or language through the agent server (with Python and
-MATLAB clients), LLM harnesses can fly episodes through a Model Context Protocol tool server
-([docs/remote-agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/remote-agents.md)), and planners can submit whole plans to an
-external verifier ([docs/agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/agents.md)). Every agent should pass the
-sign-convention check, `vbar.agents.sign_check.sign_check(agent)`, before it is scored.
-
 ### Reinforcement learning
 
 `ApproachEnv` follows the Gymnasium API (`reset(seed=...)`, `step(action)`), by default with a
@@ -330,6 +287,58 @@ export to ONNX with their normalization built in ([docs/policy-export.md](https:
 Rewards and `info` come from the true state, so fly trained policies for scoring through
 `run_episode` or `vbar.metrics.record_episode`, which pass them only the observation and the time
 and refuse environments built for training.
+
+## LLM controllers
+
+`LLMAgent` wraps any model through a function you fill in, `complete(messages, tools)`. It sends
+the decision's conversation to your model client and returns a `Reply` (the text and the token
+counts the provider reports) or just the text. `text_model` adapts a client that takes a prompt
+string and returns text. V-BAR has no model client of its own:
+
+```python
+from vbar import ApproachConfig, ApproachEnv, run_episode
+from vbar.agents import LLMAgent, Price, Reply, text_model
+
+
+def complete(messages, tools):
+    """Stand-in: replace the body with a call to your model client."""
+    return Reply('{"ax": 0.0, "ay": 0.0, "az": 0.0}', input_tokens=900, output_tokens=20)
+
+
+env = ApproachEnv(ApproachConfig(start_state=(0, -400, 0, 0, 0, 0)))
+agent = LLMAgent(complete, name="my-model", price=Price(3.0, 15.0))
+result = run_episode(env, agent)
+print(agent.usage())  # decisions, model calls, tokens, cost and parse failures
+
+plain = LLMAgent(text_model(lambda prompt: '{"ax": 0.0, "ay": 0.0, "az": 0.0}'))
+```
+
+To fly an episode with your own model, fill in `complete()` in `examples/llm_controller.py`, copy
+`.env.example` to `.env`, set `VBAR_LLM_API_KEY` and `VBAR_LLM_MODEL` there, and run
+`python examples/llm_controller.py` from a clone of the repository. With no key it flies a scripted
+stand-in offline. python-dotenv, installed by `pip install "vbar[llm]"`, reads the file; without it
+the example reads the OS environment only, and a variable already set there wins over the file.
+`.env` is git-ignored. V-BAR itself reads no API key or model name; the function you write reads its
+own ([API keys](https://github.com/jamilhammoudeh/vbar/blob/main/docs/llm-agents.md#api-keys)).
+
+Each step's prompt gives the frame, the mean motion, the task's goal and constraints in words, the
+current state measured against them (offsets from a docking port's axis, coverage of an
+inspection) and the thrust limit, and asks for a JSON reply such as
+`{"ax": 0.1, "ay": -0.5, "az": 0.0}`; a reply that cannot be parsed counts as a parse failure and
+the spacecraft coasts for that step. The agent flies every task kind of the catalogue. The prompt
+is configurable, the agent can offer tools (coast and transfer predictions from its own
+observation), every run can be recorded and replayed without the model, and an optional belief
+check measures whether the model's stated reasoning matches its inputs. The simulation clock is
+paused while the model answers, unless the run is in real time
+([docs/llm-agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/llm-agents.md)).
+
+Agents can also run in another process or language through the agent server (with Python and
+MATLAB clients), LLM harnesses can fly episodes through a Model Context Protocol tool server
+([docs/remote-agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/remote-agents.md)),
+and planners can submit whole plans to an external verifier
+([docs/agents.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/agents.md)). Every agent
+should pass the sign-convention check, `vbar.agents.sign_check.sign_check(agent)`, before it is
+scored.
 
 ## Dynamics
 
@@ -433,12 +442,8 @@ with a `:nominal` variant without the failure
 ## Documentation
 
 How each part is built, with its equations, methods, assumptions and limits, is in
-[docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part: frames,
-dynamics, perturbations, relative-motion models, flight-data replay, transition matrices, three-body
-models, spacecraft, sensors, faults, constraints, the environment, scenarios, reconstructions,
-reproduced results, metrics, rewards, training interfaces, the vectorized environment, agent tools,
-LLM agents, remote agents, policy export, solvers, the evaluation harness, the external propagators,
-the classical baselines, pursuit-evasion in KSPDG's format and validation.
+[docs/](https://github.com/jamilhammoudeh/vbar/blob/main/docs/README.md), one page per part; the
+index there lists the pages.
 
 ## Tests
 
