@@ -27,8 +27,11 @@ prompt string to a reply string.
 V-BAR reads no API key and no model name. `LLMAgent` calls the function it is given, and that
 function reads whatever its client needs. The only environment variables the package looks at are
 `JAVA_HOME`, for the Orekit backend, and `VBAR_HIDDEN_SEED_KEY` and `VBAR_HIDDEN_SEED_LOG`, for the
-hidden seed split; `tests/test_environment_variables.py` parses the source and fails on any other
-read.
+hidden seed split. `tests/test_environment_variables.py` parses every module of the package and
+checks each read through `os.environ` and `os.getenv`, including `from os import environ`,
+`import os as name` and `getattr` on the module: the variable must be one of these three, and a
+read whose name it cannot resolve to a literal or a known constant fails the test. It does not look
+at other routes to the environment, such as `os.environb`.
 
 `examples/llm_controller.py` flies one episode and shows one way to keep the settings. Its
 `complete(messages, tools)` is the function to fill in with a call to your model client; as shipped
