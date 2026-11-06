@@ -64,7 +64,13 @@ numbered menus (Enter takes the first entry): the mission, then who flies it, th
 controllers and, once `vbar setup` has stored one, the AI model, and for the model the dollar cap.
 It then prints the equivalent command line, such as `Same as: vbar run --scenario approach-vbar
 --controller pd`. Without a terminal the missing flags are refused in one line pointing to
-`--list`, as is an unknown scenario or controller. An `llm` run with no provider set up, or no
+`--list`, as is an unknown scenario or controller.
+
+Before flying, `vbar run` checks that the controller can fly the mission and otherwise refuses in
+one line pointing to `vbar run --list`. PD and LQR fly to a hold point, so they fly hold and
+berthing missions only, not docking, inspection, departure or capture; the menu offers only the
+controllers that can fly the chosen mission. No controller can be scored on a scenario flown with
+Euler steps (docking-afrl-paper), since the metrics need a continuous trajectory. An `llm` run with no provider set up, or no
 stored key, says to run `vbar setup`, and `--tools` with a model the catalogue lists as taking no
 tool calls is refused before any call. Each flight starts with the line `Flying <scenario>, start
 <seed>, with <controller>.`, so a flight can be flown again with `--seeds`; the built-in
@@ -185,7 +191,9 @@ key; `--show` prints four lines, notes `VBAR_LLM_API_KEY`, and changes no file; 
 the key; `--list` names every entry. For `vbar
 run`: PD on approach-vbar with two drawn starts prints both seeds, and rerunning with `--seeds`
 prints the same scorecards; the JSON record is valid and holds the seeds; unknown names give one
-line naming `--list`; `--list` shows every registered scenario; an `llm` run without a key says to
+line naming `--list`; `--list` shows every registered scenario; each built-in controller on
+every registered scenario either flies it or refuses in one line naming `vbar run --list`, and
+the menu does not offer PD or LQR for docking; an `llm` run without a key says to
 run `vbar setup`; over-reported tokens stop the run at the dollar cap after one call; `--max-calls 3`
 stops it after three, and a call cap alone flies a model with no listed price; a model without a
 price and no call cap is refused before any call; `--tools` with a model listed without tools is

@@ -268,12 +268,36 @@ def _menu(title: str, entries: Sequence[tuple[str, str]]) -> int:
             return int(answer) - 1
 
 
+def _cannot_fly(controller: str, env) -> str | None:
+    """Why `controller` cannot fly the mission of `env`, or None when it can."""
+    from .agents.base import HOLD_TASKS
+
+    if env.cfg.dynamics == "euler1":
+        return "it is flown with Euler steps, which the metrics cannot score"
+    if controller in ("pd", "lqr"):
+        goal = env.agent_view().goal
+        task = goal.get("task", "hold")
+        if task not in HOLD_TASKS:
+            return f"it flies to a hold point and this mission's task is {task}"
+        if "hold_point" not in goal:
+            return "it flies to a hold point and this mission has none"
+    return None
+
+
+def _refuse_flight(controller: str, scenario: str, reason: str) -> SystemExit:
+    who = BUILT_IN.get(controller, "the AI model")
+    return SystemExit(
+        f"{who[0].upper()}{who[1:]} cannot fly {scenario}: {reason}; `vbar run --list` shows "
+        "the missions and controllers."
+    )
+
+
 def _ask_run(args: argparse.Namespace) -> None:
     """Fill in the mission, the controller and, for a model, the dollar cap from menus."""
-    from .scenarios import SCENARIOS
+    from . import scenarios
 
     if args.scenario is None:
-        names = list(SCENARIOS)
+        names = list(scenarios.SCENARIOS)
         args.scenario = names[_menu("Mission", [(name, "") for name in names])]
     if args.controller is None:
         settings = load_settings()
@@ -285,6 +309,19 @@ def _ask_run(args: argparse.Namespace) -> None:
         ]
         if provider is not None and settings.get("model"):
             choices.insert(0, ("llm", settings["model"], f"AI model, your {provider.label} key"))
+        try:
+            env = scenarios.make(args.scenario)
+        except (KeyError, ValueError):
+            # `run` refuses the unknown name in one line.
+            env = None
+        if env is not None:
+            flyable = [c for c in choices if _cannot_fly(c[0], env) is None]
+            if not flyable:
+                raise SystemExit(
+                    f"No controller can fly {args.scenario}: {_cannot_fly('drift', env)}; "
+                    "`vbar run --list` shows the missions and controllers."
+                )
+            choices = flyable
         index = _menu("Flown by", [(name, note) for _, name, note in choices])
         args.controller = choices[index][0]
         if args.controller == "llm" and args.max_usd is None:
@@ -484,6 +521,9 @@ def run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         raise SystemExit(
             f"unknown controller {args.controller!r}; `vbar run --list` shows the controllers."
         )
+    reason = _cannot_fly(args.controller, env)
+    if reason is not None:
+        raise _refuse_flight(args.controller, args.scenario, reason)
     seeds = session_seeds(parser, args)
     budget = None
     price: Price | None = None

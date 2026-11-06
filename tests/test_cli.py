@@ -24,6 +24,8 @@ from provider_fakes import FAKE_KEY, FakeProvider, Response, chat_error, chat_re
 from vbar import __version__, metrics, oracles
 from vbar import cli as cli_module
 from vbar import providers as providers_module
+from vbar import scenarios as scenarios_module
+from vbar.agents.base import HOLD_TASKS
 from vbar.agents.llm import Price
 from vbar.cli import main
 from vbar.metrics.efficiency import FuelBounds
@@ -887,3 +889,82 @@ print(" ".join(sorted(name for name in loaded if not accepted(name))))
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.split() == []
+
+
+@pytest.fixture
+def short_flights(monkeypatch):
+    real = scenarios_module.make
+    monkeypatch.setattr(
+        scenarios_module,
+        "make",
+        lambda name, **config: real(name, **{"max_steps": SHORT, **config}),
+    )
+
+
+def can_fly(controller, scenario):
+    """Whether a built-in controller can fly a scenario, from its registered task and integrator.
+
+    The metrics score continuous trajectories only, and the PD and LQR agents fly to a hold point,
+    so they take only the hold-point tasks of `HOLD_TASKS`.
+    """
+    env = scenarios_module.make(scenario)
+    if env.cfg.dynamics == "euler1":
+        return False
+    if controller == "drift":
+        return True
+    goal = env.agent_view().goal
+    return goal.get("task", "hold") in HOLD_TASKS and "hold_point" in goal
+
+
+@pytest.mark.parametrize("controller", BUILT_IN_CONTROLLERS)
+@pytest.mark.parametrize("scenario", list(SCENARIOS))
+def test_a_built_in_controller_flies_every_mission_it_can_and_refuses_the_rest_in_one_line(
+    short_flights, scenario, controller
+):
+    expected = can_fly(controller, scenario)
+    ran = call(
+        "run",
+        "--scenario",
+        scenario,
+        "--controller",
+        controller,
+        "--seeds",
+        "7",
+        "--no-save",
+        "--no-fuel-bound",
+    )
+    assert "Traceback" not in ran.text
+    if expected:
+        assert ran.code == 0
+        assert "Passed" in ran.out or "Did not pass" in ran.out
+    else:
+        assert ran.code != 0
+        (line,) = ran.lines()
+        assert "cannot" in line
+        assert "vbar run --list" in line
+
+
+@pytest.mark.parametrize("scenario", ["approach-vbar", "docking"])
+def test_the_menu_offers_exactly_the_controllers_that_can_fly_the_chosen_mission(
+    monkeypatch, scenario
+):
+    menus = []
+
+    def menu_choice(prompt=""):
+        printed = ANSI.sub("", sys.stdout.getvalue())
+        menus.append(printed)
+        if len(menus) == 1:
+            return re.findall(rf"^\s*(\d+)\s+{re.escape(scenario)}\s*$", printed, re.M)[-1]
+        return "1"
+
+    monkeypatch.setattr("builtins.input", menu_choice)
+    interrupt_flights(monkeypatch)
+    call("run", tty=True)
+    assert len(menus) >= 2
+    offered = menus[1][len(menus[0]) :]
+    for controller, label in (
+        ("drift", "Drift"),
+        ("pd", "PD controller"),
+        ("lqr", "LQR controller"),
+    ):
+        assert (label in offered) == can_fly(controller, scenario)
