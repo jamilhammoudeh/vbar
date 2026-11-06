@@ -835,6 +835,7 @@ def test_importing_the_command_loads_only_the_standard_library_and_core_packages
 import importlib.metadata as md
 import re
 import sys
+import sysconfig
 from pathlib import Path
 
 def top(names):
@@ -870,17 +871,27 @@ roots = [
     for folder in getattr(sys.modules[name], "__path__", [])
 ]
 
+paths = sysconfig.get_paths()
+stdlib = {Path(paths[key]).resolve() for key in ("stdlib", "platstdlib")}
+installed = {Path(paths[key]).resolve() for key in ("purelib", "platlib")}
+
+def under(origin, folders):
+    return any(Path(origin).resolve().is_relative_to(folder) for folder in folders)
+
 def accepted(name):
     if name in sys.stdlib_module_names or name in allowed:
         return True
     module = sys.modules[name]
     origin = getattr(module, "__file__", None)
+    # CPython's internal modules, such as _sysconfigdata_*, are missing from stdlib_module_names.
+    if origin is not None and under(origin, stdlib) and not under(origin, installed):
+        return True
     if origin is None:
         # Made at run time (an extension's runtime module or the __main__ alias), not loaded
         # from a package on disk.
         return not hasattr(module, "__path__")
     # Extension modules that register a bare name, such as a solver inside scipy.
-    return any(Path(origin).resolve().is_relative_to(root) for root in roots)
+    return under(origin, roots)
 
 print(" ".join(sorted(name for name in loaded if not accepted(name))))
 """
