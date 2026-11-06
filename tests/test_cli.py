@@ -5,6 +5,7 @@ import getpass
 import io
 import json
 import logging
+import math
 import os
 import re
 import stat
@@ -784,3 +785,44 @@ def test_the_saved_settings_keep_no_query_or_fragment_of_the_address(tmp_path, c
     assert "secret-query" not in text
     assert "secret-fragment" not in text
     assert fake.url + "/v1" in text
+
+
+BUILT_IN_CONTROLLERS = ("drift", "pd", "lqr")
+# Three steps keep a flight short; a refusal comes before the first step whatever the horizon.
+SHORT = 3
+# Propellant mass (kg) used to burn `dv` (m/s) from mass m0 (kg) at specific impulse isp (s).
+G0 = 9.80665
+
+
+def propellant(m0, isp, dv):
+    return m0 * (1.0 - math.exp(-dv / (isp * G0)))
+
+
+def scorecard_mass(kg):
+    """A mass as the card writes it: whole grams below a kilogram."""
+    assert kg < 1.0
+    return f"{round(kg * 1000.0)} g"
+
+
+@pytest.fixture
+def fixed_bounds(monkeypatch):
+    """Makes the fuel oracle return the FuelBounds the test sets in the returned list."""
+    given = []
+
+    def bounds_for(ep, oracle=None):
+        return given[0]
+
+    for module in (oracles, fuel_module, cli_module):
+        monkeypatch.setattr(module, "bounds_for", bounds_for, raising=False)
+    return given
+
+
+def test_the_card_converts_the_bounds_to_propellant_with_the_rocket_equation(
+    replayed, fixed_bounds, pd_episode
+):
+    fixed_bounds.append(FuelBounds(lower=2.0, upper=3.0, norm="l1", rung="cw"))
+    block = fuel_block(call(*PD_RUN, "--seeds", "5", "--no-save"))
+    m0, isp = pd_episode.view.mass_kg, pd_episode.isp
+    # 2 m/s and 3 m/s from 500 kg at 220 s: 463 g and 695 g.
+    assert f"less than {scorecard_mass(propellant(m0, isp, 2.0))}" in block
+    assert f"uses {scorecard_mass(propellant(m0, isp, 3.0))}" in block
