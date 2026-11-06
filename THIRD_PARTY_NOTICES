@@ -19,6 +19,11 @@ GRACE-FO Level-1B data, 2019-12-03
   License:  CC0, under the NASA Earthdata data use policy for NASA-led missions; no endorsement
             by NASA is implied
 
+Shields.io badge images
+  Used in:  docs/badges/*.svg (the README badges, saved unchanged from img.shields.io)
+  Source:   https://github.com/badges/shields
+  License:  MIT OR Apache-2.0 (LICENSE-MIT and LICENSE-APACHE of that repository)
+
 No third-party source code is included. Methods taken from the literature are reimplemented
 and cited where they are used.
 

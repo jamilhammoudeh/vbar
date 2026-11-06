@@ -1,8 +1,7 @@
-"""The README badges are static images, so each one is held to the project metadata here."""
+"""The README badges are SVG files in this repository, each held to the project metadata."""
 
 import re
 import tomllib
-from urllib.parse import unquote
 
 from test_docs import ROOT
 
@@ -10,17 +9,38 @@ from vbar import __version__
 
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+HOSTED = "https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/"
+IMAGES = dict(re.findall(r"\[!\[([^\]]*)\]\((\S+?)\)\]", README))
 
 
-def badge(label):
-    """Message of the static badge with this label, URL escapes undone."""
-    match = re.search(rf"https://img\.shields\.io/badge/{label}-(.+?)-[0-9a-z]+\)", README)
-    assert match, f"no static {label} badge"
-    return unquote(match.group(1))
+def badge(name):
+    """(label, message) of docs/badges/<name>.svg, checked against its visible text."""
+    svg = (ROOT / "docs" / "badges" / f"{name}.svg").read_text(encoding="utf-8")
+    label, message = re.search(r"<title>(.+?): (.+?)</title>", svg).groups()
+    assert set(re.findall(r"<text[^>]*>([^<]*)</text>", svg)) == {label, message}
+    return label, message
+
+
+def test_every_hosted_badge_is_its_own_file_in_the_repository():
+    hosted = {alt: url.removeprefix(HOSTED) for alt, url in IMAGES.items() if HOSTED in url}
+    assert hosted == {
+        "PyPI": "docs/badges/pypi.svg",
+        "Python": "docs/badges/python.svg",
+        "License": "docs/badges/license.svg",
+        "DOI": "docs/badges/doi.svg",
+        "Docs": "docs/badges/docs.svg",
+    }
+    for path in hosted.values():
+        assert (ROOT / path).is_file(), path
+
+
+def test_no_badge_comes_from_a_badge_service():
+    # GitHub's image proxy times out on badge services and shows a broken image.
+    assert not [url for url in IMAGES.values() if "shields.io" in url]
 
 
 def test_pypi_badge_shows_the_package_version():
-    assert badge("pypi") == f"v{__version__}"
+    assert badge("pypi") == ("pypi", f"v{__version__}")
 
 
 def test_python_badge_lists_every_supported_minor_version():
@@ -29,18 +49,13 @@ def test_python_badge_lists_every_supported_minor_version():
         for c in PROJECT["classifiers"]
         if re.fullmatch(r"Programming Language :: Python :: 3\.\d+", c)
     ]
-    assert badge("python") == " | ".join(minors)
+    assert badge("python") == ("python", " | ".join(minors))
 
 
 def test_license_badge_names_the_project_license():
-    assert badge("license") == PROJECT["license"]
+    assert badge("license") == ("license", PROJECT["license"])
 
 
-def test_no_badge_asks_a_service_for_live_data():
-    # GitHub's image proxy shows a broken image when a badge service answers slowly, which the
-    # live endpoints (pypi/, github/) do at times; static badges come back at once.
-    images = re.findall(r"\[!\[[^\]]*\]\((\S+?)\)\]", README)
-    assert images
-    for url in images:
-        if url.startswith("https://img.shields.io/"):
-            assert url.startswith("https://img.shields.io/badge/"), url
+def test_doi_badge_shows_the_doi_it_links_to():
+    _, doi = badge("doi")
+    assert f"(https://doi.org/{doi})" in README

@@ -1,11 +1,11 @@
 # V-BAR: Verified Benchmark for Autonomous Rendezvous
 
 [![CI](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/badge/pypi-v0.7.0-ea7233)](https://pypi.org/project/vbar/)
-[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14%20%7C%203.15-blue)](https://pypi.org/project/vbar/)
-[![License](https://img.shields.io/badge/license-MIT-67ac09)](LICENSE)
-[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.23632751-blue)](https://doi.org/10.5281/zenodo.23632751)
-[![Docs](https://img.shields.io/badge/docs-docs%2F-blue)](docs/README.md)
+[![PyPI](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/badges/pypi.svg)](https://pypi.org/project/vbar/)
+[![Python](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/badges/python.svg)](https://pypi.org/project/vbar/)
+[![License](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/badges/license.svg)](LICENSE)
+[![DOI](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/badges/doi.svg)](https://doi.org/10.5281/zenodo.23632751)
+[![Docs](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/badges/docs.svg)](docs/README.md)
 
 V-BAR is a headless Python benchmark for spacecraft rendezvous and proximity-operations
 controllers. Classical guidance laws, reinforcement learning agents and LLM agents fly the same

@@ -72,6 +72,11 @@ least one minor release. The public API is every name a package lists in `__all_
 documentation uses, the registered Gymnasium IDs and the documented configuration fields; names
 with a leading underscore are private.
 
+The README badges are SVG files in `docs/badges/`, loaded from this repository because GitHub's
+image proxy times out on badge services. A version bump also replaces `docs/badges/pypi.svg`, for
+example `curl -o docs/badges/pypi.svg https://img.shields.io/badge/pypi-v0.8.0-ea7233`;
+`tests/test_badges.py` fails until the badge shows the package version.
+
 ## Issues
 
 Use the templates for bug reports, feature requests and scenario proposals.
