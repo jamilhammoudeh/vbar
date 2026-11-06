@@ -18,7 +18,7 @@ import sys
 import textwrap
 import time
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -268,6 +268,17 @@ def _menu(title: str, entries: Sequence[tuple[str, str]]) -> int:
             return int(answer) - 1
 
 
+def _stored[T](load: Callable[[], T]) -> T:
+    """`load()` from the settings folder; a damaged file stops the run with one line.
+
+    The store's messages name the file and point to `vbar setup`; they never quote its content.
+    """
+    try:
+        return load()
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+
+
 def _cannot_fly(controller: str, env) -> str | None:
     """Why `controller` cannot fly the mission of `env`, or None when it can."""
     from .agents.base import HOLD_TASKS
@@ -300,7 +311,7 @@ def _ask_run(args: argparse.Namespace) -> None:
         names = list(scenarios.SCENARIOS)
         args.scenario = names[_menu("Mission", [(name, "") for name in names])]
     if args.controller is None:
-        settings = load_settings()
+        settings = _stored(load_settings)
         provider = PROVIDERS.get(settings.get("provider", ""))
         choices = [
             ("pd", "PD controller", "built in, free"),
@@ -346,7 +357,7 @@ def _ask_run(args: argparse.Namespace) -> None:
 def _language_model(args: argparse.Namespace, flights: int, max_steps: int):
     """The budgeted model of an `llm` run, its name, price, dollar cap and tool rounds; refuses
     before any call."""
-    settings = load_settings()
+    settings = _stored(load_settings)
     provider = PROVIDERS.get(settings.get("provider", ""))
     model = settings.get("model")
     if provider is None or not model:
@@ -356,7 +367,7 @@ def _language_model(args: argparse.Namespace, flights: int, max_steps: int):
         raise SystemExit(
             f"{model} takes no tool calls in the request format V-BAR speaks; run without --tools."
         )
-    key = load_key() if provider.needs_key else None
+    key = _stored(load_key) if provider.needs_key else None
     if provider.needs_key and key is None:
         raise SystemExit("No API key is stored; run `vbar setup` and paste one.")
     price = args.price or (listed.price if listed is not None else None)

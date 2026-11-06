@@ -968,3 +968,25 @@ def test_the_menu_offers_exactly_the_controllers_that_can_fly_the_chosen_mission
         ("lqr", "LQR controller"),
     ):
         assert (label in offered) == can_fly(controller, scenario)
+
+
+def test_a_corrupt_credentials_file_points_to_setup_without_showing_the_key(config):
+    save_settings({"provider": "other", "model": "test-model", "base_url": closed_port_url()})
+    (config / "credentials.json").write_text('{"api_key": "' + FAKE_KEY, encoding="utf-8")
+    ran = call(*LLM_RUN, "--price", "3.00/15.00", "--no-save")
+    assert ran.code != 0
+    (line,) = ran.lines()
+    assert "vbar setup" in line
+    assert "Traceback" not in ran.text
+    assert FAKE_KEY not in ran.text
+
+
+def test_a_damaged_settings_file_is_named_with_a_pointer_to_setup(config):
+    save_key(FAKE_KEY)
+    (config / "config.json").write_text('{"provider": "other", "model": ', encoding="utf-8")
+    ran = call(*LLM_RUN, "--price", "3.00/15.00", "--no-save")
+    assert ran.code != 0
+    (line,) = ran.lines()
+    assert "config.json" in line
+    assert "vbar setup" in line
+    assert "Traceback" not in ran.text
