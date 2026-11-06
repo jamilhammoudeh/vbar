@@ -738,3 +738,49 @@ def test_no_save_writes_no_folder(tmp_path, replayed, clock):
     ran = call(*PD_RUN, "--seeds", "5", "--no-save", "--no-fuel-bound")
     assert ran.code == 0
     assert not (tmp_path / "vbar-runs").exists()
+
+
+def test_a_deeply_nested_bound_cache_is_ignored(config, replayed, bounds):
+    config.mkdir(parents=True, exist_ok=True)
+    # Deep enough that parsing it raises RecursionError rather than ValueError.
+    (config / "fuel-bounds.json").write_text("[" * 100000, encoding="utf-8")
+    ran = call(*PD_RUN, "--seeds", "5", "--no-save")
+    assert ran.code == 0
+    assert "Traceback" not in ran.text
+    assert len(bounds) == 1
+
+
+@pytest.mark.parametrize("price", ["0/0", "0/15.00", "3.00/0"])
+def test_a_zero_price_is_refused_since_it_would_switch_off_the_dollar_cap(price):
+    with FakeProvider([Response(200, chat_reply(COAST))]) as fake:
+        connect_to(fake)
+        ran = call(*LLM_RUN, "--price", price, "--max-calls", "2", "--no-save")
+    assert ran.code != 0
+    assert len(ran.lines()) == 1
+    assert fake.requests == []
+
+
+def test_a_local_server_keeps_a_zero_price():
+    with FakeProvider([Response(200, chat_reply(COAST))]) as fake:
+        save_settings({"provider": "local", "model": "test-model", "base_url": fake.url})
+        ran = call(*LLM_RUN, "--price", "0/0", "--max-calls", "1", "--no-save")
+    assert len(fake.requests) == 1
+    assert "1" in ran.stopped()
+
+
+def test_the_saved_settings_keep_no_query_or_fragment_of_the_address(tmp_path, clock):
+    with FakeProvider([Response(200, chat_reply(COAST))]) as fake:
+        save_settings(
+            {
+                "provider": "other",
+                "model": "test-model",
+                "base_url": fake.url + "/v1?token=secret-query#secret-fragment",
+            }
+        )
+        save_key(FAKE_KEY)
+        call(*LLM_RUN, "--max-calls", "1", "--no-fuel-bound")
+    (path,) = (tmp_path / "vbar-runs" / "2026-11-05-1432-approach-vbar").glob("*settings*")
+    text = path.read_text(encoding="utf-8")
+    assert "secret-query" not in text
+    assert "secret-fragment" not in text
+    assert fake.url + "/v1" in text

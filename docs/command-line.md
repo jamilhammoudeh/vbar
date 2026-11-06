@@ -96,9 +96,10 @@ shows the fuel used as a range of times the least possible (on a passed flight) 
 best plan (on a failed one). A start takes about 10 s (6.8 s and 10.1 s for two approach-vbar
 starts), so before more than 5 new starts the run states the time it expects. Bounds are cached
 in `fuel-bounds.json` in the settings folder ([setup.md](setup.md)), keyed by package version,
-scenario identifier and seed, so a start is solved once per version. With `--no-fuel-bound`, or
-when the oracle finds no usable bound, the card says the fuel is not compared with the least
-possible.
+scenario identifier and seed, so a start is solved once per version. A cache file that cannot be
+read, including one nested too deeply to parse, is ignored and the bounds are worked out again.
+With `--no-fuel-bound`, or when the oracle finds no usable bound, the card says the fuel is not
+compared with the least possible.
 
 ### Dollar and call caps
 
@@ -121,7 +122,9 @@ and exit status 1. A provider failure ends the run the same way, with its senten
 error, certificate, refused request).
 
 The dollar cap needs a price. The catalogue lists one for each model it names, with the date it
-was read and its source; for any other model give `--price IN/OUT`. Without a price, a run with
+was read and its source; for any other model give `--price IN/OUT`. A rate of zero is refused,
+since it would make every call free to the budget and switch the cap off, except for the local
+server entry, which costs nothing. Without a price, a run with
 `--max-calls` and no `--max-usd` is held to the call cap alone and its cost reads "No listed
 price". Keep a spending limit on the provider's side as well: the listed price can go stale.
 
@@ -141,7 +144,9 @@ Unless `--no-save` is given or the run was interrupted, each `vbar run` saves
 when that name is taken) and its last line says where. The folder holds `scorecard.txt` (the
 printed output without colour), `results.json` (the JSON record above) and `settings.json` (the
 package version, scenario, controller, seeds, whether the fuel bound was worked out and, for a
-model, the provider, model, address, caps, price, reply limit and tools). The key is never written.
+model, the provider, model, address, caps, price, reply limit and tools). The key is never written,
+and the address keeps only its scheme, host, port and path, since a user name, query or fragment
+can carry a secret.
 
 ## Example
 
@@ -190,6 +195,8 @@ from the cache, the cache is per start and package version, a bounded card compa
 the least possible, `--no-fuel-bound` skips the oracle and the card says not compared, and more
 than five new starts are announced with the expected time. The menus run on a terminal and print
 the equivalent command; colour appears only on a terminal without `NO_COLOR` and removing it
-leaves the plain output; a run saves its folder without the key, and `--no-save` writes none.
+leaves the plain output; a run saves its folder without the key or the address's query and
+fragment, and `--no-save` writes none; a deeply nested bound cache is ignored; a zero price is
+refused in one line before any call, except for a local server.
 Every output is checked for the key. `tests/test_catalog.py` checks the catalogue's shape, prices,
 dates, sources and tools flags, and `connect`, including a model's extra body fields.

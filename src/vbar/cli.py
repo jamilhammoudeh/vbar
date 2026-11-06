@@ -21,7 +21,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from . import __version__
 from .agents.llm import BudgetedModel, BudgetExceeded, Price, as_reply
@@ -333,6 +333,17 @@ def _language_model(args: argparse.Namespace, flights: int, max_steps: int):
             )
     elif max_usd is None:
         max_usd = DEFAULT_CAP_USD
+    # A zero rate makes every call free to the budget, which switches the dollar cap off; only a
+    # server on this computer costs nothing.
+    if (
+        price is not None
+        and provider.needs_key
+        and not (price.input_per_mtok > 0.0 and price.output_per_mtok > 0.0)
+    ):
+        raise SystemExit(
+            "A price of zero would switch off the dollar cap; give both rates above zero with "
+            "--price, such as 3.00/15.00."
+        )
     rounds = TOOL_ROUNDS if args.tools else 0
     max_calls = args.max_calls or flights * max_steps * (rounds + 1)
     try:
@@ -375,7 +386,8 @@ def _read_bounds() -> dict[str, FuelBounds]:
 
     try:
         entries = json.loads((config_dir() / BOUNDS_CACHE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    # A deeply nested file makes the decoder recurse past the interpreter's limit.
+    except (OSError, ValueError, RecursionError):
         return {}
     if not isinstance(entries, dict):
         return {}
@@ -383,7 +395,7 @@ def _read_bounds() -> dict[str, FuelBounds]:
     for key, fields in entries.items():
         try:
             cached[key] = FuelBounds(**from_json(fields))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             continue
     return cached
 
@@ -589,7 +601,7 @@ def run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             "fuel_bound": args.fuel_bound,
             "provider": stored.get("provider"),
             "model": stored.get("model"),
-            "base_url": stored.get("base_url"),
+            "base_url": _plain_address(stored.get("base_url")),
             "max_usd": max_usd,
             "max_calls": None if budget is None else budget.max_calls,
             "price": None if price is None else [price.input_per_mtok, price.output_per_mtok],
@@ -601,6 +613,22 @@ def run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if interrupted:
         return 130
     return 1 if stopped is not None else 0
+
+
+def _plain_address(url: str | None) -> str | None:
+    """`url` as scheme, host, port and path: a user name, query or fragment can hold a secret."""
+    if not url:
+        return url
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    netloc = host if port is None else f"{host}:{port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 def _minutes(seconds: float) -> str:
