@@ -826,3 +826,64 @@ def test_the_card_converts_the_bounds_to_propellant_with_the_rocket_equation(
     # 2 m/s and 3 m/s from 500 kg at 220 s: 463 g and 695 g.
     assert f"less than {scorecard_mass(propellant(m0, isp, 2.0))}" in block
     assert f"uses {scorecard_mass(propellant(m0, isp, 3.0))}" in block
+
+
+def test_importing_the_command_loads_only_the_standard_library_and_core_packages():
+    script = """
+import importlib.metadata as md
+import re
+import sys
+from pathlib import Path
+
+def top(names):
+    return {name.split(".")[0] for name in names}
+
+def closure(roots):
+    seen, todo = set(), list(roots)
+    while todo:
+        name = re.split(r"[ ;<>=!~\\[(]", todo.pop())[0].lower().replace("_", "-")
+        if name in seen:
+            continue
+        seen.add(name)
+        try:
+            requires = md.requires(name) or []
+        except md.PackageNotFoundError:
+            continue
+        todo += [r for r in requires if "extra ==" not in r]
+    return seen
+
+before = top(sys.modules)
+import vbar.cli, vbar.providers
+loaded = top(sys.modules) - before
+dists = closure(["numpy", "scipy", "gymnasium"])
+allowed = {
+    module
+    for module, owners in md.packages_distributions().items()
+    if any(owner.lower().replace("_", "-") in dists for owner in owners)
+}
+allowed.add("vbar")
+roots = [
+    Path(folder).resolve()
+    for name in allowed & set(sys.modules)
+    for folder in getattr(sys.modules[name], "__path__", [])
+]
+
+def accepted(name):
+    if name in sys.stdlib_module_names or name in allowed:
+        return True
+    module = sys.modules[name]
+    origin = getattr(module, "__file__", None)
+    if origin is None:
+        # Made at run time (an extension's runtime module or the __main__ alias), not loaded
+        # from a package on disk.
+        return not hasattr(module, "__path__")
+    # Extension modules that register a bare name, such as a solver inside scipy.
+    return any(Path(origin).resolve().is_relative_to(root) for root in roots)
+
+print(" ".join(sorted(name for name in loaded if not accepted(name))))
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=300, cwd=ROOT
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == []
