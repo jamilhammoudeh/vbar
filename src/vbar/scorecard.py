@@ -418,18 +418,17 @@ def _fuel(
     if used is None:
         return Check("Fuel", "Not recorded", "No fuel mass was recorded for this flight.", "")
     if least_fuel is None:
-        floor = ""
+        floor = "Not compared with the least possible from this start, which was not worked out."
     else:
         floor = (
             f"No controller can use less than {_mass(least_fuel[0])} from this start; the best "
             f"plan V-BAR found uses {_mass(least_fuel[1])}."
         )
     if not passed:
-        fact = f"Used {_mass(used)}." + (f" {floor}" if floor else "")
+        fact = f"Used {_mass(used)}. {floor}"
         return Check("Fuel", "Not ranked", fact, "Fuel is ranked only on flights that pass.")
     if least_fuel is None:
-        needed = "Compared only when the least possible fuel from this start is known."
-        return Check("Fuel", "Not compared", f"Used {_mass(used)}.", needed)
+        return Check("Fuel", "Not compared", f"Used {_mass(used)}. {floor}", "")
     times = _ratio(used / least_fuel[1], used / least_fuel[0])
     fact = f"Used {_mass(used)}, {times} the least possible."
     needed = f"{floor} The true least is between the two, which is why the ratio is a range."

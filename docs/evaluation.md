@@ -314,8 +314,9 @@ words. `card.text()` renders it as plain text without colour.
   keep-out constraint.
 - **Fuel**: propellant used, in kilograms or grams; delta-v stays in the full metrics.
   `least_fuel` is the floor no controller can go below from this start and the best plan found,
-  both in kilograms, so the ratio to the least possible is a range. Fuel is ranked only on flights
-  that pass, as the benchmark ranks it.
+  both in kilograms, so the ratio to the least possible is a range; without it the fact says
+  the fuel is not compared with the least possible. Fuel is ranked only on flights that pass, as
+  the benchmark ranks it.
 - **Cost**: "Free" for a controller that calls no model; for an AI model, the estimate from
   listed prices against the cap, the number of calls and the replies that could not be read (the
   spacecraft coasts for each, one step long). The parse-failure rate is per thrust command, so

@@ -127,6 +127,10 @@ class ChatModel:
         The API key, sent as `Authorization: Bearer`.
     max_output_tokens : int
         The reply limit, sent as `max_completion_tokens`.
+    headers : Mapping of str to str, optional
+        Further request headers.
+    extra_body : Mapping, optional
+        Further fields of every request body; the fields V-BAR sets take precedence.
     timeout : float, optional
         Seconds to wait for the connection and for each read.
     sleep : callable, optional
@@ -146,6 +150,8 @@ class ChatModel:
         model: str,
         key: str,
         max_output_tokens: int,
+        headers: Mapping[str, str] | None = None,
+        extra_body: Mapping[str, Any] | None = None,
         timeout: float = 120.0,
         sleep: Callable[[float], None] = time.sleep,
     ):
@@ -155,6 +161,8 @@ class ChatModel:
         check_reply_limit(max_output_tokens)
         self.model = model
         self.max_output_tokens = max_output_tokens
+        self.headers = dict(headers or {})
+        self.extra_body = dict(extra_body or {})
         self.timeout = timeout
         self.sleep = sleep
         self._key = key
@@ -167,6 +175,7 @@ class ChatModel:
     ) -> dict[str, Any]:
         """The request body for a neutral conversation and tool list."""
         body: dict[str, Any] = {
+            **self.extra_body,
             "model": self.model,
             "messages": [_message(m) for m in messages],
             "max_completion_tokens": self.max_output_tokens,
@@ -196,7 +205,7 @@ class ChatModel:
             For a refused or failed request; rate, network and server failures are also
             `InfrastructureError`. A malformed success answer is kind "server".
         """
-        headers = {"Authorization": f"Bearer {self._key}"}
+        headers = {**self.headers, "Authorization": f"Bearer {self._key}"}
         answer = post_with_retries(
             url=self.url,
             headers=headers,

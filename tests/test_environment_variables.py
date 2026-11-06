@@ -135,8 +135,10 @@ def test_the_package_reads_only_its_own_variables_java_home_and_the_config_folde
         unresolved += [f"{path.relative_to(SOURCE)}:{line}" for line in lines]
     assert unresolved == []
     # The stored key's folder follows APPDATA on Windows and XDG_CONFIG_HOME elsewhere; the
-    # only key the package reads from the environment is its own VBAR_LLM_API_KEY.
+    # only key the package reads from the environment is its own VBAR_LLM_API_KEY. NO_COLOR
+    # turns off the command line's colour (no-color.org).
     assert names == {
+        "NO_COLOR",
         "JAVA_HOME",
         HIDDEN_LOG_VARIABLE,
         HIDDEN_KEY_VARIABLE,

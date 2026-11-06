@@ -34,6 +34,9 @@ dependencies = [
     "gymnasium>=0.29",
 ]
 
+[project.scripts]
+vbar = "vbar.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/jamilhammoudeh/vbar"
 Repository = "https://github.com/jamilhammoudeh/vbar"

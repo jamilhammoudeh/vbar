@@ -30,10 +30,11 @@ its client needs. The key store, `vbar.providers.store`, keeps one key in a file
 configuration folder, or takes it from `VBAR_LLM_API_KEY` ([setup.md](setup.md)). The only
 environment variables the package looks at are `JAVA_HOME`, for the Orekit backend,
 `VBAR_HIDDEN_SEED_KEY` and `VBAR_HIDDEN_SEED_LOG`, for the hidden seed split, and
-`VBAR_LLM_API_KEY`, `VBAR_CONFIG_DIR`, `APPDATA` and `XDG_CONFIG_HOME`, for the key store.
+`VBAR_LLM_API_KEY`, `VBAR_CONFIG_DIR`, `APPDATA` and `XDG_CONFIG_HOME`, for the key store, and
+`NO_COLOR`, which turns off colour in the `vbar` command's output.
 `tests/test_environment_variables.py` parses every module of the package and checks each read
 through `os.environ` and `os.getenv`, including `from os import environ`, `import os as name` and
-`getattr` on the module: the variable must be one of these seven, and a read whose name it cannot
+`getattr` on the module: the variable must be one of these eight, and a read whose name it cannot
 resolve to a literal or a known constant fails the test. It does not look at other routes to the
 environment, such as `os.environb`.
 

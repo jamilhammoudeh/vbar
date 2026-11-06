@@ -5,7 +5,8 @@ and how it is tested.
 
 | Page | Covers |
 |---|---|
-| [setup.md](setup.md) | the API key and provider settings: where they are stored on each system, file permissions, `VBAR_LLM_API_KEY` and `VBAR_CONFIG_DIR`, the threat model |
+| [setup.md](setup.md) | `vbar setup`, the provider catalogue and `connect`, the API key and provider settings: where they are stored on each system, file permissions, `VBAR_LLM_API_KEY` and `VBAR_CONFIG_DIR`, the threat model, certificate errors |
+| [command-line.md](command-line.md) | the `vbar` command: `vbar setup` and `vbar run` with every flag, the scorecard, the dollar and call caps, the JSON record |
 | [frames.md](frames.md) | units, the Hill frame, relative states, the ISS-style LVLH frame, rotation conventions |
 | [dynamics.md](dynamics.md) | the model interface and the list of models, Clohessy-Wiltshire, nonlinear two-body motion with J2, the relative acceleration without thrust, Kepler propagation, J2 mean elements, central bodies |
 | [perturbations.md](perturbations.md) | Harris-Priester density and geodetic height, differential drag, cannonball and flat-plate solar pressure, cylindrical and conical Earth shadow, the forces left out |

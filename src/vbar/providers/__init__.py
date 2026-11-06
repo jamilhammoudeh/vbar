@@ -8,7 +8,9 @@ supervisor study reruns instead of counting against the model.
 
 from __future__ import annotations
 
-from ..agents.llm import InfrastructureError
+from typing import Any
+
+from ..agents.llm import InfrastructureError, Model
 
 MESSAGES = {
     "key": "The provider refused the API key; run `vbar setup` and paste a valid key.",
@@ -74,10 +76,82 @@ def provider_error(kind: str, *, model: str = "", status: int = 0) -> ProviderEr
     return ProviderError(kind, model=model, status=status)
 
 
+# The catalogue checks addresses with the http module, which imports `provider_error` from here.
+from .catalog import PLACEHOLDER_KEY, PROVIDERS, ListedModel, Provider  # noqa: E402
+
+
+def connect(
+    provider: Provider,
+    model: str,
+    key: str | None,
+    *,
+    max_output_tokens: int,
+    base_url: str | None = None,
+) -> Model:
+    """A model function for `model` at `provider`, called with `key`.
+
+    Parameters
+    ----------
+    provider : Provider
+        The catalogue entry.
+    model : str
+        The model name the provider knows.
+    key : str or None
+        The API key; an entry that takes no key is sent `PLACEHOLDER_KEY` instead.
+    max_output_tokens : int
+        The reply limit sent with every request.
+    base_url : str, optional
+        The API root, replacing the entry's own.
+
+    Returns
+    -------
+    Model
+        `complete(messages, tools) -> Reply`, whose `repr` omits the key. A listed model's
+        `extra_body` fields are sent with every request.
+
+    Raises
+    ------
+    ValueError
+        If no address is given for an entry without one, the address is refused, the entry needs
+        a key and none is given, the key holds a control or non-ASCII character, or
+        `max_output_tokens` is not a positive integer.
+    """
+    from .chat import ChatModel
+    from .generate import GenerateModel
+    from .messages import MessagesModel
+
+    url = base_url or provider.base_url
+    if url is None:
+        raise ValueError(f"{provider.label} needs an address; give one with --base-url")
+    if not provider.needs_key:
+        key = PLACEHOLDER_KEY
+    elif not key:
+        raise ValueError(f"{provider.label} needs an API key; run `vbar setup`")
+    common: dict[str, Any] = {
+        "base_url": url,
+        "model": model,
+        "max_output_tokens": max_output_tokens,
+    }
+    if provider.wire == "chat":
+        listed = provider.listed(model)
+        body = {**provider.extra_body, **(listed.extra_body if listed is not None else {})}
+        return ChatModel(**common, key=key, headers=provider.extra_headers, extra_body=body)
+    if provider.wire == "messages":
+        return MessagesModel(**common, key=key, headers=provider.extra_headers)
+    # `Provider` requires `auth_header` in the generate format.
+    assert provider.auth_header is not None
+    return GenerateModel(**common, key=key, auth_header=provider.auth_header)
+
+
 __all__ = [
     "INFRASTRUCTURE_KINDS",
     "MESSAGES",
+    "PLACEHOLDER_KEY",
+    "PROVIDERS",
+    "ListedModel",
+    "Provider",
     "ProviderError",
     "ProviderUnavailable",
+    "connect",
     "provider_error",
 ]

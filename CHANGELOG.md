@@ -31,7 +31,21 @@ release may change the public API, and every such change is listed under Changed
   verdict, one sentence on why (`WHY` has one for every failure label and for a crashed flight)
   and the arrival, keep-out zone, fuel, cost and advisory checks, each a measured fact and the
   rule it was held to. `graded_card` gives the pass count over several starts with its exact 95%
-  range. `docs/evaluation.md` documents it.
+  range. Without `least_fuel` the fuel check says it is not compared with the least possible.
+  `docs/evaluation.md` documents it.
+- The `vbar` command (also `python -m vbar`). `vbar setup` picks a provider from
+  `vbar.providers.catalog.PROVIDERS`, reads the key through a hidden prompt or `--key-stdin`, tests
+  it with one call and stores it only if the call succeeds. `vbar run` flies a built-in controller
+  or the connected model on a scenario and prints a plain-language scorecard per flight, with a
+  dollar cap and a call cap for model runs and an optional JSON record. It works out the least
+  fuel possible from each start (cached per start and version; `--no-fuel-bound` skips it), asks
+  through numbered menus on a terminal when `--scenario` or `--controller` is missing, colours the
+  verdicts on a terminal unless `NO_COLOR` is set, and saves each run under `vbar-runs/` unless
+  `--no-save` is given. The catalogue lists three providers with dated prices, their sources and
+  whether each model takes tools, a local server and any other address.
+  `vbar.providers.connect` builds the model function for a catalogue entry. `docs/command-line.md`
+  and `docs/setup.md` document them.
+- `ChatModel` takes `headers` and `extra_body` for further request headers and body fields.
 
 ## [0.7.0] - 2026-11-02
 
