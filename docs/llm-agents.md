@@ -27,7 +27,8 @@ prompt string to a reply string.
 
 `LLMAgent` reads no API key: it calls the function it is given, and that function reads whatever
 its client needs. The key store, `vbar.providers.store`, keeps one key in a file of the user's
-configuration folder, or takes it from `VBAR_LLM_API_KEY` ([setup.md](setup.md)). The only
+configuration folder, or takes it from `VBAR_LLM_API_KEY` ([setup.md](setup.md)); it comes in the
+next release and is not in the 0.7.0 release on PyPI. The only
 environment variables the package looks at are `JAVA_HOME`, for the Orekit backend,
 `VBAR_HIDDEN_SEED_KEY` and `VBAR_HIDDEN_SEED_LOG`, for the hidden seed split, and
 `VBAR_LLM_API_KEY`, `VBAR_CONFIG_DIR`, `APPDATA` and `XDG_CONFIG_HOME`, for the key store, and
@@ -249,6 +250,10 @@ is then refused. A cap set a little under the money available covers that last c
 not the grid.
 
 ## Providers
+
+The providers come in the next release; they are not in the 0.7.0 release on PyPI.
+`pip install git+https://github.com/jamilhammoudeh/vbar` installs the development version, which
+has them.
 
 `vbar.providers.chat.ChatModel(base_url=..., model=..., key=..., max_output_tokens=...)` is a model
 function for servers that speak the chat format: it POSTs to `{base_url}/chat/completions` with

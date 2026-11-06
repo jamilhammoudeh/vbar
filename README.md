@@ -57,17 +57,21 @@ numpy, scipy and gymnasium. Each optional feature has an extra:
 | `plot` | `pip install "vbar[plot]"` | plots and animations |
 | `onnx` | `pip install "vbar[onnx]"` | ONNX policy export and inference |
 | `replay` | `pip install "vbar[replay]"` | replays for the Rerun viewer |
-| `llm` | `pip install "vbar[llm]"` | python-dotenv, which reads model settings from a `.env` file ([LLM controllers](#llm-controllers)) |
+| `llm` | `pip install "vbar[llm]"` | python-dotenv, which reads model settings from a `.env` file ([LLM controllers](#llm-controllers)); not in the 0.7.0 release, where `pip install python-dotenv` does the same |
 | `basilisk` | `pip install "vbar[basilisk]"` | agreement checks against Basilisk |
 | `orekit` | `pip install "vbar[orekit]"` | agreement checks against Orekit; needs a Java runtime (11 or later) on `JAVA_HOME` |
 
 To work on V-BAR itself, see
 [CONTRIBUTING.md](https://github.com/jamilhammoudeh/vbar/blob/main/CONTRIBUTING.md).
 
-## Try it without writing code
+## Try it without writing code (next release)
+
+The `vbar` command comes in the next release; it is not in the 0.7.0 release on PyPI, so
+`pip install vbar` does not give it. To try it now, install the development version from this
+repository (this needs git):
 
 ```bash
-pip install vbar
+pip install git+https://github.com/jamilhammoudeh/vbar
 vbar setup
 vbar run
 ```
@@ -97,7 +101,7 @@ Cost: free
 
 A run with an AI model stops when it reaches a dollar cap ($1.00 by default; `--max-usd` changes
 it). If the `vbar` command is not on your PATH, `python -m vbar` does the same. The commands are
-in the development version and are described in
+described in
 [docs/command-line.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/command-line.md);
 where the key is kept is in
 [docs/setup.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/setup.md).
@@ -338,7 +342,7 @@ and refuse environments built for training.
 `LLMAgent` wraps any model through a function you fill in, `complete(messages, tools)`. It sends
 the decision's conversation to your model client and returns a `Reply` (the text and the token
 counts the provider reports) or just the text. `text_model` adapts a client that takes a prompt
-string and returns text. V-BAR has no model client of its own:
+string and returns text. `LLMAgent` has no model client of its own:
 
 ```python
 from vbar import ApproachConfig, ApproachEnv, run_episode
@@ -361,10 +365,14 @@ plain = LLMAgent(text_model(lambda prompt: '{"ax": 0.0, "ay": 0.0, "az": 0.0}'))
 To fly an episode with your own model, fill in `complete()` in `examples/llm_controller.py`, copy
 `.env.example` to `.env`, set `VBAR_LLM_API_KEY` and `VBAR_LLM_MODEL` there, and run
 `python examples/llm_controller.py` from a clone of the repository. With no key it flies a scripted
-stand-in offline. python-dotenv, installed by `pip install "vbar[llm]"`, reads the file; without it
-the example reads the OS environment only, and a variable already set there wins over the file.
-`.env` is git-ignored. V-BAR itself reads no API key or model name; the function you write reads its
-own ([API keys](https://github.com/jamilhammoudeh/vbar/blob/main/docs/llm-agents.md#api-keys)).
+stand-in offline. python-dotenv, installed by `pip install "vbar[llm]"` (not in the 0.7.0
+release, where `pip install python-dotenv` does the same), reads the file; without it the example
+reads the OS environment only, and a variable already set there wins over the file. `.env` is
+git-ignored.
+`LLMAgent` reads no API key or model name; the function you write reads its own
+([API keys](https://github.com/jamilhammoudeh/vbar/blob/main/docs/llm-agents.md#api-keys)). The
+`vbar` command, from the next release, is the one part of V-BAR that reads a key: `VBAR_LLM_API_KEY`
+when it is set, otherwise the key `vbar setup` stored.
 
 Each step's prompt gives the frame, the mean motion, the task's goal and constraints in words, the
 current state measured against them (offsets from a docking port's axis, coverage of an

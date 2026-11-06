@@ -297,6 +297,10 @@ nothing, since the results file already holds both episodes.
 
 ## Scorecard
 
+The scorecard comes in the next release; it is not in the 0.7.0 release on PyPI.
+`pip install git+https://github.com/jamilhammoudeh/vbar` installs the development version, which
+has it.
+
 `vbar.scorecard` reads the metrics of `vbar.metrics.evaluate` in words a reader without a
 background in rendezvous can follow. `flight_card(metrics, view, *, least_fuel=None, best_plan=None,
 calls=None, cap=None, soft=(), decisions=None)` gives one flight's card: a verdict ("Passed" or "Did not pass"), one sentence on why,

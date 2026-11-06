@@ -77,6 +77,12 @@ image proxy times out on badge services. A version bump also replaces `docs/badg
 example `curl -o docs/badges/pypi.svg https://img.shields.io/badge/pypi-v0.8.0-ea7233`;
 `tests/test_badges.py` fails until the badge shows the package version.
 
+The README and `docs/` describe `main`. A feature merged there before its release is marked where
+a user would follow it: it comes in the next release, it is "not in the X.Y.Z release" (the
+current version), and `pip install git+https://github.com/jamilhammoudeh/vbar` gets the
+development version. The release that ships it removes those notes; `tests/test_readme.py` fails
+after its version bump until it does.
+
 ## Issues
 
 Use the templates for bug reports, feature requests and scenario proposals.

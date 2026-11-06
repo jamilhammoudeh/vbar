@@ -1,4 +1,4 @@
-"""The README opens with the install and one episode, and names each optional extra."""
+"""The README opens with the install and one episode, names each extra and marks what PyPI lacks."""
 
 import ast
 import re
@@ -6,10 +6,22 @@ import tomllib
 
 from test_docs import ROOT
 
+from vbar import __version__
+
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 EXTRAS = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
     "optional-dependencies"
 ]
+CHANGELOG = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+UNRELEASED = CHANGELOG.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+DEVELOPMENT = "pip install git+https://github.com/jamilhammoudeh/vbar"
+COMMAND_UNRELEASED = "\n- The `vbar` command" in UNRELEASED
+PAGES = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
+
+
+def release_notes(text):
+    """Versions named by the notes "not in the X.Y.Z release", line breaks allowed."""
+    return set(re.findall(r"not\s+in\s+the\s+(\d+\.\d+\.\d+)\s+release", text))
 
 
 def headings():
@@ -72,3 +84,32 @@ def test_llm_controllers_section_names_the_key_the_example_and_the_extra():
 def test_readme_names_the_install_extra_of_every_optional_feature():
     missing = [extra for extra in EXTRAS if extra != "dev" and f"vbar[{extra}]" not in README]
     assert missing == []
+
+
+def test_command_line_section_installs_from_the_repository_until_the_command_is_released():
+    # Following `pip install vbar` with `vbar setup` fails on a release without the command.
+    title = next(t for _, t in headings() if t.startswith("Try it without writing code"))
+    body = section(title)
+    assert (DEVELOPMENT in body) == COMMAND_UNRELEASED
+    assert bool(re.search(r"^pip install vbar$", body, re.M)) != COMMAND_UNRELEASED
+    assert ("(next release)" in title) == COMMAND_UNRELEASED
+
+
+def test_pages_of_the_command_say_the_release_lacks_it_until_it_is_released():
+    for name in ("command-line.md", "setup.md", "evaluation.md", "llm-agents.md"):
+        text = (ROOT / "docs" / name).read_text(encoding="utf-8")
+        assert (release_notes(text) == {__version__}) == COMMAND_UNRELEASED, name
+
+
+def test_llm_extra_row_says_the_release_lacks_it_until_it_is_released():
+    row = next(line for line in README.splitlines() if line.startswith("| `llm` |"))
+    assert bool(release_notes(row)) == ("\n- The `llm` extra" in UNRELEASED)
+
+
+def test_notes_on_what_the_release_lacks_name_the_current_version():
+    # The next release's version bump fails this until the release removes its notes.
+    for page in PAGES:
+        text = page.read_text(encoding="utf-8")
+        assert release_notes(text) <= {__version__}, page.name
+        if re.search(r"next\s+release", text):
+            assert __version__ in release_notes(text), page.name
