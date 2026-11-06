@@ -99,7 +99,12 @@ fuel possible from this start." first. The oracle gives a certified lower bound 
 it found, both as delta-v; the card turns them into propellant mass with the rocket equation,
 m = m0 (1 - exp(-dv / (Isp g0))), with the scenario's initial mass and specific impulse, and
 shows the fuel used as a range of times the least possible (on a passed flight) or the floor and
-best plan (on a failed one). A start takes about 10 s (`time.perf_counter` around `bounds_for` on
+best plan (on a failed one). The floor is claimed only where the metrics certify it for the
+flight (`optimality_gap`): the lower bound for a flight that kept within the acceleration the
+bound assumes, the impulsive lower bound for one that did not, and none for a flight on other
+dynamics than the bound's, against a target that moved otherwise than briefed, or over the limit
+without an impulsive bound. Without a certified floor the card gives the best plan alone, says no
+least possible is certified for the flight and does not compare the fuel. A start takes about 10 s (`time.perf_counter` around `bounds_for` on
 the PD controller's approach-vbar flights from seeds 3 and 11: 6.8 s and 10.1 s on a shared
 laptop), so before more than 5 new starts the run states the time it expects. Bounds are cached
 in `fuel-bounds.json` in the settings folder ([setup.md](setup.md)), keyed by package version,

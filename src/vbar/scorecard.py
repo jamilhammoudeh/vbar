@@ -172,6 +172,7 @@ def flight_card(
     view: AgentView,
     *,
     least_fuel: tuple[float, float] | None = None,
+    best_plan: float | None = None,
     calls: int | None = None,
     cap: float | None = None,
     soft: Collection[str] = (),
@@ -189,7 +190,11 @@ def flight_card(
         The scenario's public description: goal, constraints and step length.
     least_fuel : tuple of float, optional
         Propellant mass (kg) no controller can go below from this start, and the mass of the best
-        plan found, floor first. Without it the fuel is not compared.
+        plan found, floor first. Give it only when the floor is certified for this flight
+        (`optimality_gap`'s `bound_certified`). Without it the fuel is not compared.
+    best_plan : float, optional
+        Propellant mass (kg) of the best plan found, for a start whose floor is not certified for
+        this flight; shown, and the fuel not compared, when `least_fuel` is not given.
     calls : int, optional
         Calls made to an AI model. None, with no `token_cost` in `metrics`, marks a controller
         that calls no model, which costs nothing.
@@ -211,19 +216,25 @@ def flight_card(
     Raises
     ------
     ValueError
-        If `least_fuel` is not a positive floor at or below a finite best plan.
+        If `least_fuel` is not a positive floor at or below a finite best plan, or `best_plan`
+        is not positive and finite.
     KeyError
         If the failure label is not in `WHY`.
     """
     if least_fuel is not None and not 0.0 < least_fuel[0] <= least_fuel[1] < math.inf:
         raise ValueError("least_fuel must be 0 < floor <= best plan, in kg")
+    if best_plan is not None and not 0.0 < best_plan < math.inf:
+        raise ValueError("best_plan must be positive and finite, in kg")
     passed = bool(metrics.get("success", False))
     arrived = _arrived(metrics, view.goal)
     keep_out = _keep_out_radius(view)
     checks = [_arrival(metrics, view.goal, arrived)]
     if keep_out is not None:
         checks.append(_keep_out(metrics, keep_out))
-    checks += [_fuel(metrics, passed, least_fuel), _cost(metrics, view.dt, calls, cap, decisions)]
+    checks += [
+        _fuel(metrics, passed, least_fuel, best_plan),
+        _cost(metrics, view.dt, calls, cap, decisions),
+    ]
     checks += _also_seen(metrics, view, passed, soft)
     return Scorecard(
         verdict="Passed" if passed else "Did not pass",
@@ -411,13 +422,21 @@ def _keep_out(metrics: Mapping[str, Any], radius: float) -> Check:
 
 
 def _fuel(
-    metrics: Mapping[str, Any], passed: bool, least_fuel: tuple[float, float] | None
+    metrics: Mapping[str, Any],
+    passed: bool,
+    least_fuel: tuple[float, float] | None,
+    best_plan: float | None,
 ) -> Check:
     """The fuel check: mass used, and its ratio to the least possible on a passed flight."""
     used = _finite(metrics.get("propellant_mass"))
     if used is None:
         return Check("Fuel", "Not recorded", "No fuel mass was recorded for this flight.", "")
-    if least_fuel is None:
+    if least_fuel is None and best_plan is not None:
+        floor = (
+            "Not compared with the least possible from this start: the best plan V-BAR found "
+            f"uses {_mass(best_plan)}, but no least possible is certified for this flight."
+        )
+    elif least_fuel is None:
         floor = "Not compared with the least possible from this start, which was not worked out."
     else:
         floor = (

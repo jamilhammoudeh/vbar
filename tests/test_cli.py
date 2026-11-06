@@ -1020,3 +1020,26 @@ def test_a_key_of_four_characters_is_never_echoed_by_show(config):
     ran = call("setup", "--show")
     assert "key stored: yes" in ran.out
     assert SHORT_KEY not in ran.text
+
+
+def test_an_uncertified_floor_is_not_claimed_as_the_least_any_controller_can_use(
+    replayed, fixed_bounds, pd_episode
+):
+    # The PD run thrusts far above 1e-6 m/s^2, so the lower bound is not certified for it.
+    bounds = FuelBounds(lower=2.0, upper=3.0, norm="l1", rung="cw", accel_limit=1e-6)
+    assert metrics.optimality_gap(pd_episode, bounds)["bound_certified"] is False
+    fixed_bounds.append(bounds)
+    block = fuel_block(call(*PD_RUN, "--seeds", "5", "--no-save"))
+    assert "No controller can use less than" not in block
+
+
+def test_a_run_over_the_limit_is_held_to_the_impulsive_floor(replayed, fixed_bounds, pd_episode):
+    bounds = FuelBounds(
+        lower=2.0, upper=3.0, norm="l1", rung="cw", accel_limit=1e-6, impulsive_lower=1.0
+    )
+    fixed_bounds.append(bounds)
+    block = fuel_block(call(*PD_RUN, "--seeds", "5", "--no-save"))
+    m0, isp = pd_episode.view.mass_kg, pd_episode.isp
+    assert f"less than {scorecard_mass(propellant(m0, isp, 2.0))}" not in block
+    impulsive = scorecard_mass(propellant(m0, isp, 1.0))
+    assert impulsive in block

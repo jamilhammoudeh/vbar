@@ -298,8 +298,8 @@ nothing, since the results file already holds both episodes.
 ## Scorecard
 
 `vbar.scorecard` reads the metrics of `vbar.metrics.evaluate` in words a reader without a
-background in rendezvous can follow. `flight_card(metrics, view, *, least_fuel=None, calls=None,
-cap=None, soft=(), decisions=None)` gives one flight's card: a verdict ("Passed" or "Did not pass"), one sentence on why,
+background in rendezvous can follow. `flight_card(metrics, view, *, least_fuel=None, best_plan=None,
+calls=None, cap=None, soft=(), decisions=None)` gives one flight's card: a verdict ("Passed" or "Did not pass"), one sentence on why,
 and checks, each a measured fact followed by the rule it was held to and marked met or not met in
 words. `card.text()` renders it as plain text without colour.
 
@@ -314,8 +314,10 @@ words. `card.text()` renders it as plain text without colour.
   keep-out constraint.
 - **Fuel**: propellant used, in kilograms or grams; delta-v stays in the full metrics.
   `least_fuel` is the floor no controller can go below from this start and the best plan found,
-  both in kilograms, so the ratio to the least possible is a range; without it the fact says
-  the fuel is not compared with the least possible. Fuel is ranked only on flights that pass, as
+  both in kilograms, so the ratio to the least possible is a range. Give it only when the floor
+  is certified for the flight (`optimality_gap`'s `bound_certified`); otherwise `best_plan`, the
+  best plan's mass alone, is shown with the note that no least possible is certified for the
+  flight. Without either the fact says the fuel is not compared with the least possible. Fuel is ranked only on flights that pass, as
   the benchmark ranks it.
 - **Cost**: "Free" for a controller that calls no model; for an AI model, the estimate from
   listed prices against the cap, the number of calls and the replies that could not be read (the

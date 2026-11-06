@@ -461,17 +461,35 @@ def _write_bounds(cached: Mapping[str, FuelBounds]) -> None:
     (folder / BOUNDS_CACHE).write_text(json.dumps(entries, indent=1), encoding="utf-8")
 
 
-def _least_fuel(bounds: FuelBounds | None, episode) -> tuple[float, float] | None:
-    """The bound's floor and best plan as propellant mass (kg), or None when it is not usable."""
-    if bounds is None or bounds.infeasible:
-        return None
-    if not (bounds.lower > 0.0 and math.isfinite(bounds.upper)):
-        return None
+def _least_fuel(
+    bounds: FuelBounds | None, episode
+) -> tuple[tuple[float, float] | None, float | None]:
+    """The certified floor and best plan as propellant mass (kg), and the best plan alone when no
+    floor is certified for the flight; None where there is none.
+
+    The floor is the one `optimality_gap` certifies: `lower` for a flight that kept within the
+    acceleration it assumes, else `impulsive_lower`.
+    """
+    from . import metrics
+
+    if bounds is None or bounds.infeasible or not math.isfinite(bounds.upper):
+        return None, None
     exhaust = episode.isp * G0
-    floor, best = (
-        -episode.view.mass_kg * math.expm1(-dv / exhaust) for dv in (bounds.lower, bounds.upper)
-    )
-    return floor, best
+
+    def mass(dv: float) -> float:
+        return -episode.view.mass_kg * math.expm1(-dv / exhaust)
+
+    best = mass(bounds.upper) if bounds.upper > 0.0 else None
+    without_impulsive = dataclasses.replace(bounds, impulsive_lower=None)
+    if metrics.optimality_gap(episode, without_impulsive)["bound_certified"]:
+        floor_dv: float | None = bounds.lower
+    elif metrics.optimality_gap(episode, bounds)["bound_certified"]:
+        floor_dv = bounds.impulsive_lower
+    else:
+        floor_dv = None
+    if best is None or floor_dv is None or not floor_dv > 0.0:
+        return None, best
+    return (mass(floor_dv), best), None
 
 
 def _paint(text: str, colour: bool) -> str:
@@ -600,10 +618,12 @@ def run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
                         _write_bounds(cached)
             measured = metrics.evaluate(episode, settings, bounds=bounds, report=report)
             usage = agent.usage() if isinstance(agent, LLMAgent) else None
+            least_fuel, best_plan = _least_fuel(bounds, episode)
             card = flight_card(
                 measured,
                 episode.view,
-                least_fuel=_least_fuel(bounds, episode),
+                least_fuel=least_fuel,
+                best_plan=best_plan,
                 calls=None if usage is None else usage["model_calls"],
                 cap=max_usd,
                 soft=env.soft_constraints,

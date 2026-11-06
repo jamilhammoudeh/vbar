@@ -1,6 +1,7 @@
 """The plain-language scorecard reads a flight's metrics as a verdict, a reason and checks."""
 
 import inspect
+import math
 import re
 
 import pytest
@@ -131,6 +132,25 @@ def test_failed_flight_fuel_is_not_ranked(pd_flight):
     assert "1.50 kg" in fuel.fact
     assert "times" not in fuel.fact + fuel.needed
     assert "ranked only on flights that pass" in fuel.needed
+
+
+@pytest.mark.parametrize("passed", [True, False])
+def test_an_uncertified_floor_leaves_only_the_best_plan_on_the_card(pd_flight, passed):
+    metrics, view = pd_flight
+    flown = passing(metrics) if passed else metrics
+    fuel = check(flight_card(flown, view, best_plan=0.214), "Fuel")
+    text = words(fuel.fact + " " + fuel.needed)
+    assert "the best plan V-BAR found uses 214 g" in text
+    assert "no least possible is certified for this flight" in text
+    assert "No controller can use less than" not in text
+    assert "times" not in text
+
+
+@pytest.mark.parametrize("best_plan", [-0.2, 0.0, math.nan, math.inf])
+def test_a_best_plan_that_is_not_a_positive_finite_mass_is_refused(pd_flight, best_plan):
+    metrics, view = pd_flight
+    with pytest.raises(ValueError, match="best_plan"):
+        flight_card(metrics, view, best_plan=best_plan)
 
 
 def test_built_in_controller_costs_nothing(pd_flight):
