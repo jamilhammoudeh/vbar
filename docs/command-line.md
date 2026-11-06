@@ -93,8 +93,9 @@ fuel possible from this start." first. The oracle gives a certified lower bound 
 it found, both as delta-v; the card turns them into propellant mass with the rocket equation,
 m = m0 (1 - exp(-dv / (Isp g0))), with the scenario's initial mass and specific impulse, and
 shows the fuel used as a range of times the least possible (on a passed flight) or the floor and
-best plan (on a failed one). A start takes about 10 s (6.8 s and 10.1 s for two approach-vbar
-starts), so before more than 5 new starts the run states the time it expects. Bounds are cached
+best plan (on a failed one). A start takes about 10 s (`time.perf_counter` around `bounds_for` on
+the PD controller's approach-vbar flights from seeds 3 and 11: 6.8 s and 10.1 s on a shared
+laptop), so before more than 5 new starts the run states the time it expects. Bounds are cached
 in `fuel-bounds.json` in the settings folder ([setup.md](setup.md)), keyed by package version,
 scenario identifier and seed, so a start is solved once per version. A cache file that cannot be
 read, including one nested too deeply to parse, is ignored and the bounds are worked out again.
