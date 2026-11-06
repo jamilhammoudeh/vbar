@@ -1,4 +1,4 @@
-"""The package reads no model key: the only variables it looks at are its own and JAVA_HOME."""
+"""The environment variables the package reads: its own, JAVA_HOME and the config folder's."""
 
 import ast
 from pathlib import Path
@@ -127,11 +127,23 @@ def test_scan_reports_a_variable_read_through_getattr_on_an_alias():
     assert scan(source) == ({"A", "B"}, [])
 
 
-def test_the_package_reads_only_java_home_and_the_hidden_split_variables():
+def test_the_package_reads_only_its_own_variables_java_home_and_the_config_folders():
     names, unresolved = set(), []
     for path in sorted(SOURCE.rglob("*.py")):
         found, lines = scan(path.read_text(encoding="utf-8"))
         names |= found
         unresolved += [f"{path.relative_to(SOURCE)}:{line}" for line in lines]
     assert unresolved == []
-    assert names == {"JAVA_HOME", HIDDEN_LOG_VARIABLE, HIDDEN_KEY_VARIABLE}
+    # The stored key's folder follows APPDATA on Windows and XDG_CONFIG_HOME elsewhere; the
+    # only key the package reads from the environment is its own VBAR_LLM_API_KEY. NO_COLOR
+    # turns off the command line's colour (no-color.org).
+    assert names == {
+        "NO_COLOR",
+        "JAVA_HOME",
+        HIDDEN_LOG_VARIABLE,
+        HIDDEN_KEY_VARIABLE,
+        "VBAR_CONFIG_DIR",
+        "VBAR_LLM_API_KEY",
+        "APPDATA",
+        "XDG_CONFIG_HOME",
+    }

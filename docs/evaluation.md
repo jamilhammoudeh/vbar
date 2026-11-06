@@ -295,6 +295,75 @@ suite with `register_suite` and calls `vbar.eval.__main__.main(["reproduce", "qu
 the entry point of `python -m vbar.eval`, with a one-table manifest. Running that cell again flies
 nothing, since the results file already holds both episodes.
 
+## Scorecard
+
+`vbar.scorecard` reads the metrics of `vbar.metrics.evaluate` in words a reader without a
+background in rendezvous can follow. `flight_card(metrics, view, *, least_fuel=None, best_plan=None,
+calls=None, cap=None, soft=(), decisions=None)` gives one flight's card: a verdict ("Passed" or "Did not pass"), one sentence on why,
+and checks, each a measured fact followed by the rule it was held to and marked met or not met in
+words. `card.text()` renders it as plain text without colour.
+
+- **Arrival** reads the goal's own rule: for a hold, within the capture radius and below the
+  capture speed for the hold time, from the longest dwell (`hold_dwell`); for a docking, the
+  contact margin, with the rule naming every contact limit: the offset from the port's center, the
+  speed along its axis (a window, so too slow fails as well as too fast) and the sideways speed; for an inspection, the coverage. A failed flight can have met its goal and still
+  broken a hard constraint; for other goals the metrics cannot tell, and the check says "Not
+  judged".
+- **Keep-out zone**: time inside the zone (`violation_duration`) and the closest distance to the
+  target, the zone's radius plus `min_margin`. Needed: never inside. Shown when the scenario has a
+  keep-out constraint.
+- **Fuel**: propellant used, in kilograms or grams; delta-v stays in the full metrics.
+  `least_fuel` is the floor no controller can go below from this start and the best plan found,
+  both in kilograms, so the ratio to the least possible is a range. Give it only when the floor
+  is certified for the flight (`optimality_gap`'s `bound_certified`); otherwise `best_plan`, the
+  best plan's mass alone, is shown with the note that no least possible is certified for the
+  flight. Without either the fact says the fuel is not compared with the least possible. Fuel is ranked only on flights that pass, as
+  the benchmark ranks it.
+- **Cost**: "Free" for a controller that calls no model; for an AI model, the estimate from
+  listed prices against the cap, the number of calls and the replies that could not be read (the
+  spacecraft coasts for each, one step long). The parse-failure rate is per thrust command, so
+  the unread count is the rate times `decisions`, the commands asked for, at most one per command;
+  when the model uses tools a command takes several calls, and without `decisions` each call is
+  taken as one command. It never names a provider: the provider's bill is
+  final.
+- **Also seen**: breaches of the other constraints, each with its duration. A breach of a
+  constraint named in `soft` (pass `env.soft_constraints`) is advisory and does not fail the
+  flight, and so is every breach on a passed flight, since a pass breaks no hard constraint. Other
+  breaches on a failed flight are recorded in a second "Also seen" check of their own.
+
+The reason for a failed flight is `WHY[label]`, one everyday sentence for each label in
+`vbar.metrics.LABELS` and for "error", the label of a flight whose controller raised. A flight that
+met its goal and crossed the keep-out zone says both. A speed-limit failure names the limit that was broken: the
+closing speed toward the target, or the whole relative speed. A docking contact out of tolerance
+names each limit it broke. The card has no composite score: that score
+needs its weights beside it, which the full metrics carry.
+
+One flight is a demonstration, not a grade, and the card says so. `graded_card(cards)` grades
+flights from several starts: the pass count, the exact (Clopper-Pearson) 95% interval of the pass
+rate from `clopper_pearson`, and how many flights entered the keep-out zone. A crashed flight counts
+as flown and not passed.
+
+```python
+from vbar.agents import PDAgent
+from vbar.metrics import evaluate, record_episode
+from vbar.scenarios import make, seeds
+from vbar.scorecard import WHY, flight_card, graded_card
+
+env = make("approach-vbar", max_steps=5)
+flights = []
+for seed, agent_seed in seeds("approach-vbar", "validation", 2).pairs():
+    episode = record_episode(env, PDAgent(), seed=seed, agent_seed=agent_seed)
+    flights.append(evaluate(episode, env.metric_settings()))
+
+card = flight_card(flights[0], episode.view, soft=env.soft_constraints)
+assert card.verdict == "Did not pass"
+assert card.why == WHY[flights[0]["failure_label"]]
+assert [check.name for check in card.checks][:4] == ["Arrival", "Keep-out zone", "Fuel", "Cost"]
+graded = graded_card(flights)
+assert (graded.passed, graded.flown) == (0, 2)
+assert "Passed 0 of 2 starts" in graded.text()
+```
+
 ## Inputs
 
 The statistics raise `ValueError` for a NaN score (the message names the scenario where there is
@@ -343,6 +412,9 @@ interval failing it. `tests/test_eval_documented_figures.py`: the other figures 
 validation.md quote: the bootstrap coverage at 5 and 20 runs, McNemar's false-positive rate from 5
 to 100 runs, the exact rate interval's coverage from 1 to 200 runs, the documented defaults and the
 safety-tail figures.
+`tests/test_scorecard.py`: a sentence for every failure label, the PD flight through the keep-out
+zone read from its metrics, the fuel range, the cost line, advisory breaches, plain text free of
+benchmark terms, and the graded range against the exact binomial interval.
 `tests/test_eval_report.py`: complete reports, refusals, the command line and the manifest.
 `tests/test_eval_reproduce_scripts.py`: `[[script]]` entries run in the manifest folder, capture
 standard output, skip finished outputs, honour `--force` and `--skip-missing`, name a failed script

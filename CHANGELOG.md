@@ -14,6 +14,38 @@ release may change the public API, and every such change is listed under Changed
   function to fill in with a model client. It reads `VBAR_LLM_API_KEY` and `VBAR_LLM_MODEL` from
   the environment or a `.env` file (copy `.env.example`; `.env` is git-ignored), and flies a
   scripted stand-in when no key is set.
+- `vbar.providers.store` keeps one API key in `credentials.json` and the provider settings in
+  `config.json`, in `%APPDATA%\vbar` on Windows and `$XDG_CONFIG_HOME/vbar` or `~/.config/vbar`
+  elsewhere (0600 files in a 0700 folder on POSIX). `VBAR_LLM_API_KEY` overrides the stored key and
+  `VBAR_CONFIG_DIR` the folder. `docs/setup.md` documents it.
+- `vbar.providers.chat.ChatModel`, a model function for servers that speak the chat format, built
+  on the standard library. It refuses redirects and plain HTTP to other hosts, retries rate limits
+  and server errors at most twice, and raises `vbar.providers.ProviderError` with a `kind` and a
+  fixed sentence from `MESSAGES`; rate, network and server failures are also
+  `InfrastructureError`. The key never appears in its errors, logs or `repr`.
+- `vbar.providers.messages.MessagesModel` and `vbar.providers.generate.GenerateModel`, model
+  functions for the messages and generate formats with the same checks and error kinds. Both send
+  back each reply's thinking blocks or thought signatures unchanged with the tool results; the
+  caller passes the provider's version and key header names.
+- `vbar.scorecard` reads a flight's metrics as a plain-language card: `flight_card` gives a
+  verdict, one sentence on why (`WHY` has one for every failure label and for a crashed flight)
+  and the arrival, keep-out zone, fuel, cost and advisory checks, each a measured fact and the
+  rule it was held to. `graded_card` gives the pass count over several starts with its exact 95%
+  range. Without `least_fuel` the fuel check says it is not compared with the least possible.
+  `docs/evaluation.md` documents it.
+- The `vbar` command (also `python -m vbar`). `vbar setup` picks a provider from
+  `vbar.providers.catalog.PROVIDERS`, reads the key through a hidden prompt or `--key-stdin`, tests
+  it with one call and stores it only if the call succeeds. `vbar run` flies a built-in controller
+  or the connected model on a scenario and prints a plain-language scorecard per flight, with a
+  dollar cap and a call cap for model runs and an optional JSON record. It works out the least
+  fuel possible from each start (cached per start and version; `--no-fuel-bound` skips it), asks
+  through numbered menus on a terminal when `--scenario` or `--controller` is missing, colours the
+  verdicts on a terminal unless `NO_COLOR` is set, and saves each run under `vbar-runs/` unless
+  `--no-save` is given. The catalogue lists three providers with dated prices, their sources and
+  whether each model takes tools, a local server and any other address.
+  `vbar.providers.connect` builds the model function for a catalogue entry. `docs/command-line.md`
+  and `docs/setup.md` document them.
+- `ChatModel` takes `headers` and `extra_body` for further request headers and body fields.
 
 ## [0.7.0] - 2026-11-02
 

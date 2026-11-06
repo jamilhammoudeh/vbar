@@ -1,0 +1,119 @@
+{
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hold at the V-bar point."
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "functionCall": {
+            "id": "call-1",
+            "name": "predict_coast",
+            "args": {
+              "seconds": 600.0
+            }
+          },
+          "thoughtSignature": "c2lnbmF0dXJlLTE="
+        },
+        {
+          "functionCall": {
+            "id": "call-2",
+            "name": "transfer_burn",
+            "args": {
+              "x": 0.0,
+              "y": -100.0,
+              "z": 0.0,
+              "seconds": 1500.0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "call-1",
+            "name": "predict_coast",
+            "response": {
+              "position_m": [
+                1.0,
+                2.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "functionResponse": {
+            "id": "call-2",
+            "name": "transfer_burn",
+            "response": {
+              "error": "singular transfer"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "functionDeclarations": [
+        {
+          "name": "predict_coast",
+          "description": "Predict the position and velocity after coasting (no thrust) for a number of seconds from the current observed state, and the closest distance to the target on the way.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "seconds": {
+                "type": "number",
+                "description": "coast duration, s"
+              }
+            },
+            "required": [
+              "seconds"
+            ]
+          }
+        },
+        {
+          "name": "transfer_burn",
+          "description": "Compute the two velocity changes (impulses) that move the spacecraft from its current observed state to rest at a point (x, y, z, in meters) in a given number of seconds.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "z": {
+                "type": "number"
+              },
+              "seconds": {
+                "type": "number",
+                "description": "transfer duration, s"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "z",
+              "seconds"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "maxOutputTokens": 2048
+  }
+}

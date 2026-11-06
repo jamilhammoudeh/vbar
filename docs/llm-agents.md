@@ -4,8 +4,9 @@ Code: `vbar.agents.llm` (`LLMAgent`, `Reply`, `ToolCall`, `Price`, `text_model`,
 `RecordedModel`, `ReplayModel`, `BudgetedModel`), `vbar.agents.briefing` (`briefing`, `situation`, `check_goal`,
 `target_mode`), `vbar.agents.tools` (`Tool`, `PREDICT_COAST`, `TRANSFER_BURN`, `CW_TOOLS`). An
 LLM agent flies every task kind (hold, berthing, docking, inspection, departure); it asks a
-language model for each command. V-BAR has no model client of its own: the model is any function,
-so a hosted API, a local model or a test stand-in plugs in the same way.
+language model for each command. The model is any function, so a hosted API, a local model or a
+test stand-in plugs in the same way; `vbar.providers.chat.ChatModel` is one such function for
+servers that speak the chat format ([Providers](#providers)).
 
 ## The model function
 
@@ -24,19 +25,23 @@ prompt string to a reply string.
 
 ## API keys
 
-V-BAR reads no API key and no model name. `LLMAgent` calls the function it is given, and that
-function reads whatever its client needs. The only environment variables the package looks at are
-`JAVA_HOME`, for the Orekit backend, and `VBAR_HIDDEN_SEED_KEY` and `VBAR_HIDDEN_SEED_LOG`, for the
-hidden seed split. `tests/test_environment_variables.py` parses every module of the package and
-checks each read through `os.environ` and `os.getenv`, including `from os import environ`,
-`import os as name` and `getattr` on the module: the variable must be one of these three, and a
-read whose name it cannot resolve to a literal or a known constant fails the test. It does not look
-at other routes to the environment, such as `os.environb`.
+`LLMAgent` reads no API key: it calls the function it is given, and that function reads whatever
+its client needs. The key store, `vbar.providers.store`, keeps one key in a file of the user's
+configuration folder, or takes it from `VBAR_LLM_API_KEY` ([setup.md](setup.md)). The only
+environment variables the package looks at are `JAVA_HOME`, for the Orekit backend,
+`VBAR_HIDDEN_SEED_KEY` and `VBAR_HIDDEN_SEED_LOG`, for the hidden seed split, and
+`VBAR_LLM_API_KEY`, `VBAR_CONFIG_DIR`, `APPDATA` and `XDG_CONFIG_HOME`, for the key store, and
+`NO_COLOR`, which turns off colour in the `vbar` command's output.
+`tests/test_environment_variables.py` parses every module of the package and checks each read
+through `os.environ` and `os.getenv`, including `from os import environ`, `import os as name` and
+`getattr` on the module: the variable must be one of these eight, and a read whose name it cannot
+resolve to a literal or a known constant fails the test. It does not look at other routes to the
+environment, such as `os.environb`.
 
 `examples/llm_controller.py` flies one episode and shows one way to keep the settings. Its
 `complete(messages, tools)` is the function to fill in with a call to your model client; as shipped
-it raises `NotImplementedError`. It takes two variables, `VBAR_LLM_API_KEY` and `VBAR_LLM_MODEL`,
-which are the example's own names. An unset or empty value counts as missing, and with no key the
+it raises `NotImplementedError`. It takes two variables, `VBAR_LLM_API_KEY`, the name the key
+store also reads, and `VBAR_LLM_MODEL`, the example's own. An unset or empty value counts as missing, and with no key the
 example flies a scripted stand-in that commands no thrust, so it runs offline.
 
 To keep the values in a file, copy `.env.example` to `.env` and fill in the two lines. Reading the
@@ -242,6 +247,106 @@ it. Such a call is charged what it reports and can take `spent_usd` past `max_us
 is then refused. A cap set a little under the money available covers that last call. Each
 `BudgetedModel` keeps its own totals, so a grid run with several worker processes caps each job,
 not the grid.
+
+## Providers
+
+`vbar.providers.chat.ChatModel(base_url=..., model=..., key=..., max_output_tokens=...)` is a model
+function for servers that speak the chat format: it POSTs to `{base_url}/chat/completions` with
+the key as `Authorization: Bearer` and returns a `Reply`. It uses only the standard library
+(`urllib`).
+
+| Neutral conversation | Chat format |
+|---|---|
+| tool spec `{name, description, parameters}` | `{"type": "function", "function": spec}`; no `tools` field without tools |
+| assistant `tool_calls` with `arguments` | `{"id", "type": "function", "function": {"name", "arguments"}}`, the arguments as a JSON string, or the model's own string when it was not a JSON object |
+| `role: "tool"` result | `role: "tool"` with `tool_call_id` and `content` |
+| reply limit `max_output_tokens` | `max_completion_tokens`, which counts reasoning tokens too |
+| `Reply.input_tokens`, `output_tokens` | `usage.prompt_tokens`, `usage.completion_tokens` (0 when missing) |
+
+No temperature is sent. A tool call whose `arguments` string is not a JSON object reaches the
+agent as that string, and the agent answers it with an error result. A reply whose `content` is
+neither a string nor null is kind `server`. A local server that ignores the key still gets one; any
+non-empty string of printable ASCII does, and `ChatModel` refuses any other key with a `ValueError`
+that does not quote it.
+
+Two more adapters take the same arguments: `vbar.providers.messages.MessagesModel`, which also
+takes `headers=` for the API version header its server requires, and
+`vbar.providers.generate.GenerateModel`, which takes `auth_header=`, the name of the provider's key
+header. Their `base_url` is the API root without a version.
+
+| | Messages format | Generate format |
+|---|---|---|
+| Endpoint and key | `{base_url}/v1/messages`, `Authorization: Bearer` | `{base_url}/v1beta/models/{model}:generateContent`, the provider's key header; a model name other than letters, digits, `.`, `_` and `-` is refused |
+| Tools | `{name, description, input_schema}` | one `{"functionDeclarations": [...]}` entry |
+| Assistant turn | thinking blocks, text, `tool_use` blocks | role `model`; the reply's parts as received |
+| Tool results | consecutive results merged into one user message, `tool_result` blocks first, a following user text appended | `functionResponse` parts of one user turn, the result parsed as a JSON object |
+| Reply limit | `max_tokens` | `generationConfig.maxOutputTokens` |
+| Tokens | `usage.input_tokens`, `usage.output_tokens` | input `promptTokenCount + toolUsePromptTokenCount`, output `candidatesTokenCount + thoughtsTokenCount` |
+
+Hidden reasoning goes back unchanged: the messages adapter keeps each reply's `thinking` and
+`redacted_thinking` blocks and sends them before the tool calls they came with, since the format
+refuses a tool round whose thinking was dropped; the generate adapter sends back the parts of a
+reply that called tools as received, thought signatures included (whether the format needs the
+signature inside the `functionCall` part is not confirmed). Each keeps these for its last 1024 tool
+calls, and neither puts thinking in `Reply.text`. A generate call without an id gets one from the
+adapter, which is not sent back.
+
+The transport, `vbar.providers.http.post_json`, refuses redirects, since urllib would resend a
+POST answered with 301, 302 or 303 as a GET to the new address, which may be another host, with
+the same headers. It verifies certificates with Python's default TLS context and allows plain
+`http://` only to `localhost` or a loopback address, checked before any connection; such a request
+bypasses any proxy set in the environment. An address holding a user name or password
+(`https://user:secret@host`) is refused with a `ValueError` that does not quote it, and the debug
+log names only the host. At most 8 MiB of a response body is read, whatever its status; a longer
+body is kind `server`. `timeout` (120 s by default) bounds the connection and each read.
+
+A failure raises `vbar.providers.ProviderError` whose `kind` names it and whose text is the fixed
+sentence `MESSAGES[kind]`, never the provider's own text, which may quote the key; only the model
+name (`model`) and the HTTP status (`refused`) are filled in. A `refused` request is one the
+provider will not accept however often it is sent, so its sentence asks to check the model with
+`vbar setup --show` rather than to try again:
+
+| Answer | Kind | Retried |
+|---|---|---|
+| 401 | `key` | no |
+| 429 with error type `insufficient_quota`, or code `insufficient_quota`, `credit_balance_exhausted`, `organization_spend_limit_exceeded`, `project_spend_limit_exceeded` or `organization_usage_limit_exceeded` | `credit` | no |
+| any other 429 | `rate` | yes |
+| 404 (assumed; the format's reference does not list it) | `model` | no |
+| any other 4xx, such as 400, 403 or 422 | `refused` | no |
+| 5xx, any other status, a body over 8 MiB, a success body without `choices` or with a `content` that is not a string or null | `server` | 5xx only |
+| refused connection, timeout, dropped connection, redirect | `network` | no |
+| certificate not verified | `tls` | no |
+
+The other two formats map their answers the same way where the table is silent, with these
+differences (the generate format's codes are documented for another API, so its mapping is
+assumed):
+
+| Answer | Messages format | Generate format |
+|---|---|---|
+| 401 | `key` | `key` |
+| 400 with reason `API_KEY_INVALID` | `refused` | `key` |
+| 402 | `credit` | `refused` |
+| 429 with `error.details.error_code` `enforced_spend_limit_reached` | `credit` | `rate` |
+| 400 whose message starts "You have reached your specified API usage limits" | `credit` | `refused` |
+| 529 | `server`, retried | `server`, retried |
+| a success body without `content` (messages) or a candidate (generate) | `server` | `server` |
+
+`rate`, `network` and `server` errors are also `InfrastructureError`, so the supervisor study
+reruns such an episode instead of counting it against the model. A retried answer is tried at most
+twice more, after the wait its `Retry-After` header gives in seconds, capped at 30 s, or 1 s and
+then 2 s without one. `repr(model)` shows the address and the model name only, and the debug log
+records the host, status and time of each request.
+
+```python
+from vbar.providers.chat import ChatModel
+
+model = ChatModel(
+    base_url="http://127.0.0.1:8000/v1", model="local-model", key="unused", max_output_tokens=512
+)
+print(model)  # ChatModel(url='http://127.0.0.1:8000/v1/chat/completions', model='local-model')
+```
+
+`LLMAgent(model, tools=CW_TOOLS)` then flies with it.
 
 ## How it is tested
 
