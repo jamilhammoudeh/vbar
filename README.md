@@ -7,6 +7,13 @@
 [![DOI](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/badges/doi.svg)](https://doi.org/10.5281/zenodo.23632751)
 [![Docs](https://raw.githubusercontent.com/jamilhammoudeh/vbar/main/docs/badges/docs.svg)](docs/README.md)
 
+V-BAR (Verified Benchmark for Autonomous Rendezvous) tests the software that steers one spacecraft
+up to another, and grades each flight on whether it arrived, whether it kept a safe distance, and
+how much fuel it used against the least possible. It has no AI of its own: you bring the controller,
+whether hand-written code, a trained neural network or an AI model reached with your own API key,
+and V-BAR flies it on simulated missions from the same starting points as every other controller, so
+results can be compared.
+
 V-BAR is a headless Python benchmark for spacecraft rendezvous and proximity-operations
 controllers. Classical guidance laws, reinforcement learning agents and LLM agents fly the same
 scenarios and are scored with the same metrics.
@@ -56,6 +63,44 @@ numpy, scipy and gymnasium. Each optional feature has an extra:
 
 To work on V-BAR itself, see
 [CONTRIBUTING.md](https://github.com/jamilhammoudeh/vbar/blob/main/CONTRIBUTING.md).
+
+## Try it without writing code
+
+```bash
+pip install vbar
+vbar setup
+vbar run
+```
+
+`vbar setup` lists the providers it can connect to (`vbar setup --list`), asks you to pick one and
+paste your API key, and checks that it works. A built-in controller needs no key, so you can skip
+this step to try V-BAR first. `vbar run` asks which mission to fly and which controller flies it,
+then prints a scorecard. For example, `vbar run --scenario approach-vbar --controller pd --seeds 3
+--no-save` flies the built-in PD controller and prints, among other lines:
+
+```
+Did not pass
+It reached the hold point and held it, but flew through the keep-out
+zone on the way.
+
+Arrival: met
+  Held the hold point for 10 min 3 s and ended 3 cm from it. Goal met 20
+  min 57 s after the start.
+  Needed: within 5 m and slower than 0.05 m/s, for 10 min.
+Keep-out zone: not met
+  Inside the 50 m zone for 1 min 43 s, 36.6 m from the target at the
+  closest.
+  Needed: never inside.
+Cost: free
+  Built-in controller, no calls to any AI model.
+```
+
+A run with an AI model stops when it reaches a dollar cap ($1.00 by default; `--max-usd` changes
+it). If the `vbar` command is not on your PATH, `python -m vbar` does the same. The commands are
+in the development version and are described in
+[docs/command-line.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/command-line.md);
+where the key is kept is in
+[docs/setup.md](https://github.com/jamilhammoudeh/vbar/blob/main/docs/setup.md).
 
 ## Status
 
