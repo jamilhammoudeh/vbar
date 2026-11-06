@@ -1,6 +1,6 @@
 # V-BAR: Verified Benchmark for Autonomous Rendezvous
 
-[![CI](https://img.shields.io/github/actions/workflow/status/jamilhammoudeh/vbar/ci.yml?branch=main&label=CI)](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml)
+[![CI](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jamilhammoudeh/vbar/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/vbar)](https://pypi.org/project/vbar/)
 [![Python](https://img.shields.io/pypi/pyversions/vbar)](https://pypi.org/project/vbar/)
 [![License](https://img.shields.io/github/license/jamilhammoudeh/vbar)](LICENSE)
