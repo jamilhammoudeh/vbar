@@ -19,7 +19,8 @@ Code: `vbar.providers.store` (`save_key`, `load_key`, `forget_key`, `save_settin
 2. **Address**, only for an entry without one, such as "Other address": the API root, such as
    `https://host/v1`. Plain `http` is allowed only to this computer.
 3. **API key**, through a hidden prompt (`getpass`), or from the first line of standard input with
-   `--key-stdin`. Only its last four characters are shown back. An entry that takes no key skips
+   `--key-stdin`. Only its last four characters are shown back, and none for a key of 8
+   characters or fewer. An entry that takes no key skips
    this step.
 4. **Model**: Enter takes the entry's first listed model; an entry without a list needs the name.
 

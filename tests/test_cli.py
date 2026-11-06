@@ -990,3 +990,33 @@ def test_a_damaged_settings_file_is_named_with_a_pointer_to_setup(config):
     assert "config.json" in line
     assert "vbar setup" in line
     assert "Traceback" not in ran.text
+
+
+SHORT_KEY = "Qz9x"
+
+
+def test_a_key_of_four_characters_is_never_echoed_by_setup(config):
+    ran = call(
+        "setup",
+        "--provider",
+        "other",
+        "--base-url",
+        closed_port_url(),
+        "--model",
+        "test-model",
+        "--key-stdin",
+        "--skip-test",
+        stdin=SHORT_KEY + "\n",
+    )
+    assert ran.code == 0
+    assert load_key() == SHORT_KEY
+    assert SHORT_KEY not in ran.text
+    assert "ending in" not in ran.text
+
+
+def test_a_key_of_four_characters_is_never_echoed_by_show(config):
+    save_settings({"provider": "other", "model": "test-model", "base_url": closed_port_url()})
+    save_key(SHORT_KEY)
+    ran = call("setup", "--show")
+    assert "key stored: yes" in ran.out
+    assert SHORT_KEY not in ran.text

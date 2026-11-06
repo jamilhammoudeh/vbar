@@ -109,7 +109,11 @@ def _read_key(key_stdin: bool, host: str) -> str:
             )
     if not key:
         raise SystemExit("No key was given; nothing was saved.")
-    print(f"  Received a key ending in {key[-4:]}.")
+    # The last four characters are shown only when they are at most half of the key.
+    if len(key) > 8:
+        print(f"  Received a key ending in {key[-4:]}.")
+    else:
+        print("  Received the key.")
     print()
     return key
 
