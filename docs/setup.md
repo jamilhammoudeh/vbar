@@ -3,6 +3,10 @@
 V-BAR ships no AI of its own and grades the controller it is given. To fly a language model, it
 needs the provider's API key and the model's name; this page covers where they are kept.
 
+The key store and `vbar setup` come in the next release; they are not in the 0.7.0 release on
+PyPI. `pip install git+https://github.com/jamilhammoudeh/vbar` installs the development version,
+which has them.
+
 Code: `vbar.providers.store` (`save_key`, `load_key`, `forget_key`, `save_settings`,
 `load_settings`, `config_dir`), `vbar.providers.catalog` (`Provider`, `ListedModel`, `PROVIDERS`),
 `vbar.providers.connect` and the `vbar setup` command (`vbar.cli`).

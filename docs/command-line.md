@@ -4,6 +4,10 @@ V-BAR ships no AI of its own and grades the controller it is given. The `vbar` c
 built-in controller, or an AI model you connect with `vbar setup`, on one of the scenarios and
 prints a plain-language scorecard for each flight.
 
+The command comes in the next release; it is not in the 0.7.0 release on PyPI.
+`pip install git+https://github.com/jamilhammoudeh/vbar` installs the development version, which
+has it.
+
 Code: `vbar.cli` (`main`), installed as the `vbar` command. `python -m vbar` runs the same command
 where the scripts folder is not on `PATH`.
 
