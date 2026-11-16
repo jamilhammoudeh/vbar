@@ -121,6 +121,7 @@ also_copy = [
     "src",
     "benchmarks",
     "CITATION.cff",
+    "CHANGELOG.md",
     "pyproject.toml",
     "README.md",
     "docs",
@@ -132,12 +133,24 @@ also_copy = [
 # Stats, clean and mutant runs each start from a process that has only collected the tests; with
 # plain fork, state a test leaves behind in the stats run leaks into every mutant's run.
 process_isolation = "forkserver"
-# The package is not installed for mutation runs, so a fresh `python -m vbar...` process cannot
-# import it; those two tests run no mutated code in the test process anyway.
+# The package is not installed for mutation runs, so a fresh Python process cannot import it;
+# those tests run no mutated code in the test process anyway. The env file tests read the
+# repository's git ignore rules, which ignore the mutants folder. The import and environment scans
+# would see mutmut's own import and its environment read in the mutated copy.
 pytest_add_cli_args = [
     "--ignore=tests/test_docs.py",
+    "--ignore=tests/test_env_files.py",
+    "--ignore=tests/test_llm_example.py",
     "-p",
     "no:cacheprovider",
     "--deselect=tests/test_mcp.py::test_command_line_server_speaks_json_rpc_on_stdio",
     "--deselect=tests/test_mcp.py::test_the_command_line_draws_unguessable_seeds_unless_given_some",
+    "--deselect=tests/test_mcp.py::test_the_command_line_serves_a_catalogue_scenario_by_name",
+    "--deselect=tests/test_mcp.py::test_the_command_line_reads_utf8_whatever_the_locale",
+    "--deselect=tests/test_mcp.py::test_the_command_line_reads_its_seeds_from_a_file",
+    "--deselect=tests/test_mcp.py::test_a_killed_and_relaunched_server_keeps_no_record_of_its_episodes",
+    "--deselect=tests/test_pursuit_compat.py::test_the_module_entry_point_runs_a_script_in_a_fresh_process",
+    "--deselect=tests/test_cli.py::test_python_m_vbar_prints_the_version",
+    "--deselect=tests/test_cli.py::test_importing_the_command_loads_only_the_standard_library_and_core_packages",
+    "--deselect=tests/test_environment_variables.py::test_the_package_reads_only_its_own_variables_java_home_and_the_config_folders",
 ]
