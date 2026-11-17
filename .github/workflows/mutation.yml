@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
       # No install of the package itself: the tests must import mutmut's mutated copy.
-      - run: python -m pip install numpy scipy gymnasium pytest hypothesis "mutmut==3.8.0"
+      - run: python -m pip install numpy scipy gymnasium pytest hypothesis "mutmut==3.8.1"
       # The step limit sits under the job's so a slow package still prints the mutants it checked.
       - run: mutmut run "vbar.${{ matrix.package }}.*"
         timeout-minutes: 340
